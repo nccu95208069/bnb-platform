@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+.eggs/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+*.db
+
+# Node
+node_modules/
+.next/
+out/
+
+# Environment
+.env
+*.env.local
+.env.*
+
+# IDE
+.DS_Store
+*.pem
+.vercel
+*.tsbuildinfo
+next-env.d.ts
