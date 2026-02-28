@@ -137,7 +137,8 @@ export const useWizardStore = create<WizardState>()(
         currentStep: state.currentStep,
         recipient: state.recipient,
         content: state.content,
-        mediaFiles: state.mediaFiles.map(({ file, ...rest }) => rest),
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        mediaFiles: state.mediaFiles.map(({ file: _, ...rest }) => rest),
         lastSavedAt: state.lastSavedAt,
       }),
     }

@@ -30,7 +30,7 @@ jobs:
         run: ruff format --check .
 
       - name: Run tests
-        run: pytest --tb=short -q
+        run: pytest --tb=short -q --cov=app --cov-report=term-missing
 
   frontend:
     name: Frontend

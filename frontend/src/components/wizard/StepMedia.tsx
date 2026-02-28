@@ -13,6 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Upload, X, FileImage, FileVideo, FileAudio, File } from "lucide-react";
 import { cn } from "@/lib/utils";
+import Image from "next/image";
 
 const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50MB
 const ACCEPTED_TYPES = [
@@ -128,9 +129,11 @@ export function StepMedia() {
                       className="flex items-center gap-3 rounded-md border p-3"
                     >
                       {file.type.startsWith("image/") ? (
-                        <img
+                        <Image
                           src={file.url}
                           alt={file.name}
+                          width={48}
+                          height={48}
                           className="h-12 w-12 rounded object-cover"
                         />
                       ) : (

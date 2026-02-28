@@ -13,6 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Monitor, Smartphone, FileImage, FileVideo, FileAudio, File } from "lucide-react";
 import { cn } from "@/lib/utils";
+import Image from "next/image";
 
 const relationships: Record<string, string> = {
   partner: "伴侶",
@@ -116,10 +117,12 @@ export function StepPreview() {
                     {mediaFiles.map((file) => {
                       const Icon = getFileIcon(file.type);
                       return file.type.startsWith("image/") ? (
-                        <img
+                        <Image
                           key={file.id}
                           src={file.url}
                           alt={file.name}
+                          width={200}
+                          height={200}
                           className="aspect-square rounded object-cover"
                         />
                       ) : (
