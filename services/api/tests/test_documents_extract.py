@@ -1,7 +1,7 @@
 """Tests for document text extraction (_extract_text in documents.py)."""
 
 import sys
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from app.api.endpoints.documents import _extract_text
 
@@ -15,7 +15,7 @@ class TestExtractTextPlain:
 
     def test_decodes_utf8_bytes(self):
         """Should decode UTF-8 bytes to string."""
-        raw = "Hello world".encode("utf-8")
+        raw = b"Hello world"
         result = _extract_text(raw, "text/plain")
         assert result == "Hello world"
 
