@@ -9,6 +9,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.channels.base import ChannelType
+from app.core.auth import verify_admin_token
 from app.core.database import get_db
 from app.models.conversation import Conversation, ConversationStatus, Message, MessageRole
 
@@ -76,6 +77,7 @@ def app(mock_db_session):
             yield mock_db_session
 
         test_app.dependency_overrides[get_db] = _override_get_db
+        test_app.dependency_overrides[verify_admin_token] = lambda: {"sub": "test-admin"}
 
         yield test_app
 

@@ -251,34 +251,40 @@ class TestSendOwnerMessage:
 class TestUploadDocument:
     """Tests for POST /api/v1/documents/upload."""
 
+    @patch("app.api.endpoints.documents._process_document_task", new_callable=AsyncMock)
     @patch("app.api.endpoints.documents.RAGService")
-    async def test_upload_txt_success(self, mock_rag_cls, client: AsyncClient, mock_db_session):
+    async def test_upload_txt_success(
+        self, mock_rag_cls, _mock_process, client: AsyncClient, mock_db_session
+    ):
         """Should accept and process a TXT file."""
         doc_mock = MagicMock()
         doc_mock.id = uuid.uuid4()
         doc_mock.filename = "test.txt"
         doc_mock.content_type = "text/plain"
         doc_mock.chunk_count = 1
+        doc_mock.status = "pending"
+        doc_mock.error_message = None
         doc_mock.created_at = datetime.now(tz=UTC)
 
         mock_rag = AsyncMock()
-        mock_rag.ingest_document.return_value = doc_mock
+        mock_rag.create_document.return_value = doc_mock
         mock_rag_cls.return_value = mock_rag
 
         response = await client.post(
             "/api/v1/documents/upload",
-            files={"file": ("test.txt", b"Hello world content", "text/plain")},
+            files={"files": ("test.txt", b"Hello world content", "text/plain")},
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["filename"] == "test.txt"
-        assert data["chunk_count"] == 1
+        assert len(data) == 1
+        assert data[0]["filename"] == "test.txt"
+        assert data[0]["status"] == "pending"
 
     async def test_upload_unsupported_type(self, client: AsyncClient):
         """Should reject unsupported file types with 400."""
         response = await client.post(
             "/api/v1/documents/upload",
-            files={"file": ("test.jpg", b"image data", "image/jpeg")},
+            files={"files": ("test.jpg", b"image data", "image/jpeg")},
         )
         assert response.status_code == 400
         assert "Unsupported file type" in response.json()["detail"]
@@ -288,7 +294,7 @@ class TestUploadDocument:
         """Should reject files with no extractable text."""
         response = await client.post(
             "/api/v1/documents/upload",
-            files={"file": ("empty.txt", b"", "text/plain")},
+            files={"files": ("empty.txt", b"", "text/plain")},
         )
         assert response.status_code == 400
         assert "no extractable text" in response.json()["detail"]
@@ -323,6 +329,8 @@ class TestListDocuments:
         doc.filename = "info.txt"
         doc.content_type = "text/plain"
         doc.chunk_count = 3
+        doc.status = "completed"
+        doc.error_message = None
         doc.created_at = datetime.now(tz=UTC)
 
         mock_rag = AsyncMock()
