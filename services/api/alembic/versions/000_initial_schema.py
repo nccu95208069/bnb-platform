@@ -5,8 +5,9 @@ Revises:
 Create Date: 2026-02-28
 """
 
-from alembic import op
 from sqlalchemy import text
+
+from alembic import op
 
 revision = "000_initial"
 down_revision = None
@@ -31,7 +32,8 @@ def upgrade() -> None:
         "EXCEPTION WHEN duplicate_object THEN NULL; END $$"
     ))
     conn.execute(text(
-        "DO $$ BEGIN CREATE TYPE documentstatus AS ENUM ('pending', 'processing', 'completed', 'failed'); "
+        "DO $$ BEGIN CREATE TYPE documentstatus AS ENUM "
+        "('pending', 'processing', 'completed', 'failed'); "
         "EXCEPTION WHEN duplicate_object THEN NULL; END $$"
     ))
 

@@ -5,9 +5,7 @@ Revises: 001_multichannel
 Create Date: 2026-02-28
 """
 
-import sqlalchemy as sa
 
-from alembic import op
 
 revision = "002_document_status"
 down_revision = "001_multichannel"

@@ -8,9 +8,7 @@ Revises:
 Create Date: 2026-02-28
 """
 
-import sqlalchemy as sa
 
-from alembic import op
 
 revision = "001_multichannel"
 down_revision = "000_initial"
