@@ -210,9 +210,7 @@ class TestSendMessage:
 
     @patch("app.channels.line.adapter.AsyncMessagingApi")
     @patch("app.channels.line.adapter.AsyncApiClient")
-    async def test_push_message_when_no_reply_token(
-        self, MockApiClient, MockMessagingApi, adapter
-    ):
+    async def test_push_message_when_no_reply_token(self, MockApiClient, MockMessagingApi, adapter):
         """Should use push_message when no reply_token."""
         mock_api_client = AsyncMock()
         MockApiClient.return_value = mock_api_client

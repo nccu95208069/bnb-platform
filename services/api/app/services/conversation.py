@@ -93,9 +93,7 @@ class ConversationService:
         return [
             {
                 "role": (
-                    "user"
-                    if msg.role in (MessageRole.USER, MessageRole.OWNER)
-                    else "assistant"
+                    "user" if msg.role in (MessageRole.USER, MessageRole.OWNER) else "assistant"
                 ),
                 "content": msg.content,
             }
@@ -150,9 +148,7 @@ class ConversationService:
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
 
-    async def get_conversation_detail(
-        self, conversation_id: uuid.UUID
-    ) -> Conversation | None:
+    async def get_conversation_detail(self, conversation_id: uuid.UUID) -> Conversation | None:
         """Get a conversation with its messages."""
         stmt = (
             select(Conversation)

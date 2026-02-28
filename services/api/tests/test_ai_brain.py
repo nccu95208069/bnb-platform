@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from app.channels.base import ChannelType, IncomingMessage, OutgoingMessage
+from app.channels.base import ChannelType, IncomingMessage
 from app.models.conversation import ConversationStatus, MessageRole
 from app.services.ai_brain import AIBrain
 from tests.conftest import make_conversation
@@ -106,18 +106,14 @@ class TestHandleText:
     @patch("app.services.ai_brain.RAGService")
     @patch("app.services.ai_brain.llm_service")
     @patch("app.services.ai_brain.ConversationService")
-    async def test_ai_mode_triggers_llm(
-        self, MockConvService, mock_llm, MockRAG, mock_db_session
-    ):
+    async def test_ai_mode_triggers_llm(self, MockConvService, mock_llm, MockRAG, mock_db_session):
         """In AI mode, text should trigger LLM generation and return reply."""
         conv = make_conversation()
         mock_conv = AsyncMock()
         mock_conv.get_or_create_conversation.return_value = conv
         mock_conv.add_message.return_value = MagicMock()
         mock_conv.is_ai_mode.return_value = True
-        mock_conv.get_conversation_history.return_value = [
-            {"role": "user", "content": "Hello"}
-        ]
+        mock_conv.get_conversation_history.return_value = [{"role": "user", "content": "Hello"}]
         MockConvService.return_value = mock_conv
 
         mock_rag = AsyncMock()
@@ -187,9 +183,7 @@ class TestHandleText:
         mock_conv.get_or_create_conversation.return_value = conv
         mock_conv.add_message.return_value = MagicMock()
         mock_conv.is_ai_mode.return_value = True
-        mock_conv.get_conversation_history.return_value = [
-            {"role": "user", "content": "Hi"}
-        ]
+        mock_conv.get_conversation_history.return_value = [{"role": "user", "content": "Hi"}]
         MockConvService.return_value = mock_conv
 
         mock_rag = AsyncMock()
@@ -321,9 +315,7 @@ class TestSendOwnerMessage:
         assert sent_msg.channel_user_id == "U123"
 
     @patch("app.services.ai_brain.ConversationService")
-    async def test_raises_for_missing_conversation(
-        self, MockConvService, mock_db_session
-    ):
+    async def test_raises_for_missing_conversation(self, MockConvService, mock_db_session):
         """Should raise ValueError if conversation not found."""
         mock_conv = AsyncMock()
         mock_conv.get_conversation_detail.return_value = None
@@ -331,6 +323,4 @@ class TestSendOwnerMessage:
 
         brain = AIBrain(mock_db_session)
         with pytest.raises(ValueError, match="not found"):
-            await brain.send_owner_message(
-                "12345678-1234-5678-1234-567812345678", "Hello"
-            )
+            await brain.send_owner_message("12345678-1234-5678-1234-567812345678", "Hello")

@@ -10,7 +10,6 @@ from app.models.conversation import ConversationStatus, MessageRole
 from app.services.conversation import ConversationService
 from app.services.rag import RAGService
 
-
 # ---------------------------------------------------------------------------
 # ConversationService tests
 # ---------------------------------------------------------------------------
@@ -26,7 +25,7 @@ class TestConversationServiceGetOrCreate:
         mock_db_session.execute.return_value = mock_result
 
         service = ConversationService(mock_db_session)
-        conv = await service.get_or_create_conversation(
+        await service.get_or_create_conversation(
             channel=ChannelType.LINE,
             channel_user_id="Uuser123",
             display_name="Test User",
@@ -352,7 +351,7 @@ class TestRAGServiceDocumentOps:
         # Mock embedding generation
         service._generate_embeddings = AsyncMock(return_value=[[0.1] * 1536])
 
-        doc = await service.ingest_document(
+        await service.ingest_document(
             filename="test.txt",
             content="Short test content",
             content_type="text/plain",
@@ -426,9 +425,7 @@ class TestRAGServiceContextBuilding:
     """Tests for RAG context building for LLM."""
 
     @patch("app.services.rag.settings")
-    async def test_build_context_returns_empty_when_no_chunks(
-        self, mock_settings, mock_db_session
-    ):
+    async def test_build_context_returns_empty_when_no_chunks(self, mock_settings, mock_db_session):
         """build_context should return empty string when no relevant chunks found."""
         mock_settings.chunk_size = 512
         mock_settings.chunk_overlap = 50
@@ -545,9 +542,9 @@ class TestFullConversationFlow:
         mock_db_session,
     ):
         """Simulate: user sends message -> RAG context built -> LLM responds -> reply returned."""
-        from tests.conftest import make_conversation
         from app.channels.base import ChannelType, IncomingMessage
         from app.services.ai_brain import AIBrain
+        from tests.conftest import make_conversation
 
         conv = make_conversation()
         mock_conv = AsyncMock()
@@ -598,9 +595,9 @@ class TestFullConversationFlow:
         mock_db_session,
     ):
         """Simulate: AI mode -> takeover -> message stored without auto-reply."""
-        from tests.conftest import make_conversation
         from app.channels.base import ChannelType, IncomingMessage
         from app.services.ai_brain import AIBrain
+        from tests.conftest import make_conversation
 
         conv = make_conversation(status=ConversationStatus.HUMAN)
         mock_conv = AsyncMock()

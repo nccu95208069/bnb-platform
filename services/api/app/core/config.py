@@ -76,8 +76,7 @@ class Settings(BaseSettings):
             missing = []
             if not self.has_any_channel:
                 missing.append(
-                    "At least one channel "
-                    "(e.g. LINE_CHANNEL_SECRET + LINE_CHANNEL_ACCESS_TOKEN)"
+                    "At least one channel (e.g. LINE_CHANNEL_SECRET + LINE_CHANNEL_ACCESS_TOKEN)"
                 )
             if not self.anthropic_api_key and not self.google_gemini_api_key:
                 missing.append("ANTHROPIC_API_KEY or GOOGLE_GEMINI_API_KEY")

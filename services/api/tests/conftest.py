@@ -2,7 +2,7 @@
 
 import uuid
 from collections.abc import AsyncGenerator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -11,7 +11,6 @@ from httpx import ASGITransport, AsyncClient
 from app.channels.base import ChannelType
 from app.core.database import get_db
 from app.models.conversation import Conversation, ConversationStatus, Message, MessageRole
-
 
 # ---------------------------------------------------------------------------
 # Database fixtures (mock-based, no aiosqlite required)
@@ -207,9 +206,9 @@ def make_conversation(
     conv.display_name = display_name
     conv.status = status
     conv.is_active = is_active
-    conv.last_message_at = datetime.now(tz=timezone.utc)
-    conv.created_at = datetime.now(tz=timezone.utc)
-    conv.updated_at = datetime.now(tz=timezone.utc)
+    conv.last_message_at = datetime.now(tz=UTC)
+    conv.created_at = datetime.now(tz=UTC)
+    conv.updated_at = datetime.now(tz=UTC)
     conv.messages = []
     return conv
 
@@ -230,8 +229,8 @@ def make_message(
     msg.content = content
     msg.llm_model = llm_model
     msg.token_usage = token_usage
-    msg.created_at = datetime.now(tz=timezone.utc)
-    msg.updated_at = datetime.now(tz=timezone.utc)
+    msg.created_at = datetime.now(tz=UTC)
+    msg.updated_at = datetime.now(tz=UTC)
     return msg
 
 
@@ -284,7 +283,7 @@ def line_text_message_event() -> dict:
                     "id": "msg-001",
                     "text": "Hello, I want to book a room.",
                 },
-                "timestamp": int(datetime.now(tz=timezone.utc).timestamp() * 1000),
+                "timestamp": int(datetime.now(tz=UTC).timestamp() * 1000),
                 "source": {
                     "type": "user",
                     "userId": "U1234567890abcdef",
@@ -304,7 +303,7 @@ def line_follow_event() -> dict:
         "events": [
             {
                 "type": "follow",
-                "timestamp": int(datetime.now(tz=timezone.utc).timestamp() * 1000),
+                "timestamp": int(datetime.now(tz=UTC).timestamp() * 1000),
                 "source": {
                     "type": "user",
                     "userId": "Unewuser999",
@@ -324,7 +323,7 @@ def line_unfollow_event() -> dict:
         "events": [
             {
                 "type": "unfollow",
-                "timestamp": int(datetime.now(tz=timezone.utc).timestamp() * 1000),
+                "timestamp": int(datetime.now(tz=UTC).timestamp() * 1000),
                 "source": {
                     "type": "user",
                     "userId": "U1234567890abcdef",

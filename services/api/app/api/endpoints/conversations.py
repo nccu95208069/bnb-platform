@@ -56,8 +56,8 @@ async def takeover_conversation(
     service = ConversationService(db)
     try:
         conversation = await service.takeover(conversation_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail="Conversation not found") from err
     return ConversationOut.model_validate(conversation)
 
 
@@ -70,8 +70,8 @@ async def release_conversation(
     service = ConversationService(db)
     try:
         conversation = await service.release(conversation_id)
-    except ValueError:
-        raise HTTPException(status_code=404, detail="Conversation not found")
+    except ValueError as err:
+        raise HTTPException(status_code=404, detail="Conversation not found") from err
     return ConversationOut.model_validate(conversation)
 
 

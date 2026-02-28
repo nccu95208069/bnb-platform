@@ -1,7 +1,5 @@
 """Tests for SQLAlchemy models (schema validation only, no DB required)."""
 
-import uuid
-
 from app.models.conversation import Conversation, ConversationStatus, Message, MessageRole
 from app.models.document import Document, DocumentChunk
 

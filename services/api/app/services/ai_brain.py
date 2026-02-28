@@ -5,7 +5,7 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.channels.base import ChannelType, IncomingMessage, OutgoingMessage
+from app.channels.base import IncomingMessage, OutgoingMessage
 from app.channels.registry import get_adapter
 from app.models.conversation import MessageRole
 from app.services.conversation import ConversationService
@@ -38,13 +38,9 @@ class AIBrain:
         if incoming.message_type == "text":
             return await self._handle_text(incoming)
         elif incoming.message_type == "image":
-            return self._make_reply(
-                incoming, "已收到您的圖片，目前僅支援文字訊息。"
-            )
+            return self._make_reply(incoming, "已收到您的圖片，目前僅支援文字訊息。")
         elif incoming.message_type == "sticker":
-            return self._make_reply(
-                incoming, "收到您的貼圖！請問有什麼可以幫您的嗎？"
-            )
+            return self._make_reply(incoming, "收到您的貼圖！請問有什麼可以幫您的嗎？")
         elif incoming.message_type == "follow":
             return await self._handle_follow(incoming)
         elif incoming.message_type == "unfollow":

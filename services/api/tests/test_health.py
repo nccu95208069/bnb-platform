@@ -1,6 +1,5 @@
 """Tests for health check endpoint and basic app setup."""
 
-import pytest
 from httpx import AsyncClient
 
 

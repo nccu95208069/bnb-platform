@@ -1,15 +1,13 @@
 """Tests for API endpoints: conversations, documents, and owner messaging."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from httpx import AsyncClient
 
 from app.models.conversation import ConversationStatus, MessageRole
 from tests.conftest import make_conversation, make_message
-
 
 # ---------------------------------------------------------------------------
 # Conversation List: GET /api/v1/conversations
@@ -254,16 +252,14 @@ class TestUploadDocument:
     """Tests for POST /api/v1/documents/upload."""
 
     @patch("app.api.endpoints.documents.RAGService")
-    async def test_upload_txt_success(
-        self, mock_rag_cls, client: AsyncClient, mock_db_session
-    ):
+    async def test_upload_txt_success(self, mock_rag_cls, client: AsyncClient, mock_db_session):
         """Should accept and process a TXT file."""
         doc_mock = MagicMock()
         doc_mock.id = uuid.uuid4()
         doc_mock.filename = "test.txt"
         doc_mock.content_type = "text/plain"
         doc_mock.chunk_count = 1
-        doc_mock.created_at = datetime.now(tz=timezone.utc)
+        doc_mock.created_at = datetime.now(tz=UTC)
 
         mock_rag = AsyncMock()
         mock_rag.ingest_document.return_value = doc_mock
@@ -288,9 +284,7 @@ class TestUploadDocument:
         assert "Unsupported file type" in response.json()["detail"]
 
     @patch("app.api.endpoints.documents.RAGService")
-    async def test_upload_empty_file(
-        self, mock_rag_cls, client: AsyncClient, mock_db_session
-    ):
+    async def test_upload_empty_file(self, mock_rag_cls, client: AsyncClient, mock_db_session):
         """Should reject files with no extractable text."""
         response = await client.post(
             "/api/v1/documents/upload",
@@ -309,9 +303,7 @@ class TestListDocuments:
     """Tests for GET /api/v1/documents."""
 
     @patch("app.api.endpoints.documents.RAGService")
-    async def test_list_documents_empty(
-        self, mock_rag_cls, client: AsyncClient, mock_db_session
-    ):
+    async def test_list_documents_empty(self, mock_rag_cls, client: AsyncClient, mock_db_session):
         """Should return empty list when no documents exist."""
         mock_rag = AsyncMock()
         mock_rag.list_documents.return_value = []
@@ -331,7 +323,7 @@ class TestListDocuments:
         doc.filename = "info.txt"
         doc.content_type = "text/plain"
         doc.chunk_count = 3
-        doc.created_at = datetime.now(tz=timezone.utc)
+        doc.created_at = datetime.now(tz=UTC)
 
         mock_rag = AsyncMock()
         mock_rag.list_documents.return_value = [doc]
@@ -353,9 +345,7 @@ class TestDeleteDocument:
     """Tests for DELETE /api/v1/documents/{id}."""
 
     @patch("app.api.endpoints.documents.RAGService")
-    async def test_delete_success(
-        self, mock_rag_cls, client: AsyncClient, mock_db_session
-    ):
+    async def test_delete_success(self, mock_rag_cls, client: AsyncClient, mock_db_session):
         """Should return success when document is deleted."""
         mock_rag = AsyncMock()
         mock_rag.delete_document.return_value = True
@@ -367,9 +357,7 @@ class TestDeleteDocument:
         assert response.json() == {"status": "deleted"}
 
     @patch("app.api.endpoints.documents.RAGService")
-    async def test_delete_not_found(
-        self, mock_rag_cls, client: AsyncClient, mock_db_session
-    ):
+    async def test_delete_not_found(self, mock_rag_cls, client: AsyncClient, mock_db_session):
         """Should return 404 when document does not exist."""
         mock_rag = AsyncMock()
         mock_rag.delete_document.return_value = False

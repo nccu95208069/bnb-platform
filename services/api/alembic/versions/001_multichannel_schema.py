@@ -8,8 +8,9 @@ Revises:
 Create Date: 2026-02-28
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "001_multichannel"
 down_revision = None

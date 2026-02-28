@@ -4,7 +4,7 @@ import logging
 import uuid
 
 import httpx
-from sqlalchemy import select, text
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -52,7 +52,7 @@ class RAGService:
 
         embeddings = await self._generate_embeddings(chunks)
 
-        for i, (chunk_text, embedding) in enumerate(zip(chunks, embeddings)):
+        for i, (chunk_text, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
             chunk = DocumentChunk(
                 document_id=document.id,
                 content=chunk_text,

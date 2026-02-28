@@ -48,9 +48,9 @@ class LINEChannelAdapter(ChannelAdapter):
 
         try:
             events = self._parser.parse(body_text, signature)
-        except InvalidSignatureError:
+        except InvalidSignatureError as err:
             logger.warning("Invalid LINE signature received")
-            raise HTTPException(status_code=400, detail="Invalid signature")
+            raise HTTPException(status_code=400, detail="Invalid signature") from err
 
         messages: list[IncomingMessage] = []
         for event in events:

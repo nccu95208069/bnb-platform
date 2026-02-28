@@ -1,20 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   grantAnalyticsConsent,
   revokeAnalyticsConsent,
 } from './GoogleAnalytics';
 
 export function CookieConsent() {
-  const [showBanner, setShowBanner] = useState(false);
-
-  useEffect(() => {
-    const consent = localStorage.getItem('analytics-consent');
-    if (!consent) {
-      setShowBanner(true);
-    }
-  }, []);
+  const [showBanner, setShowBanner] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return !localStorage.getItem('analytics-consent');
+  });
 
   if (!showBanner) return null;
 

@@ -1,13 +1,10 @@
 """Tests for the multi-channel webhook dispatcher."""
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
 from httpx import AsyncClient
 
 from app.channels.base import ChannelType, IncomingMessage, OutgoingMessage
-
 
 # ---------------------------------------------------------------------------
 # Endpoint-level tests (HTTP layer)

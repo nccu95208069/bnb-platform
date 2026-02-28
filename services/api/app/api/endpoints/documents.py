@@ -31,8 +31,7 @@ async def upload_document(
     if file.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file type: {file.content_type}. "
-            f"Allowed: TXT, PDF, DOCX",
+            detail=f"Unsupported file type: {file.content_type}. Allowed: TXT, PDF, DOCX",
         )
 
     raw_content = await file.read()

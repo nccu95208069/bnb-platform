@@ -85,12 +85,14 @@ class GoogleCalendarService:
             summary = event.get("summary", "")
             if room_type and room_type.lower() not in summary.lower():
                 continue
-            bookings.append({
-                "summary": summary,
-                "start": event["start"].get("date", event["start"].get("dateTime")),
-                "end": event["end"].get("date", event["end"].get("dateTime")),
-                "description": event.get("description", ""),
-            })
+            bookings.append(
+                {
+                    "summary": summary,
+                    "start": event["start"].get("date", event["start"].get("dateTime")),
+                    "end": event["end"].get("date", event["end"].get("dateTime")),
+                    "description": event.get("description", ""),
+                }
+            )
 
         return {
             "date_from": date_from,
@@ -144,7 +146,7 @@ class GoogleSheetsService:
         headers = rows[0]
         rooms = []
         for row in rows[1:]:
-            room = dict(zip(headers, row))
+            room = dict(zip(headers, row, strict=False))
             if room_type and room.get("room_type", "").lower() != room_type.lower():
                 continue
             rooms.append(room)
@@ -182,7 +184,7 @@ class GoogleSheetsService:
             return []
 
         headers = rows[0]
-        return [dict(zip(headers, row)) for row in rows[1:]]
+        return [dict(zip(headers, row, strict=False)) for row in rows[1:]]
 
 
 # Tool definitions for LLM function calling
