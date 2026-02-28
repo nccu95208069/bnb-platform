@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from enum import Enum
 
 import anthropic
-import google.generativeai as genai
+from google import genai
+from google.genai import types as genai_types
 
 from app.core.config import settings
 
@@ -98,14 +99,10 @@ class ClaudeProvider(LLMProvider):
 
 
 class GeminiProvider(LLMProvider):
-    """Gemini LLM provider using the Google Generative AI SDK."""
-
-    _configured = False
+    """Gemini LLM provider using the Google Gen AI SDK."""
 
     def __init__(self) -> None:
-        if not GeminiProvider._configured:
-            genai.configure(api_key=settings.google_gemini_api_key)
-            GeminiProvider._configured = True
+        self.client = genai.Client(api_key=settings.google_gemini_api_key)
         self.model_name = settings.gemini_model
 
     async def generate(
@@ -113,32 +110,36 @@ class GeminiProvider(LLMProvider):
         messages: list[dict[str, str]],
         system_prompt: str | None = None,
     ) -> LLMResponse:
-        model = genai.GenerativeModel(
-            model_name=self.model_name,
+        # Convert messages to Gemini Content format
+        contents: list[genai_types.Content] = []
+        for msg in messages:
+            role = "user" if msg["role"] == "user" else "model"
+            contents.append(
+                genai_types.Content(
+                    role=role,
+                    parts=[genai_types.Part(text=msg["content"])],
+                )
+            )
+
+        config = genai_types.GenerateContentConfig(
             system_instruction=system_prompt or BNB_SYSTEM_PROMPT,
+            max_output_tokens=1024,
         )
 
-        # Convert messages to Gemini format
-        gemini_history = []
-        for msg in messages[:-1]:
-            role = "user" if msg["role"] == "user" else "model"
-            gemini_history.append({"role": role, "parts": [msg["content"]]})
+        response = await self.client.aio.models.generate_content(
+            model=self.model_name,
+            contents=contents,
+            config=config,
+        )
 
-        chat = model.start_chat(history=gemini_history)
-
-        last_message = messages[-1]["content"] if messages else ""
-        response = await chat.send_message_async(last_message)
-
-        # Gemini doesn't provide exact token counts in the same way;
-        # use count_tokens for an estimate
         input_tokens = 0
         output_tokens = 0
-        if hasattr(response, "usage_metadata") and response.usage_metadata:
-            input_tokens = getattr(response.usage_metadata, "prompt_token_count", 0)
-            output_tokens = getattr(response.usage_metadata, "candidates_token_count", 0)
+        if response.usage_metadata:
+            input_tokens = response.usage_metadata.prompt_token_count or 0
+            output_tokens = response.usage_metadata.candidates_token_count or 0
 
         return LLMResponse(
-            content=response.text,
+            content=response.text or "",
             model=self.model_name,
             input_tokens=input_tokens,
             output_tokens=output_tokens,

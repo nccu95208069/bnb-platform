@@ -185,30 +185,26 @@ class TestClaudeProvider:
 
 
 class TestGeminiProvider:
-    """Tests for GeminiProvider (Google Generative AI SDK)."""
+    """Tests for GeminiProvider (Google Gen AI SDK)."""
 
     @patch("app.services.llm.settings")
-    @patch("app.services.llm.genai")
-    async def test_generate_returns_llm_response(self, mock_genai, mock_settings):
+    @patch("app.services.llm.genai.Client")
+    async def test_generate_returns_llm_response(self, MockClient, mock_settings):
         """GeminiProvider.generate should return a properly formatted LLMResponse."""
         mock_settings.google_gemini_api_key = "test-key"
         mock_settings.gemini_model = "gemini-2.0-flash"
 
-        mock_chat = AsyncMock()
         mock_response = MagicMock()
         mock_response.text = "Mocked Gemini response"
         mock_response.usage_metadata = MagicMock(
             prompt_token_count=80,
             candidates_token_count=40,
         )
-        mock_chat.send_message_async = AsyncMock(return_value=mock_response)
 
-        mock_model = MagicMock()
-        mock_model.start_chat.return_value = mock_chat
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_client = MagicMock()
+        mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+        MockClient.return_value = mock_client
 
-        # Reset the class-level flag
-        GeminiProvider._configured = True
         provider = GeminiProvider()
         messages = [{"role": "user", "content": "Hello"}]
         result = await provider.generate(messages)
@@ -221,23 +217,20 @@ class TestGeminiProvider:
         assert result.provider == LLMProviderType.GEMINI
 
     @patch("app.services.llm.settings")
-    @patch("app.services.llm.genai")
-    async def test_generate_converts_message_history(self, mock_genai, mock_settings):
+    @patch("app.services.llm.genai.Client")
+    async def test_generate_converts_message_history(self, MockClient, mock_settings):
         """GeminiProvider should convert chat history to Gemini format."""
         mock_settings.google_gemini_api_key = "test-key"
         mock_settings.gemini_model = "gemini-2.0-flash"
 
-        mock_chat = AsyncMock()
         mock_response = MagicMock()
         mock_response.text = "OK"
         mock_response.usage_metadata = None
-        mock_chat.send_message_async = AsyncMock(return_value=mock_response)
 
-        mock_model = MagicMock()
-        mock_model.start_chat.return_value = mock_chat
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_client = MagicMock()
+        mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+        MockClient.return_value = mock_client
 
-        GeminiProvider._configured = True
         provider = GeminiProvider()
         messages = [
             {"role": "user", "content": "First msg"},
@@ -246,33 +239,29 @@ class TestGeminiProvider:
         ]
         await provider.generate(messages)
 
-        # History should contain first two messages (all but last)
-        history_arg = mock_model.start_chat.call_args[1]["history"]
-        assert len(history_arg) == 2
-        assert history_arg[0]["role"] == "user"
-        assert history_arg[1]["role"] == "model"  # assistant -> model
-
-        # Last message should be sent via send_message_async
-        mock_chat.send_message_async.assert_awaited_once_with("Second msg")
+        # Verify generate_content was called with all messages as contents
+        call_kwargs = mock_client.aio.models.generate_content.call_args[1]
+        contents = call_kwargs["contents"]
+        assert len(contents) == 3
+        assert contents[0].role == "user"
+        assert contents[1].role == "model"  # assistant -> model
+        assert contents[2].role == "user"
 
     @patch("app.services.llm.settings")
-    @patch("app.services.llm.genai")
-    async def test_generate_handles_missing_usage_metadata(self, mock_genai, mock_settings):
+    @patch("app.services.llm.genai.Client")
+    async def test_generate_handles_missing_usage_metadata(self, MockClient, mock_settings):
         """Token counts should default to 0 when usage_metadata is missing."""
         mock_settings.google_gemini_api_key = "test-key"
         mock_settings.gemini_model = "gemini-2.0-flash"
 
-        mock_chat = AsyncMock()
         mock_response = MagicMock()
         mock_response.text = "OK"
         mock_response.usage_metadata = None
-        mock_chat.send_message_async = AsyncMock(return_value=mock_response)
 
-        mock_model = MagicMock()
-        mock_model.start_chat.return_value = mock_chat
-        mock_genai.GenerativeModel.return_value = mock_model
+        mock_client = MagicMock()
+        mock_client.aio.models.generate_content = AsyncMock(return_value=mock_response)
+        MockClient.return_value = mock_client
 
-        GeminiProvider._configured = True
         provider = GeminiProvider()
         result = await provider.generate([{"role": "user", "content": "Hi"}])
 

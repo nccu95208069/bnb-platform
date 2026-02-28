@@ -130,7 +130,7 @@ def mock_anthropic_client():
 
 @pytest.fixture()
 def mock_gemini_client():
-    """Mock Google Gemini API client."""
+    """Mock Google Gen AI client."""
     mock = MagicMock()
 
     mock_response = MagicMock()
@@ -140,9 +140,7 @@ def mock_gemini_client():
         candidates_token_count=40,
     )
 
-    mock_model = MagicMock()
-    mock_model.generate_content_async = AsyncMock(return_value=mock_response)
-    mock.GenerativeModel = MagicMock(return_value=mock_model)
+    mock.aio.models.generate_content = AsyncMock(return_value=mock_response)
 
     return mock
 
