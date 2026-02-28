@@ -27,10 +27,14 @@ export interface ConversationDetail extends Conversation {
   messages: Message[];
 }
 
+export type DocumentStatus = "pending" | "processing" | "completed" | "failed";
+
 export interface Document {
   id: string;
   filename: string;
   content_type: string;
+  status: DocumentStatus;
+  error_message: string | null;
   chunk_count: number;
   created_at: string;
 }

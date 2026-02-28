@@ -1,3 +1,5 @@
+import { getAccessToken } from "@/lib/supabase/auth";
+
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
 
@@ -9,6 +11,14 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+}
+
+async function getAuthHeaders(): Promise<Record<string, string>> {
+  const token = await getAccessToken();
+  if (token) {
+    return { Authorization: `Bearer ${token}` };
+  }
+  return {};
 }
 
 async function handleResponse<T>(response: Response): Promise<T> {
@@ -32,7 +42,10 @@ async function handleResponse<T>(response: Response): Promise<T> {
 export const apiClient = {
   async get<T>(path: string): Promise<T> {
     const res = await fetch(`${API_BASE_URL}${path}`, {
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(await getAuthHeaders()),
+      },
     });
     return handleResponse<T>(res);
   },
@@ -40,7 +53,10 @@ export const apiClient = {
   async post<T>(path: string, body?: unknown): Promise<T> {
     const res = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(await getAuthHeaders()),
+      },
       body: body ? JSON.stringify(body) : undefined,
     });
     return handleResponse<T>(res);
@@ -49,7 +65,10 @@ export const apiClient = {
   async delete<T>(path: string): Promise<T> {
     const res = await fetch(`${API_BASE_URL}${path}`, {
       method: "DELETE",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(await getAuthHeaders()),
+      },
     });
     return handleResponse<T>(res);
   },
@@ -57,6 +76,9 @@ export const apiClient = {
   async upload<T>(path: string, formData: FormData): Promise<T> {
     const res = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
+      headers: {
+        ...(await getAuthHeaders()),
+      },
       body: formData,
     });
     return handleResponse<T>(res);

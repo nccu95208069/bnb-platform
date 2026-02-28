@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     google_calendar_id: str = ""
     google_sheet_id: str = ""
 
+    # Supabase Auth
+    supabase_jwt_secret: str = ""
+
     # RAG / Embedding (OpenAI API for embeddings)
     openai_api_key: str = ""
     embedding_model: str = "text-embedding-3-small"

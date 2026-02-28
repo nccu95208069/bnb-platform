@@ -8,7 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.models.document import Document, DocumentChunk
+from app.core.database import async_session_factory
+from app.models.document import Document, DocumentChunk, DocumentStatus
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +22,87 @@ class RAGService:
         self.chunk_size = settings.chunk_size
         self.chunk_overlap = settings.chunk_overlap
 
-    # --- Document Ingestion ---
+    # --- Async Document Processing ---
+
+    async def create_document(
+        self,
+        filename: str,
+        content: str,
+        content_type: str,
+    ) -> Document:
+        """Create a document record with PENDING status (no chunking/embedding).
+
+        Returns immediately so the caller can dispatch background processing.
+        """
+        document = Document(
+            filename=filename,
+            content_type=content_type,
+            content=content,
+            chunk_count=0,
+            status=DocumentStatus.PENDING,
+        )
+        self.db.add(document)
+        await self.db.flush()
+        logger.info("Created document %s with status PENDING", document.id)
+        return document
+
+    @staticmethod
+    async def process_document(document_id: uuid.UUID) -> None:
+        """Process a document: chunk, embed, and update status.
+
+        Uses its own DB session via async_session_factory so it can run
+        independently of the request lifecycle (e.g. in BackgroundTasks).
+        """
+        async with async_session_factory() as session:
+            try:
+                stmt = select(Document).where(Document.id == document_id)
+                result = await session.execute(stmt)
+                document = result.scalar_one_or_none()
+
+                if document is None:
+                    logger.error("Document %s not found for processing", document_id)
+                    return
+
+                document.status = DocumentStatus.PROCESSING
+                await session.commit()
+
+                rag = RAGService(session)
+                chunks = rag._split_text(document.content)
+                embeddings = await rag._generate_embeddings(chunks)
+
+                for i, (chunk_text, embedding) in enumerate(zip(chunks, embeddings, strict=True)):
+                    chunk = DocumentChunk(
+                        document_id=document.id,
+                        content=chunk_text,
+                        chunk_index=i,
+                        embedding=embedding,
+                    )
+                    session.add(chunk)
+
+                document.chunk_count = len(chunks)
+                document.status = DocumentStatus.COMPLETED
+                await session.commit()
+                logger.info("Processed document %s with %d chunks", document_id, len(chunks))
+
+            except Exception:
+                logger.exception("Failed to process document %s", document_id)
+                # Re-fetch in case the session is invalidated
+                async with async_session_factory() as err_session:
+                    stmt = select(Document).where(Document.id == document_id)
+                    result = await err_session.execute(stmt)
+                    doc = result.scalar_one_or_none()
+                    if doc is not None:
+                        doc.status = DocumentStatus.FAILED
+                        doc.error_message = "Processing failed – see server logs"
+                        await err_session.commit()
+
+    async def get_document(self, document_id: uuid.UUID) -> Document | None:
+        """Get a single document by ID."""
+        stmt = select(Document).where(Document.id == document_id)
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    # --- Document Ingestion (legacy, synchronous within request) ---
 
     async def ingest_document(
         self,

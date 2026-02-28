@@ -2,9 +2,10 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.auth import verify_admin_token
 from app.core.database import get_db
 from app.schemas.document import DocumentOut
 from app.services.rag import RAGService
@@ -13,40 +14,76 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 ALLOWED_CONTENT_TYPES = {
     "text/plain",
+    "text/markdown",
     "application/pdf",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
 
-@router.post("/upload", response_model=DocumentOut)
-async def upload_document(
-    file: UploadFile,
-    db: AsyncSession = Depends(get_db),
-) -> DocumentOut:
-    """Upload a document for RAG knowledge base.
+async def _process_document_task(document_id: uuid.UUID) -> None:
+    """Background task wrapper for document processing."""
+    await RAGService.process_document(document_id)
 
-    Supported formats: TXT, PDF, DOCX.
-    The document will be chunked, embedded, and indexed for retrieval.
+
+@router.post("/upload", response_model=list[DocumentOut])
+async def upload_document(
+    background_tasks: BackgroundTasks,
+    files: list[UploadFile],
+    db: AsyncSession = Depends(get_db),
+    _admin: dict = Depends(verify_admin_token),
+) -> list[DocumentOut]:
+    """Upload documents for RAG knowledge base.
+
+    Supports: TXT, MD, PDF, DOCX. Accepts multiple files.
+    Documents are created immediately and processed asynchronously.
     """
-    if file.content_type not in ALLOWED_CONTENT_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type: {file.content_type}. Allowed: TXT, PDF, DOCX",
+    results: list[DocumentOut] = []
+
+    for file in files:
+        content_type = file.content_type or "text/plain"
+
+        # Handle .md files that browsers may send as text/plain
+        if content_type == "text/plain" and file.filename and file.filename.endswith(".md"):
+            content_type = "text/markdown"
+
+        if content_type not in ALLOWED_CONTENT_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type: {content_type}. Allowed: TXT, MD, PDF, DOCX",
+            )
+
+        raw_content = await file.read()
+        text_content = _extract_text(raw_content, content_type)
+
+        if not text_content.strip():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Document '{file.filename}' contains no extractable text",
+            )
+
+        rag_service = RAGService(db)
+        document = await rag_service.create_document(
+            filename=file.filename or "unknown",
+            content=text_content,
+            content_type=content_type,
         )
 
-    raw_content = await file.read()
-    text_content = _extract_text(raw_content, file.content_type or "text/plain")
+        background_tasks.add_task(_process_document_task, document.id)
+        results.append(DocumentOut.model_validate(document))
 
-    if not text_content.strip():
-        raise HTTPException(status_code=400, detail="Document contains no extractable text")
+    return results
 
+
+@router.get("/{document_id}", response_model=DocumentOut)
+async def get_document(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> DocumentOut:
+    """Get a single document by ID."""
     rag_service = RAGService(db)
-    document = await rag_service.ingest_document(
-        filename=file.filename or "unknown",
-        content=text_content,
-        content_type=file.content_type or "text/plain",
-    )
-
+    document = await rag_service.get_document(document_id)
+    if document is None:
+        raise HTTPException(status_code=404, detail="Document not found")
     return DocumentOut.model_validate(document)
 
 
@@ -64,6 +101,7 @@ async def list_documents(
 async def delete_document(
     document_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
+    _admin: dict = Depends(verify_admin_token),
 ) -> dict[str, str]:
     """Delete a document and all its chunks."""
     rag_service = RAGService(db)
@@ -79,7 +117,7 @@ def _extract_text(raw: bytes, content_type: str) -> str:
     For PDF and DOCX, basic extraction is provided.
     For production, consider using libraries like PyPDF2 or python-docx.
     """
-    if content_type == "text/plain":
+    if content_type in ("text/plain", "text/markdown"):
         return raw.decode("utf-8", errors="replace")
 
     if content_type == "application/pdf":
