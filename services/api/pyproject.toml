@@ -1,7 +1,7 @@
 [project]
-name = "bnb-line-bot"
-version = "0.1.0"
-description = "LINE Bot backend for BnB platform with LLM-powered customer service"
+name = "bnb-ai-concierge"
+version = "0.2.0"
+description = "Multi-channel AI-powered customer service backend for BnB platform"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
