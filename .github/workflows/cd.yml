@@ -29,20 +29,5 @@ jobs:
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
 
-  backend-deploy:
-    name: Deploy Backend
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push'
-    defaults:
-      run:
-        working-directory: services/api
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Railway CLI
-        run: npm install -g @railway/cli
-
-      - name: Deploy to Railway
-        run: railway up --service api --detach
-        env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+  # Backend deploys automatically via Railway GitHub native integration
+  # Configure in Railway Dashboard → api service → Settings → Source → Connect Repo
