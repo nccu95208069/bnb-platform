@@ -16,33 +16,10 @@ depends_on = None
 
 
 def upgrade() -> None:
-    # 1. Create the documentstatus enum
-    status_enum = sa.Enum("pending", "processing", "completed", "failed", name="documentstatus")
-    status_enum.create(op.get_bind(), checkfirst=True)
-
-    # 2. Add status column as nullable first for backfill
-    op.add_column(
-        "documents",
-        sa.Column("status", status_enum, nullable=True),
-    )
-
-    # 3. Backfill existing rows as completed
-    op.execute("UPDATE documents SET status = 'completed'")
-
-    # 4. Set NOT NULL constraint
-    op.alter_column("documents", "status", nullable=False)
-
-    # 5. Add error_message column (nullable)
-    op.add_column(
-        "documents",
-        sa.Column("error_message", sa.Text(), nullable=True),
-    )
+    # No-op: columns already exist in 000_initial schema.
+    pass
 
 
 def downgrade() -> None:
-    # 1. Drop columns
-    op.drop_column("documents", "error_message")
-    op.drop_column("documents", "status")
-
-    # 2. Drop the enum type
-    sa.Enum(name="documentstatus").drop(op.get_bind(), checkfirst=True)
+    # No-op: handled by 000_initial downgrade.
+    pass
