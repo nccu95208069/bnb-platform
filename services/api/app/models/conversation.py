@@ -34,12 +34,14 @@ class Conversation(Base, UUIDMixin, TimestampMixin):
     __tablename__ = "conversations"
 
     channel: Mapped[ChannelType] = mapped_column(
-        Enum(ChannelType), nullable=False, default=ChannelType.LINE
+        Enum(ChannelType, values_callable=lambda e: [m.value for m in e]),
+        nullable=False,
+        default=ChannelType.LINE,
     )
     channel_user_id: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
     display_name: Mapped[str | None] = mapped_column(String(255))
     status: Mapped[ConversationStatus] = mapped_column(
-        Enum(ConversationStatus),
+        Enum(ConversationStatus, values_callable=lambda e: [m.value for m in e]),
         default=ConversationStatus.AI,
         nullable=False,
     )
@@ -67,7 +69,9 @@ class Message(Base, UUIDMixin, TimestampMixin):
         nullable=False,
         index=True,
     )
-    role: Mapped[MessageRole] = mapped_column(Enum(MessageRole), nullable=False)
+    role: Mapped[MessageRole] = mapped_column(
+        Enum(MessageRole, values_callable=lambda e: [m.value for m in e]), nullable=False
+    )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     llm_model: Mapped[str | None] = mapped_column(String(100))
     token_usage: Mapped[int | None] = mapped_column()

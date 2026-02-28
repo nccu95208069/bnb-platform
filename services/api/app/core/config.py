@@ -44,6 +44,7 @@ class Settings(BaseSettings):
 
     # Supabase Auth
     supabase_jwt_secret: str = ""
+    supabase_url: str = ""
 
     # RAG / Embedding (OpenAI API for embeddings)
     openai_api_key: str = ""

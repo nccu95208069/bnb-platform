@@ -30,7 +30,7 @@ class Document(Base, UUIDMixin, TimestampMixin):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[DocumentStatus] = mapped_column(
-        Enum(DocumentStatus),
+        Enum(DocumentStatus, values_callable=lambda e: [m.value for m in e]),
         default=DocumentStatus.PENDING,
         nullable=False,
     )
