@@ -120,9 +120,7 @@ class TestGoogleCalendarCheckAvailability:
         from app.services.google_integration import GoogleCalendarService
 
         svc = GoogleCalendarService()
-        result = await svc.check_availability(
-            "2025-07-01", "2025-07-03", room_type="deluxe suite"
-        )
+        result = await svc.check_availability("2025-07-01", "2025-07-03", room_type="deluxe suite")
 
         assert len(result["bookings"]) == 1
 

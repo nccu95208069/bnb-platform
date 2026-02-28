@@ -5,8 +5,6 @@ Revises: 001_multichannel
 Create Date: 2026-02-28
 """
 
-
-
 revision = "002_document_status"
 down_revision = "001_multichannel"
 branch_labels = None

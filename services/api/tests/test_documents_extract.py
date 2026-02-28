@@ -5,9 +5,7 @@ from unittest.mock import MagicMock
 
 from app.api.endpoints.documents import _extract_text
 
-DOCX_CONTENT_TYPE = (
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-)
+DOCX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
 class TestExtractTextPlain:

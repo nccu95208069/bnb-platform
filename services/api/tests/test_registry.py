@@ -102,9 +102,7 @@ class TestInitAdapters:
 
         from app.channels.registry import get_available_channels, init_adapters
 
-        with patch(
-            "app.channels.line.adapter.LINEChannelAdapter", return_value=mock_adapter
-        ):
+        with patch("app.channels.line.adapter.LINEChannelAdapter", return_value=mock_adapter):
             init_adapters()
 
         assert ChannelType.LINE in get_available_channels()
