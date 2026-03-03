@@ -75,13 +75,24 @@ class AIBrain:
             try:
                 rag_service = RAGService(self.db)
                 rag_context = await rag_service.build_context(user_text)
-                system_prompt = BNB_SYSTEM_PROMPT
-                if rag_context:
-                    system_prompt += f"\n\n以下是相關的民宿資料，請參考回答：\n{rag_context}"
+
+                # Inject RAG context into the current user message
+                # so LLM treats it as scoped reference, not global knowledge
+                llm_messages = list(history)
+                if rag_context and llm_messages:
+                    current_question = llm_messages[-1]["content"]
+                    llm_messages[-1] = {
+                        "role": "user",
+                        "content": (
+                            f"[參考資料]\n{rag_context}\n\n"
+                            f"[客人的問題]\n{current_question}\n\n"
+                            f"請根據參考資料回答客人的問題。"
+                        ),
+                    }
 
                 llm_response = await llm_service.generate(
-                    messages=history,
-                    system_prompt=system_prompt,
+                    messages=llm_messages,
+                    system_prompt=BNB_SYSTEM_PROMPT,
                 )
                 await self.conv_service.add_message(
                     conversation.id,
