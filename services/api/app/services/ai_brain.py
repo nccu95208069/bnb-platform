@@ -153,12 +153,18 @@ class AIBrain:
         # Short messages that are purely emotional/polite
         if len(stripped) <= 15 and AIBrain._NON_QUESTION_PATTERN.match(stripped):
             return True
-        # Patterns like "好的，謝謝你！" "蛤～這樣喔" "喔喔，太好了"
-        non_q_keywords = ["謝謝", "感謝", "了解", "掰掰", "太可惜", "真不錯", "太好了"]
+        # Question markers → definitely a question, even if it has "謝謝"
+        q_markers = {"？", "?", "請問", "嗎", "什麼", "怎麼", "哪", "多少", "幾點"}
+        if any(m in text for m in q_markers):
+            return False
+        # Patterns like "好的，謝謝你！" "蛤～太可惜了" "喔喔，太好了"
+        # Also catches longer acks like "喔，好，我等等打電話問問看，謝謝你喔！"
+        non_q_keywords = [
+            "謝謝", "感謝", "了解", "掰掰", "太可惜", "真不錯", "太好了",
+            "好的", "沒問題", "知道了", "收到", "OK",
+        ]
         has_keyword = any(k in stripped for k in non_q_keywords)
-        q_markers = {"？", "?", "請問", "嗎"}
-        no_question = not any(m in text for m in q_markers)
-        return len(stripped) <= 25 and has_keyword and no_question
+        return len(stripped) <= 40 and has_keyword
 
     async def _reformulate_query(
         self,
@@ -204,9 +210,13 @@ class AIBrain:
                             f"對話歷史：\n{history_text}\n\n"
                             f"客人最新說的話：{current_question}\n\n"
                             f"任務：判斷客人最新說的話是「提問」還是「非提問」。\n"
-                            f"- 非提問：純粹的情緒表達、禮貌回應、道謝、感嘆"
-                            f"（如「蛤～太可惜了」「好的謝謝」「喔喔太好了」）\n"
-                            f"- 提問：包含疑問、需要資訊、需要確認的內容\n\n"
+                            f"- 非提問：不需要客服提供新資訊的訊息，包括：\n"
+                            f"  - 道謝：「好的謝謝」「謝謝你的資訊」\n"
+                            f"  - 禮貌收尾：「好，我等等打電話問問看」"
+                            f"「好的，我會上去看看的」「我晚點再聯絡」\n"
+                            f"  - 情緒表達：「蛤～太可惜了」「喔喔太好了」\n"
+                            f"  - 確認收到：「了解」「嗯嗯好」「OK」\n"
+                            f"- 提問：需要客服回答新問題或提供新資訊的內容\n\n"
                             f"如果是「非提問」，輸出：__ACK__|原句\n"
                             f"如果是「提問」，把它改寫成一個獨立完整的問題，"
                             f"讓沒看過對話歷史的人也能理解。\n"
@@ -226,18 +236,23 @@ class AIBrain:
 
     @staticmethod
     def _build_history_summary(history: list[dict[str, str]], is_new_session: bool) -> str:
-        """Build a one-line summary of recent conversation topics.
+        """Build a summary with topic anchor + recent questions.
 
-        Extracts user questions from history (excluding the current one)
-        to give the LLM awareness of prior topics without full history.
+        Includes the first user question as a topic anchor so the LLM
+        doesn't lose track of the original conversation theme in later turns.
         """
         if is_new_session:
             return "新對話（可以用招呼語開頭）"
         user_questions = [msg["content"][:30] for msg in history[:-1] if msg["role"] == "user"]
         if not user_questions:
             return "新對話（可以用招呼語開頭）"
+
+        # Topic anchor: first user question defines the conversation theme
+        topic = f"本次對話主題：{user_questions[0]}"
+        # Recent questions for continuity
         recent = user_questions[-3:]
-        return "客人之前問過：" + "、".join(recent)
+        recent_str = "最近問過：" + "、".join(recent)
+        return f"{topic}｜{recent_str}"
 
     @staticmethod
     def _strip_greeting(text: str) -> str:
