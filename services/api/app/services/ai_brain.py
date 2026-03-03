@@ -139,7 +139,8 @@ class AIBrain:
         if len(history) <= 1:
             return current_question
 
-        # Build condensed history for reformulation (last 2 exchanges max)
+        # Build recent history for reformulation (last 2 exchanges max)
+        # Use full assistant text so the reformulator understands the context
         recent = history[-5:-1]  # exclude the current message (last in history)
         if not recent:
             return current_question
@@ -147,7 +148,11 @@ class AIBrain:
         history_lines = []
         for msg in recent:
             role = "客人" if msg["role"] == "user" else "客服"
-            history_lines.append(f"{role}：{msg['content'][:100]}")
+            # Keep last assistant message full, truncate earlier ones
+            if msg == recent[-1] or msg["role"] == "user":
+                history_lines.append(f"{role}：{msg['content']}")
+            else:
+                history_lines.append(f"{role}：{msg['content'][:150]}")
         history_text = "\n".join(history_lines)
 
         try:
