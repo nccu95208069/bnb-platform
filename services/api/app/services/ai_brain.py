@@ -76,9 +76,20 @@ class AIBrain:
                 rag_service = RAGService(self.db)
                 rag_context = await rag_service.build_context(user_text)
 
+                # Truncate prior assistant messages to prevent LLM from
+                # copying previous responses verbatim into new answers
+                llm_messages = []
+                for msg in history:
+                    if msg["role"] == "assistant":
+                        truncated = msg["content"][:80]
+                        if len(msg["content"]) > 80:
+                            truncated += "..."
+                        llm_messages.append({"role": "assistant", "content": truncated})
+                    else:
+                        llm_messages.append(msg)
+
                 # Inject RAG context into the current user message
                 # so LLM treats it as scoped reference, not global knowledge
-                llm_messages = list(history)
                 if rag_context and llm_messages:
                     current_question = llm_messages[-1]["content"]
                     llm_messages[-1] = {
