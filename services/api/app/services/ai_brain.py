@@ -73,37 +73,30 @@ class AIBrain:
         if await self.conv_service.is_ai_mode(conversation.id):
             history = await self.conv_service.get_conversation_history(conversation.id)
             try:
+                # Step 1: Reformulate follow-up into standalone question
+                standalone_query = await self._reformulate_query(history, user_text)
+                logger.info("Reformulated query: %s", standalone_query[:80])
+
+                # Step 2: RAG search with standalone query
                 rag_service = RAGService(self.db)
-                rag_context = await rag_service.build_context(user_text)
+                rag_context = await rag_service.build_context(standalone_query)
 
-                # Truncate prior assistant messages to prevent LLM from
-                # copying previous responses verbatim into new answers
-                llm_messages = []
-                for msg in history:
-                    if msg["role"] == "assistant":
-                        truncated = msg["content"][:80]
-                        if len(msg["content"]) > 80:
-                            truncated += "..."
-                        llm_messages.append({"role": "assistant", "content": truncated})
-                    else:
-                        llm_messages.append(msg)
+                # Step 3: Build lightweight history summary (no LLM, free)
+                summary = self._build_history_summary(history)
 
-                # Inject RAG context into the current user message
-                # so LLM treats it as scoped reference, not global knowledge
-                if rag_context and llm_messages:
-                    current_question = llm_messages[-1]["content"]
-                    llm_messages[-1] = {
-                        "role": "user",
-                        "content": (
-                            f"[參考資料]\n{rag_context}\n\n"
-                            f"[客人的問題]\n{current_question}\n\n"
-                            f"請根據參考資料回答客人的問題。"
-                        ),
-                    }
+                # Step 4: Fresh single-turn call (no conversation history)
+                system_prompt = BNB_SYSTEM_PROMPT
+                if summary:
+                    system_prompt += f"\n\n[對話摘要] {summary}"
+
+                user_content = ""
+                if rag_context:
+                    user_content += f"[參考資料]\n{rag_context}\n\n"
+                user_content += f"[客人的問題]\n{standalone_query}"
 
                 llm_response = await llm_service.generate(
-                    messages=llm_messages,
-                    system_prompt=BNB_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": user_content}],
+                    system_prompt=system_prompt,
                 )
                 await self.conv_service.add_message(
                     conversation.id,
@@ -124,6 +117,69 @@ class AIBrain:
                 conversation.id,
             )
             return None
+
+    async def _reformulate_query(
+        self,
+        history: list[dict[str, str]],
+        current_question: str,
+    ) -> str:
+        """Reformulate a follow-up question into a standalone question.
+
+        Uses LLM to resolve pronouns and references from conversation history.
+        If the question is already standalone, returns it as-is.
+        """
+        # No history → already standalone
+        if len(history) <= 1:
+            return current_question
+
+        # Build condensed history for reformulation (last 2 exchanges max)
+        recent = history[-5:-1]  # exclude the current message (last in history)
+        if not recent:
+            return current_question
+
+        history_lines = []
+        for msg in recent:
+            role = "客人" if msg["role"] == "user" else "客服"
+            history_lines.append(f"{role}：{msg['content'][:100]}")
+        history_text = "\n".join(history_lines)
+
+        try:
+            response = await llm_service.generate(
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            f"對話歷史：\n{history_text}\n\n"
+                            f"客人最新說的話：{current_question}\n\n"
+                            f"請把上面「客人最新說的話」改寫成一個獨立完整的問題，"
+                            f"讓沒看過對話歷史的人也能理解。\n"
+                            f"規則：只輸出改寫後的問題，不加任何解釋或前綴。"
+                            f"如果已經是獨立問題，直接輸出原句。"
+                        ),
+                    }
+                ],
+                system_prompt="你是問題改寫助手。只輸出一句改寫後的問題。",
+            )
+            reformulated = response.content.strip()
+            for char in "「」''":
+                reformulated = reformulated.removeprefix(char).removesuffix(char)
+            return reformulated if reformulated else current_question
+        except Exception:
+            logger.warning("Query reformulation failed, using original question")
+            return current_question
+
+    @staticmethod
+    def _build_history_summary(history: list[dict[str, str]]) -> str:
+        """Build a one-line summary of recent conversation topics.
+
+        Extracts user questions from history (excluding the current one)
+        to give the LLM awareness of prior topics without full history.
+        """
+        user_questions = [msg["content"][:30] for msg in history[:-1] if msg["role"] == "user"]
+        if not user_questions:
+            return ""
+        recent = user_questions[-3:]
+        return "客人之前問過：" + "、".join(recent)
 
     async def _handle_follow(self, incoming: IncomingMessage) -> OutgoingMessage:
         """Handle a new follower: create conversation and send welcome."""
