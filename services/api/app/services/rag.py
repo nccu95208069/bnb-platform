@@ -42,7 +42,8 @@ class RAGService:
             status=DocumentStatus.PENDING,
         )
         self.db.add(document)
-        await self.db.flush()
+        await self.db.commit()
+        await self.db.refresh(document)
         logger.info("Created document %s with status PENDING", document.id)
         return document
 
