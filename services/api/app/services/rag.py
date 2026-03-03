@@ -162,21 +162,40 @@ class RAGService:
         return [c for c in chunks if c]
 
     async def _generate_embeddings(self, texts: list[str]) -> list[list[float]]:
+        """Generate embeddings using Google or OpenAI embeddings API."""
+        if settings.google_gemini_api_key and not settings.openai_api_key:
+            return await self._generate_embeddings_google(texts)
+        return await self._generate_embeddings_openai(texts)
+
+    async def _generate_embeddings_openai(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings using the OpenAI embeddings API."""
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 "https://api.openai.com/v1/embeddings",
                 headers={"Authorization": f"Bearer {settings.openai_api_key}"},
-                json={
-                    "model": settings.embedding_model,
-                    "input": texts,
-                },
+                json={"model": settings.embedding_model, "input": texts},
                 timeout=60.0,
             )
             response.raise_for_status()
             data = response.json()
-
         return [item["embedding"] for item in data["data"]]
+
+    async def _generate_embeddings_google(self, texts: list[str]) -> list[list[float]]:
+        """Generate embeddings using the Google Gemini embeddings API."""
+        model = "text-embedding-004"
+        requests = [
+            {"model": f"models/{model}", "content": {"parts": [{"text": t}]}} for t in texts
+        ]
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/{model}:batchEmbedContents",
+                params={"key": settings.google_gemini_api_key},
+                json={"requests": requests},
+                timeout=60.0,
+            )
+            response.raise_for_status()
+            data = response.json()
+        return [item["values"] for item in data["embeddings"]]
 
     # --- Retrieval ---
 

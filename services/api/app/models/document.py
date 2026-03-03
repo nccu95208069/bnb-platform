@@ -55,6 +55,6 @@ class DocumentChunk(Base, UUIDMixin, TimestampMixin):
     )
     content: Mapped[str] = mapped_column(Text, nullable=False)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    embedding = mapped_column(Vector(1536))
+    embedding = mapped_column(Vector(768))
 
     document: Mapped[Document] = relationship(back_populates="chunks")
