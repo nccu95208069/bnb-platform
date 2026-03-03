@@ -82,7 +82,8 @@ class AIBrain:
                 rag_context = await rag_service.build_context(standalone_query)
 
                 # Step 3: Build lightweight history summary (no LLM, free)
-                summary = self._build_history_summary(history)
+                is_new = await self.conv_service.is_new_session(conversation.id)
+                summary = self._build_history_summary(history, is_new)
 
                 # Step 4: Fresh single-turn call (no conversation history)
                 system_prompt = BNB_SYSTEM_PROMPT
@@ -169,15 +170,17 @@ class AIBrain:
             return current_question
 
     @staticmethod
-    def _build_history_summary(history: list[dict[str, str]]) -> str:
+    def _build_history_summary(history: list[dict[str, str]], is_new_session: bool) -> str:
         """Build a one-line summary of recent conversation topics.
 
         Extracts user questions from history (excluding the current one)
         to give the LLM awareness of prior topics without full history.
         """
+        if is_new_session:
+            return "新對話（可以用招呼語開頭）"
         user_questions = [msg["content"][:30] for msg in history[:-1] if msg["role"] == "user"]
         if not user_questions:
-            return ""
+            return "新對話（可以用招呼語開頭）"
         recent = user_questions[-3:]
         return "客人之前問過：" + "、".join(recent)
 

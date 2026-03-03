@@ -2,6 +2,7 @@
 
 import logging
 import uuid
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -100,6 +101,29 @@ class ConversationService:
             for msg in messages
             if msg.role in (MessageRole.USER, MessageRole.ASSISTANT, MessageRole.OWNER)
         ]
+
+    async def is_new_session(
+        self,
+        conversation_id: uuid.UUID,
+        gap_hours: int = 6,
+    ) -> bool:
+        """Check if the previous message was sent more than gap_hours ago."""
+        stmt = (
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at.desc())
+            .offset(1)
+            .limit(1)
+        )
+        result = await self.db.execute(stmt)
+        prev_msg = result.scalar_one_or_none()
+        if prev_msg is None:
+            return True
+        cutoff = datetime.now(UTC) - timedelta(hours=gap_hours)
+        msg_time = prev_msg.created_at
+        if msg_time.tzinfo is None:
+            msg_time = msg_time.replace(tzinfo=UTC)
+        return msg_time < cutoff
 
     async def is_ai_mode(self, conversation_id: uuid.UUID) -> bool:
         """Check if a conversation is in AI auto-reply mode."""
