@@ -75,7 +75,7 @@ class ConversationService:
     async def get_conversation_history(
         self,
         conversation_id: uuid.UUID,
-        limit: int = 20,
+        limit: int = 6,
     ) -> list[dict[str, str]]:
         """Get recent message history formatted for LLM context.
 
