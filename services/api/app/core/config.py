@@ -35,7 +35,7 @@ class Settings(BaseSettings):
 
     # LLM - Gemini
     google_gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.0-flash"
+    gemini_model: str = "gemini-2.5-flash-lite"
 
     # Google Calendar / Sheets
     google_service_account_json: str = ""

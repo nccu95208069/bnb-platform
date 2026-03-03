@@ -182,9 +182,14 @@ class RAGService:
 
     async def _generate_embeddings_google(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings using the Google Gemini embeddings API."""
-        model = "text-embedding-004"
+        model = "gemini-embedding-001"
         requests = [
-            {"model": f"models/{model}", "content": {"parts": [{"text": t}]}} for t in texts
+            {
+                "model": f"models/{model}",
+                "content": {"parts": [{"text": t}]},
+                "outputDimensionality": 768,
+            }
+            for t in texts
         ]
         async with httpx.AsyncClient() as client:
             response = await client.post(
