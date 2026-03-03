@@ -1,6 +1,7 @@
 """AI Brain: channel-agnostic message orchestrator."""
 
 import logging
+import re
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -99,6 +100,11 @@ class AIBrain:
                     messages=[{"role": "user", "content": user_content}],
                     system_prompt=system_prompt,
                 )
+
+                # Strip greeting if not a new session
+                if not is_new:
+                    llm_response.content = self._strip_greeting(llm_response.content)
+
                 await self.conv_service.add_message(
                     conversation.id,
                     MessageRole.ASSISTANT,
@@ -183,6 +189,17 @@ class AIBrain:
             return "新對話（可以用招呼語開頭）"
         recent = user_questions[-3:]
         return "客人之前問過：" + "、".join(recent)
+
+    @staticmethod
+    def _strip_greeting(text: str) -> str:
+        """Remove greeting prefixes from LLM responses.
+
+        Strips common Chinese/English greetings that appear at the start
+        of responses, along with trailing punctuation and whitespace.
+        """
+        pattern = r"^(您好|你好|哈囉|嗨|Hello|Hi)[！!~～。，,\s]*"
+        result = re.sub(pattern, "", text, count=1, flags=re.IGNORECASE).lstrip()
+        return result if result else text
 
     async def _handle_follow(self, incoming: IncomingMessage) -> OutgoingMessage:
         """Handle a new follower: create conversation and send welcome."""
