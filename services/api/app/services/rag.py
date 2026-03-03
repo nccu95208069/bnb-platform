@@ -223,6 +223,7 @@ class RAGService:
 
         stmt = (
             select(DocumentChunk)
+            .where(DocumentChunk.embedding.cosine_distance(query_embedding[0]) < 0.5)
             .order_by(DocumentChunk.embedding.cosine_distance(query_embedding[0]))
             .limit(top_k)
         )
