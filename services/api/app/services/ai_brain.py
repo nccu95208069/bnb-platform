@@ -78,6 +78,10 @@ class AIBrain:
                 standalone_query = await self._reformulate_query(history, user_text)
                 logger.info("Reformulated query: %s", standalone_query[:80])
 
+                # Step 1.5: Handle non-question (acknowledgment/emotion)
+                if standalone_query.startswith("__ACK__|"):
+                    return await self._handle_ack(incoming, conversation, history)
+
                 # Step 2: RAG search with standalone query
                 rag_service = RAGService(self.db)
                 rag_context = await rag_service.build_context(standalone_query)
@@ -125,6 +129,37 @@ class AIBrain:
             )
             return None
 
+    _NON_QUESTION_PATTERN = re.compile(
+        r"^("
+        r"好的?[，,。！!～~]?|"
+        r"嗯+[，,。！!～~]?|"
+        r"了解[了]?[，,。！!～~]?|"
+        r"OK[，,。！!～~]?|"
+        r"謝謝[你您]?[！!～~。]?|"
+        r"感謝[！!～~。]?|"
+        r"掰掰[！!～~。]?|"
+        r"太好了[！!～~。]?|"
+        r"真不錯[！!～~。]?|"
+        r"蛤[～~]?|"
+        r"喔+[，,。！!～~]?"
+        r")$",
+        re.IGNORECASE,
+    )
+
+    @staticmethod
+    def _is_non_question(text: str) -> bool:
+        """Detect if the message is a polite acknowledgment, not a real question."""
+        stripped = text.strip().rstrip("。！!～~，, ")
+        # Short messages that are purely emotional/polite
+        if len(stripped) <= 15 and AIBrain._NON_QUESTION_PATTERN.match(stripped):
+            return True
+        # Patterns like "好的，謝謝你！" "蛤～這樣喔" "喔喔，太好了"
+        non_q_keywords = ["謝謝", "感謝", "了解", "掰掰", "太可惜", "真不錯", "太好了"]
+        has_keyword = any(k in stripped for k in non_q_keywords)
+        q_markers = {"？", "?", "請問", "嗎"}
+        no_question = not any(m in text for m in q_markers)
+        return len(stripped) <= 25 and has_keyword and no_question
+
     async def _reformulate_query(
         self,
         history: list[dict[str, str]],
@@ -133,11 +168,16 @@ class AIBrain:
         """Reformulate a follow-up question into a standalone question.
 
         Uses LLM to resolve pronouns and references from conversation history.
-        If the question is already standalone, returns it as-is.
+        If the message is a non-question (acknowledgment/emotion), returns
+        a special marker so the main handler can respond appropriately.
         """
         # No history → already standalone
         if len(history) <= 1:
             return current_question
+
+        # Detect non-question messages (polite acks, emotional responses)
+        if self._is_non_question(current_question):
+            return f"__ACK__|{current_question}"
 
         # Build recent history for reformulation (last 2 exchanges max)
         # Use full assistant text so the reformulator understands the context
@@ -163,14 +203,18 @@ class AIBrain:
                         "content": (
                             f"對話歷史：\n{history_text}\n\n"
                             f"客人最新說的話：{current_question}\n\n"
-                            f"請把上面「客人最新說的話」改寫成一個獨立完整的問題，"
+                            f"任務：判斷客人最新說的話是「提問」還是「非提問」。\n"
+                            f"- 非提問：純粹的情緒表達、禮貌回應、道謝、感嘆"
+                            f"（如「蛤～太可惜了」「好的謝謝」「喔喔太好了」）\n"
+                            f"- 提問：包含疑問、需要資訊、需要確認的內容\n\n"
+                            f"如果是「非提問」，輸出：__ACK__|原句\n"
+                            f"如果是「提問」，把它改寫成一個獨立完整的問題，"
                             f"讓沒看過對話歷史的人也能理解。\n"
-                            f"規則：只輸出改寫後的問題，不加任何解釋或前綴。"
-                            f"如果已經是獨立問題，直接輸出原句。"
+                            f"規則：只輸出結果，不加任何解釋或前綴。"
                         ),
                     }
                 ],
-                system_prompt="你是問題改寫助手。只輸出一句改寫後的問題。",
+                system_prompt="你是問題改寫助手。只輸出一句結果。",
             )
             reformulated = response.content.strip()
             for char in "「」''":
@@ -205,6 +249,54 @@ class AIBrain:
         pattern = r"^(您好|你好|哈囉|嗨|Hello|Hi)[！!~～。，,\s]*"
         result = re.sub(pattern, "", text, count=1, flags=re.IGNORECASE).lstrip()
         return result if result else text
+
+    async def _handle_ack(
+        self,
+        incoming: IncomingMessage,
+        conversation: object,
+        history: list[dict[str, str]],
+    ) -> OutgoingMessage:
+        """Handle non-question messages (acknowledgments, emotions, thanks).
+
+        Uses a lightweight LLM call with the last exchange to produce
+        a brief, natural acknowledgment instead of repeating info.
+        """
+        user_text = incoming.text or ""
+
+        # Build minimal context: just the last assistant reply + user ack
+        last_assistant = ""
+        for msg in reversed(history[:-1]):
+            if msg["role"] == "assistant":
+                last_assistant = msg["content"][:200]
+                break
+
+        ack_prompt = (
+            "你是民宿客服助理。客人剛才的訊息不是提問，只是禮貌回應或情緒表達。\n"
+            "請用一句簡短、自然、溫暖的話回應即可（10-30字）。\n"
+            "不要重複之前已經說過的資訊，不要主動補充新內容。\n"
+            "範例：「好的沒問題！有需要再問我喔～」「是的，真不好意思呢！」"
+            "「好喔，祝您有愉快的旅程！」"
+        )
+        user_content = ""
+        if last_assistant:
+            user_content += f"[你上一則回覆]\n{last_assistant}\n\n"
+        user_content += f"[客人的回應]\n{user_text}"
+
+        llm_response = await llm_service.generate(
+            messages=[{"role": "user", "content": user_content}],
+            system_prompt=ack_prompt,
+        )
+
+        reply_text = self._strip_greeting(llm_response.content)
+
+        await self.conv_service.add_message(
+            conversation.id,
+            MessageRole.ASSISTANT,
+            reply_text,
+            llm_model=llm_response.model,
+            token_usage=llm_response.input_tokens + llm_response.output_tokens,
+        )
+        return self._make_reply(incoming, reply_text)
 
     async def _handle_follow(self, incoming: IncomingMessage) -> OutgoingMessage:
         """Handle a new follower: create conversation and send welcome."""

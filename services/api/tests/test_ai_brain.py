@@ -243,9 +243,10 @@ class TestHandleText:
         )
         await brain.handle_message(incoming)
 
-        call_kwargs = mock_llm.generate.call_args[1]
-        assert "相關的民宿資料" in call_kwargs["system_prompt"]
-        assert "Room A is available" in call_kwargs["system_prompt"]
+        # RAG context is now in the user message, not the system prompt
+        call_args = mock_llm.generate.call_args
+        user_msg = call_args[1]["messages"][0]["content"]
+        assert "Room A is available" in user_msg
 
 
 # ---------------------------------------------------------------------------
