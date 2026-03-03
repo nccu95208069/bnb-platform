@@ -251,6 +251,16 @@ class RAGService:
 
     # --- Document Management ---
 
+    async def get_chunks(self, document_id: uuid.UUID) -> list[DocumentChunk]:
+        """Get all chunks for a document."""
+        stmt = (
+            select(DocumentChunk)
+            .where(DocumentChunk.document_id == document_id)
+            .order_by(DocumentChunk.chunk_index)
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
     async def list_documents(self) -> list[Document]:
         """List all documents."""
         stmt = select(Document).order_by(Document.created_at.desc())

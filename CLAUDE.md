@@ -88,7 +88,10 @@ Webhook → ChannelAdapter.parse_webhook → AIBrain.handle_message
 - `POST /api/v1/webhook/{channel}` — 訊息入口
 - `GET/POST/PATCH /api/v1/conversations/*` — 對話管理
 - `POST /api/v1/documents/upload` — 文件上傳 (auth required)
+- `POST /api/v1/documents/text` — 文字輸入建立文件 (auth required)
 - `GET /api/v1/documents` — 文件列表
+- `GET /api/v1/documents/{id}` — 取得單一文件
+- `GET /api/v1/documents/{id}/chunks` — 取得文件 chunks
 - `DELETE /api/v1/documents/{id}` — 刪除文件 (auth required)
 - `GET /health` — 健康檢查
 

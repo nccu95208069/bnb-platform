@@ -39,6 +39,12 @@ export interface Document {
   created_at: string;
 }
 
+export interface DocumentChunk {
+  id: string;
+  chunk_index: number;
+  content: string;
+}
+
 export interface SettingsResponse {
   llm_provider: "claude" | "gemini";
   llm_api_key_set: boolean;

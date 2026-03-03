@@ -6,6 +6,9 @@ import { PageHeader } from "@/components/page-header";
 import { DocumentStatusBadge } from "@/components/admin/document-status-badge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Table,
   TableBody,
@@ -25,7 +28,7 @@ import {
 import { apiClient } from "@/lib/api-client";
 import { usePolling } from "@/lib/use-polling";
 import { signOut } from "@/lib/supabase/auth";
-import type { Document } from "@/lib/types";
+import type { Document, DocumentChunk } from "@/lib/types";
 import {
   FileText,
   Trash2,
@@ -33,6 +36,9 @@ import {
   RefreshCw,
   FileUp,
   LogOut,
+  ChevronDown,
+  ChevronRight,
+  PenLine,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -45,6 +51,16 @@ export default function AdminPage() {
   const [deleteTarget, setDeleteTarget] = useState<Document | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Text input state
+  const [textTitle, setTextTitle] = useState("");
+  const [textContent, setTextContent] = useState("");
+  const [isSubmittingText, setIsSubmittingText] = useState(false);
+
+  // Chunks expanded state: doc id → chunks or null (loading)
+  const [expandedChunks, setExpandedChunks] = useState<
+    Record<string, DocumentChunk[] | null>
+  >({});
 
   const {
     data: documents,
@@ -100,6 +116,27 @@ export default function AdminPage() {
     [refetch],
   );
 
+  async function handleTextSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!textTitle.trim() || !textContent.trim()) return;
+
+    setIsSubmittingText(true);
+    try {
+      await apiClient.post("/documents/text", {
+        title: textTitle.trim(),
+        content: textContent.trim(),
+      });
+      toast.success("文件已建立，正在處理中...");
+      setTextTitle("");
+      setTextContent("");
+      await refetch();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "建立失敗");
+    } finally {
+      setIsSubmittingText(false);
+    }
+  }
+
   async function handleDelete() {
     if (!deleteTarget) return;
     setIsDeleting(true);
@@ -136,6 +173,36 @@ export default function AdminPage() {
     handleUpload(e.dataTransfer.files);
   }
 
+  async function toggleChunks(doc: Document) {
+    if (doc.status !== "completed") return;
+
+    if (expandedChunks[doc.id] !== undefined) {
+      // collapse
+      setExpandedChunks((prev) => {
+        const next = { ...prev };
+        delete next[doc.id];
+        return next;
+      });
+      return;
+    }
+
+    // expand & load
+    setExpandedChunks((prev) => ({ ...prev, [doc.id]: null }));
+    try {
+      const chunks = await apiClient.get<DocumentChunk[]>(
+        `/documents/${doc.id}/chunks`,
+      );
+      setExpandedChunks((prev) => ({ ...prev, [doc.id]: chunks }));
+    } catch {
+      toast.error("無法載入 chunks");
+      setExpandedChunks((prev) => {
+        const next = { ...prev };
+        delete next[doc.id];
+        return next;
+      });
+    }
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -155,7 +222,7 @@ export default function AdminPage() {
         }
       />
 
-      {/* Upload area */}
+      {/* File upload area */}
       <div
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
@@ -191,6 +258,50 @@ export default function AdminPage() {
         )}
       </div>
 
+      {/* Text input area */}
+      <div className="rounded-lg border p-6 space-y-4">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <PenLine className="h-4 w-4 text-muted-foreground" />
+          直接輸入文字內容
+        </div>
+        <form onSubmit={handleTextSubmit} className="space-y-3">
+          <div className="space-y-1">
+            <Label htmlFor="text-title">標題</Label>
+            <Input
+              id="text-title"
+              placeholder="例：民宿介紹、房型說明..."
+              value={textTitle}
+              onChange={(e) => setTextTitle(e.target.value)}
+              disabled={isSubmittingText}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="text-content">內容</Label>
+            <Textarea
+              id="text-content"
+              placeholder="在此輸入要提供給 AI 參考的文件內容..."
+              rows={6}
+              value={textContent}
+              onChange={(e) => setTextContent(e.target.value)}
+              disabled={isSubmittingText}
+              className="resize-y"
+            />
+          </div>
+          <Button
+            type="submit"
+            disabled={
+              isSubmittingText || !textTitle.trim() || !textContent.trim()
+            }
+            size="sm"
+          >
+            {isSubmittingText && (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            )}
+            建立文件
+          </Button>
+        </form>
+      </div>
+
       {/* Document list */}
       {isLoading && (
         <div className="rounded-md border p-8 text-center text-muted-foreground">
@@ -216,6 +327,7 @@ export default function AdminPage() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-8" />
                 <TableHead>檔名</TableHead>
                 <TableHead>類型</TableHead>
                 <TableHead>狀態</TableHead>
@@ -226,33 +338,80 @@ export default function AdminPage() {
             </TableHeader>
             <TableBody>
               {documents.map((doc) => (
-                <TableRow key={doc.id}>
-                  <TableCell className="font-medium">
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-muted-foreground" />
-                      {doc.filename}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="outline">{doc.content_type}</Badge>
-                  </TableCell>
-                  <TableCell>
-                    <DocumentStatusBadge status={doc.status} />
-                  </TableCell>
-                  <TableCell>{doc.chunk_count}</TableCell>
-                  <TableCell>
-                    {new Date(doc.created_at).toLocaleDateString("zh-TW")}
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setDeleteTarget(doc)}
-                    >
-                      <Trash2 className="h-4 w-4 text-destructive" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
+                <>
+                  <TableRow key={doc.id}>
+                    <TableCell>
+                      {doc.status === "completed" && (
+                        <button
+                          onClick={() => toggleChunks(doc)}
+                          className="flex items-center justify-center text-muted-foreground hover:text-foreground"
+                        >
+                          {expandedChunks[doc.id] !== undefined ? (
+                            <ChevronDown className="h-4 w-4" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4" />
+                          )}
+                        </button>
+                      )}
+                    </TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        {doc.filename}
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline">{doc.content_type}</Badge>
+                    </TableCell>
+                    <TableCell>
+                      <DocumentStatusBadge status={doc.status} />
+                    </TableCell>
+                    <TableCell>{doc.chunk_count}</TableCell>
+                    <TableCell>
+                      {new Date(doc.created_at).toLocaleDateString("zh-TW")}
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => setDeleteTarget(doc)}
+                      >
+                        <Trash2 className="h-4 w-4 text-destructive" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                  {expandedChunks[doc.id] !== undefined && (
+                    <TableRow key={`${doc.id}-chunks`}>
+                      <TableCell colSpan={7} className="bg-muted/30 px-4 pb-4">
+                        {expandedChunks[doc.id] === null ? (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            載入中...
+                          </div>
+                        ) : (
+                          <div className="space-y-2 pt-2">
+                            <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                              擷取的重點段落（共 {expandedChunks[doc.id]!.length} 個）
+                            </p>
+                            <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
+                              {expandedChunks[doc.id]!.map((chunk) => (
+                                <div
+                                  key={chunk.id}
+                                  className="rounded-md bg-background border p-3 text-sm"
+                                >
+                                  <span className="text-xs text-muted-foreground mr-2">
+                                    #{chunk.chunk_index + 1}
+                                  </span>
+                                  {chunk.content}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </>
               ))}
             </TableBody>
           </Table>

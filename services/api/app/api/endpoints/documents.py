@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import verify_admin_token
 from app.core.database import get_db
-from app.schemas.document import DocumentOut
+from app.schemas.document import DocumentChunkOut, DocumentOut, DocumentTextIn
 from app.services.rag import RAGService
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -72,6 +72,38 @@ async def upload_document(
         results.append(DocumentOut.model_validate(document))
 
     return results
+
+
+@router.post("/text", response_model=DocumentOut)
+async def create_text_document(
+    body: DocumentTextIn,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    _admin: dict = Depends(verify_admin_token),
+) -> DocumentOut:
+    """Create a document from plain text input."""
+    if not body.content.strip():
+        raise HTTPException(status_code=400, detail="Content cannot be empty")
+
+    rag_service = RAGService(db)
+    document = await rag_service.create_document(
+        filename=body.title,
+        content=body.content,
+        content_type="text/plain",
+    )
+    background_tasks.add_task(_process_document_task, document.id)
+    return DocumentOut.model_validate(document)
+
+
+@router.get("/{document_id}/chunks", response_model=list[DocumentChunkOut])
+async def get_document_chunks(
+    document_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> list[DocumentChunkOut]:
+    """Get all chunks for a document."""
+    rag_service = RAGService(db)
+    chunks = await rag_service.get_chunks(document_id)
+    return [DocumentChunkOut.model_validate(c) for c in chunks]
 
 
 @router.get("/{document_id}", response_model=DocumentOut)

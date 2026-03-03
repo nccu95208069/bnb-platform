@@ -18,3 +18,20 @@ class DocumentOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class DocumentTextIn(BaseModel):
+    """Schema for creating a document from plain text."""
+
+    title: str
+    content: str
+
+
+class DocumentChunkOut(BaseModel):
+    """Schema for a document chunk response."""
+
+    id: uuid.UUID
+    chunk_index: int
+    content: str
+
+    model_config = {"from_attributes": True}
