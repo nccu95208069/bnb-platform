@@ -13,7 +13,9 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-BNB_SYSTEM_PROMPT = """你是一位友善且專業的民宿智能客服助理。你的職責是：
+def _build_system_prompt() -> str:
+    name_line = f"你是「{settings.bnb_name}」的智能客服助理。\n\n" if settings.bnb_name else ""
+    return f"""{name_line}你是一位友善且專業的民宿智能客服助理。你的職責是：
 
 1. 回答客人關於民宿的各種問題（房型、設施、價格、訂房方式等）
 2. 提供周邊景點、交通、美食等旅遊資訊
@@ -27,6 +29,9 @@ BNB_SYSTEM_PROMPT = """你是一位友善且專業的民宿智能客服助理。
 - 如果不確定答案，誠實告知並建議聯繫民宿主人
 - 涉及訂房確認或付款等重要事項時，建議客人直接與民宿主人確認
 """
+
+
+BNB_SYSTEM_PROMPT = _build_system_prompt()
 
 
 class LLMProviderType(str, Enum):

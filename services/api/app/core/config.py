@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     supabase_jwt_secret: str = ""
     supabase_url: str = ""
 
+    # B&B identity
+    bnb_name: str = ""
+
     # RAG / Embedding (OpenAI API for embeddings)
     openai_api_key: str = ""
     embedding_model: str = "text-embedding-3-small"
