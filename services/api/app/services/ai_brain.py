@@ -406,9 +406,6 @@ class AIBrain:
 
     async def _build_booking_context(self, query: str) -> str | None:
         """Build booking context string if the query is booking-related."""
-        if not self._is_booking_query(query):
-            return None
-
         parts: list[str] = []
 
         # Try to extract dates
@@ -419,6 +416,10 @@ class AIBrain:
 
         # Try to extract guest name (for order lookup)
         guest_name = self._extract_guest_name(query)
+
+        # Trigger booking context if keywords match OR dates/room/name extracted
+        if not self._is_booking_query(query) and not check_in and not room and not guest_name:
+            return None
 
         query_service = BookingQueryService(self.db)
 
