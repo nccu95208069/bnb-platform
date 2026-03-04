@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { MessageSquare, FileText, Settings } from "lucide-react";
+import { MessageSquare, MessageCircle, FileText, Settings } from "lucide-react";
 
 const navItems = [
   {
@@ -15,6 +15,11 @@ const navItems = [
     label: "文件管理",
     href: "/documents",
     icon: FileText,
+  },
+  {
+    label: "對話測試",
+    href: "/chat-test",
+    icon: MessageCircle,
   },
   {
     label: "設定",

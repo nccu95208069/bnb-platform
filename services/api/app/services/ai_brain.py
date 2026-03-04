@@ -554,6 +554,131 @@ class AIBrain:
 
         return None
 
+    async def handle_message_with_debug(
+        self, incoming: IncomingMessage
+    ) -> tuple[OutgoingMessage | None, dict]:
+        """Same as handle_message but returns intermediate pipeline results.
+
+        Returns:
+            Tuple of (outgoing_message, debug_info_dict).
+        """
+        import time
+
+        start_time = time.monotonic()
+        user_text = incoming.text or ""
+        debug: dict = {
+            "original_query": user_text,
+            "reformulated_query": user_text,
+            "is_ack": False,
+            "intent": "general",
+            "extracted_dates": [],
+            "extracted_room": None,
+            "extracted_guest_name": None,
+            "booking_context": None,
+            "rag_context": None,
+            "llm_model": None,
+            "llm_provider": None,
+            "response_time_ms": 0,
+        }
+
+        conversation = await self.conv_service.get_or_create_conversation(
+            channel=incoming.channel,
+            channel_user_id=incoming.channel_user_id,
+            display_name=incoming.display_name,
+        )
+        await self.conv_service.add_message(conversation.id, MessageRole.USER, user_text)
+
+        if not await self.conv_service.is_ai_mode(conversation.id):
+            debug["response_time_ms"] = int((time.monotonic() - start_time) * 1000)
+            return None, debug
+
+        history = await self.conv_service.get_conversation_history(conversation.id)
+        try:
+            # Step 1: Reformulate
+            standalone_query = await self._reformulate_query(history, user_text)
+            debug["reformulated_query"] = standalone_query
+
+            # Step 1.5: ACK detection
+            if standalone_query.startswith("__ACK__|"):
+                debug["is_ack"] = True
+                debug["intent"] = "ack"
+                outgoing = await self._handle_ack(incoming, conversation, history)
+                debug["llm_model"] = "ack-handler"
+                debug["response_time_ms"] = int((time.monotonic() - start_time) * 1000)
+                return outgoing, debug
+
+            # Step 2: RAG search
+            rag_service = RAGService(self.db)
+            rag_context = await rag_service.build_context(standalone_query)
+            debug["rag_context"] = rag_context if rag_context else None
+
+            # Step 2.5: Booking context
+            check_in, check_out = self._extract_dates(standalone_query)
+            room = self._extract_room(standalone_query)
+            guest_name = self._extract_guest_name(standalone_query)
+            debug["extracted_dates"] = (
+                [d.isoformat() for d in [check_in, check_out] if d] if check_in else []
+            )
+            debug["extracted_room"] = room
+            debug["extracted_guest_name"] = guest_name
+
+            booking_context = await self._build_booking_context(standalone_query)
+            debug["booking_context"] = booking_context
+
+            # Determine intent
+            if self._is_booking_query(standalone_query):
+                if check_in and not room and not guest_name:
+                    debug["intent"] = "availability"
+                elif room or "多少" in standalone_query or "價" in standalone_query:
+                    debug["intent"] = "pricing"
+                elif guest_name or "訂單" in standalone_query:
+                    debug["intent"] = "order_lookup"
+                else:
+                    debug["intent"] = "availability"
+            else:
+                debug["intent"] = "general"
+
+            # Step 3: History summary
+            is_new = await self.conv_service.is_new_session(conversation.id)
+            summary = self._build_history_summary(history, is_new)
+
+            # Step 4: LLM call
+            system_prompt = BNB_SYSTEM_PROMPT
+            if summary:
+                system_prompt += f"\n\n[對話摘要] {summary}"
+
+            user_content = ""
+            if rag_context:
+                user_content += f"[參考資料]\n{rag_context}\n\n"
+            if booking_context:
+                user_content += f"[訂房資料]\n{booking_context}\n\n"
+            user_content += f"[客人的問題]\n{standalone_query}"
+
+            llm_response = await llm_service.generate(
+                messages=[{"role": "user", "content": user_content}],
+                system_prompt=system_prompt,
+            )
+            debug["llm_model"] = llm_response.model
+            debug["llm_provider"] = llm_response.provider.value
+
+            if not is_new:
+                llm_response.content = self._strip_greeting(llm_response.content)
+
+            await self.conv_service.add_message(
+                conversation.id,
+                MessageRole.ASSISTANT,
+                llm_response.content,
+                llm_model=llm_response.model,
+                token_usage=llm_response.input_tokens + llm_response.output_tokens,
+            )
+            debug["response_time_ms"] = int((time.monotonic() - start_time) * 1000)
+            return self._make_reply(incoming, llm_response.content), debug
+        except RuntimeError:
+            logger.exception("LLM generation failed (debug mode)")
+            debug["response_time_ms"] = int((time.monotonic() - start_time) * 1000)
+            error_reply = "抱歉，系統暫時無法回應，請稍後再試或聯繫民宿主人。"
+            return self._make_reply(incoming, error_reply), debug
+
     @staticmethod
     def _make_reply(incoming: IncomingMessage, text: str) -> OutgoingMessage:
         """Create a reply OutgoingMessage from an IncomingMessage."""
