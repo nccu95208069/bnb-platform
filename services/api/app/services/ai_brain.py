@@ -161,7 +161,8 @@ class AIBrain:
         # Also catches longer acks like "喔，好，我等等打電話問問看，謝謝你喔！"
         non_q_keywords = [
             "謝謝", "感謝", "了解", "掰掰", "太可惜", "真不錯", "太好了",
-            "好的", "沒問題", "知道了", "收到", "OK",
+            "好的", "沒問題", "知道了", "收到", "OK", "我懂了", "我知道了",
+            "我晚點", "等等再", "我再", "好，我",
         ]
         has_keyword = any(k in stripped for k in non_q_keywords)
         return len(stripped) <= 40 and has_keyword

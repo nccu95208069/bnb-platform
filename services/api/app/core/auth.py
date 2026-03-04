@@ -45,7 +45,7 @@ async def verify_admin_token(
                 options={"verify_aud": False},
             )
             return payload
-        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
+        except Exception:
             pass  # Fall through to HS256
 
     # Fallback to HS256 (legacy Supabase projects)
