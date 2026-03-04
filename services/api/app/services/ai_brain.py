@@ -3,14 +3,17 @@
 import logging
 import re
 import uuid
+from datetime import date, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.channels.base import IncomingMessage, OutgoingMessage
 from app.channels.registry import get_adapter
 from app.models.conversation import MessageRole
+from app.services.booking_query import BookingQueryService
 from app.services.conversation import ConversationService
 from app.services.llm import BNB_SYSTEM_PROMPT, llm_service
+from app.services.pricing import BASE_PRICES
 from app.services.rag import RAGService
 
 logger = logging.getLogger(__name__)
@@ -86,6 +89,9 @@ class AIBrain:
                 rag_service = RAGService(self.db)
                 rag_context = await rag_service.build_context(standalone_query)
 
+                # Step 2.5: Booking context (if query is booking-related)
+                booking_context = await self._build_booking_context(standalone_query)
+
                 # Step 3: Build lightweight history summary (no LLM, free)
                 is_new = await self.conv_service.is_new_session(conversation.id)
                 summary = self._build_history_summary(history, is_new)
@@ -98,6 +104,8 @@ class AIBrain:
                 user_content = ""
                 if rag_context:
                     user_content += f"[參考資料]\n{rag_context}\n\n"
+                if booking_context:
+                    user_content += f"[訂房資料]\n{booking_context}\n\n"
                 user_content += f"[客人的問題]\n{standalone_query}"
 
                 llm_response = await llm_service.generate(
@@ -160,9 +168,24 @@ class AIBrain:
         # Patterns like "好的，謝謝你！" "蛤～太可惜了" "喔喔，太好了"
         # Also catches longer acks like "喔，好，我等等打電話問問看，謝謝你喔！"
         non_q_keywords = [
-            "謝謝", "感謝", "了解", "掰掰", "太可惜", "真不錯", "太好了",
-            "好的", "沒問題", "知道了", "收到", "OK", "我懂了", "我知道了",
-            "我晚點", "等等再", "我再", "好，我",
+            "謝謝",
+            "感謝",
+            "了解",
+            "掰掰",
+            "太可惜",
+            "真不錯",
+            "太好了",
+            "好的",
+            "沒問題",
+            "知道了",
+            "收到",
+            "OK",
+            "我懂了",
+            "我知道了",
+            "我晚點",
+            "等等再",
+            "我再",
+            "好，我",
         ]
         has_keyword = any(k in stripped for k in non_q_keywords)
         return len(stripped) <= 40 and has_keyword
@@ -350,6 +373,187 @@ class AIBrain:
             )
         )
 
+    # --- Booking context helpers ---
+
+    _BOOKING_KEYWORDS = [
+        "空房",
+        "有房",
+        "可以住",
+        "能住",
+        "還有房",
+        "價格",
+        "多少錢",
+        "費用",
+        "房價",
+        "價位",
+        "報價",
+        "訂單",
+        "預訂",
+        "訂房",
+        "預約",
+        "幾號入住",
+        "確認訂單",
+        "check in",
+        "check out",
+        "入住",
+        "退房",
+    ]
+
+    @classmethod
+    def _is_booking_query(cls, query: str) -> bool:
+        """Check if the query is related to booking/pricing/availability."""
+        return any(kw in query.lower() for kw in cls._BOOKING_KEYWORDS)
+
+    async def _build_booking_context(self, query: str) -> str | None:
+        """Build booking context string if the query is booking-related."""
+        if not self._is_booking_query(query):
+            return None
+
+        parts: list[str] = []
+
+        # Try to extract dates
+        check_in, check_out = self._extract_dates(query)
+
+        # Try to extract room number
+        room = self._extract_room(query)
+
+        # Try to extract guest name (for order lookup)
+        guest_name = self._extract_guest_name(query)
+
+        query_service = BookingQueryService(self.db)
+
+        # Availability query
+        if check_in and check_out:
+            result = await query_service.check_availability(check_in, check_out)
+            available = result.available_rooms
+            if available:
+                parts.append(
+                    f"{check_in.strftime('%m/%d')}～{check_out.strftime('%m/%d')} "
+                    f"空房：{', '.join(available)}（共{len(available)}間）"
+                )
+            else:
+                parts.append(
+                    f"{check_in.strftime('%m/%d')}～{check_out.strftime('%m/%d')} 目前沒有空房"
+                )
+
+            # Price quote
+            if room and room in BASE_PRICES:
+                stay = query_service.get_price_quote(room, check_in, check_out)
+                night_details = "、".join(
+                    f"{n.date.strftime('%m/%d')}({n.day_type.value})${n.price}" for n in stay.nights
+                )
+                parts.append(f"{room}號房 報價：{night_details}，合計 ${stay.total}")
+            elif check_in and check_out:
+                # Quote all available rooms
+                for r in available[:3]:  # Limit to 3 rooms to keep context short
+                    stay = query_service.get_price_quote(r, check_in, check_out)
+                    parts.append(f"{r}號房 合計 ${stay.total}")
+
+        elif room and room in BASE_PRICES:
+            # Price query without dates — show base prices
+            prices = BASE_PRICES[room]
+            parts.append(f"{room}號房 平日 ${prices['weekday']}／假日 ${prices['weekend']}")
+
+        # Order lookup
+        if guest_name:
+            bookings = await query_service.find_booking(guest_name=guest_name)
+            if bookings:
+                for b in bookings[:3]:
+                    parts.append(
+                        f"訂單：{b.guest_name}，{b.room_number}號房，"
+                        f"{b.check_in.strftime('%m/%d')}～{b.check_out.strftime('%m/%d')}，"
+                        f"付款狀態：{b.payment_status.value}"
+                    )
+            else:
+                parts.append(f"查無「{guest_name}」的訂單記錄")
+
+        return "\n".join(parts) if parts else None
+
+    @staticmethod
+    def _extract_dates(query: str) -> tuple[date | None, date | None]:
+        """Extract check-in and check-out dates from query text."""
+        today = date.today()
+
+        # Relative dates
+        if "明天" in query:
+            check_in = today + timedelta(days=1)
+            check_out = check_in + timedelta(days=1)
+            return check_in, check_out
+        if "後天" in query:
+            check_in = today + timedelta(days=2)
+            check_out = check_in + timedelta(days=1)
+            return check_in, check_out
+        if "今天" in query or "今晚" in query:
+            return today, today + timedelta(days=1)
+
+        # "這個週末" / "這週末"
+        if "週末" in query or "周末" in query:
+            days_until_sat = (5 - today.weekday()) % 7
+            if days_until_sat == 0:
+                days_until_sat = 7
+            sat = today + timedelta(days=days_until_sat)
+            return sat, sat + timedelta(days=1)
+
+        # "下週六" / "下個週末"
+        if "下週" in query or "下個週" in query or "下周" in query:
+            days_until_sat = (5 - today.weekday()) % 7
+            if days_until_sat == 0:
+                days_until_sat = 7
+            sat = today + timedelta(days=days_until_sat + 7)
+            return sat, sat + timedelta(days=1)
+
+        # Date range: "3/15-3/17", "3/15~3/17", "3月15日到3月17日"
+        range_pat = re.compile(
+            r"(\d{1,2})[/月](\d{1,2})[日號]?\s*[-~到至]\s*(\d{1,2})[/月](\d{1,2})[日號]?"
+        )
+        m = range_pat.search(query)
+        if m:
+            m1, d1, m2, d2 = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+            try:
+                ci = _resolve_year(today, m1, d1)
+                co = _resolve_year(today, m2, d2)
+                if co <= ci:
+                    co = date(ci.year + 1, m2, d2)
+                return ci, co
+            except ValueError:
+                pass
+
+        # Single date: "3/15", "3月15日", "03/15"
+        single_pat = re.compile(r"(\d{1,2})[/月](\d{1,2})[日號]?")
+        m = single_pat.search(query)
+        if m:
+            month, day = int(m.group(1)), int(m.group(2))
+            try:
+                ci = _resolve_year(today, month, day)
+                return ci, ci + timedelta(days=1)
+            except ValueError:
+                pass
+
+        return None, None
+
+    @staticmethod
+    def _extract_room(query: str) -> str | None:
+        """Extract room number from query text."""
+        m = re.search(r"(\d{3})\s*號?房?", query)
+        if m and m.group(1) in BASE_PRICES:
+            return m.group(1)
+        return None
+
+    @staticmethod
+    def _extract_guest_name(query: str) -> str | None:
+        """Extract guest name from query (e.g. '我姓王', '王先生')."""
+        # "我姓X" pattern
+        m = re.search(r"我姓([^\s，,。！!]{1,2})", query)
+        if m:
+            return m.group(1)
+
+        # "X先生/小姐" pattern
+        m = re.search(r"([^\s，,。！!]{1,3})(先生|小姐|女士)", query)
+        if m:
+            return m.group(1)
+
+        return None
+
     @staticmethod
     def _make_reply(incoming: IncomingMessage, text: str) -> OutgoingMessage:
         """Create a reply OutgoingMessage from an IncomingMessage."""
@@ -359,3 +563,11 @@ class AIBrain:
             text=text,
             reply_token=incoming.reply_token,
         )
+
+
+def _resolve_year(today: date, month: int, day: int) -> date:
+    """Resolve a month/day to a full date, preferring future dates."""
+    candidate = date(today.year, month, day)
+    if candidate < today - timedelta(days=30):
+        candidate = date(today.year + 1, month, day)
+    return candidate
