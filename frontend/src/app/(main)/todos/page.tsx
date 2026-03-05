@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Plus, Trash2, Circle, CheckCircle2 } from "lucide-react";
 
 // --- Types ---
@@ -39,13 +38,12 @@ function saveTodos(todos: Todo[]) {
 // --- Component ---
 
 export default function TodosPage() {
-  const [todos, setTodos] = useState<Todo[]>([]);
+  const [todos, setTodos] = useState<Todo[]>(() => loadTodos());
   const [input, setInput] = useState("");
   const [filter, setFilter] = useState<FilterType>("all");
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setTodos(loadTodos());
     setMounted(true);
   }, []);
 
