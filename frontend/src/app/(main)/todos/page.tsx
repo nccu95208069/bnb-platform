@@ -19,13 +19,43 @@ type FilterType = "all" | "active" | "done";
 
 const STORAGE_KEY = "bnb-todos";
 
+const DEFAULT_TODOS: Todo[] = [
+  {
+    id: "default-1",
+    text: "Railway 設定 GOOGLE_SERVICE_ACCOUNT_JSON 和 GOOGLE_SHEET_ID 環境變數",
+    done: false,
+    createdAt: "2026-03-05T00:00:00.000Z",
+  },
+  {
+    id: "default-2",
+    text: "環境變數設好後呼叫 POST /api/v1/bookings/sync 同步訂房資料",
+    done: false,
+    createdAt: "2026-03-05T00:00:00.000Z",
+  },
+  {
+    id: "default-3",
+    text: "設定 LINE Bot webhook 連接",
+    done: false,
+    createdAt: "2026-03-05T00:00:00.000Z",
+  },
+  {
+    id: "default-4",
+    text: "Railway 設定 ANTHROPIC_API_KEY、LINE_CHANNEL_SECRET 等 production 環境變數",
+    done: false,
+    createdAt: "2026-03-05T00:00:00.000Z",
+  },
+];
+
 // --- Helpers ---
 
 function loadTodos(): Todo[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
+    if (raw) return JSON.parse(raw);
+    // 首次使用：載入預設待辦事項
+    saveTodos(DEFAULT_TODOS);
+    return DEFAULT_TODOS;
   } catch {
     return [];
   }
