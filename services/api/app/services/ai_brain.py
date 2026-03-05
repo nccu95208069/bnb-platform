@@ -436,16 +436,19 @@ class AIBrain:
 
         # Availability query
         if check_in and check_out:
+            num_nights = (check_out - check_in).days
             result = await query_service.check_availability(check_in, check_out)
             available = result.available_rooms
             if available:
                 parts.append(
-                    f"{check_in.strftime('%m/%d')}～{check_out.strftime('%m/%d')} "
+                    f"{check_in.strftime('%m/%d')}入住～{check_out.strftime('%m/%d')}退房"
+                    f"（共{num_nights}晚）"
                     f"空房：{', '.join(available)}（共{len(available)}間）"
                 )
             else:
                 parts.append(
-                    f"{check_in.strftime('%m/%d')}～{check_out.strftime('%m/%d')} 目前沒有空房"
+                    f"{check_in.strftime('%m/%d')}入住～{check_out.strftime('%m/%d')}退房"
+                    f"（共{num_nights}晚）目前沒有空房"
                 )
 
             # Price quote
@@ -454,12 +457,15 @@ class AIBrain:
                 night_details = "、".join(
                     f"{n.date.strftime('%m/%d')}({n.day_type.value})${n.price}" for n in stay.nights
                 )
-                parts.append(f"{room}號房 報價：{night_details}，合計 ${stay.total}")
+                parts.append(
+                    f"{room}號房 報價（{num_nights}晚）：{night_details}，"
+                    f"合計 ${stay.total}"
+                )
             elif check_in and check_out:
                 # Quote all available rooms
                 for r in available[:3]:  # Limit to 3 rooms to keep context short
                     stay = query_service.get_price_quote(r, check_in, check_out)
-                    parts.append(f"{r}號房 合計 ${stay.total}")
+                    parts.append(f"{r}號房（{num_nights}晚）合計 ${stay.total}")
 
         elif room and room in BASE_PRICES:
             # Price query without dates — show base prices
