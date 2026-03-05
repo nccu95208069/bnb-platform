@@ -260,10 +260,10 @@ class AIBrain:
 
     @staticmethod
     def _build_history_summary(history: list[dict[str, str]], is_new_session: bool) -> str:
-        """Build a summary with topic anchor + recent questions.
+        """Build a summary with topic anchor + recent Q&A exchanges.
 
-        Includes the first user question as a topic anchor so the LLM
-        doesn't lose track of the original conversation theme in later turns.
+        Includes both questions AND answers so the LLM knows what it
+        already said and avoids repeating the same information.
         """
         if is_new_session:
             return "新對話（可以用招呼語開頭）"
@@ -273,10 +273,22 @@ class AIBrain:
 
         # Topic anchor: first user question defines the conversation theme
         topic = f"本次對話主題：{user_questions[0]}"
-        # Recent questions for continuity
-        recent = user_questions[-3:]
-        recent_str = "最近問過：" + "、".join(recent)
-        return f"{topic}｜{recent_str}"
+
+        # Recent Q&A pairs (include answers so LLM knows what it already said)
+        recent_exchanges: list[str] = []
+        msgs = history[:-1]  # exclude current message
+        for i, msg in enumerate(msgs):
+            if msg["role"] == "user":
+                q = msg["content"][:30]
+                # Find the next assistant message as the answer
+                a = ""
+                if i + 1 < len(msgs) and msgs[i + 1]["role"] == "assistant":
+                    a = msgs[i + 1]["content"][:60]
+                recent_exchanges.append(f"客人：{q} → 你的回答：{a}")
+
+        # Keep last 2 exchanges to save tokens
+        recent_str = "\n".join(recent_exchanges[-2:])
+        return f"{topic}\n已回答過的內容（不要重複）：\n{recent_str}"
 
     @staticmethod
     def _strip_greeting(text: str) -> str:
