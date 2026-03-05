@@ -504,20 +504,43 @@ class AIBrain:
         if "今天" in query or "今晚" in query:
             return today, today + timedelta(days=1)
 
-        # "這個週末" / "這週末"
+        # Specific weekday: "下週三", "這週五", "週三", "禮拜三", "星期三"
+        weekday_map = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}
+        weekday_pat = re.compile(
+            r"(下週|下周|下個?禮拜|下個?星期|這週|這周|這個?禮拜|這個?星期|週|周|禮拜|星期)"
+            r"([一二三四五六日天])"
+        )
+        wm = weekday_pat.search(query)
+        if wm:
+            prefix = wm.group(1)
+            target_wd = weekday_map[wm.group(2)]
+            current_wd = today.weekday()
+            if "下" in prefix:
+                # "下週X" → next week's X day
+                days_to_next_mon = (7 - current_wd) % 7 or 7
+                next_mon = today + timedelta(days=days_to_next_mon)
+                check_in = next_mon + timedelta(days=target_wd)
+            else:
+                # "這週X" / "週X" → nearest upcoming occurrence
+                days_ahead = (target_wd - current_wd) % 7 or 7
+                check_in = today + timedelta(days=days_ahead)
+            return check_in, check_in + timedelta(days=1)
+
+        # "下週末" / "下個週末" (must check before "週末")
+        next_weekend_pat = re.compile(r"下[週周]末|下個[週周]末")
+        if next_weekend_pat.search(query):
+            days_until_sat = (5 - today.weekday()) % 7
+            if days_until_sat == 0:
+                days_until_sat = 7
+            sat = today + timedelta(days=days_until_sat + 7)
+            return sat, sat + timedelta(days=1)
+
+        # "這個週末" / "這週末" / "週末"
         if "週末" in query or "周末" in query:
             days_until_sat = (5 - today.weekday()) % 7
             if days_until_sat == 0:
                 days_until_sat = 7
             sat = today + timedelta(days=days_until_sat)
-            return sat, sat + timedelta(days=1)
-
-        # "下週六" / "下個週末"
-        if "下週" in query or "下個週" in query or "下周" in query:
-            days_until_sat = (5 - today.weekday()) % 7
-            if days_until_sat == 0:
-                days_until_sat = 7
-            sat = today + timedelta(days=days_until_sat + 7)
             return sat, sat + timedelta(days=1)
 
         # Date range: "3/15-3/17", "3/15~3/17", "3月15日到3月17日"
