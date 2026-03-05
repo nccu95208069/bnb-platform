@@ -75,7 +75,7 @@ class AIBrain:
         await self.conv_service.add_message(conversation.id, MessageRole.USER, user_text)
 
         if await self.conv_service.is_ai_mode(conversation.id):
-            history = await self.conv_service.get_conversation_history(conversation.id)
+            history = await self.conv_service.get_conversation_history(conversation.id, limit=30)
             try:
                 # Step 1: Reformulate follow-up into standalone question
                 standalone_query = await self._reformulate_query(history, user_text)
@@ -274,21 +274,20 @@ class AIBrain:
         # Topic anchor: first user question defines the conversation theme
         topic = f"本次對話主題：{user_questions[0]}"
 
-        # Recent Q&A pairs (include answers so LLM knows what it already said)
-        recent_exchanges: list[str] = []
+        # All Q&A pairs in history (so LLM knows what it already said)
+        exchanges: list[str] = []
         msgs = history[:-1]  # exclude current message
         for i, msg in enumerate(msgs):
             if msg["role"] == "user":
-                q = msg["content"][:30]
+                q = msg["content"][:40]
                 # Find the next assistant message as the answer
                 a = ""
                 if i + 1 < len(msgs) and msgs[i + 1]["role"] == "assistant":
-                    a = msgs[i + 1]["content"][:60]
-                recent_exchanges.append(f"客人：{q} → 你的回答：{a}")
+                    a = msgs[i + 1]["content"][:80]
+                exchanges.append(f"客人：{q} → 你的回答：{a}")
 
-        # Keep last 2 exchanges to save tokens
-        recent_str = "\n".join(recent_exchanges[-2:])
-        return f"{topic}\n已回答過的內容（不要重複）：\n{recent_str}"
+        exchanges_str = "\n".join(exchanges)
+        return f"{topic}\n已回答過的內容（不要重複）：\n{exchanges_str}"
 
     @staticmethod
     def _strip_greeting(text: str) -> str:
@@ -605,7 +604,7 @@ class AIBrain:
             debug["response_time_ms"] = int((time.monotonic() - start_time) * 1000)
             return None, debug
 
-        history = await self.conv_service.get_conversation_history(conversation.id)
+        history = await self.conv_service.get_conversation_history(conversation.id, limit=30)
         try:
             # Step 1: Reformulate
             standalone_query = await self._reformulate_query(history, user_text)
