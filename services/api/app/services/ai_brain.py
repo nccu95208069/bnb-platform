@@ -85,9 +85,11 @@ class AIBrain:
                 if standalone_query.startswith("__ACK__|"):
                     return await self._handle_ack(incoming, conversation, history)
 
-                # Step 2: RAG search with standalone query
+                # Step 2: Dual RAG search (knowledge + QA examples)
                 rag_service = RAGService(self.db)
-                rag_context = await rag_service.build_context(standalone_query)
+                knowledge_context, qa_context = await rag_service.build_dual_context(
+                    standalone_query
+                )
 
                 # Step 2.5: Booking context (if query is booking-related)
                 booking_context = await self._build_booking_context(standalone_query)
@@ -96,26 +98,33 @@ class AIBrain:
                 is_new = await self.conv_service.is_new_session(conversation.id)
                 summary = self._build_history_summary(history, is_new)
 
-                # Step 4: Fresh single-turn call (no conversation history)
+                # Step 4: Fresh single-turn call with natural language labels
                 system_prompt = BNB_SYSTEM_PROMPT
                 if summary:
-                    system_prompt += f"\n\n[對話摘要] {summary}"
+                    system_prompt += f"\n對話摘要：{summary}"
+                if not is_new:
+                    system_prompt += "\n不要用「您好」「哈囉」「嗨」等招呼語開頭，直接回答問題"
 
                 user_content = ""
-                if rag_context:
-                    user_content += f"[參考資料]\n{rag_context}\n\n"
+                if knowledge_context:
+                    user_content += f"以下是民宿的相關資訊：\n{knowledge_context}\n\n"
+                if qa_context:
+                    user_content += (
+                        "以下是過去客服的回覆範例，請參考語氣和回覆方式：\n"
+                        f"{qa_context}\n\n"
+                    )
                 if booking_context:
-                    user_content += f"[訂房資料]\n{booking_context}\n\n"
-                user_content += f"[客人的問題]\n{standalone_query}"
+                    user_content += f"系統查詢結果：\n{booking_context}\n\n"
+                user_content += f"客人的問題：\n{standalone_query}"
 
                 llm_response = await llm_service.generate(
                     messages=[{"role": "user", "content": user_content}],
                     system_prompt=system_prompt,
                 )
 
-                # Strip greeting if not a new session
-                if not is_new:
-                    llm_response.content = self._strip_greeting(llm_response.content)
+                llm_response.content = self._postprocess_response(
+                    llm_response.content, is_new
+                )
 
                 await self.conv_service.add_message(
                     conversation.id,
@@ -299,6 +308,43 @@ class AIBrain:
         pattern = r"^(您好|你好|哈囉|嗨|Hello|Hi)[！!~～。，,\s]*"
         result = re.sub(pattern, "", text, count=1, flags=re.IGNORECASE).lstrip()
         return result if result else text
+
+    @staticmethod
+    def _sanitize_response(text: str) -> str:
+        """Remove any leaked internal markers from LLM response.
+
+        Strips [方括號] tags, system labels, and other internal markers
+        that should never appear in customer-facing replies.
+        """
+        # Remove [方括號] style tags like [參考資料], [訂房資料] etc.
+        tag_names = (
+            "參考資料|訂房資料|客人的問題|對話摘要"
+            "|資料\\s*\\d+|系統查詢結果|民宿相關資訊|客服回覆範例"
+        )
+        text = re.sub(rf"\[(?:{tag_names})\]", "", text)
+        # Remove any remaining [中文標籤] patterns that look like internal tags
+        text = re.sub(r"\[(?:[\u4e00-\u9fff]+(?:\s*\d+)?)\]", "", text)
+        # Clean up leftover whitespace
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        return text
+
+    @staticmethod
+    def _postprocess_response(text: str, is_new_session: bool) -> str:
+        """Apply all post-processing steps to LLM response."""
+        if not is_new_session:
+            text = AIBrain._strip_greeting(text)
+        text = AIBrain._sanitize_response(text)
+        # Truncate overly long responses (keep under ~300 chars)
+        if len(text) > 400:
+            # Find a natural break point
+            cutoff = text[:400].rfind("。")
+            if cutoff > 200:
+                text = text[: cutoff + 1]
+            else:
+                cutoff = text[:400].rfind("～")
+                if cutoff > 200:
+                    text = text[: cutoff + 1]
+        return text
 
     async def _handle_ack(
         self,
@@ -617,6 +663,7 @@ class AIBrain:
             "extracted_guest_name": None,
             "booking_context": None,
             "rag_context": None,
+            "qa_examples": None,
             "llm_model": None,
             "llm_provider": None,
             "response_time_ms": 0,
@@ -648,10 +695,13 @@ class AIBrain:
                 debug["response_time_ms"] = int((time.monotonic() - start_time) * 1000)
                 return outgoing, debug
 
-            # Step 2: RAG search
+            # Step 2: Dual RAG search (knowledge + QA examples)
             rag_service = RAGService(self.db)
-            rag_context = await rag_service.build_context(standalone_query)
-            debug["rag_context"] = rag_context if rag_context else None
+            knowledge_context, qa_context = await rag_service.build_dual_context(
+                standalone_query
+            )
+            debug["rag_context"] = knowledge_context if knowledge_context else None
+            debug["qa_examples"] = qa_context if qa_context else None
 
             # Step 2.5: Booking context
             check_in, check_out = self._extract_dates(standalone_query)
@@ -683,17 +733,24 @@ class AIBrain:
             is_new = await self.conv_service.is_new_session(conversation.id)
             summary = self._build_history_summary(history, is_new)
 
-            # Step 4: LLM call
+            # Step 4: LLM call with natural language labels
             system_prompt = BNB_SYSTEM_PROMPT
             if summary:
-                system_prompt += f"\n\n[對話摘要] {summary}"
+                system_prompt += f"\n對話摘要：{summary}"
+            if not is_new:
+                system_prompt += "\n不要用「您好」「哈囉」「嗨」等招呼語開頭，直接回答問題"
 
             user_content = ""
-            if rag_context:
-                user_content += f"[參考資料]\n{rag_context}\n\n"
+            if knowledge_context:
+                user_content += f"以下是民宿的相關資訊：\n{knowledge_context}\n\n"
+            if qa_context:
+                user_content += (
+                    "以下是過去客服的回覆範例，請參考語氣和回覆方式：\n"
+                    f"{qa_context}\n\n"
+                )
             if booking_context:
-                user_content += f"[訂房資料]\n{booking_context}\n\n"
-            user_content += f"[客人的問題]\n{standalone_query}"
+                user_content += f"系統查詢結果：\n{booking_context}\n\n"
+            user_content += f"客人的問題：\n{standalone_query}"
 
             llm_response = await llm_service.generate(
                 messages=[{"role": "user", "content": user_content}],
@@ -702,8 +759,9 @@ class AIBrain:
             debug["llm_model"] = llm_response.model
             debug["llm_provider"] = llm_response.provider.value
 
-            if not is_new:
-                llm_response.content = self._strip_greeting(llm_response.content)
+            llm_response.content = self._postprocess_response(
+                llm_response.content, is_new
+            )
 
             await self.conv_service.add_message(
                 conversation.id,

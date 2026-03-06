@@ -19,6 +19,7 @@ interface DebugInfo {
   extracted_guest_name: string | null;
   booking_context: string | null;
   rag_context: string | null;
+  qa_examples: string | null;
   llm_model: string | null;
   llm_provider: string | null;
   response_time_ms: number;
@@ -304,8 +305,14 @@ function DebugPanel({ debug }: { debug: DebugInfo }) {
 
       {/* RAG context */}
       <div>
-        <Label>RAG Context</Label>
+        <Label>RAG Context (知識)</Label>
         <Value truncate>{debug.rag_context ?? "(無)"}</Value>
+      </div>
+
+      {/* QA examples */}
+      <div>
+        <Label>QA 範例命中</Label>
+        <Value truncate>{debug.qa_examples ?? "(無)"}</Value>
       </div>
 
       {/* Model info */}

@@ -117,7 +117,7 @@ class TestHandleText:
         MockConvService.return_value = mock_conv
 
         mock_rag = AsyncMock()
-        mock_rag.build_context.return_value = ""
+        mock_rag.build_dual_context.return_value = ("", "")
         MockRAG.return_value = mock_rag
 
         llm_response = MagicMock()
@@ -187,7 +187,7 @@ class TestHandleText:
         MockConvService.return_value = mock_conv
 
         mock_rag = AsyncMock()
-        mock_rag.build_context.return_value = ""
+        mock_rag.build_dual_context.return_value = ("", "")
         MockRAG.return_value = mock_rag
 
         mock_llm.generate = AsyncMock(side_effect=RuntimeError("All providers failed"))
@@ -223,7 +223,7 @@ class TestHandleText:
         MockConvService.return_value = mock_conv
 
         mock_rag = AsyncMock()
-        mock_rag.build_context.return_value = "[資料 1]\nRoom A is available."
+        mock_rag.build_dual_context.return_value = ("(1) Room A is available.", "")
         MockRAG.return_value = mock_rag
 
         llm_response = MagicMock()

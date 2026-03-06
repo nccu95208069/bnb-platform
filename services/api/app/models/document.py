@@ -11,6 +11,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
 
+class DocumentType(str, enum.Enum):
+    """Type of document for RAG retrieval."""
+
+    KNOWLEDGE = "knowledge"
+    QA_EXAMPLE = "qa_example"
+
+
 class DocumentStatus(str, enum.Enum):
     """Processing status of a document."""
 
@@ -29,6 +36,12 @@ class Document(Base, UUIDMixin, TimestampMixin):
     content_type: Mapped[str] = mapped_column(String(100), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    doc_type: Mapped[DocumentType] = mapped_column(
+        Enum(DocumentType, values_callable=lambda e: [m.value for m in e]),
+        default=DocumentType.KNOWLEDGE,
+        nullable=False,
+        index=True,
+    )
     status: Mapped[DocumentStatus] = mapped_column(
         Enum(DocumentStatus, values_callable=lambda e: [m.value for m in e]),
         default=DocumentStatus.PENDING,

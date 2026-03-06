@@ -557,7 +557,7 @@ class TestFullConversationFlow:
         MockConvService.return_value = mock_conv
 
         mock_rag = AsyncMock()
-        mock_rag.build_context.return_value = "[資料 1]\nRoom A: 2000/night, available"
+        mock_rag.build_dual_context.return_value = ("(1) Room A: 2000/night, available", "")
         MockRAG.return_value = mock_rag
 
         llm_resp = MagicMock()
@@ -582,7 +582,7 @@ class TestFullConversationFlow:
         mock_conv.add_message.assert_any_await(
             conv.id, MessageRole.USER, "What rooms are available?"
         )
-        mock_rag.build_context.assert_awaited_once_with("What rooms are available?")
+        mock_rag.build_dual_context.assert_awaited_once_with("What rooms are available?")
         mock_llm.generate.assert_awaited_once()
         assert result is not None
         assert result.text == "We have Room A available at 2000/night!"

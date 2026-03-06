@@ -13,6 +13,7 @@ class DocumentOut(BaseModel):
     filename: str
     content_type: str
     chunk_count: int
+    doc_type: str = "knowledge"
     status: str
     error_message: str | None = None
     created_at: datetime
@@ -25,6 +26,7 @@ class DocumentTextIn(BaseModel):
 
     title: str
     content: str
+    doc_type: str = "knowledge"
 
 
 class DocumentChunkOut(BaseModel):

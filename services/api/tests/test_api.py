@@ -262,6 +262,7 @@ class TestUploadDocument:
         doc_mock.filename = "test.txt"
         doc_mock.content_type = "text/plain"
         doc_mock.chunk_count = 1
+        doc_mock.doc_type = "knowledge"
         doc_mock.status = "pending"
         doc_mock.error_message = None
         doc_mock.created_at = datetime.now(tz=UTC)
@@ -329,6 +330,7 @@ class TestListDocuments:
         doc.filename = "info.txt"
         doc.content_type = "text/plain"
         doc.chunk_count = 3
+        doc.doc_type = "knowledge"
         doc.status = "completed"
         doc.error_message = None
         doc.created_at = datetime.now(tz=UTC)

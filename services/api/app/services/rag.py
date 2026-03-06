@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import async_session_factory
-from app.models.document import Document, DocumentChunk, DocumentStatus
+from app.models.document import Document, DocumentChunk, DocumentStatus, DocumentType
 
 logger = logging.getLogger(__name__)
 
@@ -29,16 +29,19 @@ class RAGService:
         filename: str,
         content: str,
         content_type: str,
+        doc_type: str = "knowledge",
     ) -> Document:
         """Create a document record with PENDING status (no chunking/embedding).
 
         Returns immediately so the caller can dispatch background processing.
         """
+        doc_type_enum = DocumentType(doc_type)
         document = Document(
             filename=filename,
             content_type=content_type,
             content=content,
             chunk_count=0,
+            doc_type=doc_type_enum,
             status=DocumentStatus.PENDING,
         )
         self.db.add(document)
@@ -229,6 +232,80 @@ class RAGService:
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    async def search_by_type(
+        self,
+        query_embedding: list[float],
+        doc_type: DocumentType,
+        top_k: int = 3,
+    ) -> list[DocumentChunk]:
+        """Search for chunks filtered by document type.
+
+        Args:
+            query_embedding: Pre-computed embedding vector for the query.
+            doc_type: Filter to only this document type.
+            top_k: Number of chunks to return.
+
+        Returns:
+            List of most relevant DocumentChunks of the given type.
+        """
+        stmt = (
+            select(DocumentChunk)
+            .join(Document, DocumentChunk.document_id == Document.id)
+            .where(
+                Document.doc_type == doc_type,
+                DocumentChunk.embedding.cosine_distance(query_embedding) < 0.5,
+            )
+            .order_by(DocumentChunk.embedding.cosine_distance(query_embedding))
+            .limit(top_k)
+        )
+        result = await self.db.execute(stmt)
+        return list(result.scalars().all())
+
+    async def build_dual_context(
+        self,
+        query: str,
+        knowledge_top_k: int = 3,
+        qa_top_k: int = 2,
+    ) -> tuple[str, str]:
+        """Build dual RAG context: knowledge chunks + QA examples.
+
+        Uses a single embedding call for both searches.
+
+        Args:
+            query: The user's question.
+            knowledge_top_k: Number of knowledge chunks to retrieve.
+            qa_top_k: Number of QA examples to retrieve.
+
+        Returns:
+            Tuple of (knowledge_context, qa_examples_context).
+        """
+        query_embedding = (await self._generate_embeddings([query]))[0]
+
+        knowledge_chunks = await self.search_by_type(
+            query_embedding, DocumentType.KNOWLEDGE, knowledge_top_k
+        )
+        qa_chunks = await self.search_by_type(
+            query_embedding, DocumentType.QA_EXAMPLE, qa_top_k
+        )
+
+        # Format knowledge context
+        knowledge_context = ""
+        if knowledge_chunks:
+            parts = []
+            for i, chunk in enumerate(knowledge_chunks, 1):
+                parts.append(f"({i}) {chunk.content}")
+            knowledge_context = "\n\n".join(parts)
+
+        # Format QA examples
+        qa_context = ""
+        if qa_chunks:
+            parts = []
+            for chunk in qa_chunks:
+                parts.append(f"---\n{chunk.content}\n---")
+            qa_context = "\n".join(parts)
+
+        return knowledge_context, qa_context
 
     async def build_context(self, query: str, top_k: int = 3) -> str:
         """Build RAG context string from relevant document chunks.

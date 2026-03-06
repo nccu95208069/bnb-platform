@@ -90,6 +90,7 @@ async def create_text_document(
         filename=body.title,
         content=body.content,
         content_type="text/plain",
+        doc_type=body.doc_type,
     )
     background_tasks.add_task(_process_document_task, document.id)
     return DocumentOut.model_validate(document)
