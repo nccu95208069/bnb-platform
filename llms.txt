@@ -1,0 +1,39 @@
+# BnB Platform AI Context
+
+Canonical context:
+https://raw.githubusercontent.com/nccu95208069/bnb-platform/main/AI_CONTEXT.md
+
+Topic index:
+https://github.com/nccu95208069/bnb-platform/blob/main/docs/ai-context/README.md
+
+Product:
+https://raw.githubusercontent.com/nccu95208069/bnb-platform/main/docs/ai-context/product.md
+
+Mobile UI/UX:
+https://raw.githubusercontent.com/nccu95208069/bnb-platform/main/docs/ai-context/mobile-ui.md
+
+Identity:
+https://raw.githubusercontent.com/nccu95208069/bnb-platform/main/docs/ai-context/identity.md
+
+Context & State:
+https://raw.githubusercontent.com/nccu95208069/bnb-platform/main/docs/ai-context/context-state.md
+
+Knowledge & Replies:
+https://raw.githubusercontent.com/nccu95208069/bnb-platform/main/docs/ai-context/knowledge-replies.md
+
+Router & Reply Engine:
+https://raw.githubusercontent.com/nccu95208069/bnb-platform/main/docs/ai-context/router-reply-engine.md
+
+Architecture & Data:
+https://raw.githubusercontent.com/nccu95208069/bnb-platform/main/docs/ai-context/architecture-data.md
+
+Evaluation:
+https://raw.githubusercontent.com/nccu95208069/bnb-platform/main/docs/ai-context/evaluation.md
+
+Implementation:
+https://raw.githubusercontent.com/nccu95208069/bnb-platform/main/docs/ai-context/implementation.md
+
+Sweetfun current truth:
+https://raw.githubusercontent.com/nccu95208069/bnb-platform/main/docs/ai-context/sweetfun-current-truth.md
+
+Privacy note: raw guest conversations, reservation PII, OTA screenshots, real access codes, bank-account values, and identifying benchmark examples are intentionally not published.
