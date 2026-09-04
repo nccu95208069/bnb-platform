@@ -4,11 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   CalendarDays,
-  FileText,
-  ListTodo,
-  MessageCircle,
+  ClipboardList,
+  ListChecks,
   MessageSquare,
-  Settings,
+  WalletCards,
 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -18,31 +17,27 @@ const navItems = [
     label: "訂單日曆",
     href: "/calendar",
     icon: CalendarDays,
+    enabled: true,
   },
   {
-    label: "對話管理",
-    href: "/conversations",
+    label: "訂單管理",
+    icon: ClipboardList,
+    enabled: false,
+  },
+  {
+    label: "收款與財務",
+    icon: WalletCards,
+    enabled: false,
+  },
+  {
+    label: "Agent 任務",
+    icon: ListChecks,
+    enabled: false,
+  },
+  {
+    label: "房客訊息",
     icon: MessageSquare,
-  },
-  {
-    label: "文件管理",
-    href: "/documents",
-    icon: FileText,
-  },
-  {
-    label: "對話測試",
-    href: "/chat-test",
-    icon: MessageCircle,
-  },
-  {
-    label: "待辦事項",
-    href: "/todos",
-    icon: ListTodo,
-  },
-  {
-    label: "設定",
-    href: "/settings",
-    icon: Settings,
+    enabled: false,
   },
 ];
 
@@ -55,8 +50,13 @@ export function Sidebar() {
         <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-sm font-bold text-primary-foreground shadow-sm">
           SF
         </span>
-        <div className="min-w-0">
-          <h1 className="truncate text-sm font-semibold">Sweetfun OS</h1>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <h1 className="truncate text-sm font-semibold">Sweetfun OS</h1>
+            <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary">
+              Preview
+            </span>
+          </div>
           <p className="truncate text-[11px] text-muted-foreground">旅宿營運工作台</p>
         </div>
       </div>
@@ -74,11 +74,27 @@ export function Sidebar() {
       <nav className="flex-1 space-y-1 p-3">
         {navItems.map((item) => {
           const isActive =
-            pathname === item.href || pathname.startsWith(item.href + "/");
+            item.enabled &&
+            item.href &&
+            (pathname === item.href || pathname.startsWith(item.href + "/"));
+
+          if (!item.enabled) {
+            return (
+              <div
+                key={item.label}
+                className="flex cursor-not-allowed items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground/55"
+              >
+                <item.icon className="size-4" />
+                <span className="flex-1">{item.label}</span>
+                <span className="text-[9px] font-semibold uppercase tracking-wide">Soon</span>
+              </div>
+            );
+          }
+
           return (
             <Link
               key={item.href}
-              href={item.href}
+              href={item.href ?? "/calendar"}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                 isActive
@@ -96,9 +112,9 @@ export function Sidebar() {
       <div className="border-t p-4">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="size-2 rounded-full bg-emerald-500" />
-          系統連線正常
+          2026 年 9 月資料已載入
         </div>
-        <p className="mt-1 text-[10px] text-muted-foreground">BnB Platform v0.2</p>
+        <p className="mt-1 text-[10px] text-muted-foreground">去識別化 SaaS 預覽環境</p>
       </div>
     </aside>
   );
