@@ -27,120 +27,96 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path("frontend/src/components/calendar/booking-calendar-responsive.tsx")
           text = path.read_text()
 
-          old = '''  const mobileSearchOpen = useCalendarPreferences((state) => state.mobileSearchOpen);
-          const setMobileSearchOpen = useCalendarPreferences((state) => state.setMobileSearchOpen);
-          const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);
-          const setProperties = useCalendarPreferences((state) => state.setProperties);
-          '''
-          new = '''  const mobileSearchOpen = useCalendarPreferences((state) => state.mobileSearchOpen);
-          const setMobileSearchOpen = useCalendarPreferences((state) => state.setMobileSearchOpen);
-          const setMobilePeriodLabel = useCalendarPreferences(
-            (state) => state.setMobilePeriodLabel,
-          );
-          const navigationRequest = useCalendarPreferences(
-            (state) => state.navigationRequest,
-          );
-          const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);
-          const setProperties = useCalendarPreferences((state) => state.setProperties);
-          '''
+          old = (
+              '  const mobileSearchOpen = useCalendarPreferences((state) => state.mobileSearchOpen);\n'
+              '  const setMobileSearchOpen = useCalendarPreferences((state) => state.setMobileSearchOpen);\n'
+              '  const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);\n'
+              '  const setProperties = useCalendarPreferences((state) => state.setProperties);\n'
+          )
+          new = (
+              '  const mobileSearchOpen = useCalendarPreferences((state) => state.mobileSearchOpen);\n'
+              '  const setMobileSearchOpen = useCalendarPreferences((state) => state.setMobileSearchOpen);\n'
+              '  const setMobilePeriodLabel = useCalendarPreferences(\n'
+              '    (state) => state.setMobilePeriodLabel,\n'
+              '  );\n'
+              '  const navigationRequest = useCalendarPreferences(\n'
+              '    (state) => state.navigationRequest,\n'
+              '  );\n'
+              '  const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);\n'
+              '  const setProperties = useCalendarPreferences((state) => state.setProperties);\n'
+          )
           if old not in text:
               raise SystemExit("preference hook block not found")
           text = text.replace(old, new, 1)
 
-          old = '''  const hasLoadedData = useRef(false);
-          const previousView = useRef<CalendarView>(view);
-          '''
-          new = '''  const hasLoadedData = useRef(false);
-          const previousView = useRef<CalendarView>(view);
-          const handledNavigationRequest = useRef(0);
-          '''
+          old = (
+              '  const hasLoadedData = useRef(false);\n'
+              '  const previousView = useRef<CalendarView>(view);\n'
+          )
+          new = (
+              '  const hasLoadedData = useRef(false);\n'
+              '  const previousView = useRef<CalendarView>(view);\n'
+              '  const handledNavigationRequest = useRef(0);\n'
+          )
           if old not in text:
               raise SystemExit("ref block not found")
           text = text.replace(old, new, 1)
 
-          marker = '''  useEffect(() => {
-            const oldView = previousView.current;
-          '''
-          insertion = '''  useEffect(() => {
-            setMobilePeriodLabel(displayPeriod.label);
-          }, [displayPeriod.label, setMobilePeriodLabel]);
-
-          useEffect(() => {
-            if (!navigationRequest) return;
-            if (navigationRequest.id <= handledNavigationRequest.current) return;
-            handledNavigationRequest.current = navigationRequest.id;
-
-            if (navigationRequest.action === "today") {
-              const today = localTodayIso();
-              setAnchorDate(today);
-              if (view === "month") {
-                const month = startOfMonth(today);
-                setVisibleMonth(month);
-                setMonthTarget(month);
-              }
-              return;
-            }
-
-            const direction = navigationRequest.action === "previous" ? -1 : 1;
-            if (view === "month") {
-              const target = addMonths(visibleMonth, direction);
-              setVisibleMonth(target);
-              setMonthTarget(target);
-              setAnchorDate(target);
-              return;
-            }
-            if (view === "week") {
-              setAnchorDate((value) => addDays(value, direction * 7));
-              return;
-            }
-            setAnchorDate((value) => addDays(value, direction));
-          }, [navigationRequest, view, visibleMonth]);
-
-          useEffect(() => {
-            const oldView = previousView.current;
-          '''
+          marker = (
+              '  useEffect(() => {\n'
+              '    const oldView = previousView.current;\n'
+          )
+          insertion = (
+              '  useEffect(() => {\n'
+              '    setMobilePeriodLabel(displayPeriod.label);\n'
+              '  }, [displayPeriod.label, setMobilePeriodLabel]);\n\n'
+              '  useEffect(() => {\n'
+              '    if (!navigationRequest) return;\n'
+              '    if (navigationRequest.id <= handledNavigationRequest.current) return;\n'
+              '    handledNavigationRequest.current = navigationRequest.id;\n\n'
+              '    if (navigationRequest.action === "today") {\n'
+              '      const today = localTodayIso();\n'
+              '      setAnchorDate(today);\n'
+              '      if (view === "month") {\n'
+              '        const month = startOfMonth(today);\n'
+              '        setVisibleMonth(month);\n'
+              '        setMonthTarget(month);\n'
+              '      }\n'
+              '      return;\n'
+              '    }\n\n'
+              '    const direction = navigationRequest.action === "previous" ? -1 : 1;\n'
+              '    if (view === "month") {\n'
+              '      const target = addMonths(visibleMonth, direction);\n'
+              '      setVisibleMonth(target);\n'
+              '      setMonthTarget(target);\n'
+              '      setAnchorDate(target);\n'
+              '      return;\n'
+              '    }\n'
+              '    if (view === "week") {\n'
+              '      setAnchorDate((value) => addDays(value, direction * 7));\n'
+              '      return;\n'
+              '    }\n'
+              '    setAnchorDate((value) => addDays(value, direction));\n'
+              '  }, [navigationRequest, view, visibleMonth]);\n\n'
+              '  useEffect(() => {\n'
+              '    const oldView = previousView.current;\n'
+          )
           if marker not in text:
               raise SystemExit("effect insertion marker not found")
           text = text.replace(marker, insertion, 1)
 
-          old = '''      <section className="sticky top-14 z-30 -mx-2 border-b bg-background/95 backdrop-blur md:hidden">
-            <div className="flex h-12 items-center gap-1 px-1.5">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => navigate(-1)}
-                aria-label="上一個區間"
-              >
-                <ChevronLeft className="size-5" />
-              </Button>
-              <Button variant="ghost" size="sm" onClick={goToToday}>
-                今天
-              </Button>
-              <div className="min-w-0 flex-1 truncate px-1 text-center text-sm font-semibold">
-                {displayPeriod.label}
-              </div>
-              {refreshing && (
-                <LoaderCircle className="size-4 shrink-0 animate-spin text-muted-foreground" />
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => navigate(1)}
-                aria-label="下一個區間"
-              >
-                <ChevronRight className="size-5" />
-              </Button>
-            </div>
-          </section>
-
-          '''
-          if old not in text:
+          toolbar_pattern = re.compile(
+              r'\n      <section className="sticky top-14 z-30 -mx-2 border-b bg-background/95 backdrop-blur md:hidden">.*?\n      </section>\n',
+              re.DOTALL,
+          )
+          text, count = toolbar_pattern.subn("\n", text, count=1)
+          if count != 1:
               raise SystemExit("mobile date toolbar not found")
-          text = text.replace(old, "", 1)
 
           path.write_text(text)
 
