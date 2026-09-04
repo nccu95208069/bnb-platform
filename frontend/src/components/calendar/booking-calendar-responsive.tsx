@@ -139,6 +139,12 @@ export function BookingCalendarResponsive() {
   const setQuery = useCalendarPreferences((state) => state.setSearchQuery);
   const mobileSearchOpen = useCalendarPreferences((state) => state.mobileSearchOpen);
   const setMobileSearchOpen = useCalendarPreferences((state) => state.setMobileSearchOpen);
+  const setMobilePeriodLabel = useCalendarPreferences(
+    (state) => state.setMobilePeriodLabel,
+  );
+  const navigationRequest = useCalendarPreferences(
+    (state) => state.navigationRequest,
+  );
   const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);
   const setProperties = useCalendarPreferences((state) => state.setProperties);
 
@@ -156,6 +162,7 @@ export function BookingCalendarResponsive() {
   const [editsHydrated, setEditsHydrated] = useState(false);
   const hasLoadedData = useRef(false);
   const previousView = useRef<CalendarView>(view);
+  const handledNavigationRequest = useRef(0);
 
   const requestPeriod = useMemo(() => fetchPeriod(anchorDate, view), [anchorDate, view]);
   const displayPeriod = useMemo(() => {
@@ -168,6 +175,41 @@ export function BookingCalendarResponsive() {
     }
     return currentPeriod(anchorDate, view);
   }, [anchorDate, view, visibleMonth]);
+
+  useEffect(() => {
+    setMobilePeriodLabel(displayPeriod.label);
+  }, [displayPeriod.label, setMobilePeriodLabel]);
+
+  useEffect(() => {
+    if (!navigationRequest) return;
+    if (navigationRequest.id <= handledNavigationRequest.current) return;
+    handledNavigationRequest.current = navigationRequest.id;
+
+    if (navigationRequest.action === "today") {
+      const today = localTodayIso();
+      setAnchorDate(today);
+      if (view === "month") {
+        const month = startOfMonth(today);
+        setVisibleMonth(month);
+        setMonthTarget(month);
+      }
+      return;
+    }
+
+    const direction = navigationRequest.action === "previous" ? -1 : 1;
+    if (view === "month") {
+      const target = addMonths(visibleMonth, direction);
+      setVisibleMonth(target);
+      setMonthTarget(target);
+      setAnchorDate(target);
+      return;
+    }
+    if (view === "week") {
+      setAnchorDate((value) => addDays(value, direction * 7));
+      return;
+    }
+    setAnchorDate((value) => addDays(value, direction));
+  }, [navigationRequest, view, visibleMonth]);
 
   useEffect(() => {
     const oldView = previousView.current;
@@ -544,35 +586,6 @@ export function BookingCalendarResponsive() {
         </div>
       )}
 
-      <section className="sticky top-14 z-30 -mx-2 border-b bg-background/95 backdrop-blur md:hidden">
-        <div className="flex h-12 items-center gap-1 px-1.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => navigate(-1)}
-            aria-label="上一個區間"
-          >
-            <ChevronLeft className="size-5" />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={goToToday}>
-            今天
-          </Button>
-          <div className="min-w-0 flex-1 truncate px-1 text-center text-sm font-semibold">
-            {displayPeriod.label}
-          </div>
-          {refreshing && (
-            <LoaderCircle className="size-4 shrink-0 animate-spin text-muted-foreground" />
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => navigate(1)}
-            aria-label="下一個區間"
-          >
-            <ChevronRight className="size-5" />
-          </Button>
-        </div>
-      </section>
 
       <section className="sticky top-0 z-30 hidden overflow-hidden rounded-2xl border bg-background/95 shadow-sm backdrop-blur md:block">
         <div className="flex flex-col gap-4 border-b px-5 py-4 lg:flex-row lg:items-center lg:justify-between">

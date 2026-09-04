@@ -127,7 +127,7 @@
 
 @media (max-width: 767px) {
   .calendar-month-mobile-viewport > div {
-    height: calc(100dvh - 6.5rem) !important;
+    height: calc(100dvh - 3.5rem) !important;
     min-height: 0 !important;
     border-left-width: 0;
     border-right-width: 0;
