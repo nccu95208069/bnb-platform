@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "BnB 管理後台",
-  description: "民宿管理後台 - 對話管理、文件管理、設定",
+  title: "Sweetfun OS｜訂單與房況日曆",
+  description: "水芳 Sweetfun 的月、週、日訂單與房況營運工作台",
 };
 
 export default function RootLayout({

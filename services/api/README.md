@@ -70,6 +70,7 @@ services/api/
 class ChannelType(str, enum.Enum):
     LINE = "line"
 
+
 @dataclass
 class IncomingMessage:
     channel: ChannelType
@@ -80,12 +81,14 @@ class IncomingMessage:
     raw_event: object | None = None
     reply_token: str | None = None
 
+
 @dataclass
 class OutgoingMessage:
     channel: ChannelType
     channel_user_id: str
     text: str
     reply_token: str | None = None  # 有值時使用 reply，否則使用 push
+
 
 class ChannelAdapter(ABC):
     channel_type: ChannelType

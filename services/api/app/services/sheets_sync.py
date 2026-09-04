@@ -14,6 +14,9 @@ from app.models.booking import Booking, BookingPlatform, PaymentStatus
 
 logger = logging.getLogger(__name__)
 
+# Private normalized seed used only when the configured operational sheet is unavailable.
+_DEFAULT_SEED_SHEET_ID = "1nCcgvcTvuO4bw516kEchemdYtgMVk8yGsNdFU0z8kdU"
+
 # Map Chinese/English platform names to enum
 _PLATFORM_MAP: dict[str, BookingPlatform] = {
     "直訂": BookingPlatform.DIRECT,
@@ -22,18 +25,22 @@ _PLATFORM_MAP: dict[str, BookingPlatform] = {
     "booking": BookingPlatform.BOOKING,
     "booking.com": BookingPlatform.BOOKING,
     "airbnb": BookingPlatform.AIRBNB,
+    "ctrip": BookingPlatform.CTRIP,
+    "owljourney": BookingPlatform.OWLJOURNEY,
 }
 
 _PAYMENT_MAP: dict[str, PaymentStatus] = {
     "未付": PaymentStatus.UNPAID,
+    "not_yet": PaymentStatus.UNPAID,
     "訂金": PaymentStatus.DEPOSIT,
     "已付訂金": PaymentStatus.DEPOSIT,
     "已付": PaymentStatus.PAID,
     "全額": PaymentStatus.PAID,
     "已付全額": PaymentStatus.PAID,
+    "done": PaymentStatus.PAID,
 }
 
-# Expected Sheet columns (0-indexed):
+# Expected normalized Sheet columns (0-indexed):
 # A=唯一ID, B=房號, C=姓名, D=平台, E=入住日, F=退房日,
 # G=預訂日, H=房費, I=付款狀態, J=訂單編號, K=外部訂單號, L=備註
 _COL_ID = 0
@@ -66,14 +73,12 @@ def _parse_date(value: str) -> date | None:
     if not value:
         return None
 
-    # Try YYYY/MM/DD or YYYY-MM-DD
     for fmt in ("%Y/%m/%d", "%Y-%m-%d", "%Y/%m/%d %H:%M:%S"):
         try:
             return datetime.strptime(value, fmt).date()
         except ValueError:
             continue
 
-    # Try MM/DD/YYYY
     for fmt in ("%m/%d/%Y", "%m/%d/%y"):
         try:
             return datetime.strptime(value, fmt).date()
@@ -84,7 +89,7 @@ def _parse_date(value: str) -> date | None:
 
 
 def _parse_int(value: str) -> int:
-    """Parse integer from string, stripping non-digit chars."""
+    """Parse integer from a currency-like string."""
     digits = re.sub(r"[^\d]", "", value.strip())
     return int(digits) if digits else 0
 
@@ -96,14 +101,35 @@ def _get_cell(row: list[str], idx: int) -> str:
 
 def _parse_platform(value: str) -> BookingPlatform:
     """Parse platform from string."""
-    lower = value.strip().lower()
-    return _PLATFORM_MAP.get(lower, BookingPlatform.OTHER)
+    return _PLATFORM_MAP.get(value.strip().lower(), BookingPlatform.OTHER)
 
 
-def _parse_payment(value: str) -> PaymentStatus:
-    """Parse payment status from string."""
-    stripped = value.strip()
-    return _PAYMENT_MAP.get(stripped, PaymentStatus.UNPAID)
+def _parse_payment(value: str, notes: str = "") -> PaymentStatus:
+    """Parse payment status and infer deposit status from legacy notes."""
+    status = _PAYMENT_MAP.get(value.strip().lower(), PaymentStatus.UNPAID)
+    if status == PaymentStatus.UNPAID and re.search(r"訂金\s*[：:]?\s*\d+", notes):
+        return PaymentStatus.DEPOSIT
+    return status
+
+
+def _legacy_row_to_normalized(row: list[str]) -> list[str]:
+    """Convert the current Sweetfun 工作表1 A:R layout to the normalized A:L layout."""
+    legacy_id = _get_cell(row, 9)
+    order_id = _get_cell(row, 11) or legacy_id
+    return [
+        legacy_id,
+        _get_cell(row, 0),
+        _get_cell(row, 1),
+        _get_cell(row, 2),
+        _get_cell(row, 3),
+        _get_cell(row, 4),
+        _get_cell(row, 5),
+        _get_cell(row, 6),
+        _get_cell(row, 7),
+        order_id,
+        _get_cell(row, 13),
+        _get_cell(row, 10),
+    ]
 
 
 class SheetsSyncService:
@@ -134,7 +160,6 @@ class SheetsSyncService:
                         result.skipped += 1
                         continue
 
-                    # Upsert by sheet_row_id
                     stmt = select(Booking).where(Booking.sheet_row_id == parsed["sheet_row_id"])
                     existing = (await session.execute(stmt)).scalar_one_or_none()
 
@@ -146,8 +171,8 @@ class SheetsSyncService:
                         session.add(Booking(**parsed))
                         result.created += 1
 
-                except Exception as e:
-                    result.errors.append(f"Row {i + 2}: {e}")
+                except Exception as exc:
+                    result.errors.append(f"Row {i + 2}: {exc}")
 
             await session.commit()
 
@@ -166,7 +191,7 @@ class SheetsSyncService:
         return result
 
     def _fetch_sheet_data(self) -> list[list[str]]:
-        """Fetch all rows from the Google Sheet (synchronous API call)."""
+        """Fetch normalized rows from the configured sheet or the September seed fallback."""
         from google.oauth2 import service_account
         from googleapiclient.discovery import build
 
@@ -177,19 +202,43 @@ class SheetsSyncService:
         )
         service = build("sheets", "v4", credentials=credentials)
 
-        result = (
-            service.spreadsheets()
-            .values()
-            .get(spreadsheetId=settings.google_sheet_id, range="訂房紀錄!A:L")
-            .execute()
-        )
+        sheet_ids = [
+            sheet_id for sheet_id in [settings.google_sheet_id, _DEFAULT_SEED_SHEET_ID] if sheet_id
+        ]
+        sheet_ids = list(dict.fromkeys(sheet_ids))
+        attempts: list[str] = []
 
-        rows = result.get("values", [])
-        # Skip header row
-        return rows[1:] if rows else []
+        for sheet_id in sheet_ids:
+            for range_name, is_legacy in (
+                ("訂房紀錄!A:L", False),
+                ("工作表1!A:R", True),
+            ):
+                try:
+                    result = (
+                        service.spreadsheets()
+                        .values()
+                        .get(spreadsheetId=sheet_id, range=range_name)
+                        .execute()
+                    )
+                except Exception as exc:
+                    attempts.append(f"{sheet_id}:{range_name}: {exc}")
+                    continue
+
+                rows = result.get("values", [])
+                if len(rows) <= 1:
+                    attempts.append(f"{sheet_id}:{range_name}: no rows")
+                    continue
+
+                data_rows = rows[1:]
+                logger.info("Booking sync source selected: %s %s", sheet_id, range_name)
+                if is_legacy:
+                    return [_legacy_row_to_normalized(row) for row in data_rows]
+                return data_rows
+
+        raise RuntimeError("No readable booking sheet source. " + " | ".join(attempts[-4:]))
 
     def _parse_row(self, row: list[str]) -> dict | None:
-        """Parse a sheet row into booking fields. Returns None if row is invalid."""
+        """Parse a normalized sheet row into booking fields."""
         sheet_row_id = _get_cell(row, _COL_ID)
         if not sheet_row_id:
             return None
@@ -199,10 +248,10 @@ class SheetsSyncService:
         check_in = _parse_date(_get_cell(row, _COL_CHECKIN))
         check_out = _parse_date(_get_cell(row, _COL_CHECKOUT))
 
-        # Required fields
         if not room_number or not guest_name or not check_in or not check_out:
             return None
 
+        notes = _get_cell(row, _COL_NOTES)
         return {
             "sheet_row_id": sheet_row_id,
             "room_number": room_number,
@@ -212,12 +261,11 @@ class SheetsSyncService:
             "check_out": check_out,
             "booked_at": _parse_date(_get_cell(row, _COL_BOOKED)),
             "room_rate": _parse_int(_get_cell(row, _COL_RATE)),
-            "payment_status": _parse_payment(_get_cell(row, _COL_PAYMENT)),
+            "payment_status": _parse_payment(_get_cell(row, _COL_PAYMENT), notes),
             "order_id": _get_cell(row, _COL_ORDER_ID) or None,
             "external_order_no": _get_cell(row, _COL_EXT_ORDER) or None,
-            "notes": _get_cell(row, _COL_NOTES) or None,
+            "notes": notes or None,
         }
 
 
-# Singleton for background sync loop
 sheets_sync_service = SheetsSyncService()
