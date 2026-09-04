@@ -124,3 +124,14 @@
     @apply bg-background text-foreground;
   }
 }
+
+@media (max-width: 767px) {
+  .calendar-month-mobile-viewport > div {
+    height: calc(100dvh - 6.5rem) !important;
+    min-height: 0 !important;
+    border-left-width: 0;
+    border-right-width: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+}
