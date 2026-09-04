@@ -16,6 +16,8 @@ class BookingPlatform(str, enum.Enum):
     AGODA = "agoda"
     BOOKING = "booking"
     AIRBNB = "airbnb"
+    CTRIP = "ctrip"
+    OWLJOURNEY = "owljourney"
     OTHER = "other"
 
 
