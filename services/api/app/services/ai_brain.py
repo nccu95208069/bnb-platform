@@ -110,8 +110,7 @@ class AIBrain:
                     user_content += f"以下是民宿的相關資訊：\n{knowledge_context}\n\n"
                 if qa_context:
                     user_content += (
-                        "以下是過去客服的回覆範例，請參考語氣和回覆方式：\n"
-                        f"{qa_context}\n\n"
+                        f"以下是過去客服的回覆範例，請參考語氣和回覆方式：\n{qa_context}\n\n"
                     )
                 if booking_context:
                     user_content += f"系統查詢結果：\n{booking_context}\n\n"
@@ -122,9 +121,7 @@ class AIBrain:
                     system_prompt=system_prompt,
                 )
 
-                llm_response.content = self._postprocess_response(
-                    llm_response.content, is_new
-                )
+                llm_response.content = self._postprocess_response(llm_response.content, is_new)
 
                 await self.conv_service.add_message(
                     conversation.id,
@@ -504,8 +501,7 @@ class AIBrain:
                     f"{n.date.strftime('%m/%d')}({n.day_type.value})${n.price}" for n in stay.nights
                 )
                 parts.append(
-                    f"{room}號房 報價（{num_nights}晚）：{night_details}，"
-                    f"合計 ${stay.total}"
+                    f"{room}號房 報價（{num_nights}晚）：{night_details}，合計 ${stay.total}"
                 )
             elif check_in and check_out:
                 # Quote all available rooms
@@ -697,9 +693,7 @@ class AIBrain:
 
             # Step 2: Dual RAG search (knowledge + QA examples)
             rag_service = RAGService(self.db)
-            knowledge_context, qa_context = await rag_service.build_dual_context(
-                standalone_query
-            )
+            knowledge_context, qa_context = await rag_service.build_dual_context(standalone_query)
             debug["rag_context"] = knowledge_context if knowledge_context else None
             debug["qa_examples"] = qa_context if qa_context else None
 
@@ -745,8 +739,7 @@ class AIBrain:
                 user_content += f"以下是民宿的相關資訊：\n{knowledge_context}\n\n"
             if qa_context:
                 user_content += (
-                    "以下是過去客服的回覆範例，請參考語氣和回覆方式：\n"
-                    f"{qa_context}\n\n"
+                    f"以下是過去客服的回覆範例，請參考語氣和回覆方式：\n{qa_context}\n\n"
                 )
             if booking_context:
                 user_content += f"系統查詢結果：\n{booking_context}\n\n"
@@ -759,9 +752,7 @@ class AIBrain:
             debug["llm_model"] = llm_response.model
             debug["llm_provider"] = llm_response.provider.value
 
-            llm_response.content = self._postprocess_response(
-                llm_response.content, is_new
-            )
+            llm_response.content = self._postprocess_response(llm_response.content, is_new)
 
             await self.conv_service.add_message(
                 conversation.id,

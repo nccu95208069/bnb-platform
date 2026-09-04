@@ -285,9 +285,7 @@ class RAGService:
         knowledge_chunks = await self.search_by_type(
             query_embedding, DocumentType.KNOWLEDGE, knowledge_top_k
         )
-        qa_chunks = await self.search_by_type(
-            query_embedding, DocumentType.QA_EXAMPLE, qa_top_k
-        )
+        qa_chunks = await self.search_by_type(query_embedding, DocumentType.QA_EXAMPLE, qa_top_k)
 
         # Format knowledge context
         knowledge_context = ""

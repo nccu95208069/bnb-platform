@@ -31,14 +31,23 @@ logger = logging.getLogger(__name__)
 
 # --- Configuration ---
 MAX_EXAMPLES = 500
-MIN_CUSTOMER_LEN = 4       # Filter out too-short customer messages
-MIN_STAFF_LEN = 8          # Filter out too-short staff responses
-MAX_STAFF_LEN = 500        # Filter out overly long responses (info dumps)
+MIN_CUSTOMER_LEN = 4  # Filter out too-short customer messages
+MIN_STAFF_LEN = 8  # Filter out too-short staff responses
+MAX_STAFF_LEN = 500  # Filter out overly long responses (info dumps)
 
 # Topics to ensure coverage
 PRIORITY_TOPICS = [
-    "訂房", "房型", "價格", "入住退房", "設施",
-    "備品", "交通", "停車", "餐飲", "景點", "人數安排",
+    "訂房",
+    "房型",
+    "價格",
+    "入住退房",
+    "設施",
+    "備品",
+    "交通",
+    "停車",
+    "餐飲",
+    "景點",
+    "人數安排",
 ]
 
 # Patterns that indicate the staff response contains raw template data
