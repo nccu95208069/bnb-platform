@@ -3,14 +3,20 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-import type { CalendarProperty } from "./calendar-types";
+import type { CalendarProperty, CalendarView } from "./calendar-types";
 
 type CalendarPreferenceState = {
   properties: CalendarProperty[];
   selectedPropertyIds: string[];
+  view: CalendarView;
+  searchQuery: string;
+  mobileSearchOpen: boolean;
   setProperties: (properties: CalendarProperty[]) => void;
   toggleProperty: (propertyId: string) => void;
   selectAllProperties: () => void;
+  setView: (view: CalendarView) => void;
+  setSearchQuery: (query: string) => void;
+  setMobileSearchOpen: (open: boolean) => void;
 };
 
 export const useCalendarPreferences = create<CalendarPreferenceState>()(
@@ -18,6 +24,9 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
     (set) => ({
       properties: [],
       selectedPropertyIds: [],
+      view: "month",
+      searchQuery: "",
+      mobileSearchOpen: false,
       setProperties: (properties) =>
         set((state) => {
           const validIds = new Set(properties.map((property) => property.id));
@@ -39,10 +48,16 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
         }),
       selectAllProperties: () =>
         set((state) => ({ selectedPropertyIds: state.properties.map((property) => property.id) })),
+      setView: (view) => set({ view }),
+      setSearchQuery: (searchQuery) => set({ searchQuery }),
+      setMobileSearchOpen: (mobileSearchOpen) => set({ mobileSearchOpen }),
     }),
     {
       name: "sweetfun-os-calendar-preferences",
-      partialize: (state) => ({ selectedPropertyIds: state.selectedPropertyIds }),
+      partialize: (state) => ({
+        selectedPropertyIds: state.selectedPropertyIds,
+        view: state.view,
+      }),
     },
   ),
 );
