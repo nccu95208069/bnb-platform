@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase/client";
 import { Loader2 } from "lucide-react";
 
-export function AuthGuard({ children }: { children: React.ReactNode }) {
+import { supabase } from "@/lib/supabase/client";
+
+const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
+function SupabaseAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [isChecking, setIsChecking] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -47,4 +50,12 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   }
 
   return <>{children}</>;
+}
+
+export function AuthGuard({ children }: { children: React.ReactNode }) {
+  if (DEMO_MODE) {
+    return <>{children}</>;
+  }
+
+  return <SupabaseAuthGuard>{children}</SupabaseAuthGuard>;
 }
