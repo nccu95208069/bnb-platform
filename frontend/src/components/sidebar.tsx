@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
 import {
   CalendarDays,
   FileText,
@@ -12,9 +11,11 @@ import {
   Settings,
 } from "lucide-react";
 
+import { cn } from "@/lib/utils";
+
 const navItems = [
   {
-    label: "訂單月曆",
+    label: "訂單日曆",
     href: "/calendar",
     icon: CalendarDays,
   },
@@ -49,10 +50,27 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="flex h-screen w-64 flex-col border-r bg-card">
-      <div className="flex h-14 items-center border-b px-6">
-        <h1 className="text-lg font-semibold">BnB 管理後台</h1>
+    <aside className="flex h-screen w-60 shrink-0 flex-col border-r bg-card">
+      <div className="flex h-16 items-center gap-3 border-b px-4">
+        <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-sm font-bold text-primary-foreground shadow-sm">
+          SF
+        </span>
+        <div className="min-w-0">
+          <h1 className="truncate text-sm font-semibold">Sweetfun OS</h1>
+          <p className="truncate text-[11px] text-muted-foreground">旅宿營運工作台</p>
+        </div>
       </div>
+
+      <div className="px-3 pt-3">
+        <div className="rounded-xl border bg-muted/35 px-3 py-2.5">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            Property
+          </p>
+          <p className="mt-1 truncate text-sm font-semibold">水芳 Sweetfun</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">瑞芳 · 6 間房</p>
+        </div>
+      </div>
+
       <nav className="flex-1 space-y-1 p-3">
         {navItems.map((item) => {
           const isActive =
@@ -62,20 +80,25 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                 isActive
-                  ? "bg-primary text-primary-foreground"
+                  ? "bg-primary text-primary-foreground shadow-sm"
                   : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
               )}
             >
-              <item.icon className="h-4 w-4" />
+              <item.icon className="size-4" />
               {item.label}
             </Link>
           );
         })}
       </nav>
+
       <div className="border-t p-4">
-        <p className="text-xs text-muted-foreground">BnB Platform v0.1.0</p>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <span className="size-2 rounded-full bg-emerald-500" />
+          系統連線正常
+        </div>
+        <p className="mt-1 text-[10px] text-muted-foreground">BnB Platform v0.2</p>
       </div>
     </aside>
   );
