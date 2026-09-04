@@ -125,6 +125,16 @@
   }
 }
 
+/* Month headers use Monday–Sunday. Only Saturday and Sunday receive weekend emphasis. */
+[data-month] > .grid.grid-cols-7 > :first-child {
+  background-color: transparent;
+}
+
+[data-month] > .grid.grid-cols-7 > :nth-child(6),
+[data-month] > .grid.grid-cols-7 > :nth-child(7) {
+  background-color: color-mix(in oklab, var(--muted) 55%, transparent);
+}
+
 @media (max-width: 767px) {
   .calendar-month-mobile-viewport > div {
     height: calc(100dvh - 3.5rem) !important;
