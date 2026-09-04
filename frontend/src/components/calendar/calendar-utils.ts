@@ -9,7 +9,7 @@ import type {
 } from "./calendar-types";
 
 export const DAY_MS = 86_400_000;
-export const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"];
+export const WEEKDAY_LABELS = ["一", "二", "三", "四", "五", "六", "日"];
 export const VIEW_LABELS: Record<CalendarView, string> = {
   month: "月",
   week: "週",
@@ -104,7 +104,8 @@ export function addMonths(value: string, amount: number) {
 
 export function startOfWeek(value: string) {
   const date = parseIso(value);
-  date.setUTCDate(date.getUTCDate() - date.getUTCDay());
+  const mondayOffset = (date.getUTCDay() + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - mondayOffset);
   return toIso(date);
 }
 
