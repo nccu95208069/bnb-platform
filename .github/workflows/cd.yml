@@ -4,15 +4,22 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   frontend-deploy:
     name: Deploy Frontend
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
-    needs: []
     defaults:
       run:
         working-directory: frontend
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      NEXT_PUBLIC_API_BASE_URL: ${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -23,11 +30,39 @@ jobs:
       - name: Install Vercel CLI
         run: npm install -g vercel
 
-      - name: Deploy to Vercel
-        run: vercel --prod --token ${{ secrets.VERCEL_TOKEN }}
-        env:
-          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      - name: Discover and link Vercel project
+        shell: bash
+        run: |
+          unset VERCEL_PROJECT_ID VERCEL_ORG_ID
+          projects_json="$(vercel project ls --json --token "$VERCEL_TOKEN")"
+          project_name="$(printf '%s' "$projects_json" | node -e '
+            let raw = "";
+            process.stdin.on("data", chunk => raw += chunk);
+            process.stdin.on("end", () => {
+              const data = JSON.parse(raw);
+              const projects = Array.isArray(data) ? data : (data.projects || []);
+              const preferred = projects.find(project => project.name === "bnb-platform")
+                || projects.find(project => /sweetfun|bnb/i.test(project.name))
+                || projects[0];
+              process.stdout.write(preferred?.name || "bnb-platform");
+            });
+          ')"
+          echo "Using Vercel project: $project_name"
+          vercel link --yes --project "$project_name" --token "$VERCEL_TOKEN"
 
-  # Backend deploys automatically via Railway GitHub native integration
-  # Configure in Railway Dashboard → api service → Settings → Source → Connect Repo
+      - name: Deploy to Vercel
+        shell: bash
+        run: |
+          args=(--prod --yes --token "$VERCEL_TOKEN")
+          if [[ -n "$NEXT_PUBLIC_SUPABASE_URL" ]]; then
+            args+=(--build-env "NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL")
+          fi
+          if [[ -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ]]; then
+            args+=(--build-env "NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY")
+          fi
+          if [[ -n "$NEXT_PUBLIC_API_BASE_URL" ]]; then
+            args+=(--build-env "NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL")
+          fi
+          vercel "${args[@]}"
+
+  # Backend deploys automatically via Railway GitHub native integration.
