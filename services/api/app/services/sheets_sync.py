@@ -22,15 +22,19 @@ _PLATFORM_MAP: dict[str, BookingPlatform] = {
     "booking": BookingPlatform.BOOKING,
     "booking.com": BookingPlatform.BOOKING,
     "airbnb": BookingPlatform.AIRBNB,
+    "ctrip": BookingPlatform.CTRIP,
+    "owljourney": BookingPlatform.OWLJOURNEY,
 }
 
 _PAYMENT_MAP: dict[str, PaymentStatus] = {
     "未付": PaymentStatus.UNPAID,
+    "not_yet": PaymentStatus.UNPAID,
     "訂金": PaymentStatus.DEPOSIT,
     "已付訂金": PaymentStatus.DEPOSIT,
     "已付": PaymentStatus.PAID,
     "全額": PaymentStatus.PAID,
     "已付全額": PaymentStatus.PAID,
+    "done": PaymentStatus.PAID,
 }
 
 # Expected Sheet columns (0-indexed):
