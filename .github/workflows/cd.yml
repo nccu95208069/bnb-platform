@@ -17,9 +17,8 @@ jobs:
         working-directory: frontend
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-      NEXT_PUBLIC_API_BASE_URL: ${{ secrets.NEXT_PUBLIC_API_BASE_URL }}
+      VERCEL_SCOPE: sweetfuns-projects
+      VERCEL_PROJECT: sweetfun-os
     steps:
       - uses: actions/checkout@v4
 
@@ -30,39 +29,34 @@ jobs:
       - name: Install Vercel CLI
         run: npm install -g vercel
 
-      - name: Discover and link Vercel project
-        shell: bash
+      - name: Link dedicated Sweetfun OS project
         run: |
           unset VERCEL_PROJECT_ID VERCEL_ORG_ID
-          projects_json="$(vercel project ls --json --token "$VERCEL_TOKEN")"
-          project_name="$(printf '%s' "$projects_json" | node -e '
-            let raw = "";
-            process.stdin.on("data", chunk => raw += chunk);
-            process.stdin.on("end", () => {
-              const data = JSON.parse(raw);
-              const projects = Array.isArray(data) ? data : (data.projects || []);
-              const preferred = projects.find(project => project.name === "bnb-platform")
-                || projects.find(project => /sweetfun|bnb/i.test(project.name))
-                || projects[0];
-              process.stdout.write(preferred?.name || "bnb-platform");
-            });
-          ')"
-          echo "Using Vercel project: $project_name"
-          vercel link --yes --project "$project_name" --token "$VERCEL_TOKEN"
+          vercel link \
+            --yes \
+            --project "$VERCEL_PROJECT" \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN"
 
-      - name: Deploy to Vercel
+      - name: Deploy anonymized calendar site
         shell: bash
         run: |
-          args=(--prod --yes --token "$VERCEL_TOKEN")
-          if [[ -n "$NEXT_PUBLIC_SUPABASE_URL" ]]; then
-            args+=(--build-env "NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL")
-          fi
-          if [[ -n "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ]]; then
-            args+=(--build-env "NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY")
-          fi
-          if [[ -n "$NEXT_PUBLIC_API_BASE_URL" ]]; then
-            args+=(--build-env "NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL")
-          fi
-          vercel "${args[@]}"
+          deployment_url="$(vercel \
+            --prod \
+            --yes \
+            --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" \
+            --build-env NEXT_PUBLIC_DEMO_MODE=true \
+            --env NEXT_PUBLIC_DEMO_MODE=true \
+            --build-env NEXT_PUBLIC_SUPABASE_URL=https://demo-placeholder.supabase.co \
+            --env NEXT_PUBLIC_SUPABASE_URL=https://demo-placeholder.supabase.co \
+            --build-env NEXT_PUBLIC_SUPABASE_ANON_KEY=demo-placeholder-anon-key \
+            --env NEXT_PUBLIC_SUPABASE_ANON_KEY=demo-placeholder-anon-key)"
+          echo "Deployed: $deployment_url"
+          {
+            echo "### Sweetfun OS deployment"
+            echo
+            echo "$deployment_url"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # Backend deploys automatically via Railway GitHub native integration.

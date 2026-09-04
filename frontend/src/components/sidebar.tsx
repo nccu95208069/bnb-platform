@@ -13,7 +13,9 @@ import {
 
 import { cn } from "@/lib/utils";
 
-const navItems = [
+const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
+const allNavItems = [
   {
     label: "訂單日曆",
     href: "/calendar",
@@ -46,6 +48,8 @@ const navItems = [
   },
 ];
 
+const navItems = DEMO_MODE ? allNavItems.slice(0, 1) : allNavItems;
+
 export function Sidebar() {
   const pathname = usePathname();
 
@@ -61,7 +65,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <div className="px-3 pt-3">
+      <div className="space-y-2 px-3 pt-3">
         <div className="rounded-xl border bg-muted/35 px-3 py-2.5">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
             Property
@@ -69,6 +73,15 @@ export function Sidebar() {
           <p className="mt-1 truncate text-sm font-semibold">水芳 Sweetfun</p>
           <p className="mt-0.5 text-[11px] text-muted-foreground">瑞芳 · 6 間房</p>
         </div>
+
+        {DEMO_MODE && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-950">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.12em]">
+              Demo Site
+            </p>
+            <p className="mt-1 text-xs font-medium">2026 年 9 月匿名化訂單</p>
+          </div>
+        )}
       </div>
 
       <nav className="flex-1 space-y-1 p-3">
@@ -95,8 +108,13 @@ export function Sidebar() {
 
       <div className="border-t p-4">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span className="size-2 rounded-full bg-emerald-500" />
-          系統連線正常
+          <span
+            className={cn(
+              "size-2 rounded-full",
+              DEMO_MODE ? "bg-amber-500" : "bg-emerald-500",
+            )}
+          />
+          {DEMO_MODE ? "匿名化示範模式" : "系統連線正常"}
         </div>
         <p className="mt-1 text-[10px] text-muted-foreground">BnB Platform v0.2</p>
       </div>
