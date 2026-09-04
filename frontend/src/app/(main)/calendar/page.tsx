@@ -1,5 +1,5 @@
-import { BookingCalendar } from "@/components/calendar/booking-calendar";
+import { BookingCalendarResponsive } from "@/components/calendar/booking-calendar-responsive";
 
 export default function CalendarPage() {
-  return <BookingCalendar />;
+  return <BookingCalendarResponsive />;
 }
