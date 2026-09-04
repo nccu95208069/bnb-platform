@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useState, useSyncExternalStore } from "react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ interface Todo {
 type FilterType = "all" | "active" | "done";
 
 const STORAGE_KEY = "bnb-todos";
+const subscribeToHydration = () => () => undefined;
 
 const DEFAULT_TODOS: Todo[] = [
   {
@@ -71,11 +72,11 @@ export default function TodosPage() {
   const [todos, setTodos] = useState<Todo[]>(() => loadTodos());
   const [input, setInput] = useState("");
   const [filter, setFilter] = useState<FilterType>("all");
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const mounted = useSyncExternalStore(
+    subscribeToHydration,
+    () => true,
+    () => false,
+  );
 
   const persist = useCallback((next: Todo[]) => {
     setTodos(next);
@@ -125,10 +126,7 @@ export default function TodosPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="待辦事項"
-        description="追蹤後台管理的待辦工作"
-      />
+      <PageHeader title="待辦事項" description="追蹤後台管理的待辦工作" />
 
       {/* Add todo */}
       <div className="flex gap-2">
@@ -162,7 +160,11 @@ export default function TodosPage() {
       {/* Todo list */}
       {filtered.length === 0 ? (
         <div className="rounded-md border p-8 text-center text-muted-foreground">
-          {filter === "all" ? "尚無待辦事項" : filter === "active" ? "沒有待辦項目" : "沒有已完成項目"}
+          {filter === "all"
+            ? "尚無待辦事項"
+            : filter === "active"
+              ? "沒有待辦項目"
+              : "沒有已完成項目"}
         </div>
       ) : (
         <div className="divide-y rounded-md border">
