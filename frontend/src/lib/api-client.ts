@@ -1,7 +1,8 @@
+import { getDemoCalendarResponse, isCalendarPath } from "@/lib/calendar-demo";
 import { getAccessToken } from "@/lib/supabase/auth";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000/api/v1";
+const configuredApiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL;
+const API_BASE_URL = configuredApiBaseUrl || "http://localhost:8000/api/v1";
 
 export class ApiError extends Error {
   constructor(
@@ -41,13 +42,24 @@ async function handleResponse<T>(response: Response): Promise<T> {
 
 export const apiClient = {
   async get<T>(path: string): Promise<T> {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
-      headers: {
-        "Content-Type": "application/json",
-        ...(await getAuthHeaders()),
-      },
-    });
-    return handleResponse<T>(res);
+    if (!configuredApiBaseUrl && isCalendarPath(path)) {
+      return getDemoCalendarResponse(path) as T;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}${path}`, {
+        headers: {
+          "Content-Type": "application/json",
+          ...(await getAuthHeaders()),
+        },
+      });
+      return await handleResponse<T>(res);
+    } catch (error) {
+      if (isCalendarPath(path)) {
+        return getDemoCalendarResponse(path) as T;
+      }
+      throw error;
+    }
   },
 
   async post<T>(path: string, body?: unknown): Promise<T> {
