@@ -3,9 +3,21 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { MessageSquare, MessageCircle, FileText, ListTodo, Settings } from "lucide-react";
+import {
+  CalendarDays,
+  FileText,
+  ListTodo,
+  MessageCircle,
+  MessageSquare,
+  Settings,
+} from "lucide-react";
 
 const navItems = [
+  {
+    label: "訂單月曆",
+    href: "/calendar",
+    icon: CalendarDays,
+  },
   {
     label: "對話管理",
     href: "/conversations",
@@ -63,9 +75,7 @@ export function Sidebar() {
         })}
       </nav>
       <div className="border-t p-4">
-        <p className="text-xs text-muted-foreground">
-          BnB Platform v0.1.0
-        </p>
+        <p className="text-xs text-muted-foreground">BnB Platform v0.1.0</p>
       </div>
     </aside>
   );
