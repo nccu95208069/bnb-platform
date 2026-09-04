@@ -34,8 +34,8 @@ def _resolve_calendar_range(
             raise HTTPException(status_code=422, detail="start and end must be provided together")
         if end_date <= start_date:
             raise HTTPException(status_code=422, detail="end must be later than start")
-        if end_date - start_date > timedelta(days=62):
-            raise HTTPException(status_code=422, detail="calendar range cannot exceed 62 days")
+        if end_date - start_date > timedelta(days=1500):
+            raise HTTPException(status_code=422, detail="calendar range cannot exceed 1500 days")
         return start_date, end_date
 
     if year is None and month is None:
@@ -62,7 +62,9 @@ async def booking_calendar(
     period_start, period_end = _resolve_calendar_range(start_date, end_date, year, month)
     stmt = select(Booking).where(
         Booking.check_in < period_end,
-        Booking.check_out > period_start,
+        # Checkout day is not an occupied room night, but it must be returned so
+        # day views can classify it under "today's departures".
+        Booking.check_out >= period_start,
     )
     if not include_test:
         stmt = stmt.where(~Booking.guest_name.ilike("%測試%"))
