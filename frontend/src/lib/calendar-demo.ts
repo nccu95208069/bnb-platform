@@ -40,27 +40,29 @@ function isoFromMonthDay(value: string | null): string | null {
   return `2026-${value}`;
 }
 
-const BOOKINGS: CalendarBooking[] = (seedRows as SeedRow[]).map((row, index) => {
-  const [room, orderNumber, platformCode, checkIn, checkOut, bookedAt, rate, paymentCode] =
-    row;
-  const paddedOrder = String(orderNumber).padStart(2, "0");
+const BOOKINGS: CalendarBooking[] = (seedRows as unknown as SeedRow[]).map(
+  (row, index) => {
+    const [room, orderNumber, platformCode, checkIn, checkOut, bookedAt, rate, paymentCode] =
+      row;
+    const paddedOrder = String(orderNumber).padStart(2, "0");
 
-  return {
-    id: `demo_${index + 1}`,
-    sheet_row_id: `seed_${index + 1}`,
-    order_id: `ord_demo_${paddedOrder}`,
-    external_order_no: null,
-    room_number: room,
-    guest_name: `房客 ${paddedOrder}`,
-    platform: PLATFORM_CODES[platformCode] ?? "other",
-    check_in: isoFromMonthDay(checkIn) ?? "2026-09-01",
-    check_out: isoFromMonthDay(checkOut) ?? "2026-09-02",
-    booked_at: isoFromMonthDay(bookedAt),
-    room_rate: rate,
-    payment_status: PAYMENT_CODES[paymentCode] ?? "unpaid",
-    notes: null,
-  };
-});
+    return {
+      id: `demo_${index + 1}`,
+      sheet_row_id: `seed_${index + 1}`,
+      order_id: `ord_demo_${paddedOrder}`,
+      external_order_no: null,
+      room_number: room,
+      guest_name: `房客 ${paddedOrder}`,
+      platform: PLATFORM_CODES[platformCode] ?? "other",
+      check_in: isoFromMonthDay(checkIn) ?? "2026-09-01",
+      check_out: isoFromMonthDay(checkOut) ?? "2026-09-02",
+      booked_at: isoFromMonthDay(bookedAt),
+      room_rate: rate,
+      payment_status: PAYMENT_CODES[paymentCode] ?? "unpaid",
+      notes: null,
+    };
+  },
+);
 
 function addMonths(value: string, amount: number): string {
   const [year, month] = value.split("-").map(Number);
