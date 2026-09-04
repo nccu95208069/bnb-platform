@@ -6,9 +6,9 @@ import {
   CalendarClock,
   CircleDollarSign,
   CreditCard,
-  Edit3,
   History,
   Landmark,
+  LoaderCircle,
   ReceiptText,
   Trash2,
 } from "lucide-react";
@@ -38,10 +38,12 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { apiClient } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
 import type {
   CalendarBooking,
+  CalendarResponse,
   CalendarRoom,
   PaymentMethod,
   PaymentType,
@@ -154,9 +156,12 @@ function PaymentDialog({
   const [amount, setAmount] = useState("");
   const [paymentType, setPaymentType] = useState<PaymentType>("deposit");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("bank_transfer");
-  const [receivedAt, setReceivedAt] = useState(() => new Date().toISOString().slice(0, 10));
+  const [receivedAt, setReceivedAt] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
   const numericAmount = Number(amount.replace(/,/g, ""));
-  const isValid = Number.isFinite(numericAmount) && numericAmount > 0 && Boolean(receivedAt);
+  const isValid =
+    Number.isFinite(numericAmount) && numericAmount > 0 && Boolean(receivedAt);
 
   useEffect(() => {
     if (!open) return;
@@ -189,7 +194,9 @@ function PaymentDialog({
         <DialogHeader>
           <DialogTitle>登記付款</DialogTitle>
           <DialogDescription>
-            {step === "form" ? "填寫實際收到的款項與日期。" : "請確認這次修改是否正確。"}
+            {step === "form"
+              ? "填寫實際收到的款項與日期。"
+              : "請確認這次修改是否正確。"}
           </DialogDescription>
         </DialogHeader>
 
@@ -208,7 +215,10 @@ function PaymentDialog({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label>款項類型</Label>
-                <Select value={paymentType} onValueChange={(value) => setPaymentType(value as PaymentType)}>
+                <Select
+                  value={paymentType}
+                  onValueChange={(value) => setPaymentType(value as PaymentType)}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -223,7 +233,9 @@ function PaymentDialog({
                 <Label>付款方式</Label>
                 <Select
                   value={paymentMethod}
-                  onValueChange={(value) => setPaymentMethod(value as PaymentMethod)}
+                  onValueChange={(value) =>
+                    setPaymentMethod(value as PaymentMethod)
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -246,7 +258,11 @@ function PaymentDialog({
               />
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+              >
                 取消
               </Button>
               <Button type="submit" disabled={!isValid}>
@@ -287,6 +303,8 @@ function PaymentDialog({
   );
 }
 
+type AvailabilityState = "idle" | "loading" | "ready" | "error";
+
 function EditBookingDialog({
   open,
   booking,
@@ -306,15 +324,20 @@ function EditBookingDialog({
   const [checkIn, setCheckIn] = useState(booking.check_in);
   const [checkOut, setCheckOut] = useState(booking.check_out);
   const [roomRate, setRoomRate] = useState(String(booking.room_rate));
-  const propertyRooms = rooms.filter((room) => room.property_id === booking.property_id);
-  const selectedRoom = propertyRooms.find((room) => room.id === roomId) ?? propertyRooms[0];
-  const numericRate = Number(roomRate.replace(/,/g, ""));
-  const isValid =
-    guestName.trim().length > 0 &&
-    Boolean(selectedRoom) &&
-    checkOut > checkIn &&
-    Number.isFinite(numericRate) &&
-    numericRate >= 0;
+  const [availabilityState, setAvailabilityState] =
+    useState<AvailabilityState>("idle");
+  const [availabilityBookings, setAvailabilityBookings] = useState<
+    CalendarBooking[]
+  >([]);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+
+  const propertyRooms = useMemo(
+    () => rooms.filter((room) => room.property_id === booking.property_id),
+    [booking.property_id, rooms],
+  );
+  const selectedRoom =
+    propertyRooms.find((room) => room.id === roomId) ?? propertyRooms[0];
+  const dateRangeIsValid = Boolean(checkIn && checkOut && checkOut > checkIn);
 
   useEffect(() => {
     if (!open) return;
@@ -324,7 +347,82 @@ function EditBookingDialog({
     setCheckIn(booking.check_in);
     setCheckOut(booking.check_out);
     setRoomRate(String(booking.room_rate));
+    setAvailabilityState("idle");
+    setAvailabilityBookings([]);
+    setAvailabilityError(null);
   }, [booking, open]);
+
+  useEffect(() => {
+    if (!open || !dateRangeIsValid) return;
+
+    let active = true;
+    const timer = window.setTimeout(async () => {
+      setAvailabilityState("loading");
+      setAvailabilityError(null);
+      try {
+        const response = await apiClient.get<CalendarResponse>(
+          `/bookings/calendar?start=${checkIn}&end=${checkOut}`,
+        );
+        if (!active) return;
+        setAvailabilityBookings(response.bookings);
+        setAvailabilityState("ready");
+      } catch (error) {
+        if (!active) return;
+        setAvailabilityBookings([]);
+        setAvailabilityError(
+          error instanceof Error ? error.message : "無法確認目前房況",
+        );
+        setAvailabilityState("error");
+      }
+    }, 180);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [checkIn, checkOut, dateRangeIsValid, open]);
+
+  const roomConflicts = useMemo(() => {
+    const conflicts = new Map<string, CalendarBooking>();
+    if (!dateRangeIsValid) return conflicts;
+
+    for (const room of propertyRooms) {
+      const conflict = availabilityBookings.find(
+        (candidate) =>
+          candidate.id !== booking.id &&
+          candidate.reservation_status === "confirmed" &&
+          candidate.property_id === booking.property_id &&
+          candidate.room_id === room.id &&
+          candidate.check_in < checkOut &&
+          candidate.check_out > checkIn,
+      );
+      if (conflict) conflicts.set(room.id, conflict);
+    }
+    return conflicts;
+  }, [
+    availabilityBookings,
+    booking.id,
+    booking.property_id,
+    checkIn,
+    checkOut,
+    dateRangeIsValid,
+    propertyRooms,
+  ]);
+
+  const selectedConflict = roomConflicts.get(roomId) ?? null;
+  const unavailableRooms = propertyRooms.filter((room) =>
+    roomConflicts.has(room.id),
+  );
+  const numericRate = Number(roomRate.replace(/,/g, ""));
+  const availabilityIsReady = availabilityState === "ready";
+  const isValid =
+    guestName.trim().length > 0 &&
+    Boolean(selectedRoom) &&
+    dateRangeIsValid &&
+    availabilityIsReady &&
+    !selectedConflict &&
+    Number.isFinite(numericRate) &&
+    numericRate >= 0;
 
   function submitForm(event: FormEvent) {
     event.preventDefault();
@@ -346,12 +444,12 @@ function EditBookingDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>編輯訂單</DialogTitle>
           <DialogDescription>
             {step === "form"
-              ? "修改目前這筆住宿明細；儲存前會檢查同房重疊。"
+              ? "修改目前這筆住宿明細；房間選單會依日期即時檢查衝突。"
               : "請確認入住、退房、房間與金額。"}
           </DialogDescription>
         </DialogHeader>
@@ -360,23 +458,13 @@ function EditBookingDialog({
           <form onSubmit={submitForm} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="edit-guest">房客姓名</Label>
-              <Input id="edit-guest" value={guestName} onChange={(event) => setGuestName(event.target.value)} />
+              <Input
+                id="edit-guest"
+                value={guestName}
+                onChange={(event) => setGuestName(event.target.value)}
+              />
             </div>
-            <div className="space-y-2">
-              <Label>房間</Label>
-              <Select value={roomId} onValueChange={setRoomId}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {propertyRooms.map((room) => (
-                    <SelectItem key={room.id} value={room.id}>
-                      {room.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="edit-check-in">入住日</Label>
@@ -384,7 +472,10 @@ function EditBookingDialog({
                   id="edit-check-in"
                   type="date"
                   value={checkIn}
-                  onChange={(event) => setCheckIn(event.target.value)}
+                  onChange={(event) => {
+                    setCheckIn(event.target.value);
+                    setStep("form");
+                  }}
                 />
               </div>
               <div className="space-y-2">
@@ -393,10 +484,87 @@ function EditBookingDialog({
                   id="edit-check-out"
                   type="date"
                   value={checkOut}
-                  onChange={(event) => setCheckOut(event.target.value)}
+                  onChange={(event) => {
+                    setCheckOut(event.target.value);
+                    setStep("form");
+                  }}
                 />
               </div>
             </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <Label>房間</Label>
+                {availabilityState === "loading" && (
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <LoaderCircle className="size-3.5 animate-spin" />
+                    檢查房況中
+                  </span>
+                )}
+              </div>
+              <Select value={roomId} onValueChange={setRoomId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {propertyRooms.map((room) => {
+                    const conflict = roomConflicts.get(room.id);
+                    const isCurrentRoom =
+                      room.id === booking.room_id && !conflict;
+                    return (
+                      <SelectItem
+                        key={room.id}
+                        value={room.id}
+                        disabled={Boolean(conflict)}
+                      >
+                        <span className="flex w-full min-w-[230px] items-center justify-between gap-3">
+                          <span>{room.label}</span>
+                          <span
+                            className={cn(
+                              "text-xs",
+                              conflict
+                                ? "text-destructive"
+                                : "text-muted-foreground",
+                            )}
+                          >
+                            {conflict
+                              ? `已被 ${conflict.guest_name} 預訂`
+                              : isCurrentRoom
+                                ? "目前房間"
+                                : availabilityIsReady
+                                  ? "可用"
+                                  : "待確認"}
+                          </span>
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+
+              {availabilityState === "ready" && (
+                <p className="text-xs text-muted-foreground">
+                  {unavailableRooms.length > 0
+                    ? `此日期不可用：${unavailableRooms
+                        .map((room) => room.room_number)
+                        .join("、")}`
+                    : "目前日期內所有房間皆可用。"}
+                </p>
+              )}
+              {availabilityState === "error" && (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  無法確認房況，暫時不允許儲存。{availabilityError ? ` ${availabilityError}` : ""}
+                </div>
+              )}
+              {selectedConflict && (
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                  {selectedRoom?.label} 在 {formatDate(checkIn)}–
+                  {formatDate(checkOut)} 已有 {selectedConflict.guest_name}
+                  的有效訂單，無法儲存。
+                </div>
+              )}
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="edit-rate">房費</Label>
               <Input
@@ -407,7 +575,11 @@ function EditBookingDialog({
               />
             </div>
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+              >
                 取消
               </Button>
               <Button type="submit" disabled={!isValid}>
@@ -420,7 +592,8 @@ function EditBookingDialog({
             <div className="rounded-xl border bg-muted/35 p-4 text-sm">
               <p className="font-semibold">{guestName.trim()}</p>
               <p className="mt-2 text-muted-foreground">
-                {selectedRoom?.label} · {formatDate(checkIn)}–{formatDate(checkOut)} · {dayDifference(checkOut, checkIn)} 晚
+                {selectedRoom?.label} · {formatDate(checkIn)}–
+                {formatDate(checkOut)} · {dayDifference(checkOut, checkIn)} 晚
               </p>
               <p className="mt-1 font-semibold">{formatMoney(numericRate)}</p>
             </div>
@@ -514,30 +687,27 @@ export function BookingDetailsPanel({
     [orderSegments],
   );
   const recordedPayments = booking?.payments ?? [];
-  const recordedAmount = recordedPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const recordedAmount = recordedPayments.reduce(
+    (sum, payment) => sum + payment.amount,
+    0,
+  );
 
   return (
     <>
       <Sheet open={booking !== null} onOpenChange={(open) => !open && onClose()}>
         <SheetContent className="w-full overflow-y-auto p-0 sm:max-w-xl">
           <SheetHeader className="border-b px-5 py-5 text-left">
-            <div className="flex items-start justify-between gap-3 pr-8">
-              <div className="min-w-0">
-                <SheetTitle className="truncate text-xl">{booking?.guest_name ?? "訂單資料"}</SheetTitle>
-                <SheetDescription className="mt-1">
-                  {booking
-                    ? `${booking.property_name} · ${booking.room_number} · ${formatDate(booking.check_in)}–${formatDate(
-                        booking.check_out,
-                      )}`
-                    : ""}
-                </SheetDescription>
-              </div>
-              {booking && booking.reservation_status !== "cancelled" && (
-                <Button size="sm" variant="outline" onClick={() => setEditOpen(true)}>
-                  <Edit3 className="size-4" />
-                  編輯
-                </Button>
-              )}
+            <div className="pr-8">
+              <SheetTitle className="truncate text-xl">
+                {booking?.guest_name ?? "訂單資料"}
+              </SheetTitle>
+              <SheetDescription className="mt-1">
+                {booking
+                  ? `${booking.property_name} · ${booking.room_number} · ${formatDate(
+                      booking.check_in,
+                    )}–${formatDate(booking.check_out)}`
+                  : ""}
+              </SheetDescription>
             </div>
           </SheetHeader>
 
@@ -548,23 +718,33 @@ export function BookingDetailsPanel({
                   "rounded-xl border px-3 py-2.5 text-sm font-semibold",
                   booking.reservation_status === "cancelled"
                     ? "border-slate-200 bg-slate-100 text-slate-700"
-                    : PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
+                    : PLATFORM_STYLES[booking.platform] ??
+                        PLATFORM_STYLES.other,
                 )}
               >
                 {booking.reservation_status === "cancelled"
                   ? "已取消"
-                  : `${PLATFORM_LABELS[booking.platform] ?? booking.platform} · ${PAYMENT_LABELS[booking.payment_status]}`}
+                  : `${PLATFORM_LABELS[booking.platform] ?? booking.platform} · ${
+                      PAYMENT_LABELS[booking.payment_status]
+                    }`}
               </div>
 
               {booking.reservation_status !== "cancelled" && (
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <Button className="justify-start" onClick={() => setPaymentOpen(true)}>
+                  <Button
+                    className="justify-start"
+                    onClick={() => setPaymentOpen(true)}
+                  >
                     <ReceiptText className="size-4" />
                     登記訂金已付
                   </Button>
-                  <Button variant="outline" className="justify-start" onClick={() => setEditOpen(true)}>
+                  <Button
+                    variant="outline"
+                    className="justify-start"
+                    onClick={() => setEditOpen(true)}
+                  >
                     <CalendarClock className="size-4" />
-                    修改入住／退房／房費
+                    編輯訂單資料
                   </Button>
                 </div>
               )}
@@ -578,13 +758,28 @@ export function BookingDetailsPanel({
                   <DetailRow label="退房" value={formatDate(booking.check_out)} />
                   <DetailRow
                     label="住宿晚數"
-                    value={`${dayDifference(booking.check_out, booking.check_in)} 晚`}
+                    value={`${dayDifference(
+                      booking.check_out,
+                      booking.check_in,
+                    )} 晚`}
                   />
-                  <DetailRow label="本筆房費" value={formatMoney(booking.room_rate)} />
-                  <DetailRow label="訂單總額" value={formatMoney(orderTotal)} />
-                  <DetailRow label="預訂日" value={formatDate(booking.booked_at)} />
+                  <DetailRow
+                    label="本筆房費"
+                    value={formatMoney(booking.room_rate)}
+                  />
+                  <DetailRow
+                    label="訂單總額"
+                    value={formatMoney(orderTotal)}
+                  />
+                  <DetailRow
+                    label="預訂日"
+                    value={formatDate(booking.booked_at)}
+                  />
                   <DetailRow label="訂單編號" value={booking.order_id} />
-                  <DetailRow label="外部編號" value={booking.external_order_no ?? "—"} />
+                  <DetailRow
+                    label="外部編號"
+                    value={booking.external_order_no ?? "—"}
+                  />
                   <DetailRow label="備註" value={booking.notes ?? "—"} />
                 </dl>
               </section>
@@ -609,7 +804,9 @@ export function BookingDetailsPanel({
                   ) : (
                     recordedPayments
                       .slice()
-                      .sort((a, b) => b.received_at.localeCompare(a.received_at))
+                      .sort((a, b) =>
+                        b.received_at.localeCompare(a.received_at),
+                      )
                       .map((payment) => {
                         const MethodIcon =
                           payment.payment_method === "cash"
@@ -618,16 +815,21 @@ export function BookingDetailsPanel({
                               ? CreditCard
                               : Landmark;
                         return (
-                          <div key={payment.id} className="flex items-center gap-3 rounded-xl border px-3 py-3">
+                          <div
+                            key={payment.id}
+                            className="flex items-center gap-3 rounded-xl border px-3 py-3"
+                          >
                             <span className="flex size-9 items-center justify-center rounded-lg bg-muted">
                               <MethodIcon className="size-4" />
                             </span>
                             <div className="min-w-0 flex-1">
                               <p className="text-sm font-semibold">
-                                {PAYMENT_TYPE_LABELS[payment.payment_type]} · {formatMoney(payment.amount)}
+                                {PAYMENT_TYPE_LABELS[payment.payment_type]} ·{" "}
+                                {formatMoney(payment.amount)}
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                {formatDate(payment.received_at)} · {PAYMENT_METHOD_LABELS[payment.payment_method]}
+                                {formatDate(payment.received_at)} ·{" "}
+                                {PAYMENT_METHOD_LABELS[payment.payment_method]}
                               </p>
                             </div>
                           </div>
@@ -646,9 +848,14 @@ export function BookingDetailsPanel({
                   <div className="mt-2 space-y-2">
                     {booking.audit_log
                       .slice()
-                      .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
+                      .sort((a, b) =>
+                        b.occurred_at.localeCompare(a.occurred_at),
+                      )
                       .map((event) => (
-                        <div key={event.id} className="rounded-xl border px-3 py-3">
+                        <div
+                          key={event.id}
+                          className="rounded-xl border px-3 py-3"
+                        >
                           <p className="text-sm font-medium">{event.summary}</p>
                           <p className="mt-1 text-xs text-muted-foreground">
                             {new Date(event.occurred_at).toLocaleString("zh-TW")}
