@@ -1,8 +1,9 @@
 name: Ruff Autofix
 
 on:
-  push:
-    branches: [feat/september-booking-calendar]
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize]
 
 permissions:
   contents: write
