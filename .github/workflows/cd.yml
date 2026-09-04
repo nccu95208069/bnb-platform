@@ -30,24 +30,26 @@ jobs:
       - name: Install Vercel CLI
         run: npm install -g vercel
 
-      - name: Discover and link Vercel project
+      - name: Create or link dedicated Vercel project
         shell: bash
         run: |
           unset VERCEL_PROJECT_ID VERCEL_ORG_ID
+          project_name="sweetfun-ops"
           projects_json="$(vercel project ls --json --token "$VERCEL_TOKEN")"
-          project_name="$(printf '%s' "$projects_json" | node -e '
+          project_exists="$(printf '%s' "$projects_json" | PROJECT_NAME="$project_name" node -e '
             let raw = "";
             process.stdin.on("data", chunk => raw += chunk);
             process.stdin.on("end", () => {
               const data = JSON.parse(raw);
               const projects = Array.isArray(data) ? data : (data.projects || []);
-              const preferred = projects.find(project => project.name === "bnb-platform")
-                || projects.find(project => /sweetfun|bnb/i.test(project.name))
-                || projects[0];
-              process.stdout.write(preferred?.name || "bnb-platform");
+              process.stdout.write(projects.some(project => project.name === process.env.PROJECT_NAME) ? "yes" : "no");
             });
           ')"
-          echo "Using Vercel project: $project_name"
+
+          if [[ "$project_exists" != "yes" ]]; then
+            vercel project add "$project_name" --yes --token "$VERCEL_TOKEN"
+          fi
+
           vercel link --yes --project "$project_name" --token "$VERCEL_TOKEN"
 
       - name: Deploy to Vercel
