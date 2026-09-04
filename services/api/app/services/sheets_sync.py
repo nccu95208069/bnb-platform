@@ -203,9 +203,7 @@ class SheetsSyncService:
         service = build("sheets", "v4", credentials=credentials)
 
         sheet_ids = [
-            sheet_id
-            for sheet_id in [settings.google_sheet_id, _DEFAULT_SEED_SHEET_ID]
-            if sheet_id
+            sheet_id for sheet_id in [settings.google_sheet_id, _DEFAULT_SEED_SHEET_ID] if sheet_id
         ]
         sheet_ids = list(dict.fromkeys(sheet_ids))
         attempts: list[str] = []
