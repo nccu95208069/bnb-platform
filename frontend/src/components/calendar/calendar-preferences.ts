@@ -5,18 +5,31 @@ import { persist } from "zustand/middleware";
 
 import type { CalendarProperty, CalendarView } from "./calendar-types";
 
+type CalendarNavigationAction = "previous" | "next" | "today";
+
+type CalendarNavigationRequest = {
+  id: number;
+  action: CalendarNavigationAction;
+};
+
 type CalendarPreferenceState = {
   properties: CalendarProperty[];
   selectedPropertyIds: string[];
   view: CalendarView;
   searchQuery: string;
   mobileSearchOpen: boolean;
+  mobileMenuOpen: boolean;
+  mobilePeriodLabel: string;
+  navigationRequest: CalendarNavigationRequest | null;
   setProperties: (properties: CalendarProperty[]) => void;
   toggleProperty: (propertyId: string) => void;
   selectAllProperties: () => void;
   setView: (view: CalendarView) => void;
   setSearchQuery: (query: string) => void;
   setMobileSearchOpen: (open: boolean) => void;
+  setMobileMenuOpen: (open: boolean) => void;
+  setMobilePeriodLabel: (label: string) => void;
+  requestCalendarNavigation: (action: CalendarNavigationAction) => void;
 };
 
 export const useCalendarPreferences = create<CalendarPreferenceState>()(
@@ -27,13 +40,18 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
       view: "month",
       searchQuery: "",
       mobileSearchOpen: false,
+      mobileMenuOpen: false,
+      mobilePeriodLabel: "訂單日曆",
+      navigationRequest: null,
       setProperties: (properties) =>
         set((state) => {
           const validIds = new Set(properties.map((property) => property.id));
           const retained = state.selectedPropertyIds.filter((id) => validIds.has(id));
           return {
             properties,
-            selectedPropertyIds: retained.length ? retained : properties.map((property) => property.id),
+            selectedPropertyIds: retained.length
+              ? retained
+              : properties.map((property) => property.id),
           };
         }),
       toggleProperty: (propertyId) =>
@@ -47,10 +65,21 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
           };
         }),
       selectAllProperties: () =>
-        set((state) => ({ selectedPropertyIds: state.properties.map((property) => property.id) })),
+        set((state) => ({
+          selectedPropertyIds: state.properties.map((property) => property.id),
+        })),
       setView: (view) => set({ view }),
       setSearchQuery: (searchQuery) => set({ searchQuery }),
       setMobileSearchOpen: (mobileSearchOpen) => set({ mobileSearchOpen }),
+      setMobileMenuOpen: (mobileMenuOpen) => set({ mobileMenuOpen }),
+      setMobilePeriodLabel: (mobilePeriodLabel) => set({ mobilePeriodLabel }),
+      requestCalendarNavigation: (action) =>
+        set((state) => ({
+          navigationRequest: {
+            id: (state.navigationRequest?.id ?? 0) + 1,
+            action,
+          },
+        })),
     }),
     {
       name: "sweetfun-os-calendar-preferences",
