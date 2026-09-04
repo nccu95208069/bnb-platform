@@ -1,8 +1,8 @@
 """Booking sync and calendar API endpoints."""
 
-from datetime import date
+from datetime import date, timedelta
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,19 +22,47 @@ def _month_bounds(year: int, month: int) -> tuple[date, date]:
     return month_start, next_month
 
 
+def _resolve_calendar_range(
+    start_date: date | None,
+    end_date: date | None,
+    year: int | None,
+    month: int | None,
+) -> tuple[date, date]:
+    """Resolve either an explicit range or a legacy year/month request."""
+    if start_date is not None or end_date is not None:
+        if start_date is None or end_date is None:
+            raise HTTPException(status_code=422, detail="start and end must be provided together")
+        if end_date <= start_date:
+            raise HTTPException(status_code=422, detail="end must be later than start")
+        if end_date - start_date > timedelta(days=62):
+            raise HTTPException(status_code=422, detail="calendar range cannot exceed 62 days")
+        return start_date, end_date
+
+    if year is None and month is None:
+        today = date.today()
+        return _month_bounds(today.year, today.month)
+
+    if year is None or month is None:
+        raise HTTPException(status_code=422, detail="year and month must be provided together")
+
+    return _month_bounds(year, month)
+
+
 @router.get("/calendar")
 async def booking_calendar(
-    year: int = Query(..., ge=2000, le=2100),
-    month: int = Query(..., ge=1, le=12),
+    start_date: date | None = Query(default=None, alias="start"),
+    end_date: date | None = Query(default=None, alias="end"),
+    year: int | None = Query(default=None, ge=2000, le=2100),
+    month: int | None = Query(default=None, ge=1, le=12),
     include_test: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
     _admin: dict = Depends(verify_admin_token),
 ) -> dict:
-    """Return booking segments that overlap a calendar month."""
-    month_start, next_month = _month_bounds(year, month)
+    """Return booking segments that overlap a month, week, day, or custom range."""
+    period_start, period_end = _resolve_calendar_range(start_date, end_date, year, month)
     stmt = select(Booking).where(
-        Booking.check_in < next_month,
-        Booking.check_out > month_start,
+        Booking.check_in < period_end,
+        Booking.check_out > period_start,
     )
     if not include_test:
         stmt = stmt.where(~Booking.guest_name.ilike("%測試%"))
@@ -47,10 +75,12 @@ async def booking_calendar(
     order_keys = {booking.order_id or booking.sheet_row_id for booking in bookings}
 
     return {
-        "year": year,
-        "month": month,
-        "month_start": month_start.isoformat(),
-        "month_end": next_month.isoformat(),
+        "year": period_start.year,
+        "month": period_start.month,
+        "month_start": period_start.isoformat(),
+        "month_end": period_end.isoformat(),
+        "period_start": period_start.isoformat(),
+        "period_end": period_end.isoformat(),
         "rooms": rooms,
         "order_count": len(order_keys),
         "booking_segment_count": len(bookings),
