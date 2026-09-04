@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Building2, CalendarDays, Check, Menu, X } from "lucide-react";
+import { CalendarDays, Check, Menu, Search, X } from "lucide-react";
 import { useState } from "react";
 
 import { useCalendarPreferences } from "@/components/calendar/calendar-preferences";
-import type { CalendarProperty } from "@/components/calendar/calendar-types";
+import type { CalendarProperty, CalendarView } from "@/components/calendar/calendar-types";
+import { VIEW_LABELS } from "@/components/calendar/calendar-utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
@@ -19,6 +20,40 @@ const PROPERTY_COLORS: Record<CalendarProperty["color"], string> = {
   amber: "bg-amber-500",
   sky: "bg-sky-500",
 };
+
+function CalendarViewFilters({ onSelect }: { onSelect?: () => void }) {
+  const view = useCalendarPreferences((state) => state.view);
+  const setView = useCalendarPreferences((state) => state.setView);
+
+  return (
+    <section className="px-3 pt-4 md:hidden">
+      <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        日曆檢視
+      </p>
+      <div className="mt-2 grid grid-cols-3 gap-1 rounded-xl bg-muted/55 p-1">
+        {(Object.keys(VIEW_LABELS) as CalendarView[]).map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => {
+              setView(option);
+              onSelect?.();
+            }}
+            className={cn(
+              "rounded-lg px-3 py-2.5 text-sm font-semibold transition-colors",
+              view === option
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+            aria-pressed={view === option}
+          >
+            {VIEW_LABELS[option]}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function PropertyFilters() {
   const properties = useCalendarPreferences((state) => state.properties);
@@ -76,7 +111,9 @@ function PropertyFilters() {
               </span>
               <span className={cn("size-2.5 shrink-0 rounded-full", PROPERTY_COLORS[property.color])} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold text-foreground">{property.short_name}</span>
+                <span className="block truncate text-sm font-semibold text-foreground">
+                  {property.short_name}
+                </span>
                 <span className="block truncate text-[11px] text-muted-foreground">
                   {property.location} · {property.room_count} {property.room_count === 1 ? "棟" : "間房"}
                 </span>
@@ -104,6 +141,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
 
+      <CalendarViewFilters onSelect={onNavigate} />
       <PropertyFilters />
 
       {DEMO_MODE && (
@@ -144,6 +182,7 @@ export function Sidebar() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const properties = useCalendarPreferences((state) => state.properties);
   const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);
+  const setMobileSearchOpen = useCalendarPreferences((state) => state.setMobileSearchOpen);
   const selectedNames = properties
     .filter((property) => selectedPropertyIds.includes(property.id))
     .map((property) => property.short_name);
@@ -154,24 +193,32 @@ export function Sidebar() {
         <SidebarContent />
       </aside>
 
-      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center justify-between border-b bg-background/95 px-3 backdrop-blur md:hidden">
+      <header className="fixed inset-x-0 top-0 z-40 flex h-14 items-center justify-between border-b bg-background/95 px-2 backdrop-blur md:hidden">
         <Button variant="ghost" size="icon" onClick={() => setMobileOpen(true)} aria-label="開啟選單">
           <Menu className="size-5" />
         </Button>
-        <div className="min-w-0 text-center">
+        <div className="min-w-0 flex-1 px-2 text-center">
           <p className="truncate text-sm font-semibold">Sweetfun OS</p>
-          <p className="max-w-[220px] truncate text-[10px] text-muted-foreground">
+          <p className="truncate text-[10px] text-muted-foreground">
             {selectedNames.length ? selectedNames.join("、") : "旅宿日曆"}
           </p>
         </div>
-        <span className="flex size-8 items-center justify-center rounded-lg bg-primary text-[11px] font-bold text-primary-foreground">
-          SF
-        </span>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setMobileSearchOpen(true)}
+          aria-label="搜尋訂單"
+        >
+          <Search className="size-5" />
+        </Button>
       </header>
 
       <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
-        <SheetContent side="left" className="w-[88vw] max-w-sm p-0 [&>button]:hidden">
-          <SheetTitle className="sr-only">Sweetfun OS 導覽與旅宿篩選</SheetTitle>
+        <SheetContent
+          side="left"
+          className="w-[88vw] max-w-sm p-0 pb-[env(safe-area-inset-bottom)] [&>button]:hidden"
+        >
+          <SheetTitle className="sr-only">Sweetfun OS 導覽、檢視與旅宿篩選</SheetTitle>
           <div className="absolute right-3 top-3 z-10">
             <Button variant="ghost" size="icon" onClick={() => setMobileOpen(false)} aria-label="關閉選單">
               <X className="size-5" />
