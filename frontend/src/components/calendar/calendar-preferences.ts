@@ -70,7 +70,12 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
         })),
       setView: (view) => set({ view }),
       setSearchQuery: (searchQuery) => set({ searchQuery }),
-      setMobileSearchOpen: (mobileSearchOpen) => set({ mobileSearchOpen }),
+      setMobileSearchOpen: (mobileSearchOpen) =>
+        set(
+          mobileSearchOpen
+            ? { mobileSearchOpen: true }
+            : { mobileSearchOpen: false, searchQuery: "" },
+        ),
       setMobileMenuOpen: (mobileMenuOpen) => set({ mobileMenuOpen }),
       setMobilePeriodLabel: (mobilePeriodLabel) => set({ mobilePeriodLabel }),
       requestCalendarNavigation: (action) =>
