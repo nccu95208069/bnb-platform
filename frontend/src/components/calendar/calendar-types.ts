@@ -3,6 +3,12 @@ export type PaymentStatus = "paid" | "deposit" | "unpaid";
 export type ReservationStatus = "confirmed" | "cancelled";
 export type PaymentMethod = "cash" | "bank_transfer" | "credit_card";
 export type PaymentType = "deposit" | "balance" | "other";
+export type BabySupply =
+  | "crib"
+  | "baby_bath"
+  | "sterilizer"
+  | "bed_rail"
+  | "high_chair";
 
 export type CalendarProperty = {
   id: string;
@@ -39,6 +45,7 @@ export type BookingAuditEvent = {
 export type CalendarBooking = {
   id: string;
   sheet_row_id: string;
+  source_segment_ids?: string[];
   order_id: string;
   external_order_no: string | null;
   property_id: string;
@@ -51,8 +58,14 @@ export type CalendarBooking = {
   check_out: string;
   booked_at: string | null;
   room_rate: number;
+  price_hidden?: boolean;
   payment_status: PaymentStatus;
   reservation_status: ReservationStatus;
+  extra_guest_count: number;
+  extra_bed_count: number;
+  pet_count: number;
+  baby_supplies: BabySupply[];
+  service_note: string | null;
   notes: string | null;
   payments: PaymentRecord[];
   audit_log: BookingAuditEvent[];
@@ -70,6 +83,7 @@ export type CalendarResponse = {
   order_count: number;
   booking_segment_count: number;
   total_amount: number;
+  price_hidden?: boolean;
   bookings: CalendarBooking[];
   data_mode?: string;
 };
