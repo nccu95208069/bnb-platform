@@ -681,3 +681,27 @@ async def test_deferred_commit_failure_returns_no_success_or_partial_ledger(
     assert error == {"detail": "payment_store_unavailable"}
     assert await h.count_payments() == 0
     assert (await h.sql("SELECT version FROM payment_workflow.orders"))[0]["version"] == 1
+
+
+async def test_human_can_withdraw_unwritten_intent_and_agent_cannot_replay(payment_env):
+    h = payment_env
+    mission = await h.create()
+    canceled = await h.post(f"/missions/{mission['mission_id']}/cancel")
+    assert canceled["status"] == "canceled"
+    assert canceled["request"]["payment"]["amount"] == 2000
+    assert (await h.advance(mission))["status"] == "canceled"
+    assert (await h.post(f"/missions/{mission['mission_id']}/cancel"))["status"] == "canceled"
+    assert await h.count_payments() == 0
+    audit = await h.client.get(ROOT + f"/missions/{mission['mission_id']}")
+    assert any(s["tool_name"] == "cancel_mission" for s in audit.json()["steps"])
+
+
+async def test_recorded_receipt_cannot_be_canceled_as_a_pending_intent(payment_env):
+    h = payment_env
+    mission = await h.create()
+    await h.advance(mission)
+    written = await h.advance(mission)
+    assert written["write_result"]
+    await h.post(f"/missions/{mission['mission_id']}/cancel", expected=409)
+    assert await h.count_payments() == 1
+    assert (await h.advance(mission))["status"] == "completed"

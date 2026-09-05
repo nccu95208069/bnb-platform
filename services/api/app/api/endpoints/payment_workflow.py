@@ -131,3 +131,8 @@ async def resolve_incident(
     mission_id: UUID, resolution: ResolveIncident, service: PaymentWorkflow = Depends(workflow)
 ) -> dict:
     return await finish(service, service.resolve(mission_id, resolution.evidence))
+
+
+@router.post("/missions/{mission_id}/cancel")
+async def cancel_mission(mission_id: UUID, service: PaymentWorkflow = Depends(workflow)) -> dict:
+    return await finish(service, service.cancel(mission_id))

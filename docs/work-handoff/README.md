@@ -62,3 +62,22 @@ The product specification and current implementation are not at the same stage:
 - The shipped web application is an anonymized interaction prototype plus a workspace-access foundation.
 
 The next Work thread should continue from this distinction rather than rebuilding the calendar UI or assuming the Agent backend already exists.
+
+
+## Integrated calendar and shared human/Agent Missions (2026-09-05)
+
+The isolated payment slice now connects the existing calendar's order detail panel
+to a shared payment workspace and `/missions` center. Both use persistent Missions
+and the same database ledger; the sandbox calendar does not apply browser demo edits.
+See [AGENT_PAYMENT_PLAYBOOK.md](AGENT_PAYMENT_PLAYBOOK.md) for local startup,
+human/Agent takeover contracts, recovery, and the explicit production boundary.
+
+Verified locally: manual calendar payment; Agent API intent → human confirmation;
+refresh and cross-page persistence; oversized-payment withdrawal without a receipt;
+overlap → blocking child → reject premature resolution → source repair → human
+resolution → resume original Mission → exactly one verified receipt. Desktop/mobile
+flows and production proxy rejection (404 even with the flag enabled) were checked.
+Backend: 202 passing tests including real PostgreSQL. Frontend lint: no errors,
+one pre-existing week-carousel unused-import warning; TypeScript and build pass.
+Natural-language model integration, background scheduling, production Sheet writes,
+and production calendar authorization remain separate work.

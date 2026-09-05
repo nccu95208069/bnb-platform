@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   CalendarDays,
+  ClipboardList,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -22,6 +23,7 @@ import { VIEW_LABELS } from "@/components/calendar/calendar-utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useActorPermissions } from "@/lib/access-control";
+import { PAYMENT_SANDBOX } from "@/lib/payment-workflow";
 import { cn } from "@/lib/utils";
 
 const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
@@ -69,7 +71,9 @@ function PropertyFilters() {
   const selectedPropertyIds = useCalendarPreferences(
     (state) => state.selectedPropertyIds,
   );
-  const toggleProperty = useCalendarPreferences((state) => state.toggleProperty);
+  const toggleProperty = useCalendarPreferences(
+    (state) => state.toggleProperty,
+  );
   const selectAllProperties = useCalendarPreferences(
     (state) => state.selectAllProperties,
   );
@@ -169,7 +173,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <CalendarViewFilters />
       <PropertyFilters />
 
-      {DEMO_MODE && (
+      {DEMO_MODE && !PAYMENT_SANDBOX && (
         <div className="mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-950">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em]">
             Demo Site
@@ -195,7 +199,22 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           訂單日曆
         </Link>
 
-        {actorPermissions.manageMembers && (
+        {PAYMENT_SANDBOX && (
+          <Link
+            href="/missions"
+            onClick={onNavigate}
+            className={cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",
+              pathname === "/missions"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:bg-accent",
+            )}
+          >
+            <ClipboardList className="size-4" />
+            任務中心
+          </Link>
+        )}
+        {actorPermissions.manageMembers && !PAYMENT_SANDBOX && (
           <Link
             href="/access"
             onClick={onNavigate}
@@ -220,7 +239,11 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
               DEMO_MODE ? "bg-amber-500" : "bg-emerald-500",
             )}
           />
-          {DEMO_MODE ? "匿名化示範模式" : "系統連線正常"}
+          {PAYMENT_SANDBOX
+            ? "隔離測試 · 固定管理者身分"
+            : DEMO_MODE
+              ? "匿名化示範模式"
+              : "系統連線正常"}
         </div>
         <p className="mt-1 text-[10px] text-muted-foreground">
           BnB Platform v0.4
@@ -231,11 +254,15 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 export function Sidebar() {
+  const pathname = usePathname();
+  const isCalendar = pathname.startsWith("/calendar");
   const properties = useCalendarPreferences((state) => state.properties);
   const selectedPropertyIds = useCalendarPreferences(
     (state) => state.selectedPropertyIds,
   );
-  const mobileMenuOpen = useCalendarPreferences((state) => state.mobileMenuOpen);
+  const mobileMenuOpen = useCalendarPreferences(
+    (state) => state.mobileMenuOpen,
+  );
   const setMobileMenuOpen = useCalendarPreferences(
     (state) => state.setMobileMenuOpen,
   );
@@ -279,40 +306,50 @@ export function Sidebar() {
           className="min-w-0 px-1 text-center"
           aria-label="回到今天"
         >
-          <p className="truncate text-sm font-semibold">{mobilePeriodLabel}</p>
+          <p className="truncate text-sm font-semibold">
+            {isCalendar ? mobilePeriodLabel : "任務中心"}
+          </p>
           <p className="truncate text-[10px] text-muted-foreground">
             {selectedNames.length ? selectedNames.join("、") : "選擇旅宿"}
           </p>
         </button>
 
         <div className="flex items-center justify-end gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            onClick={() => requestCalendarNavigation("previous")}
-            aria-label="上一個日期區間"
-          >
-            <ChevronLeft className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            onClick={() => requestCalendarNavigation("next")}
-            aria-label="下一個日期區間"
-          >
-            <ChevronRight className="size-4" />
-          </Button>
-          <Button
-            variant={mobileSearchOpen ? "secondary" : "ghost"}
-            size="icon"
-            className="size-9"
-            onClick={() => setMobileSearchOpen(true)}
-            aria-label="搜尋訂單"
-          >
-            <Search className="size-4" />
-          </Button>
+          {isCalendar ? (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9"
+                onClick={() => requestCalendarNavigation("previous")}
+                aria-label="上一個日期區間"
+              >
+                <ChevronLeft className="size-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9"
+                onClick={() => requestCalendarNavigation("next")}
+                aria-label="下一個日期區間"
+              >
+                <ChevronRight className="size-4" />
+              </Button>
+              <Button
+                variant={mobileSearchOpen ? "secondary" : "ghost"}
+                size="icon"
+                className="size-9"
+                onClick={() => setMobileSearchOpen(true)}
+                aria-label="搜尋訂單"
+              >
+                <Search className="size-4" />
+              </Button>
+            </>
+          ) : (
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/calendar">日曆</Link>
+            </Button>
+          )}
         </div>
       </header>
 

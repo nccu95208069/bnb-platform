@@ -7,7 +7,7 @@ all identity overrides and synthetic source repair live only in this harness.
 import os
 import runpy
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 from uuid import UUID
@@ -155,6 +155,16 @@ def create_sandbox():
     async def db_override():
         async with sessions() as db:
             try:
+                # This synthetic database is its own source; a stale observation
+                # can be refreshed without external I/O. If a Mission had an old
+                # snapshot, normal revalidation still notices the changed timestamp.
+                service = PaymentWorkflow(db, TENANT, PROPERTY, ACTOR, sandbox_allowed=True)
+                await service.authorize()
+                await db.execute(
+                    text("""UPDATE payment_workflow.orders
+                    SET source_checked_at = now()
+                    WHERE source_checked_at < now() - interval '5 minutes'""")
+                )
                 yield db
             finally:
                 await db.rollback()
@@ -210,6 +220,112 @@ def create_sandbox():
                 "mission": mission,
                 "last_command": commands[0] if commands else None,
             }
+
+    @app.get("/sandbox/calendar")
+    async def calendar(start: date, end: date):
+        if end <= start or (end - start).days > 1200:
+            raise HTTPException(422, "invalid_calendar_period")
+        async with sessions.begin() as db:
+            service = PaymentWorkflow(db, TENANT, PROPERTY, ACTOR, sandbox_allowed=True)
+            await service.authorize(money=True)
+            # Only refresh stale synthetic-source timestamps. Fresh reads must
+            # not change a pending Mission's checked snapshot.
+            await db.execute(
+                text("""UPDATE payment_workflow.orders
+                SET source_checked_at = now()
+                WHERE source_checked_at < now() - interval '5 minutes'""")
+            )
+            orders = await service.rows(
+                """SELECT * FROM payment_workflow.orders
+                WHERE tenant_id = :tenant AND property_id = :property
+                  AND status <> 'canceled' AND check_in < :end AND check_out >= :start
+                ORDER BY order_id""",
+                start=start,
+                end=end,
+            )
+            bookings = []
+            for order in orders:
+                payments = await service.rows(
+                    """SELECT * FROM payment_workflow.payments
+                    WHERE tenant_id = :tenant AND property_id = :property
+                      AND order_id = :order ORDER BY created_at""",
+                    order=order["order_id"],
+                )
+                paid = sum(p["amount"] for p in payments)
+                bookings.append(
+                    dict(
+                        id=order["order_id"],
+                        sheet_row_id=order["order_id"],
+                        order_id=order["order_id"],
+                        external_order_no=None,
+                        property_id=PROPERTY,
+                        property_name="Sweetfun 測試旅宿",
+                        room_id="sandbox-room-301",
+                        room_number=order["room_code"],
+                        guest_name=order["guest_name"],
+                        platform="direct",
+                        check_in=order["check_in"],
+                        check_out=order["check_out"],
+                        booked_at=None,
+                        room_rate=order["total_amount"],
+                        payment_status="paid"
+                        if paid >= order["total_amount"]
+                        else "deposit"
+                        if paid
+                        else "unpaid",
+                        reservation_status="confirmed",
+                        notes="隔離測試訂單 · 付款保存至本機測試資料庫",
+                        payments=[
+                            dict(
+                                id=str(p["id"]),
+                                amount=p["amount"],
+                                payment_type="other"
+                                if p["payment_type"] == "payment"
+                                else p["payment_type"],
+                                payment_method="credit_card"
+                                if p["payment_method"] == "card"
+                                else p["payment_method"],
+                                received_at=p["received_at"],
+                                created_at=p["created_at"],
+                            )
+                            for p in payments
+                        ],
+                        audit_log=[],
+                        extra_guest_count=0,
+                        extra_bed_count=0,
+                        pet_count=0,
+                        baby_supplies=[],
+                        service_note=None,
+                    )
+                )
+            return dict(
+                year=start.year,
+                month=start.month,
+                month_start=start,
+                month_end=end,
+                period_start=start,
+                period_end=end,
+                properties=[
+                    dict(
+                        id=PROPERTY,
+                        name="Sweetfun 測試旅宿",
+                        short_name="Sweetfun",
+                        location="隔離測試",
+                        room_count=1,
+                        color="emerald",
+                    )
+                ],
+                rooms=[
+                    dict(
+                        id="sandbox-room-301", property_id=PROPERTY, room_number="301", label="301"
+                    )
+                ],
+                order_count=len(bookings),
+                booking_segment_count=len(bookings),
+                total_amount=sum(b["room_rate"] for b in bookings),
+                bookings=bookings,
+                data_mode="persistent_sandbox",
+            )
 
     @app.post("/sandbox/reset")
     async def reset(request: Scenario):

@@ -300,9 +300,12 @@ class PaymentWorkflow:
             "mission_id": str(mission["id"]),
             "kind": mission["kind"],
             "goal": mission["goal"],
+            "request": mission["request"],
+            "resolved_query": mission["resolved_query"],
             "status": mission["status"],
             "next_tool": mission["current_step"],
             "blocked_by": str(mission["blocked_by"]) if mission["blocked_by"] else None,
+            "parent_mission_id": str(mission["parent_id"]) if mission["parent_id"] else None,
             "revalidation_required": mission["revalidation_required"],
             "result": mission["result"],
             "order": mission["result"].get("order", mission["snapshot"])
@@ -717,6 +720,23 @@ class PaymentWorkflow:
         await self.audit(
             mission, "resume_mission", {}, {"status": "queued", "revalidation_required": True}
         )
+        return self.present(mission)
+
+    async def cancel(self, mission_id: UUID) -> dict:
+        """Withdraw an unexecuted payment intent; never erase a recorded receipt."""
+        await self.authorize(write=True, money=True)
+        mission = await self.mission(mission_id)
+        if mission["status"] == "canceled":
+            return self.present(mission)
+        if mission["write_result"] or mission["kind"] != "record_payment" or mission["blocked_by"]:
+            raise HTTPException(409, "payment_or_investigation_must_be_resolved")
+        await self.save(
+            mission,
+            status="canceled",
+            current_step="done",
+            result={"status": "canceled", "persisted": False},
+        )
+        await self.audit(mission, "cancel_mission", {}, {"status": "canceled", "persisted": False})
         return self.present(mission)
 
     async def resolve(self, child_id: UUID, evidence: str) -> dict:

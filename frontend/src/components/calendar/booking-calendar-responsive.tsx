@@ -23,6 +23,9 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import Link from "next/link";
+import { PAYMENT_SANDBOX } from "@/lib/payment-workflow";
+import { PaymentWorkspace } from "@/components/payments/payment-workspace";
 
 import {
   BookingDetailsPanel,
@@ -126,7 +129,9 @@ function MetricCard({
         <Icon className="size-3.5" />
         {label}
       </div>
-      <p className="mt-1 text-xl font-semibold tracking-tight text-foreground">{value}</p>
+      <p className="mt-1 text-xl font-semibold tracking-tight text-foreground">
+        {value}
+      </p>
     </div>
   );
 }
@@ -144,12 +149,14 @@ function overlayEdits(
     ...segmentPatch,
     guest_name: orderPatch.guest_name ?? booking.guest_name,
     payment_status: orderPatch.payment_status ?? booking.payment_status,
-    reservation_status: orderPatch.reservation_status ?? booking.reservation_status,
+    reservation_status:
+      orderPatch.reservation_status ?? booking.reservation_status,
     payments: orderPatch.payments ?? booking.payments ?? [],
     audit_log: [...(booking.audit_log ?? []), ...(orderPatch.audit_log ?? [])],
     extra_guest_count:
       segmentPatch.extra_guest_count ?? booking.extra_guest_count ?? 0,
-    extra_bed_count: segmentPatch.extra_bed_count ?? booking.extra_bed_count ?? 0,
+    extra_bed_count:
+      segmentPatch.extra_bed_count ?? booking.extra_bed_count ?? 0,
     pet_count: segmentPatch.pet_count ?? booking.pet_count ?? 0,
     baby_supplies: segmentPatch.baby_supplies ?? booking.baby_supplies ?? [],
     service_note: segmentPatch.service_note ?? booking.service_note ?? null,
@@ -162,15 +169,21 @@ export function BookingCalendarResponsive() {
   const setView = useCalendarPreferences((state) => state.setView);
   const query = useCalendarPreferences((state) => state.searchQuery);
   const setQuery = useCalendarPreferences((state) => state.setSearchQuery);
-  const mobileSearchOpen = useCalendarPreferences((state) => state.mobileSearchOpen);
-  const setMobileSearchOpen = useCalendarPreferences((state) => state.setMobileSearchOpen);
+  const mobileSearchOpen = useCalendarPreferences(
+    (state) => state.mobileSearchOpen,
+  );
+  const setMobileSearchOpen = useCalendarPreferences(
+    (state) => state.setMobileSearchOpen,
+  );
   const setMobilePeriodLabel = useCalendarPreferences(
     (state) => state.setMobilePeriodLabel,
   );
   const navigationRequest = useCalendarPreferences(
     (state) => state.navigationRequest,
   );
-  const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);
+  const selectedPropertyIds = useCalendarPreferences(
+    (state) => state.selectedPropertyIds,
+  );
   const setProperties = useCalendarPreferences((state) => state.setProperties);
 
   const initializeAccess = useAccessControl((state) => state.initialize);
@@ -193,8 +206,12 @@ export function BookingCalendarResponsive() {
   const hasLoadedData = useRef(false);
   const previousView = useRef<CalendarView>(view);
   const handledNavigationRequest = useRef(0);
+  const openedOrderLink = useRef<string | null>(null);
 
-  const requestPeriod = useMemo(() => fetchPeriod(anchorDate, view), [anchorDate, view]);
+  const requestPeriod = useMemo(
+    () => fetchPeriod(anchorDate, view),
+    [anchorDate, view],
+  );
   const displayPeriod = useMemo(() => {
     if (view === "month") {
       return {
@@ -208,6 +225,11 @@ export function BookingCalendarResponsive() {
 
   useEffect(() => {
     void initializeAccess();
+    if (
+      PAYMENT_SANDBOX &&
+      new URLSearchParams(window.location.search).has("order")
+    )
+      useCalendarPreferences.getState().setView("month");
   }, [initializeAccess]);
 
   useEffect(() => {
@@ -259,7 +281,7 @@ export function BookingCalendarResponsive() {
   }, [anchorDate, view]);
 
   useEffect(() => {
-    if (!DEMO_MODE) {
+    if (!DEMO_MODE || PAYMENT_SANDBOX) {
       setEditsHydrated(true);
       return;
     }
@@ -274,7 +296,7 @@ export function BookingCalendarResponsive() {
   }, []);
 
   useEffect(() => {
-    if (!DEMO_MODE || !editsHydrated) return;
+    if (!DEMO_MODE || PAYMENT_SANDBOX || !editsHydrated) return;
     window.localStorage.setItem(EDIT_STORAGE_KEY, JSON.stringify(edits));
   }, [edits, editsHydrated]);
 
@@ -288,9 +310,17 @@ export function BookingCalendarResponsive() {
       setError(null);
 
       try {
-        const response = await apiClient.get<CalendarResponse>(
-          `/bookings/calendar?start=${requestPeriod.start}&end=${requestPeriod.end}`,
-        );
+        const response = PAYMENT_SANDBOX
+          ? await fetch(
+              `/api/payment-sandbox/calendar?start=${requestPeriod.start}&end=${requestPeriod.end}`,
+              { cache: "no-store" },
+            ).then(async (r) => {
+              if (!r.ok) throw new Error("無法連接隔離測試服務，請稍後重試。");
+              return r.json() as Promise<CalendarResponse>;
+            })
+          : await apiClient.get<CalendarResponse>(
+              `/bookings/calendar?start=${requestPeriod.start}&end=${requestPeriod.end}`,
+            );
         if (!active) return;
         setData(response);
         setProperties(response.properties);
@@ -299,7 +329,9 @@ export function BookingCalendarResponsive() {
       } catch (requestError) {
         if (!active) return;
         setError(
-          requestError instanceof Error ? requestError.message : "無法讀取訂單日曆",
+          requestError instanceof Error
+            ? requestError.message
+            : "無法讀取訂單日曆",
         );
       } finally {
         if (!active) return;
@@ -313,6 +345,32 @@ export function BookingCalendarResponsive() {
       active = false;
     };
   }, [reloadKey, requestPeriod.end, requestPeriod.start, setProperties]);
+
+  useEffect(() => {
+    if (!PAYMENT_SANDBOX) return;
+    const order = new URLSearchParams(window.location.search).get("order");
+    if (
+      order &&
+      openedOrderLink.current !== order &&
+      data?.bookings.some((b) => b.id === order)
+    ) {
+      openedOrderLink.current = order;
+      setSelectedId(order);
+    }
+  }, [data]);
+
+  useEffect(() => {
+    if (!PAYMENT_SANDBOX) return;
+    const refresh = () => {
+      if (!document.hidden) setReloadKey((value) => value + 1);
+    };
+    const timer = setInterval(refresh, 5000);
+    window.addEventListener("focus", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+    };
+  }, []);
 
   const rawEditedBookings = useMemo(
     () =>
@@ -347,7 +405,8 @@ export function BookingCalendarResponsive() {
       editedBookings.filter(
         (booking) =>
           selectedPropertyIds.includes(booking.property_id) &&
-          (!allowedPropertyIds || allowedPropertyIds.has(booking.property_id)) &&
+          (!allowedPropertyIds ||
+            allowedPropertyIds.has(booking.property_id)) &&
           booking.reservation_status === "confirmed",
       ),
     [allowedPropertyIds, editedBookings, selectedPropertyIds],
@@ -403,7 +462,8 @@ export function BookingCalendarResponsive() {
     const occupied = relevant.filter(
       (booking) => overlapNights(booking, displayPeriod) > 0,
     );
-    const orderCount = new Set(relevant.map((booking) => booking.order_id)).size;
+    const orderCount = new Set(relevant.map((booking) => booking.order_id))
+      .size;
     const arrivals = relevant.filter(
       (booking) =>
         booking.check_in >= displayPeriod.start &&
@@ -424,7 +484,9 @@ export function BookingCalendarResponsive() {
         dayDifference(booking.check_out, booking.check_in),
       );
       const visibleNights = overlapNights(booking, displayPeriod);
-      return sum + Math.round((booking.room_rate * visibleNights) / totalNights);
+      return (
+        sum + Math.round((booking.room_rate * visibleNights) / totalNights)
+      );
     }, 0);
 
     return { orderCount, arrivals, departures, roomNights, amount };
@@ -560,7 +622,9 @@ export function BookingCalendarResponsive() {
       }`,
       occurred_at: new Date().toISOString(),
     };
-    const sourceIds = selectedBooking.source_segment_ids ?? [selectedBooking.id];
+    const sourceIds = selectedBooking.source_segment_ids ?? [
+      selectedBooking.id,
+    ];
     const [primaryId, ...obsoleteIds] = sourceIds;
 
     setEdits((current) => {
@@ -636,6 +700,19 @@ export function BookingCalendarResponsive() {
 
   return (
     <div className="pb-0 md:space-y-4 md:pb-8">
+      {PAYMENT_SANDBOX && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card p-3 text-sm">
+          <div>
+            <p className="font-semibold">日曆與付款任務已連接</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              隔離測試 · 點選 301 房測試訂單，登記付款後會保存並更新日曆。
+            </p>
+          </div>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/missions">交辦與查看任務</Link>
+          </Button>
+        </div>
+      )}
       {mobileSearchOpen && (
         <div className="fixed inset-x-0 top-0 z-[70] flex h-14 items-center gap-2 border-b bg-background px-2 shadow-sm md:hidden">
           <Search className="ml-2 size-4 shrink-0 text-muted-foreground" />
@@ -766,14 +843,20 @@ export function BookingCalendarResponsive() {
       </section>
 
       <div className="hidden gap-3 sm:grid-cols-2 md:grid xl:grid-cols-5">
-        <MetricCard icon={CalendarDays} label="訂單" value={metrics.orderCount} />
+        <MetricCard
+          icon={CalendarDays}
+          label="訂單"
+          value={metrics.orderCount}
+        />
         <MetricCard icon={LogIn} label="入住" value={metrics.arrivals} />
         <MetricCard icon={LogOut} label="退房" value={metrics.departures} />
         <MetricCard icon={DoorOpen} label="房晚" value={metrics.roomNights} />
         <MetricCard
           icon={CircleDollarSign}
           label="房費"
-          value={permissions.viewPrices ? formatMoney(metrics.amount) : "已隱藏"}
+          value={
+            permissions.viewPrices ? formatMoney(metrics.amount) : "已隱藏"
+          }
         />
       </div>
 
@@ -805,7 +888,7 @@ export function BookingCalendarResponsive() {
         </span>
       </div>
 
-      {DEMO_MODE && (
+      {DEMO_MODE && !PAYMENT_SANDBOX && (
         <div className="hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 md:block">
           示範模式：可測試權限、付款、改期與取消；變更只保存在這台裝置。
         </div>
@@ -896,7 +979,21 @@ export function BookingCalendarResponsive() {
         booking={selectedBooking}
         orderSegments={selectedOrderSegments}
         rooms={data?.rooms ?? []}
-        permissions={permissions}
+        permissions={
+          PAYMENT_SANDBOX
+            ? { ...permissions, editBookings: false, cancelBookings: false }
+            : permissions
+        }
+        paymentWorkspace={
+          PAYMENT_SANDBOX && selectedBooking && permissions.viewPrices ? (
+            <PaymentWorkspace
+              key={selectedBooking.order_id}
+              orderId={selectedBooking.order_id}
+              readOnly={!permissions.recordPayments}
+              onChange={() => setReloadKey((value) => value + 1)}
+            />
+          ) : undefined
+        }
         onClose={() => setSelectedId(null)}
         onRecordPayment={recordPayment}
         onUpdateBooking={updateBooking}

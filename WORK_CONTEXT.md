@@ -341,3 +341,15 @@ The public repository may contain public-safe specs and anonymized sample data o
 - raw bank or platform payout exports
 
 Private evidence may be used inside an approved private Project/Work task, but should be minimized and never copied into public commits, logs, examples, or test fixtures.
+
+
+## 12. Isolated calendar/payment integration (2026-09-05)
+
+At the owner's request, the local calendar now reads the isolated payment orders and
+ledger, opens persistent payment Missions in the existing order detail panel, and
+links to a shared human/Agent Mission center. The API exposes original structured
+intent and parent/child links; humans can confirm, resume, clarify, or withdraw an
+unwritten intent. Recorded receipts require verification and cannot be withdrawn.
+The local proxy is disabled in production execution mode. This is an integrated
+synthetic preview, not approval of a database SSOT migration or production writes.
+See `docs/work-handoff/AGENT_PAYMENT_PLAYBOOK.md`.
