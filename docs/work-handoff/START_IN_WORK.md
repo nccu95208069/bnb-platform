@@ -26,7 +26,9 @@ D. 規格與程式碼之間的差距或衝突
 E. 下一個最合理的單一 Milestone，以及為何不是先做其他項目
 F. 你準備修改的檔案、資料表、migration、API、tests 與驗收案例
 
-預設下一個 Milestone 是完整做通「登記訂金／付款」Golden Workflow：
+先核對 NEXT_WORK.md 的 Milestone 0／1 前置條件。正式付款寫入必須等資料字典、穩定 ID、寫入方向與 Tool 契約完成確認。
+目前已有付款隔離測試實作，請先讀 PAYMENT_WORKFLOW.md 與 PAYMENT_SOURCE_MAPPING.md。
+正式來源尚未確認時，只能以隔離合成資料驗證「登記訂金／付款」Golden Workflow，不得猜測正式 Sheet 欄位或宣稱正式登記完成：
 check_order → controlled update_order(record_payment) → check_order，並包含 persistent Mission、idempotency、expected version、audit、permission、blocking child Mission、final verification。
 
 執行規則：

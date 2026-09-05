@@ -10,6 +10,22 @@ jobs:
   backend:
     name: Backend
     runs-on: ubuntu-latest
+    services:
+      payment-postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bnb_payment_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      PAYMENT_TEST_DATABASE_URL: postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/bnb_payment_test
     defaults:
       run:
         working-directory: services/api

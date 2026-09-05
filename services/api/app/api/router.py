@@ -2,7 +2,15 @@
 
 from fastapi import APIRouter
 
-from app.api.endpoints import bookings, chat_simulate, conversations, documents, health, webhook
+from app.api.endpoints import (
+    bookings,
+    chat_simulate,
+    conversations,
+    documents,
+    health,
+    payment_workflow,
+    webhook,
+)
 
 api_router = APIRouter()
 
@@ -12,3 +20,4 @@ api_router.include_router(conversations.router, prefix="/api/v1")
 api_router.include_router(documents.router, prefix="/api/v1")
 api_router.include_router(bookings.router, prefix="/api/v1")
 api_router.include_router(chat_simulate.router, prefix="/api/v1")
+api_router.include_router(payment_workflow.router, prefix="/api/v1")

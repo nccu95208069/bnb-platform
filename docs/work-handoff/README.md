@@ -13,6 +13,12 @@ This folder organizes the product decisions, shipped implementation, unresolved 
 
 ## Source map
 
+Current isolated payment work: [takeover check](TAKEOVER_CHECK_2026-09-05.md),
+[payment contract and Playbook](PAYMENT_WORKFLOW.md), and
+[source mapping with production prerequisites](PAYMENT_SOURCE_MAPPING.md).
+The owner authorized isolated tests while the production Sheet payment structure
+remains unconfirmed. These additions do not change the operational SSOT.
+
 | Source | Role | Current status |
 |---|---|---|
 | `WORK_CONTEXT.md` | top-level canonical handoff | current |
@@ -56,3 +62,22 @@ The product specification and current implementation are not at the same stage:
 - The shipped web application is an anonymized interaction prototype plus a workspace-access foundation.
 
 The next Work thread should continue from this distinction rather than rebuilding the calendar UI or assuming the Agent backend already exists.
+
+
+## Integrated calendar and shared human/Agent Missions (2026-09-05)
+
+The isolated payment slice now connects the existing calendar's order detail panel
+to a shared payment workspace and `/missions` center. Both use persistent Missions
+and the same database ledger; the sandbox calendar does not apply browser demo edits.
+See [AGENT_PAYMENT_PLAYBOOK.md](AGENT_PAYMENT_PLAYBOOK.md) for local startup,
+human/Agent takeover contracts, recovery, and the explicit production boundary.
+
+Verified locally: manual calendar payment; Agent API intent → human confirmation;
+refresh and cross-page persistence; oversized-payment withdrawal without a receipt;
+overlap → blocking child → reject premature resolution → source repair → human
+resolution → resume original Mission → exactly one verified receipt. Desktop/mobile
+flows and production proxy rejection (404 even with the flag enabled) were checked.
+Backend: 202 passing tests including real PostgreSQL. Frontend lint: no errors,
+one pre-existing week-carousel unused-import warning; TypeScript and build pass.
+Natural-language model integration, background scheduling, production Sheet writes,
+and production calendar authorization remain separate work.
