@@ -120,3 +120,31 @@ Rollback first disables `PAYMENT_WORKFLOW_ENABLED` and retains the ledger for au
 - Frontend TypeScript and production build: passed. The build required network access for the existing Google Fonts.
 - Deferred commit failure was exercised through a deliberately missing audit reference: the API returned a sanitized 503, and ledger/version changes rolled back.
 - Migration/RLS/grants verification applies to the disposable local database; no production Supabase advisor or live migration was run.
+
+## Interactive local test page
+
+`scripts/payment_sandbox.py` serves a small operator test page at `http://127.0.0.1:8765`.
+It calls the actual payment APIs and PostgreSQL ledger rather than simulating results
+in browser storage. It supports normal payment, duplicate submission, an unexpected
+deposit requiring confirmation, pause/reload/resume, and a synthetic overlap with
+source repair and blocking-child resolution.
+
+Run from `services/api` with a separate empty PostgreSQL database named exactly
+`bnb_payment_preview_test` on loopback:
+
+```sh
+PAYMENT_SANDBOX_DATABASE_URL=postgresql+asyncpg://postgres:postgres@127.0.0.1:5432/bnb_payment_preview_test python -m scripts.payment_sandbox
+```
+
+The harness is never imported by `app.main`. Only this standalone local process
+uses a fixed synthetic owner identity. It binds to 127.0.0.1, rejects unexpected
+Host/Origin headers and requires a custom header on writes. Initialization refuses
+a nonempty database without its sandbox marker. Reset replaces only this dedicated
+preview schema; it never uses a configured production database. Keep this process
+local; it is not a deployment/authentication pattern.
+
+Browser verification: NT$2,000 produces one receipt, NT$3,600 outstanding and a
+verified Mission; resubmission leaves one receipt; overlap blocks writing and a
+verified source repair resumes the parent; reload after a paused write preserves
+the receipt and resumes final verification without duplication. Cross-origin
+mutation returned HTTP 403. The browser console reported no errors.
