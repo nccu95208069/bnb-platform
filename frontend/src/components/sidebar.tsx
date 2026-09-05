@@ -1,17 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   CalendarDays,
   Check,
   ChevronLeft,
   ChevronRight,
+  LogOut,
   Menu,
   Search,
+  UsersRound,
   X,
 } from "lucide-react";
 
+import { useAccess } from "@/components/access/access-provider";
 import { useCalendarPreferences } from "@/components/calendar/calendar-preferences";
 import type {
   CalendarProperty,
@@ -20,6 +23,8 @@ import type {
 import { VIEW_LABELS } from "@/components/calendar/calendar-utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { ROLE_LABELS } from "@/lib/access-control";
+import { signOut } from "@/lib/supabase/auth";
 import { cn } from "@/lib/utils";
 
 const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
@@ -63,16 +68,21 @@ function CalendarViewFilters() {
 }
 
 function PropertyFilters() {
-  const properties = useCalendarPreferences((state) => state.properties);
+  const { canAccessProperty } = useAccess();
+  const allProperties = useCalendarPreferences((state) => state.properties);
   const selectedPropertyIds = useCalendarPreferences(
     (state) => state.selectedPropertyIds,
   );
   const toggleProperty = useCalendarPreferences((state) => state.toggleProperty);
-  const selectAllProperties = useCalendarPreferences(
-    (state) => state.selectAllProperties,
-  );
+  const properties = allProperties.filter((property) => canAccessProperty(property.id));
   const allSelected =
-    properties.length > 0 && selectedPropertyIds.length === properties.length;
+    properties.length > 0 && properties.every((property) => selectedPropertyIds.includes(property.id));
+
+  function selectAccessibleProperties() {
+    properties.forEach((property) => {
+      if (!selectedPropertyIds.includes(property.id)) toggleProperty(property.id);
+    });
+  }
 
   return (
     <section className="px-3 pt-4">
@@ -83,7 +93,7 @@ function PropertyFilters() {
         {properties.length > 1 && !allSelected && (
           <button
             type="button"
-            onClick={selectAllProperties}
+            onClick={selectAccessibleProperties}
             className="text-[11px] font-medium text-primary hover:underline"
           >
             全部顯示
@@ -94,7 +104,7 @@ function PropertyFilters() {
       <div className="mt-2 space-y-1">
         {properties.length === 0 && (
           <div className="rounded-xl border border-dashed px-3 py-4 text-xs text-muted-foreground">
-            正在載入旅宿資料
+            正在載入可查看的旅宿
           </div>
         )}
 
@@ -148,6 +158,13 @@ function PropertyFilters() {
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { membership, permissions } = useAccess();
+
+  const links = [
+    { href: "/calendar", label: "訂單日曆", icon: CalendarDays, visible: true },
+    { href: "/team", label: "成員與權限", icon: UsersRound, visible: permissions.manage_members },
+  ];
 
   return (
     <div className="flex h-full flex-col bg-card">
@@ -158,7 +175,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">Sweetfun OS</h1>
           <p className="truncate text-[11px] text-muted-foreground">
-            旅宿營運工作台
+            {membership ? `${membership.display_name} · ${ROLE_LABELS[membership.role]}` : "旅宿營運工作台"}
           </p>
         </div>
       </div>
@@ -168,73 +185,79 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       {DEMO_MODE && (
         <div className="mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-950">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.12em]">
-            Demo Site
-          </p>
-          <p className="mt-1 text-xs font-medium">
-            匿名資料 · 編輯僅儲存在此瀏覽器
-          </p>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em]">Demo Site</p>
+          <p className="mt-1 text-xs font-medium">匿名資料 · 編輯僅儲存在此瀏覽器</p>
         </div>
       )}
 
-      <nav className="flex-1 p-3">
-        <Link
-          href="/calendar"
-          onClick={onNavigate}
-          className={cn(
-            "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-            pathname === "/calendar" || pathname.startsWith("/calendar/")
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-          )}
-        >
-          <CalendarDays className="size-4" />
-          訂單日曆
-        </Link>
+      <nav className="flex-1 space-y-1 p-3">
+        {links
+          .filter((link) => link.visible)
+          .map((link) => {
+            const Icon = link.icon;
+            const active = pathname === link.href || pathname.startsWith(`${link.href}/`);
+            return (
+              <Link
+                key={link.href}
+                href={link.href}
+                onClick={onNavigate}
+                className={cn(
+                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+                  active
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                )}
+              >
+                <Icon className="size-4" />
+                {link.label}
+              </Link>
+            );
+          })}
       </nav>
 
       <div className="border-t p-4">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span
-            className={cn(
-              "size-2 rounded-full",
-              DEMO_MODE ? "bg-amber-500" : "bg-emerald-500",
-            )}
-          />
+          <span className={cn("size-2 rounded-full", DEMO_MODE ? "bg-amber-500" : "bg-emerald-500")} />
           {DEMO_MODE ? "匿名化示範模式" : "系統連線正常"}
         </div>
-        <p className="mt-1 text-[10px] text-muted-foreground">
-          BnB Platform v0.3
-        </p>
+        {!DEMO_MODE && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-2 w-full justify-start px-0 text-muted-foreground"
+            onClick={async () => {
+              await signOut();
+              router.replace("/admin/login");
+            }}
+          >
+            <LogOut className="size-4" />
+            登出
+          </Button>
+        )}
+        <p className="mt-1 text-[10px] text-muted-foreground">BnB Platform v0.4</p>
       </div>
     </div>
   );
 }
 
 export function Sidebar() {
+  const { canAccessProperty } = useAccess();
   const properties = useCalendarPreferences((state) => state.properties);
-  const selectedPropertyIds = useCalendarPreferences(
-    (state) => state.selectedPropertyIds,
-  );
+  const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);
   const mobileMenuOpen = useCalendarPreferences((state) => state.mobileMenuOpen);
-  const setMobileMenuOpen = useCalendarPreferences(
-    (state) => state.setMobileMenuOpen,
-  );
-  const mobilePeriodLabel = useCalendarPreferences(
-    (state) => state.mobilePeriodLabel,
-  );
-  const mobileSearchOpen = useCalendarPreferences(
-    (state) => state.mobileSearchOpen,
-  );
-  const setMobileSearchOpen = useCalendarPreferences(
-    (state) => state.setMobileSearchOpen,
-  );
+  const setMobileMenuOpen = useCalendarPreferences((state) => state.setMobileMenuOpen);
+  const mobilePeriodLabel = useCalendarPreferences((state) => state.mobilePeriodLabel);
+  const mobileSearchOpen = useCalendarPreferences((state) => state.mobileSearchOpen);
+  const setMobileSearchOpen = useCalendarPreferences((state) => state.setMobileSearchOpen);
   const requestCalendarNavigation = useCalendarPreferences(
     (state) => state.requestCalendarNavigation,
   );
 
   const selectedNames = properties
-    .filter((property) => selectedPropertyIds.includes(property.id))
+    .filter(
+      (property) =>
+        canAccessProperty(property.id) && selectedPropertyIds.includes(property.id),
+    )
     .map((property) => property.short_name);
 
   return (
@@ -302,9 +325,7 @@ export function Sidebar() {
           side="left"
           className="w-[88vw] max-w-sm p-0 pb-[env(safe-area-inset-bottom)] [&>button]:hidden"
         >
-          <SheetTitle className="sr-only">
-            Sweetfun OS 日曆顯示與旅宿篩選
-          </SheetTitle>
+          <SheetTitle className="sr-only">Sweetfun OS 日曆顯示、旅宿篩選與權限</SheetTitle>
           <div className="absolute right-3 top-3 z-10">
             <Button
               variant="ghost"
