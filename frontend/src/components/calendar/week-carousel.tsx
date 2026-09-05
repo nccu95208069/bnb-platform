@@ -15,11 +15,14 @@ import {
   PROPERTY_DOT_STYLES,
   addDays,
   dateRange,
+  dayDifference,
   formatShortDate,
   formatWeekday,
   isOccupiedOn,
   localTodayIso,
   startOfWeek,
+  stayNightCount,
+  stayProgressLabel,
 } from "./calendar-utils";
 
 type WeekCarouselProps = {
@@ -50,21 +53,24 @@ function PaymentDot({ booking }: { booking: CalendarBooking }) {
   );
 }
 
-function BookingChip({
+function MobileBookingChip({
   booking,
   property,
+  date,
   onSelect,
 }: {
   booking: CalendarBooking;
   property?: CalendarProperty;
+  date: string;
   onSelect: (booking: CalendarBooking) => void;
 }) {
+  const nights = stayNightCount(booking);
   return (
     <button
       type="button"
       onClick={() => onSelect(booking)}
       className={cn(
-        "flex min-h-9 w-full min-w-0 items-center gap-1.5 rounded-md border px-2 py-1.5 text-left text-xs shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "flex min-h-10 w-full min-w-0 items-center gap-1.5 rounded-md border px-2 py-1.5 text-left text-xs shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
       )}
       title={`${booking.property_name}｜${booking.room_number}｜${booking.guest_name}`}
@@ -83,6 +89,11 @@ function BookingChip({
       <span className="min-w-0 flex-1 truncate font-medium">
         {booking.guest_name}
       </span>
+      {nights > 1 && (
+        <span className="shrink-0 rounded-full bg-background/75 px-1.5 py-0.5 text-[10px] font-semibold">
+          {stayProgressLabel(booking, date) ?? `${nights} 晚`}
+        </span>
+      )}
       <PaymentDot booking={booking} />
     </button>
   );
@@ -142,10 +153,11 @@ function MobileWeekPanel({
               </button>
               <div className="mt-2 space-y-1.5">
                 {visible.map((booking) => (
-                  <BookingChip
+                  <MobileBookingChip
                     key={booking.id}
                     booking={booking}
                     property={propertyMap.get(booking.property_id)}
+                    date={date}
                     onSelect={onSelectBooking}
                   />
                 ))}
@@ -176,7 +188,8 @@ function DesktopWeekTimeline({
   const scrollRef = useRef<HTMLDivElement>(null);
   const propertyMap = useMemo(() => propertyById(properties), [properties]);
   const rangeStart = addDays(currentWeek, -7);
-  const days = dateRange(rangeStart, addDays(currentWeek, 14));
+  const rangeEnd = addDays(currentWeek, 14);
+  const days = dateRange(rangeStart, rangeEnd);
   const today = localTodayIso();
   const gridTemplateColumns = `${DESKTOP_ROOM_WIDTH}px repeat(${days.length}, ${DESKTOP_DAY_WIDTH}px)`;
 
@@ -234,13 +247,24 @@ function DesktopWeekTimeline({
 
           {rooms.map((room) => {
             const property = propertyMap.get(room.property_id);
+            const roomBookings = bookings.filter(
+              (booking) =>
+                booking.property_id === room.property_id &&
+                booking.room_id === room.id &&
+                booking.check_in < rangeEnd &&
+                booking.check_out > rangeStart,
+            );
+
             return (
               <div
                 key={room.id}
                 className="grid min-h-24 border-b last:border-b-0"
                 style={{ gridTemplateColumns }}
               >
-                <div className="sticky left-0 z-20 flex min-w-0 items-center gap-2 border-r bg-card px-3 py-3 shadow-[1px_0_0_0_var(--border)]">
+                <div
+                  className="sticky left-0 z-30 flex min-w-0 items-center gap-2 border-r bg-card px-3 py-3 shadow-[1px_0_0_0_var(--border)]"
+                  style={{ gridColumn: 1, gridRow: 1 }}
+                >
                   {property && (
                     <span
                       className={cn(
@@ -253,44 +277,72 @@ function DesktopWeekTimeline({
                     <p className="truncate text-[11px] text-muted-foreground">
                       {property?.short_name}
                     </p>
-                    <p className="truncate text-sm font-semibold">
-                      {room.label}
-                    </p>
+                    <p className="truncate text-sm font-semibold">{room.label}</p>
                   </div>
                 </div>
 
                 {days.map((date, index) => {
-                  const cellBookings = bookings.filter(
-                    (booking) =>
-                      booking.property_id === room.property_id &&
-                      booking.room_id === room.id &&
-                      isOccupiedOn(booking, date),
-                  );
                   const inCurrentWeek = index >= 7 && index < 14;
                   return (
                     <div
                       key={date}
                       className={cn(
-                        "min-w-0 space-y-1 border-r p-1.5 last:border-r-0",
+                        "min-w-0 border-r last:border-r-0",
                         index % 7 === 0 && "border-l-2 border-l-border",
                         inCurrentWeek && "bg-primary/[0.012]",
                         date === today && "bg-primary/[0.04]",
                       )}
-                    >
-                      {cellBookings.map((booking) => (
-                        <BookingChip
-                          key={booking.id}
-                          booking={booking}
-                          property={property}
-                          onSelect={onSelectBooking}
-                        />
-                      ))}
-                      {cellBookings.length === 0 && (
-                        <span className="text-[10px] text-muted-foreground/60">
-                          空房
-                        </span>
+                      style={{ gridColumn: index + 2, gridRow: 1 }}
+                    />
+                  );
+                })}
+
+                {roomBookings.map((booking) => {
+                  const clippedStart =
+                    booking.check_in < rangeStart ? rangeStart : booking.check_in;
+                  const clippedEnd =
+                    booking.check_out > rangeEnd ? rangeEnd : booking.check_out;
+                  const startIndex = dayDifference(clippedStart, rangeStart);
+                  const endIndex = dayDifference(clippedEnd, rangeStart);
+                  const nights = stayNightCount(booking);
+                  return (
+                    <button
+                      key={booking.id}
+                      type="button"
+                      onClick={() => onSelectBooking(booking)}
+                      className={cn(
+                        "z-20 mx-1 my-2 flex h-10 min-w-0 self-center overflow-hidden rounded-lg border px-2.5 text-left text-xs shadow-sm transition hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
                       )}
-                    </div>
+                      style={{
+                        gridColumn: `${startIndex + 2} / ${Math.max(startIndex + 3, endIndex + 2)}`,
+                        gridRow: 1,
+                      }}
+                      title={`${booking.guest_name}｜${booking.check_in}–${booking.check_out}｜連住 ${nights} 晚`}
+                    >
+                      <span className="flex min-w-0 flex-1 items-center gap-2">
+                        <span
+                          className={cn(
+                            "size-2 shrink-0 rounded-sm",
+                            property
+                              ? PROPERTY_DOT_STYLES[property.color]
+                              : PAYMENT_DOT_STYLES[booking.payment_status],
+                          )}
+                        />
+                        <span className="shrink-0 font-semibold">
+                          {booking.room_number}
+                        </span>
+                        <span className="min-w-0 truncate font-medium">
+                          {booking.guest_name}
+                        </span>
+                        {nights > 1 && (
+                          <span className="ml-auto shrink-0 rounded-full bg-background/75 px-1.5 py-0.5 text-[10px] font-semibold">
+                            連住 {nights} 晚
+                          </span>
+                        )}
+                        <PaymentDot booking={booking} />
+                      </span>
+                    </button>
                   );
                 })}
               </div>

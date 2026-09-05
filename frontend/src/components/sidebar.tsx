@@ -9,6 +9,7 @@ import {
   ChevronRight,
   Menu,
   Search,
+  ShieldCheck,
   X,
 } from "lucide-react";
 
@@ -20,6 +21,7 @@ import type {
 import { VIEW_LABELS } from "@/components/calendar/calendar-utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { useActorPermissions } from "@/lib/access-control";
 import { cn } from "@/lib/utils";
 
 const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
@@ -148,6 +150,7 @@ function PropertyFilters() {
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
+  const actorPermissions = useActorPermissions();
 
   return (
     <div className="flex h-full flex-col bg-card">
@@ -177,7 +180,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       )}
 
-      <nav className="flex-1 p-3">
+      <nav className="flex-1 space-y-1 p-3">
         <Link
           href="/calendar"
           onClick={onNavigate}
@@ -191,6 +194,22 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           <CalendarDays className="size-4" />
           訂單日曆
         </Link>
+
+        {actorPermissions.manageMembers && (
+          <Link
+            href="/access"
+            onClick={onNavigate}
+            className={cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+              pathname === "/access" || pathname.startsWith("/access/")
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+            )}
+          >
+            <ShieldCheck className="size-4" />
+            權限管理
+          </Link>
+        )}
       </nav>
 
       <div className="border-t p-4">
@@ -204,7 +223,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           {DEMO_MODE ? "匿名化示範模式" : "系統連線正常"}
         </div>
         <p className="mt-1 text-[10px] text-muted-foreground">
-          BnB Platform v0.3
+          BnB Platform v0.4
         </p>
       </div>
     </div>
