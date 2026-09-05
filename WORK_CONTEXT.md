@@ -314,6 +314,12 @@ Do not treat the current calendar prototype as completion of the Agent-First sys
 
 ## 10. Immediate work order
 
+On 2026-09-05 the owner authorized an isolated payment implementation while the
+production Sheet payment table and stable order IDs remain unconfirmed. The
+resulting backend slice is documented in `docs/work-handoff/PAYMENT_WORKFLOW.md`.
+It does not satisfy the production source-verification gate or change the SSOT;
+the ordered work below still governs production integration.
+
 1. Verify and document current data sources, Sheet schema, formulas, sync directions, and manual recovery procedures.
 2. Freeze the first Tool contracts: `check_order` and controlled `update_order(record_payment)`.
 3. Implement the payment Golden Workflow with Mission persistence, idempotency, versioning, audit, and final verification.

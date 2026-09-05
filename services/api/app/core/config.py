@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # Database
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/bnb_linebot"
 
+    # Isolated payment pilot. Real Sheet writes remain unavailable regardless
+    # of this flag; a reviewed authoritative adapter is required first.
+    payment_workflow_enabled: bool = False
+
     # LINE Bot
     line_channel_secret: str = ""
     line_channel_access_token: str = ""

@@ -13,6 +13,12 @@ This folder organizes the product decisions, shipped implementation, unresolved 
 
 ## Source map
 
+Current isolated payment work: [takeover check](TAKEOVER_CHECK_2026-09-05.md),
+[payment contract and Playbook](PAYMENT_WORKFLOW.md), and
+[source mapping with production prerequisites](PAYMENT_SOURCE_MAPPING.md).
+The owner authorized isolated tests while the production Sheet payment structure
+remains unconfirmed. These additions do not change the operational SSOT.
+
 | Source | Role | Current status |
 |---|---|---|
 | `WORK_CONTEXT.md` | top-level canonical handoff | current |
