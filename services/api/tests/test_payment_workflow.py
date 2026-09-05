@@ -137,6 +137,12 @@ async def payment_env(monkeypatch):
         def migrate(sync_conn):
             with Operations.context(MigrationContext.configure(sync_conn)):
                 migration["upgrade"]()
+                runpy.run_path(
+                    str(
+                        Path(__file__).parents[1]
+                        / "alembic/versions/009_pricing_review_missions.py"
+                    )
+                )["upgrade"]()
 
         await conn.run_sync(migrate)
     monkeypatch.setattr(settings, "payment_workflow_enabled", True)

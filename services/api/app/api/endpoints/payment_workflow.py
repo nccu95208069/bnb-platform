@@ -10,6 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth import verify_admin_token
 from app.core.config import settings
 from app.core.database import get_db
+from app.schemas.availability import (
+    AvailabilityQuery,
+    PriceQuery,
+    PricingMissionQuery,
+    PricingPreviewQuery,
+)
 from app.schemas.payment_workflow import (
     ConfirmPayment,
     CreatePaymentMission,
@@ -17,6 +23,7 @@ from app.schemas.payment_workflow import (
     ResolveIncident,
     UpdateOrder,
 )
+from app.services.availability import AvailabilityService
 from app.services.payment_workflow import PaymentWorkflow
 
 router = APIRouter(
@@ -136,3 +143,30 @@ async def resolve_incident(
 @router.post("/missions/{mission_id}/cancel")
 async def cancel_mission(mission_id: UUID, service: PaymentWorkflow = Depends(workflow)) -> dict:
     return await finish(service, service.cancel(mission_id))
+
+
+# Availability Tools share identity, property serialization and Mission persistence.
+@router.post("/tools/check_availability")
+async def check_availability(
+    query: AvailabilityQuery, service: PaymentWorkflow = Depends(workflow)
+) -> dict:
+    return await finish(service, AvailabilityService(service).check(query))
+
+
+@router.post("/tools/get_price")
+async def get_price(query: PriceQuery, service: PaymentWorkflow = Depends(workflow)) -> dict:
+    return await finish(service, AvailabilityService(service).price(query))
+
+
+@router.post("/tools/preview_pricing")
+async def preview_pricing(
+    query: PricingPreviewQuery, service: PaymentWorkflow = Depends(workflow)
+) -> dict:
+    return await finish(service, AvailabilityService(service).preview(query))
+
+
+@router.post("/pricing-missions")
+async def create_pricing_mission(
+    query: PricingMissionQuery, service: PaymentWorkflow = Depends(workflow)
+) -> dict:
+    return await finish(service, AvailabilityService(service).create(query))

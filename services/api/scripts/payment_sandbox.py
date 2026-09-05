@@ -27,6 +27,7 @@ from app.core.auth import verify_admin_token
 from app.core.config import settings
 from app.core.database import get_db
 from app.schemas.payment_workflow import OrderQuery
+from app.services.availability import ROOMS
 from app.services.payment_workflow import PaymentWorkflow
 
 ACTOR = UUID("b349be22-2f0b-4408-aa89-6e0902c72139")
@@ -49,11 +50,20 @@ def create_sandbox():
     ):
         raise RuntimeError("Sandbox requires its dedicated loopback preview database")
     settings.payment_workflow_enabled = True
+    settings.availability_preview_enabled = True
     settings.app_env = "test"
     settings.supabase_url = ""
     engine = create_async_engine(url)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     migration = runpy.run_path(str(HERE.parent / "alembic/versions/008_payment_workflow.py"))
+
+    pricing_migration = runpy.run_path(
+        str(HERE.parent / "alembic/versions/009_pricing_review_missions.py")
+    )
+
+    def migrate_pricing(sync_conn):
+        with Operations.context(MigrationContext.configure(sync_conn)):
+            pricing_migration["upgrade"]()
 
     async def seed(scenario="normal"):
         async with engine.begin() as conn:
@@ -65,6 +75,7 @@ def create_sandbox():
                     migration["upgrade"]()
 
             await conn.run_sync(migrate)
+            await conn.run_sync(migrate_pricing)
             await conn.execute(
                 text("""INSERT INTO payment_workflow.property_state
                 (tenant_id, property_id, source_kind, writes_enabled, ai_direct_modify)
@@ -131,6 +142,9 @@ def create_sandbox():
             ).scalar()
         if exists is None:
             await seed()
+        else:
+            async with engine.begin() as conn:
+                await conn.run_sync(migrate_pricing)
         yield
         await engine.dispose()
 
@@ -311,14 +325,18 @@ def create_sandbox():
                         name="Sweetfun 測試旅宿",
                         short_name="Sweetfun",
                         location="隔離測試",
-                        room_count=1,
+                        room_count=6,
                         color="emerald",
                     )
                 ],
                 rooms=[
                     dict(
-                        id="sandbox-room-301", property_id=PROPERTY, room_number="301", label="301"
+                        id=f"sandbox-room-{room}",
+                        property_id=PROPERTY,
+                        room_number=room,
+                        label=room,
                     )
+                    for room in ROOMS
                 ],
                 order_count=len(bookings),
                 booking_segment_count=len(bookings),

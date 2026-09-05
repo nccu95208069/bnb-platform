@@ -81,3 +81,10 @@ Backend: 202 passing tests including real PostgreSQL. Frontend lint: no errors,
 one pre-existing week-carousel unused-import warning; TypeScript and build pass.
 Natural-language model integration, background scheduling, production Sheet writes,
 and production calendar authorization remain separate work.
+
+## Unsold calendar and periodic rate changes (2026-09-05)
+
+See [UNSOLD_CALENDAR_DESIGN.md](UNSOLD_CALENDAR_DESIGN.md) for the sold/unsold switch,
+month/week/day views, two synthetic price cycles, nightly quotes, and shared
+human/Agent pricing review Missions. Uses the same isolated PostgreSQL preview and
+payment calendar. No live T-39 reads/writes or prediction claims are involved.

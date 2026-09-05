@@ -32,7 +32,7 @@ async function proxy(
   const suffix = path.join("/");
   // No arbitrary upstream URLs or reset/repair endpoints.
   const allowed =
-    /^(calendar|workflow\/missions(?:\/[0-9a-f-]+(?:\/(advance|confirm|resume|clarify|resolve|cancel))?)?|workflow\/tools\/check_order)$/;
+    /^(calendar|workflow\/missions(?:\/[0-9a-f-]+(?:\/(advance|confirm|resume|clarify|resolve|cancel))?)?|workflow\/pricing-missions|workflow\/tools\/(check_order|check_availability|get_price|preview_pricing))$/;
   if (!allowed.test(suffix))
     return NextResponse.json({ detail: "not_found" }, { status: 404 });
   const upstream =

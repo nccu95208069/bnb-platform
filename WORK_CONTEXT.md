@@ -353,3 +353,14 @@ unwritten intent. Recorded receipts require verification and cannot be withdrawn
 The local proxy is disabled in production execution mode. This is an integrated
 synthetic preview, not approval of a database SSOT migration or production writes.
 See `docs/work-handoff/AGENT_PAYMENT_PLAYBOOK.md`.
+
+## 13. Unsold calendar and versioned synthetic rates (2026-09-05)
+
+The owner requested unsold month/week/day views next to the existing sold calendar,
+with human and Agent access to the same contracts. Latest owner steering explicitly
+uses fake data without live pricing integration. Rates should be modeled as changing
+in cycles roughly every 3–5 days over at least 90 future days, separately for each
+room/date/channel. Two synthetic cycles demonstrate this; they are not T-39 forecasts.
+The shared availability, nightly quote, pricing preview, and persistent handoff
+contracts are documented in `docs/work-handoff/UNSOLD_CALENDAR_DESIGN.md`.
+There is no rate publishing, pricing Agent connection, or production source change.

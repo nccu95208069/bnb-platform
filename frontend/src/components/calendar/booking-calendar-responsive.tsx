@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
+import { AvailabilityCalendar } from "@/components/calendar/availability-calendar";
 import { PAYMENT_SANDBOX } from "@/lib/payment-workflow";
 import { PaymentWorkspace } from "@/components/payments/payment-workspace";
 
@@ -164,7 +165,7 @@ function overlayEdits(
   };
 }
 
-export function BookingCalendarResponsive() {
+function SoldBookingCalendar() {
   const view = useCalendarPreferences((state) => state.view);
   const setView = useCalendarPreferences((state) => state.setView);
   const query = useCalendarPreferences((state) => state.searchQuery);
@@ -191,9 +192,10 @@ export function BookingCalendarResponsive() {
   const permissions = useEffectivePermissions();
   const effectiveRole = useEffectiveRole();
 
-  const [anchorDate, setAnchorDate] = useState("2026-09-04");
-  const [visibleMonth, setVisibleMonth] = useState("2026-09-01");
-  const [monthTarget, setMonthTarget] = useState("2026-09-01");
+  const anchorDate = useCalendarPreferences(state => state.anchorDate);
+  const setAnchorDate = useCalendarPreferences(state => state.setAnchorDate);
+  const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(anchorDate));
+  const [monthTarget, setMonthTarget] = useState(() => startOfMonth(anchorDate));
   const [data, setData] = useState<CalendarResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -205,7 +207,7 @@ export function BookingCalendarResponsive() {
   const [editsHydrated, setEditsHydrated] = useState(false);
   const hasLoadedData = useRef(false);
   const previousView = useRef<CalendarView>(view);
-  const handledNavigationRequest = useRef(0);
+  const handledNavigationRequest = useRef(navigationRequest?.id ?? 0);
   const openedOrderLink = useRef<string | null>(null);
 
   const requestPeriod = useMemo(
@@ -265,7 +267,7 @@ export function BookingCalendarResponsive() {
       return;
     }
     setAnchorDate((value) => addDays(value, direction));
-  }, [navigationRequest, view, visibleMonth]);
+  }, [navigationRequest, view, visibleMonth, setAnchorDate]);
 
   useEffect(() => {
     const oldView = previousView.current;
@@ -495,7 +497,7 @@ export function BookingCalendarResponsive() {
   const handleVisibleMonthChange = useCallback((month: string) => {
     setVisibleMonth(month);
     setAnchorDate(month);
-  }, []);
+  }, [setAnchorDate]);
 
   function switchView(nextView: CalendarView) {
     if (nextView === view) return;
@@ -1001,4 +1003,23 @@ export function BookingCalendarResponsive() {
       />
     </div>
   );
+}
+
+
+export function BookingCalendarResponsive() {
+  const mode = useCalendarPreferences(state => state.mode);
+  const setMode = useCalendarPreferences(state => state.setMode);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("mode") === "unsold") setMode("unsold");
+    else if (params.has("order") || params.get("mode") === "sold") setMode("sold");
+  }, [setMode]);
+  return <div>
+    {PAYMENT_SANDBOX && <div className="sticky top-14 z-40 mb-3 flex justify-end bg-background/95 py-2 backdrop-blur md:top-0">
+      <div className="inline-flex gap-1 rounded-xl border bg-muted/40 p-1" role="group" aria-label="切換已售與未售">
+        {(["sold", "unsold"] as const).map(value => <Button key={value} size="sm" variant={mode === value ? "default" : "ghost"} aria-pressed={mode===value} onClick={() => { setMode(value); window.history.replaceState(null,"",`/calendar?mode=${value}`); }}>{value === "sold" ? "已售訂單" : "未售房況"}</Button>)}
+      </div>
+    </div>}
+    {mode === "unsold" && PAYMENT_SANDBOX ? <AvailabilityCalendar /> : <SoldBookingCalendar />}
+  </div>;
 }

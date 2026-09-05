@@ -3,6 +3,8 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
+import { localTodayIso } from "./calendar-utils";
+import type { Channel } from "@/lib/availability";
 import type { CalendarProperty, CalendarView } from "./calendar-types";
 
 type CalendarNavigationAction = "previous" | "next" | "today";
@@ -16,6 +18,16 @@ type CalendarPreferenceState = {
   properties: CalendarProperty[];
   selectedPropertyIds: string[];
   view: CalendarView;
+  mode: "sold" | "unsold";
+  anchorDate: string;
+  availabilityCycle: 1 | 2;
+  availabilityChannel: Channel;
+  availabilityRoom: string;
+  setAvailabilityCycle: (cycle: 1 | 2) => void;
+  setAvailabilityChannel: (channel: Channel) => void;
+  setAvailabilityRoom: (room: string) => void;
+  setMode: (mode: "sold" | "unsold") => void;
+  setAnchorDate: (value: string | ((current: string) => string)) => void;
   searchQuery: string;
   mobileSearchOpen: boolean;
   mobileMenuOpen: boolean;
@@ -38,6 +50,21 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
       properties: [],
       selectedPropertyIds: [],
       view: "month",
+      mode: "sold",
+      anchorDate: localTodayIso(),
+      availabilityCycle: 1,
+      availabilityChannel: "direct",
+      availabilityRoom: "all",
+      setAvailabilityCycle: (availabilityCycle) => set({ availabilityCycle }),
+      setAvailabilityChannel: (availabilityChannel) =>
+        set({ availabilityChannel }),
+      setAvailabilityRoom: (availabilityRoom) => set({ availabilityRoom }),
+      setMode: (mode) => set({ mode }),
+      setAnchorDate: (value) =>
+        set((state) => ({
+          anchorDate:
+            typeof value === "function" ? value(state.anchorDate) : value,
+        })),
       searchQuery: "",
       mobileSearchOpen: false,
       mobileMenuOpen: false,
@@ -46,7 +73,9 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
       setProperties: (properties) =>
         set((state) => {
           const validIds = new Set(properties.map((property) => property.id));
-          const retained = state.selectedPropertyIds.filter((id) => validIds.has(id));
+          const retained = state.selectedPropertyIds.filter((id) =>
+            validIds.has(id),
+          );
           return {
             properties,
             selectedPropertyIds: retained.length
@@ -57,7 +86,8 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
       toggleProperty: (propertyId) =>
         set((state) => {
           const isSelected = state.selectedPropertyIds.includes(propertyId);
-          if (isSelected && state.selectedPropertyIds.length === 1) return state;
+          if (isSelected && state.selectedPropertyIds.length === 1)
+            return state;
           return {
             selectedPropertyIds: isSelected
               ? state.selectedPropertyIds.filter((id) => id !== propertyId)
@@ -91,6 +121,11 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
       partialize: (state) => ({
         selectedPropertyIds: state.selectedPropertyIds,
         view: state.view,
+        mode: state.mode,
+        anchorDate: state.anchorDate,
+        availabilityCycle: state.availabilityCycle,
+        availabilityChannel: state.availabilityChannel,
+        availabilityRoom: state.availabilityRoom,
       }),
     },
   ),

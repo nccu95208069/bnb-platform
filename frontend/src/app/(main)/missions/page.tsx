@@ -3,6 +3,7 @@ import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ClipboardList, Plus, RefreshCw } from "lucide-react";
+import { PricingMission } from "@/components/calendar/pricing-mission";
 import { PaymentWorkspace } from "@/components/payments/payment-workspace";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,6 +21,26 @@ function MissionCenter() {
   const permissions = useEffectivePermissions();
   const [missions, setMissions] = useState<Mission[]>([]);
   const [error, setError] = useState("");
+  const [selectedKind, setSelectedKind] = useState<string | null>(null);
+  const [selectionError, setSelectionError] = useState("");
+  useEffect(() => {
+    let active = true;
+    setSelectedKind(null);
+    setSelectionError("");
+    if (selected && PAYMENT_SANDBOX && permissions.viewPrices) {
+      paymentApi<Mission>(`/missions/${selected}`)
+        .then((m) => {
+          if (active) setSelectedKind(m.kind);
+        })
+        .catch((e) => {
+          if (active)
+            setSelectionError(e instanceof Error ? e.message : "任務讀取失敗");
+        });
+    }
+    return () => {
+      active = false;
+    };
+  }, [selected, permissions.viewPrices]);
   const [loading, setLoading] = useState(true);
   const reload = useCallback(async () => {
     if (!PAYMENT_SANDBOX || !permissions.viewPrices) return;
@@ -38,8 +59,8 @@ function MissionCenter() {
     const timer = setInterval(() => void reload(), 5000);
     return () => clearInterval(timer);
   }, [reload]);
-  if (!PAYMENT_SANDBOX) return <p>付款任務尚未在這個環境啟用。</p>;
-  if (!permissions.viewPrices) return <p>這個角色無法查看付款任務。</p>;
+  if (!PAYMENT_SANDBOX) return <p>任務預覽尚未在這個環境啟用。</p>;
+  if (!permissions.viewPrices) return <p>這個角色無法查看含金額的任務。</p>;
   const pending = missions.filter(
     (m) => !["completed", "canceled"].includes(m.status),
   );
@@ -120,7 +141,9 @@ function MissionCenter() {
                 className={`block space-y-2 rounded-lg border p-3 ${selected === m.mission_id ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}
               >
                 <Badge variant="secondary">
-                  {statusLabels[m.status] ?? m.status}
+                  {m.kind === "review_pricing"
+                    ? "等待定價引擎"
+                    : (statusLabels[m.status] ?? m.status)}
                 </Badge>
                 <p className="break-words text-sm font-medium">{m.goal}</p>
                 {m.blocked_by && (
@@ -139,12 +162,20 @@ function MissionCenter() {
             <CardTitle>{selected ? "任務詳情" : "交辦付款"}</CardTitle>
           </CardHeader>
           <CardContent>
-            <PaymentWorkspace
-              key={selected ?? params.get("new") ?? "new"}
-              missionId={selected}
-              onChange={() => void reload()}
-              readOnly={!permissions.recordPayments}
-            />
+            {selectionError ? (
+              <p role="alert">{selectionError}</p>
+            ) : selected && !selectedKind ? (
+              <p>讀取任務中…</p>
+            ) : selected && selectedKind === "review_pricing" ? (
+              <PricingMission key={selected} missionId={selected} />
+            ) : (
+              <PaymentWorkspace
+                key={selected ?? params.get("new") ?? "new"}
+                missionId={selected}
+                onChange={() => void reload()}
+                readOnly={!permissions.recordPayments}
+              />
+            )}
           </CardContent>
         </Card>
       </div>
