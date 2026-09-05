@@ -31,6 +31,7 @@ import {
 } from "@/components/calendar/booking-editor";
 import { useCalendarPreferences } from "@/components/calendar/calendar-preferences";
 import type {
+  BabySupplyKey,
   BookingAuditEvent,
   CalendarBooking,
   CalendarResponse,
@@ -47,6 +48,7 @@ import {
   VIEW_LABELS,
   addDays,
   addMonths,
+  coalesceContiguousBookings,
   currentPeriod,
   dayDifference,
   fetchPeriod,
@@ -61,10 +63,15 @@ import { WeekCarousel } from "@/components/calendar/week-carousel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiClient } from "@/lib/api-client";
+import {
+  useAccessControl,
+  useEffectivePermissions,
+  useEffectiveRole,
+} from "@/lib/access-control";
 import { cn } from "@/lib/utils";
 
 const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
-const EDIT_STORAGE_KEY = "sweetfun-os-demo-edits-v3";
+const EDIT_STORAGE_KEY = "sweetfun-os-demo-edits-v4";
 const MONTHS = monthStarts("2025-01-01", 36);
 
 type OrderPatch = {
@@ -81,6 +88,12 @@ type SegmentPatch = {
   check_in?: string;
   check_out?: string;
   room_rate?: number;
+  extra_guest_count?: number;
+  extra_bed_count?: number;
+  pet_count?: number;
+  baby_supplies?: BabySupplyKey[];
+  service_note?: string | null;
+  hidden?: boolean;
 };
 
 type DemoEditState = {
@@ -118,17 +131,29 @@ function MetricCard({
   );
 }
 
-function overlayEdits(booking: CalendarBooking, edits: DemoEditState): CalendarBooking {
+function overlayEdits(
+  booking: CalendarBooking,
+  edits: DemoEditState,
+): CalendarBooking | null {
   const orderPatch = edits.orders[booking.order_id] ?? {};
   const segmentPatch = edits.segments[booking.id] ?? {};
+  if (segmentPatch.hidden) return null;
+
   return {
     ...booking,
     ...segmentPatch,
     guest_name: orderPatch.guest_name ?? booking.guest_name,
     payment_status: orderPatch.payment_status ?? booking.payment_status,
     reservation_status: orderPatch.reservation_status ?? booking.reservation_status,
-    payments: orderPatch.payments ?? booking.payments,
-    audit_log: [...booking.audit_log, ...(orderPatch.audit_log ?? [])],
+    payments: orderPatch.payments ?? booking.payments ?? [],
+    audit_log: [...(booking.audit_log ?? []), ...(orderPatch.audit_log ?? [])],
+    extra_guest_count:
+      segmentPatch.extra_guest_count ?? booking.extra_guest_count ?? 0,
+    extra_bed_count: segmentPatch.extra_bed_count ?? booking.extra_bed_count ?? 0,
+    pet_count: segmentPatch.pet_count ?? booking.pet_count ?? 0,
+    baby_supplies: segmentPatch.baby_supplies ?? booking.baby_supplies ?? [],
+    service_note: segmentPatch.service_note ?? booking.service_note ?? null,
+    source_segment_ids: booking.source_segment_ids ?? [booking.id],
   };
 }
 
@@ -147,6 +172,11 @@ export function BookingCalendarResponsive() {
   );
   const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);
   const setProperties = useCalendarPreferences((state) => state.setProperties);
+
+  const initializeAccess = useAccessControl((state) => state.initialize);
+  const membership = useAccessControl((state) => state.membership);
+  const permissions = useEffectivePermissions();
+  const effectiveRole = useEffectiveRole();
 
   const [anchorDate, setAnchorDate] = useState("2026-09-04");
   const [visibleMonth, setVisibleMonth] = useState("2026-09-01");
@@ -175,6 +205,10 @@ export function BookingCalendarResponsive() {
     }
     return currentPeriod(anchorDate, view);
   }, [anchorDate, view, visibleMonth]);
+
+  useEffect(() => {
+    void initializeAccess();
+  }, [initializeAccess]);
 
   useEffect(() => {
     setMobilePeriodLabel(displayPeriod.label);
@@ -280,17 +314,32 @@ export function BookingCalendarResponsive() {
     };
   }, [reloadKey, requestPeriod.end, requestPeriod.start, setProperties]);
 
-  const editedBookings = useMemo(
-    () => (data?.bookings ?? []).map((booking) => overlayEdits(booking, edits)),
+  const rawEditedBookings = useMemo(
+    () =>
+      (data?.bookings ?? [])
+        .map((booking) => overlayEdits(booking, edits))
+        .filter((booking): booking is CalendarBooking => booking !== null),
     [data, edits],
   );
 
+  const editedBookings = useMemo(
+    () => coalesceContiguousBookings(rawEditedBookings),
+    [rawEditedBookings],
+  );
+
+  const allowedPropertyIds = useMemo(() => {
+    if (!membership || membership.allProperties) return null;
+    return new Set(membership.propertyIds);
+  }, [membership]);
+
   const selectedProperties = useMemo(
     () =>
-      (data?.properties ?? []).filter((property) =>
-        selectedPropertyIds.includes(property.id),
+      (data?.properties ?? []).filter(
+        (property) =>
+          selectedPropertyIds.includes(property.id) &&
+          (!allowedPropertyIds || allowedPropertyIds.has(property.id)),
       ),
-    [data, selectedPropertyIds],
+    [allowedPropertyIds, data, selectedPropertyIds],
   );
 
   const propertyBookings = useMemo(
@@ -298,9 +347,10 @@ export function BookingCalendarResponsive() {
       editedBookings.filter(
         (booking) =>
           selectedPropertyIds.includes(booking.property_id) &&
+          (!allowedPropertyIds || allowedPropertyIds.has(booking.property_id)) &&
           booking.reservation_status === "confirmed",
       ),
-    [editedBookings, selectedPropertyIds],
+    [allowedPropertyIds, editedBookings, selectedPropertyIds],
   );
 
   const filteredBookings = useMemo(() => {
@@ -314,6 +364,7 @@ export function BookingCalendarResponsive() {
         booking.order_id,
         booking.external_order_no,
         booking.property_name,
+        booking.service_note,
         PLATFORM_LABELS[booking.platform] ?? booking.platform,
       ]
         .filter(Boolean)
@@ -323,10 +374,12 @@ export function BookingCalendarResponsive() {
 
   const visibleRooms = useMemo(
     () =>
-      (data?.rooms ?? []).filter((room) =>
-        selectedPropertyIds.includes(room.property_id),
+      (data?.rooms ?? []).filter(
+        (room) =>
+          selectedPropertyIds.includes(room.property_id) &&
+          (!allowedPropertyIds || allowedPropertyIds.has(room.property_id)),
       ),
-    [data, selectedPropertyIds],
+    [allowedPropertyIds, data, selectedPropertyIds],
   );
 
   const selectedBooking = useMemo(
@@ -430,7 +483,7 @@ export function BookingCalendarResponsive() {
   }
 
   function recordPayment(input: RecordPaymentInput) {
-    if (!selectedBooking) return;
+    if (!selectedBooking || !permissions.recordPayments) return;
     const orderId = selectedBooking.order_id;
     const existingPatch = edits.orders[orderId] ?? {};
     const existingPayments = existingPatch.payments ?? selectedBooking.payments;
@@ -481,7 +534,7 @@ export function BookingCalendarResponsive() {
   }
 
   function updateBooking(input: UpdateBookingInput) {
-    if (!selectedBooking) return;
+    if (!selectedBooking || !permissions.editBookings) return;
     const conflict = editedBookings.find(
       (booking) =>
         booking.order_id !== selectedBooking.order_id &&
@@ -502,39 +555,54 @@ export function BookingCalendarResponsive() {
     const event: BookingAuditEvent = {
       id: uniqueId("audit"),
       action: "update_booking",
-      summary: `更新為 ${input.roomNumber} 房，${input.checkIn}–${input.checkOut}，房費 ${formatMoney(input.roomRate)}`,
+      summary: `更新為 ${input.roomNumber} 房，${input.checkIn}–${input.checkOut}${
+        permissions.viewPrices ? `，房費 ${formatMoney(input.roomRate)}` : ""
+      }`,
       occurred_at: new Date().toISOString(),
     };
+    const sourceIds = selectedBooking.source_segment_ids ?? [selectedBooking.id];
+    const [primaryId, ...obsoleteIds] = sourceIds;
 
-    setEdits((current) => ({
-      orders: {
-        ...current.orders,
-        [selectedBooking.order_id]: {
-          ...current.orders[selectedBooking.order_id],
-          guest_name: input.guestName,
-          audit_log: appendAudit(
-            current.orders[selectedBooking.order_id]?.audit_log,
-            event,
-          ),
+    setEdits((current) => {
+      const segments = { ...current.segments };
+      segments[primaryId] = {
+        ...segments[primaryId],
+        hidden: false,
+        room_id: input.roomId,
+        room_number: input.roomNumber,
+        check_in: input.checkIn,
+        check_out: input.checkOut,
+        room_rate: input.roomRate,
+        extra_guest_count: input.extraGuestCount,
+        extra_bed_count: input.extraBedCount,
+        pet_count: input.petCount,
+        baby_supplies: input.babySupplies,
+        service_note: input.serviceNote || null,
+      };
+      for (const id of obsoleteIds) {
+        segments[id] = { ...segments[id], hidden: true };
+      }
+
+      return {
+        orders: {
+          ...current.orders,
+          [selectedBooking.order_id]: {
+            ...current.orders[selectedBooking.order_id],
+            guest_name: input.guestName,
+            audit_log: appendAudit(
+              current.orders[selectedBooking.order_id]?.audit_log,
+              event,
+            ),
+          },
         },
-      },
-      segments: {
-        ...current.segments,
-        [selectedBooking.id]: {
-          ...current.segments[selectedBooking.id],
-          room_id: input.roomId,
-          room_number: input.roomNumber,
-          check_in: input.checkIn,
-          check_out: input.checkOut,
-          room_rate: input.roomRate,
-        },
-      },
-    }));
+        segments,
+      };
+    });
     toast.success("訂單資料已修改");
   }
 
   function cancelBooking(reason: string) {
-    if (!selectedBooking) return;
+    if (!selectedBooking || !permissions.cancelBookings) return;
     const event: BookingAuditEvent = {
       id: uniqueId("audit"),
       action: "cancel_booking",
@@ -561,6 +629,11 @@ export function BookingCalendarResponsive() {
     });
   }
 
+  function closeMobileSearch() {
+    setQuery("");
+    setMobileSearchOpen(false);
+  }
+
   return (
     <div className="pb-0 md:space-y-4 md:pb-8">
       {mobileSearchOpen && (
@@ -572,20 +645,19 @@ export function BookingCalendarResponsive() {
             onChange={(event: ChangeEvent<HTMLInputElement>) =>
               setQuery(event.target.value)
             }
-            placeholder="搜尋客人、房號或訂單編號"
+            placeholder="搜尋客人、房號、需求或訂單編號"
             className="h-10 flex-1 border-0 bg-transparent px-1 text-base shadow-none focus-visible:ring-0"
           />
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => setMobileSearchOpen(false)}
-            aria-label="關閉搜尋"
+            onClick={closeMobileSearch}
+            aria-label="清除並關閉搜尋"
           >
             <X className="size-5" />
           </Button>
         </div>
       )}
-
 
       <section className="sticky top-0 z-30 hidden overflow-hidden rounded-2xl border bg-background/95 shadow-sm backdrop-blur md:block">
         <div className="flex flex-col gap-4 border-b px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
@@ -596,9 +668,16 @@ export function BookingCalendarResponsive() {
               </span>
               Sweetfun Operations
             </div>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight">
-              訂單與房況日曆
-            </h1>
+            <div className="mt-2 flex items-center gap-3">
+              <h1 className="text-2xl font-semibold tracking-tight">
+                訂單與房況日曆
+              </h1>
+              {effectiveRole !== "owner" && (
+                <span className="rounded-full border bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                  權限預覽
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-2">
@@ -670,7 +749,7 @@ export function BookingCalendarResponsive() {
                 onChange={(event: ChangeEvent<HTMLInputElement>) =>
                   setQuery(event.target.value)
                 }
-                placeholder="搜尋客人、房號或訂單編號"
+                placeholder="搜尋客人、房號、需求或訂單編號"
                 className="bg-background pl-9"
               />
             </div>
@@ -694,7 +773,7 @@ export function BookingCalendarResponsive() {
         <MetricCard
           icon={CircleDollarSign}
           label="房費"
-          value={formatMoney(metrics.amount)}
+          value={permissions.viewPrices ? formatMoney(metrics.amount) : "已隱藏"}
         />
       </div>
 
@@ -728,7 +807,7 @@ export function BookingCalendarResponsive() {
 
       {DEMO_MODE && (
         <div className="hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 md:block">
-          示範模式：可測試付款、改期與取消；變更只保存在這台裝置。
+          示範模式：可測試權限、付款、改期與取消；變更只保存在這台裝置。
         </div>
       )}
 
@@ -817,6 +896,7 @@ export function BookingCalendarResponsive() {
         booking={selectedBooking}
         orderSegments={selectedOrderSegments}
         rooms={data?.rooms ?? []}
+        permissions={permissions}
         onClose={() => setSelectedId(null)}
         onRecordPayment={recordPayment}
         onUpdateBooking={updateBooking}

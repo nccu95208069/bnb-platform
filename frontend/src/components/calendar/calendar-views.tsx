@@ -1,14 +1,7 @@
 "use client";
 
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type RefObject,
-} from "react";
-import { BedDouble, ChevronUp, LogIn, LogOut, Moon, Users } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -26,7 +19,6 @@ import {
   dateRange,
   formatMonthLabel,
   formatShortDate,
-  formatWeekday,
   isOccupiedOn,
   isSameMonth,
   localTodayIso,
@@ -34,8 +26,11 @@ import {
   parseIso,
   roomKey,
   startOfMonth,
-  startOfWeek,
+  stayNightCount,
+  stayProgressLabel,
 } from "./calendar-utils";
+
+export { WeekCarousel } from "./week-carousel";
 
 export type CalendarViewProps = {
   bookings: CalendarBooking[];
@@ -66,7 +61,10 @@ function propertyById(properties: CalendarProperty[]) {
 function PaymentDot({ booking }: { booking: CalendarBooking }) {
   return (
     <span
-      className={cn("inline-block size-2 shrink-0 rounded-full", PAYMENT_DOT_STYLES[booking.payment_status])}
+      className={cn(
+        "inline-block size-2 shrink-0 rounded-full",
+        PAYMENT_DOT_STYLES[booking.payment_status],
+      )}
     />
   );
 }
@@ -75,33 +73,73 @@ function BookingChip({
   booking,
   property,
   onSelect,
+  date,
   compact = false,
 }: {
   booking: CalendarBooking;
   property?: CalendarProperty;
   onSelect: (booking: CalendarBooking) => void;
+  date?: string;
   compact?: boolean;
 }) {
+  const nights = stayNightCount(booking);
+  const progress = date ? stayProgressLabel(booking, date) : null;
+  const continuesBefore = Boolean(date && booking.check_in < date);
+  const continuesAfter = Boolean(
+    date && booking.check_out > addDays(date, 1),
+  );
+  const compactSuffix =
+    nights > 1
+      ? progress?.startsWith("入住")
+        ? `${nights}晚`
+        : progress?.replace("續住 ", "續") ?? `${nights}晚`
+      : "";
+
   return (
     <button
       type="button"
       onClick={() => onSelect(booking)}
       className={cn(
-        "group flex w-full min-w-0 items-center gap-1.5 rounded-md border text-left shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        compact ? "h-7 px-1.5 text-[10px] sm:text-[11px]" : "min-h-9 px-2.5 py-1.5 text-xs",
+        "group flex w-full min-w-0 items-center gap-1.5 border text-left shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        compact
+          ? "h-7 px-1.5 text-[10px] sm:text-[11px]"
+          : "min-h-9 rounded-md px-2.5 py-1.5 text-xs",
+        compact && !continuesBefore && "rounded-l-md",
+        compact && continuesBefore && "rounded-l-none border-l-4",
+        compact && !continuesAfter && "rounded-r-md",
+        compact && continuesAfter && "rounded-r-none border-r-4",
         PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
       )}
-      title={`${booking.property_name}｜${booking.room_number}｜${booking.guest_name}`}
+      title={`${booking.property_name}｜${booking.room_number}｜${booking.guest_name}｜${booking.check_in}–${booking.check_out}${nights > 1 ? `｜連住 ${nights} 晚` : ""}`}
     >
       {property ? (
-        <span className={cn("size-2 shrink-0 rounded-sm", PROPERTY_DOT_STYLES[property.color])} />
+        <span
+          className={cn(
+            "size-2 shrink-0 rounded-sm",
+            PROPERTY_DOT_STYLES[property.color],
+          )}
+        />
       ) : (
         <PaymentDot booking={booking} />
       )}
       <span className="shrink-0 font-semibold">{booking.room_number}</span>
-      <span className="hidden min-w-0 flex-1 truncate font-medium min-[430px]:block">
-        {booking.guest_name}
-      </span>
+      {compact && compactSuffix && (
+        <span className="min-w-0 truncate font-semibold opacity-75">
+          {compactSuffix}
+        </span>
+      )}
+      {!compact && (
+        <>
+          <span className="min-w-0 flex-1 truncate font-medium">
+            {booking.guest_name}
+          </span>
+          {nights > 1 && (
+            <span className="shrink-0 rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] font-semibold">
+              {progress ?? `連住 ${nights} 晚`}
+            </span>
+          )}
+        </>
+      )}
       <span className="ml-auto hidden sm:inline-block">
         <PaymentDot booking={booking} />
       </span>
@@ -139,15 +177,18 @@ function MonthPanel({
   );
   const activeRoomNights = monthBookings.reduce((sum, booking) => {
     const visibleStart = booking.check_in > monthStart ? booking.check_in : monthStart;
-    const monthEnd = addDays(startOfMonth(addDays(monthStart, 32)), 0);
+    const monthEnd = startOfMonth(addDays(monthStart, 32));
     const visibleEnd = booking.check_out < monthEnd ? booking.check_out : monthEnd;
-    const nights = Math.max(
-      0,
-      Math.round(
-        (parseIso(visibleEnd).getTime() - parseIso(visibleStart).getTime()) / 86_400_000,
-      ),
+    return (
+      sum +
+      Math.max(
+        0,
+        Math.round(
+          (parseIso(visibleEnd).getTime() - parseIso(visibleStart).getTime()) /
+            86_400_000,
+        ),
+      )
     );
-    return sum + nights;
   }, 0);
 
   return (
@@ -163,7 +204,7 @@ function MonthPanel({
             key={weekday}
             className={cn(
               "border-r px-1 py-2 text-center text-[10px] font-semibold text-muted-foreground last:border-r-0 md:text-xs",
-              (index === 0 || index === 6) && "bg-muted/45",
+              index >= 5 && "bg-muted/45",
             )}
           >
             週{weekday}
@@ -176,7 +217,9 @@ function MonthPanel({
         const expanded = expandedWeeks.includes(weekKey);
         const limit = expanded ? Number.POSITIVE_INFINITY : mobile ? 2 : 4;
         const weekHasOverflow = week.some(
-          (date) => monthBookings.filter((booking) => isOccupiedOn(booking, date)).length > limit,
+          (date) =>
+            monthBookings.filter((booking) => isOccupiedOn(booking, date)).length >
+            limit,
         );
 
         return (
@@ -190,8 +233,12 @@ function MonthPanel({
                       a.property_name.localeCompare(b.property_name) ||
                       a.room_number.localeCompare(b.room_number),
                   );
-                const arrivals = monthBookings.filter((booking) => booking.check_in === date).length;
-                const departures = monthBookings.filter((booking) => booking.check_out === date).length;
+                const arrivals = monthBookings.filter(
+                  (booking) => booking.check_in === date,
+                ).length;
+                const departures = monthBookings.filter(
+                  (booking) => booking.check_out === date,
+                ).length;
                 const sameMonth = isSameMonth(date, monthStart);
                 const weekday = parseIso(date).getUTCDay();
                 const isToday = date === today;
@@ -214,7 +261,8 @@ function MonthPanel({
                         onClick={() => onSelectDay(date)}
                         className={cn(
                           "flex size-6 items-center justify-center rounded-full text-[11px] font-semibold hover:bg-accent md:size-7 md:text-xs",
-                          isToday && "bg-primary text-primary-foreground hover:bg-primary/90",
+                          isToday &&
+                            "bg-primary text-primary-foreground hover:bg-primary/90",
                         )}
                       >
                         {parseIso(date).getUTCDate()}
@@ -234,6 +282,7 @@ function MonthPanel({
                           booking={booking}
                           property={propertyMap.get(booking.property_id)}
                           onSelect={onSelectBooking}
+                          date={date}
                           compact
                         />
                       ))}
@@ -242,7 +291,9 @@ function MonthPanel({
                           type="button"
                           onClick={() =>
                             setExpandedWeeks((current) =>
-                              current.includes(weekKey) ? current : [...current, weekKey],
+                              current.includes(weekKey)
+                                ? current
+                                : [...current, weekKey],
                             )
                           }
                           className="w-full rounded-md px-1 py-1 text-left text-[10px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground md:px-2 md:text-[11px]"
@@ -260,7 +311,9 @@ function MonthPanel({
               <button
                 type="button"
                 onClick={() =>
-                  setExpandedWeeks((current) => current.filter((value) => value !== weekKey))
+                  setExpandedWeeks((current) =>
+                    current.filter((value) => value !== weekKey),
+                  )
                 }
                 className="flex w-full items-center justify-center gap-1 border-t bg-muted/20 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground"
               >
@@ -347,228 +400,13 @@ export function MonthScroller({
   );
 }
 
-function WeekPanel({
-  weekStart,
-  bookings,
-  rooms,
-  properties,
-  onSelectBooking,
-  onSelectDay,
-}: CalendarViewProps & { weekStart: string }) {
-  const days = dateRange(weekStart, addDays(weekStart, 7));
-  const today = localTodayIso();
-  const propertyMap = useMemo(() => propertyById(properties), [properties]);
-
-  return (
-    <div className="min-w-full snap-center">
-      <div className="hidden min-w-[1100px] md:block">
-        <div className="grid grid-cols-[150px_repeat(7,minmax(132px,1fr))] border-b bg-muted/40">
-          <div className="flex items-center border-r px-3 py-3 text-xs font-semibold text-muted-foreground">
-            旅宿／房間
-          </div>
-          {days.map((date) => (
-            <button
-              key={date}
-              type="button"
-              onClick={() => onSelectDay(date)}
-              className={cn(
-                "border-r px-3 py-2 text-left last:border-r-0 hover:bg-accent",
-                date === today && "bg-primary/[0.06]",
-              )}
-            >
-              <p className="text-xs text-muted-foreground">{formatWeekday(date, true)}</p>
-              <p className="mt-1 font-semibold">{formatShortDate(date)}</p>
-            </button>
-          ))}
-        </div>
-
-        {rooms.map((room) => {
-          const property = propertyMap.get(room.property_id);
-          return (
-            <div
-              key={room.id}
-              className="grid min-h-24 grid-cols-[150px_repeat(7,minmax(132px,1fr))] border-b last:border-b-0"
-            >
-              <div className="flex items-center gap-2 border-r bg-card px-3 py-3">
-                {property && (
-                  <span className={cn("size-2.5 rounded-sm", PROPERTY_DOT_STYLES[property.color])} />
-                )}
-                <div className="min-w-0">
-                  <p className="truncate text-xs text-muted-foreground">{property?.short_name}</p>
-                  <p className="truncate text-sm font-semibold">{room.label}</p>
-                </div>
-              </div>
-              {days.map((date) => {
-                const cellBookings = bookings.filter(
-                  (booking) =>
-                    booking.property_id === room.property_id &&
-                    booking.room_id === room.id &&
-                    isOccupiedOn(booking, date),
-                );
-                return (
-                  <div
-                    key={date}
-                    className={cn(
-                      "space-y-1 border-r p-2 last:border-r-0",
-                      date === today && "bg-primary/[0.025]",
-                    )}
-                  >
-                    {cellBookings.map((booking) => (
-                      <BookingChip
-                        key={booking.id}
-                        booking={booking}
-                        property={property}
-                        onSelect={onSelectBooking}
-                      />
-                    ))}
-                    {cellBookings.length === 0 && (
-                      <span className="text-[11px] text-muted-foreground/60">空房</span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
-
-      <div className="space-y-2 p-2 md:hidden">
-        {days.map((date) => {
-          const arrivals = bookings.filter((booking) => booking.check_in === date);
-          const departures = bookings.filter((booking) => booking.check_out === date);
-          const staying = bookings.filter(
-            (booking) => booking.check_in < date && booking.check_out > date,
-          );
-          const visible = [...arrivals, ...staying].filter(
-            (booking, index, list) => list.findIndex((item) => item.id === booking.id) === index,
-          );
-
-          return (
-            <section
-              key={date}
-              className={cn(
-                "rounded-xl border bg-card p-3",
-                date === today && "border-primary/40 bg-primary/[0.025]",
-              )}
-            >
-              <button
-                type="button"
-                onClick={() => onSelectDay(date)}
-                className="flex w-full items-center justify-between text-left"
-              >
-                <span>
-                  <span className="text-xs text-muted-foreground">{formatWeekday(date, true)}</span>
-                  <span className="ml-2 text-sm font-semibold">{formatShortDate(date)}</span>
-                </span>
-                <span className="text-[11px] text-muted-foreground">
-                  入 {arrivals.length} · 退 {departures.length}
-                </span>
-              </button>
-              <div className="mt-2 space-y-1.5">
-                {visible.map((booking) => (
-                  <BookingChip
-                    key={booking.id}
-                    booking={booking}
-                    property={propertyMap.get(booking.property_id)}
-                    onSelect={onSelectBooking}
-                  />
-                ))}
-                {visible.length === 0 && (
-                  <p className="py-2 text-center text-xs text-muted-foreground">沒有住宿中的訂單</p>
-                )}
-              </div>
-            </section>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function centerScroll(container: HTMLDivElement | null) {
-  if (!container) return;
-  container.scrollLeft = container.clientWidth;
-}
-
-export function WeekCarousel({
-  anchorDate,
-  bookings,
-  rooms,
-  properties,
-  onNavigateWeek,
-  onSelectBooking,
-  onSelectDay,
-}: CalendarViewProps & {
-  anchorDate: string;
-  onNavigateWeek: (offset: -1 | 1) => void;
-}) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const navigating = useRef(false);
-  const currentWeek = startOfWeek(anchorDate);
-  const weeks = [addDays(currentWeek, -7), currentWeek, addDays(currentWeek, 7)];
-
-  useLayoutEffect(() => {
-    navigating.current = true;
-    requestAnimationFrame(() => {
-      centerScroll(scrollRef.current);
-      requestAnimationFrame(() => {
-        navigating.current = false;
-      });
-    });
-  }, [currentWeek]);
-
-  useEffect(
-    () => () => {
-      if (scrollTimer.current) clearTimeout(scrollTimer.current);
-    },
-    [],
-  );
-
-  function handleScroll() {
-    if (navigating.current || !scrollRef.current) return;
-    if (scrollTimer.current) clearTimeout(scrollTimer.current);
-    scrollTimer.current = setTimeout(() => {
-      const container = scrollRef.current;
-      if (!container || container.clientWidth === 0) return;
-      const page = Math.round(container.scrollLeft / container.clientWidth);
-      if (page === 0) onNavigateWeek(-1);
-      if (page === 2) onNavigateWeek(1);
-    }, 120);
-  }
-
-  return (
-    <div className="rounded-xl border bg-card shadow-sm">
-      <div className="border-b px-3 py-2 text-center text-[11px] text-muted-foreground md:hidden">
-        左右滑動切換前後週
-      </div>
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain scroll-smooth"
-      >
-        {weeks.map((weekStart) => (
-          <WeekPanel
-            key={weekStart}
-            weekStart={weekStart}
-            bookings={bookings}
-            rooms={rooms}
-            properties={properties}
-            onSelectBooking={onSelectBooking}
-            onSelectDay={onSelectDay}
-          />
-        ))}
-      </div>
-    </div>
-  );
-}
-
 function DayColumn({
   title,
   icon: Icon,
   bookings,
   emptyText,
   properties,
+  date,
   onSelectBooking,
 }: {
   title: string;
@@ -576,6 +414,7 @@ function DayColumn({
   bookings: CalendarBooking[];
   emptyText: string;
   properties: CalendarProperty[];
+  date: string;
   onSelectBooking: (booking: CalendarBooking) => void;
 }) {
   const propertyMap = useMemo(() => propertyById(properties), [properties]);
@@ -587,7 +426,9 @@ function DayColumn({
           <Icon className="size-4" />
           {title}
         </h3>
-        <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">{bookings.length}</span>
+        <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">
+          {bookings.length}
+        </span>
       </div>
       <div className="min-h-40 space-y-2 p-3">
         {bookings.map((booking) => (
@@ -596,6 +437,7 @@ function DayColumn({
             booking={booking}
             property={propertyMap.get(booking.property_id)}
             onSelect={onSelectBooking}
+            date={date}
           />
         ))}
         {bookings.length === 0 && (
@@ -636,6 +478,7 @@ export function DayView({
           bookings={arrivals}
           emptyText="今天沒有入住"
           properties={properties}
+          date={date}
           onSelectBooking={onSelectBooking}
         />
         <DayColumn
@@ -644,6 +487,7 @@ export function DayView({
           bookings={staying}
           emptyText="沒有續住中的客人"
           properties={properties}
+          date={date}
           onSelectBooking={onSelectBooking}
         />
         <DayColumn
@@ -652,6 +496,7 @@ export function DayView({
           bookings={departures}
           emptyText="今天沒有退房"
           properties={properties}
+          date={date}
           onSelectBooking={onSelectBooking}
         />
       </div>
@@ -660,15 +505,20 @@ export function DayView({
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div>
             <h3 className="text-sm font-semibold">房間狀態</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground">{formatShortDate(date)} 的入住與續住狀態</p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {formatShortDate(date)} 的入住與續住狀態
+            </p>
           </div>
           <BedDouble className="size-4 text-muted-foreground" />
         </div>
         <div className="grid sm:grid-cols-2 xl:grid-cols-3">
           {rooms.map((room) => {
             const property = propertyMap.get(room.property_id);
-            const current = bookingByRoom.get(roomKey(room.property_id, room.room_number));
+            const current = bookingByRoom.get(
+              roomKey(room.property_id, room.room_number),
+            );
             const arriving = current?.check_in === date;
+            const progress = current ? stayProgressLabel(current, date) : null;
             return (
               <button
                 key={room.id}
@@ -681,14 +531,23 @@ export function DayView({
                   <div className="min-w-0">
                     <p className="flex items-center gap-2 text-xs text-muted-foreground">
                       {property && (
-                        <span className={cn("size-2 rounded-sm", PROPERTY_DOT_STYLES[property.color])} />
+                        <span
+                          className={cn(
+                            "size-2 rounded-sm",
+                            PROPERTY_DOT_STYLES[property.color],
+                          )}
+                        />
                       )}
                       {property?.short_name}
                     </p>
                     <p className="mt-1 text-lg font-semibold">{room.label}</p>
                   </div>
                   <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-semibold">
-                    {current ? (arriving ? "今日入住" : "住宿中") : "空房"}
+                    {current
+                      ? arriving
+                        ? "今日入住"
+                        : progress ?? "住宿中"
+                      : "空房"}
                   </span>
                 </div>
                 <p className="mt-3 truncate text-sm text-muted-foreground">

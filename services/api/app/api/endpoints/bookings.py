@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth import verify_admin_token
+from app.core.auth import require_workspace_role, verify_workspace_access
 from app.core.database import get_db
 from app.models.booking import Booking
 from app.services.booking_query import ALL_ROOMS
@@ -56,14 +56,12 @@ async def booking_calendar(
     month: int | None = Query(default=None, ge=1, le=12),
     include_test: bool = Query(default=False),
     db: AsyncSession = Depends(get_db),
-    _admin: dict = Depends(verify_admin_token),
+    access: dict = Depends(verify_workspace_access),
 ) -> dict:
-    """Return booking segments that overlap a month, week, day, or custom range."""
+    """Return booking segments while enforcing workspace price visibility."""
     period_start, period_end = _resolve_calendar_range(start_date, end_date, year, month)
     stmt = select(Booking).where(
         Booking.check_in < period_end,
-        # Checkout day is not an occupied room night, but it must be returned so
-        # day views can classify it under "today's departures".
         Booking.check_out >= period_start,
     )
     if not include_test:
@@ -75,6 +73,7 @@ async def booking_calendar(
 
     rooms = sorted(set(ALL_ROOMS) | {booking.room_number for booking in bookings})
     order_keys = {booking.order_id or booking.sheet_row_id for booking in bookings}
+    view_prices = access.get("role") != "viewer_no_price"
 
     return {
         "year": period_start.year,
@@ -86,7 +85,8 @@ async def booking_calendar(
         "rooms": rooms,
         "order_count": len(order_keys),
         "booking_segment_count": len(bookings),
-        "total_amount": sum(booking.room_rate for booking in bookings),
+        "total_amount": sum(booking.room_rate for booking in bookings) if view_prices else 0,
+        "price_hidden": not view_prices,
         "bookings": [
             {
                 "id": str(booking.id),
@@ -99,9 +99,18 @@ async def booking_calendar(
                 "check_in": booking.check_in.isoformat(),
                 "check_out": booking.check_out.isoformat(),
                 "booked_at": booking.booked_at.isoformat() if booking.booked_at else None,
-                "room_rate": booking.room_rate,
+                "room_rate": booking.room_rate if view_prices else 0,
+                "price_hidden": not view_prices,
                 "payment_status": booking.payment_status.value,
+                "reservation_status": "confirmed",
                 "notes": booking.notes,
+                "payments": [],
+                "audit_log": [],
+                "extra_guest_count": booking.extra_guest_count,
+                "extra_bed_count": booking.extra_bed_count,
+                "pet_count": booking.pet_count,
+                "baby_supplies": booking.baby_supplies or [],
+                "service_note": booking.service_note,
             }
             for booking in bookings
         ],
@@ -110,9 +119,10 @@ async def booking_calendar(
 
 @router.post("/sync")
 async def trigger_sync(
-    _admin: dict = Depends(verify_admin_token),
+    access: dict = Depends(verify_workspace_access),
 ) -> dict:
-    """Manually trigger a Google Sheets sync."""
+    """Manually trigger a Google Sheets sync for an owner or admin."""
+    require_workspace_role(access, {"owner", "admin"})
     result = await sheets_sync_service.sync()
     return {
         "status": "ok",
@@ -125,7 +135,7 @@ async def trigger_sync(
 
 @router.get("/sync/status")
 async def sync_status(
-    _admin: dict = Depends(verify_admin_token),
+    _access: dict = Depends(verify_workspace_access),
 ) -> dict:
     """Get the last sync time and result."""
     last = sheets_sync_service.last_result

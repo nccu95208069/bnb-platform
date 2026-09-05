@@ -3,7 +3,7 @@
 import enum
 from datetime import date
 
-from sqlalchemy import Date, Enum, Index, Integer, String, Text
+from sqlalchemy import JSON, Date, Enum, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -54,4 +54,9 @@ class Booking(Base, UUIDMixin, TimestampMixin):
     order_id: Mapped[str | None] = mapped_column(String(255))
     external_order_no: Mapped[str | None] = mapped_column(String(255))
     notes: Mapped[str | None] = mapped_column(Text)
+    extra_guest_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    extra_bed_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    pet_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    baby_supplies: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+    service_note: Mapped[str | None] = mapped_column(Text)
     sheet_row_id: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)

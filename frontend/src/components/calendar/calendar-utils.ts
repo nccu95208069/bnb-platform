@@ -1,4 +1,5 @@
 import type {
+  BabySupplyKey,
   CalendarBooking,
   CalendarPeriod,
   CalendarProperty,
@@ -67,6 +68,15 @@ export const PAYMENT_TYPE_LABELS: Record<PaymentType, string> = {
   other: "其他款項",
 };
 
+export const BABY_SUPPLY_LABELS: Record<BabySupplyKey, string> = {
+  baby_bath: "嬰兒澡盆",
+  sterilizer: "消毒鍋",
+  baby_bed: "嬰兒床",
+  bed_rail: "床圍",
+  bottle_warmer: "溫奶器",
+  other: "其他嬰兒用品",
+};
+
 export function parseIso(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day));
@@ -104,8 +114,9 @@ export function addMonths(value: string, amount: number) {
 
 export function startOfWeek(value: string) {
   const date = parseIso(value);
-  const mondayOffset = (date.getUTCDay() + 6) % 7;
-  date.setUTCDate(date.getUTCDate() - mondayOffset);
+  const weekday = date.getUTCDay();
+  const daysSinceMonday = (weekday + 6) % 7;
+  date.setUTCDate(date.getUTCDate() - daysSinceMonday);
   return toIso(date);
 }
 
@@ -243,4 +254,94 @@ export function overlapNights(booking: CalendarBooking, period: CalendarPeriod) 
 
 export function roomKey(propertyId: string, roomNumber: string) {
   return `${propertyId}:${roomNumber}`;
+}
+
+export function stayNightCount(booking: CalendarBooking) {
+  return Math.max(1, dayDifference(booking.check_out, booking.check_in));
+}
+
+export function stayProgressLabel(booking: CalendarBooking, date: string) {
+  const nights = stayNightCount(booking);
+  if (nights <= 1 || !isOccupiedOn(booking, date)) return null;
+  const currentNight = dayDifference(date, booking.check_in) + 1;
+  if (currentNight === 1) return `入住 · 連住 ${nights} 晚`;
+  return `續住 ${currentNight}/${nights}`;
+}
+
+export function coalesceContiguousBookings(bookings: CalendarBooking[]) {
+  const groups = new Map<string, CalendarBooking[]>();
+
+  for (const booking of bookings) {
+    const key = [
+      booking.property_id,
+      booking.order_id,
+      booking.room_id,
+      booking.platform,
+      booking.reservation_status,
+    ].join("::");
+    const group = groups.get(key) ?? [];
+    group.push(booking);
+    groups.set(key, group);
+  }
+
+  const merged: CalendarBooking[] = [];
+
+  for (const group of groups.values()) {
+    const sorted = group.slice().sort((a, b) =>
+      a.check_in.localeCompare(b.check_in) || a.check_out.localeCompare(b.check_out),
+    );
+    let current: CalendarBooking | null = null;
+
+    for (const booking of sorted) {
+      const sourceIds = booking.source_segment_ids ?? [booking.id];
+      if (!current || booking.check_in > current.check_out) {
+        if (current) merged.push(current);
+        current = {
+          ...booking,
+          source_segment_ids: sourceIds,
+          stay_nights: stayNightCount(booking),
+          baby_supplies: [...new Set(booking.baby_supplies ?? [])],
+        };
+        continue;
+      }
+
+      current = {
+        ...current,
+        check_out: booking.check_out > current.check_out ? booking.check_out : current.check_out,
+        room_rate: current.room_rate + booking.room_rate,
+        source_segment_ids: [
+          ...new Set([...(current.source_segment_ids ?? [current.id]), ...sourceIds]),
+        ],
+        stay_nights: Math.max(
+          1,
+          dayDifference(
+            booking.check_out > current.check_out ? booking.check_out : current.check_out,
+            current.check_in,
+          ),
+        ),
+        extra_guest_count: Math.max(
+          current.extra_guest_count ?? 0,
+          booking.extra_guest_count ?? 0,
+        ),
+        extra_bed_count: Math.max(
+          current.extra_bed_count ?? 0,
+          booking.extra_bed_count ?? 0,
+        ),
+        pet_count: Math.max(current.pet_count ?? 0, booking.pet_count ?? 0),
+        baby_supplies: [
+          ...new Set([...(current.baby_supplies ?? []), ...(booking.baby_supplies ?? [])]),
+        ],
+        service_note: current.service_note || booking.service_note,
+      };
+    }
+
+    if (current) merged.push(current);
+  }
+
+  return merged.sort(
+    (a, b) =>
+      a.check_in.localeCompare(b.check_in) ||
+      a.property_name.localeCompare(b.property_name) ||
+      a.room_number.localeCompare(b.room_number),
+  );
 }
