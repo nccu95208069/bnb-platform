@@ -1,6 +1,7 @@
 "use client";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { availabilityFeatures } from "@/lib/availability-features";
 import {
   ArrowRight,
   CalendarDays,
@@ -140,7 +141,8 @@ export function AvailabilityCalendar() {
   const setChannel = useCalendarPreferences((s) => s.setAvailabilityChannel);
   const room = useCalendarPreferences((s) => s.availabilityRoom);
   const setRoom = useCalendarPreferences((s) => s.setAvailabilityRoom);
-  const cycle = useCalendarPreferences((s) => s.availabilityCycle);
+  const savedCycle = useCalendarPreferences((s) => s.availabilityCycle);
+  const cycle = availabilityFeatures.demoPriceCycles ? savedCycle : 1;
   const setCycle = useCalendarPreferences((s) => s.setAvailabilityCycle);
   const onlyAvailable = useCalendarPreferences((s) => s.availabilityOnly);
   const setOnlyAvailable = useCalendarPreferences((s) => s.setAvailabilityOnly);
@@ -378,7 +380,7 @@ export function AvailabilityCalendar() {
           </p>
           <h1 className="mt-1 text-xl font-semibold sm:text-2xl">未售房況</h1>
           <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
-            先看可售房晚，再核對價格與調價建議。
+            查看各日期的可售房間與售價。
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -522,7 +524,7 @@ export function AvailabilityCalendar() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </div>
-          {canPrice && (
+          {availabilityFeatures.pricingReview && canPrice && (
             <Button
               size="sm"
               disabled={!periodReady || busy}
@@ -547,30 +549,35 @@ export function AvailabilityCalendar() {
           價格保護，不代表不能訂房
         </span>
       </div>
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3">
-        <div className="mr-auto">
-          <p className="text-xs font-medium sm:text-sm">房價約每 3–5 天更新</p>
-          <p className="mt-1 hidden text-xs text-muted-foreground sm:block">
-            約每 3–5 天調整未售房晚，涵蓋至少未來 90 天。每晚、每通路各有價格。
-          </p>
+      {availabilityFeatures.demoPriceCycles && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3">
+          <div className="mr-auto">
+            <p className="text-xs font-medium sm:text-sm">
+              房價約每 3–5 天更新
+            </p>
+            <p className="mt-1 hidden text-xs text-muted-foreground sm:block">
+              約每 3–5 天調整未售房晚，涵蓋至少未來 90
+              天。每晚、每通路各有價格。
+            </p>
+          </div>
+          <Select
+            value={String(cycle)}
+            onValueChange={(v) => {
+              setCycle(Number(v) as 1 | 2);
+              setQuote(null);
+              setPreview(null);
+            }}
+          >
+            <SelectTrigger className="w-44" aria-label="示範調價輪次">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="1">示範第 1 輪價格</SelectItem>
+              <SelectItem value="2">模擬第 2 輪價格</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
-        <Select
-          value={String(cycle)}
-          onValueChange={(v) => {
-            setCycle(Number(v) as 1 | 2);
-            setQuote(null);
-            setPreview(null);
-          }}
-        >
-          <SelectTrigger className="w-44" aria-label="示範調價輪次">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="1">示範第 1 輪價格</SelectItem>
-            <SelectItem value="2">模擬第 2 輪價格</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
+      )}
       <p className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-950">
         假資料預覽 · {channelLabels[channel]}{" "}
         示範售價，建議未發布。尚未接入正式房況與定價引擎。
@@ -862,7 +869,7 @@ export function AvailabilityCalendar() {
             <SheetTitle>
               {selected?.room} 房 · {selected?.date}
             </SheetTitle>
-            <SheetDescription>房況、通路售價與調價資格</SheetDescription>
+            <SheetDescription>房況與通路售價</SheetDescription>
           </SheetHeader>
           {selectedCell && (
             <div className="space-y-5 px-4 pb-8">
@@ -899,120 +906,131 @@ export function AvailabilityCalendar() {
                     價格版本 {selectedCell.pricing.price_version}
                     。客人前台實付尚未核對，通路促銷可能使實付與系統價不同。
                   </p>
-                  <div className="rounded-lg border p-3 text-sm">
-                    <p className="flex items-center gap-2 font-medium">
-                      <ShieldCheck className="size-4" />
-                      {
-                        policyLabels[
-                          selectedCell.pricing.exclusion ??
-                            selectedCell.pricing.policy
-                        ]
-                      }
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {selectedCell.pricing.eligible
-                        ? "可加入調價預演，仍需原引擎產生正式計畫。"
-                        : "此格不進一般調價清單，仍依實際房況決定是否可訂。"}
-                    </p>
-                  </div>
-                  <section className="space-y-2 border-t pt-4">
-                    <h3 className="font-semibold">查連住與總價</h3>
-                    <p className="text-xs text-muted-foreground">
-                      入住 {selectedCell.date} · 退房{" "}
-                      {addDays(
-                        selectedCell.date,
-                        Math.max(1, Math.min(30, Number(nights) || 1)),
-                      )}{" "}
-                      · 雙人住宿
-                    </p>
-                    <div className="flex gap-2">
-                      <Label className="sr-only" htmlFor="stay-nights">
-                        住宿晚數
-                      </Label>
-                      <Input
-                        id="stay-nights"
-                        type="number"
-                        min="1"
-                        max="30"
-                        value={nights}
-                        onChange={(e) => {
-                          setNights(e.target.value);
-                          setQuote(null);
-                        }}
-                        className="w-20"
-                      />
-                      <Button
-                        variant="outline"
-                        disabled={
-                          busy ||
-                          !Number.isInteger(Number(nights)) ||
-                          Number(nights) < 1 ||
-                          Number(nights) > 30
+                  {availabilityFeatures.pricingReview && (
+                    <div className="rounded-lg border p-3 text-sm">
+                      <p className="flex items-center gap-2 font-medium">
+                        <ShieldCheck className="size-4" />
+                        {
+                          policyLabels[
+                            selectedCell.pricing.exclusion ??
+                              selectedCell.pricing.policy
+                          ]
                         }
-                        onClick={() =>
-                          void action(async () => {
-                            setQuote(
-                              await availabilityApi.price({
-                                start: selectedCell.date,
-                                end: addDays(selectedCell.date, Number(nights)),
-                                rooms: [],
-                                room: selectedCell.room,
-                                channel,
-                                demo_cycle: cycle,
-                              }),
-                            );
-                          })
-                        }
-                      >
-                        查核每晚房況與價格
-                      </Button>
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {selectedCell.pricing.eligible
+                          ? "可加入調價預演，仍需原引擎產生正式計畫。"
+                          : "此格不進一般調價清單，仍依實際房況決定是否可訂。"}
+                      </p>
                     </div>
-                    {quote &&
-                      quote.room === selectedCell.room &&
-                      quote.start === selectedCell.date &&
-                      quote.channel === channel &&
-                      quote.nights[0]?.pricing?.price_version ===
-                        selectedCell.pricing.price_version && (
-                        <div
-                          role="status"
-                          className="rounded-lg bg-muted/40 p-3 text-sm"
+                  )}
+
+                  {availabilityFeatures.stayQuote && (
+                    <section className="space-y-2 border-t pt-4">
+                      <h3 className="font-semibold">查連住與總價</h3>
+                      <p className="text-xs text-muted-foreground">
+                        入住 {selectedCell.date} · 退房{" "}
+                        {addDays(
+                          selectedCell.date,
+                          Math.max(1, Math.min(30, Number(nights) || 1)),
+                        )}{" "}
+                        · 雙人住宿
+                      </p>
+                      <div className="flex gap-2">
+                        <Label className="sr-only" htmlFor="stay-nights">
+                          住宿晚數
+                        </Label>
+                        <Input
+                          id="stay-nights"
+                          type="number"
+                          min="1"
+                          max="30"
+                          value={nights}
+                          onChange={(e) => {
+                            setNights(e.target.value);
+                            setQuote(null);
+                          }}
+                          className="w-20"
+                        />
+                        <Button
+                          variant="outline"
+                          disabled={
+                            busy ||
+                            !Number.isInteger(Number(nights)) ||
+                            Number(nights) < 1 ||
+                            Number(nights) > 30
+                          }
+                          onClick={() =>
+                            void action(async () => {
+                              setQuote(
+                                await availabilityApi.price({
+                                  start: selectedCell.date,
+                                  end: addDays(
+                                    selectedCell.date,
+                                    Number(nights),
+                                  ),
+                                  rooms: [],
+                                  room: selectedCell.room,
+                                  channel,
+                                  demo_cycle: cycle,
+                                }),
+                              );
+                            })
+                          }
                         >
-                          {quote.status === "quote_ready" ? (
-                            <>
-                              <p className="font-semibold">
-                                {quote.nights.length} 晚合計{" "}
-                                {priceText(quote.total)}
+                          查核每晚房況與價格
+                        </Button>
+                      </div>
+                      {quote &&
+                        quote.room === selectedCell.room &&
+                        quote.start === selectedCell.date &&
+                        quote.channel === channel &&
+                        quote.nights[0]?.pricing?.price_version ===
+                          selectedCell.pricing.price_version && (
+                          <div
+                            role="status"
+                            className="rounded-lg bg-muted/40 p-3 text-sm"
+                          >
+                            {quote.status === "quote_ready" ? (
+                              <>
+                                <p className="font-semibold">
+                                  {quote.nights.length} 晚合計{" "}
+                                  {priceText(quote.total)}
+                                </p>
+                                <p className="mt-1 text-xs text-muted-foreground">
+                                  {quote.message}
+                                </p>
+                              </>
+                            ) : (
+                              <p>
+                                目前無法提供連住報價：
+                                {policyLabels[quote.reason ?? ""] ??
+                                  "需先查核房況"}
+                                {quote.reason === "minimum_stay"
+                                  ? `（至少 ${quote.minimum_nights} 晚）`
+                                  : ""}
+                                。
                               </p>
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {quote.message}
-                              </p>
-                            </>
-                          ) : (
-                            <p>
-                              目前無法提供連住報價：
-                              {policyLabels[quote.reason ?? ""] ??
-                                "需先查核房況"}
-                              {quote.reason === "minimum_stay"
-                                ? `（至少 ${quote.minimum_nights} 晚）`
-                                : ""}
-                              。
-                            </p>
-                          )}
-                        </div>
-                      )}
-                  </section>
-                  <Button
-                    className="w-full"
-                    disabled={
-                      busy || !selectedCell.pricing.eligible || !periodReady
-                    }
-                    onClick={() =>
-                      void action(() => previewRange(selectedCell))
-                    }
-                  >
-                    <Sparkles className="size-4" />
-                    預演此房晚調價
-                  </Button>
+                            )}
+                          </div>
+                        )}
+                    </section>
+                  )}
+
+                  {availabilityFeatures.pricingReview && (
+                    <Button
+                      className="w-full"
+                      disabled={
+                        busy || !selectedCell.pricing.eligible || !periodReady
+                      }
+                      onClick={() =>
+                        void action(() => previewRange(selectedCell))
+                      }
+                    >
+                      <Sparkles className="size-4" />
+                      預演此房晚調價
+                    </Button>
+                  )}
                 </>
               )}
               <p className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -1032,7 +1050,7 @@ export function AvailabilityCalendar() {
         </SheetContent>
       </Sheet>
       <Dialog
-        open={!!preview}
+        open={availabilityFeatures.pricingReview && !!preview}
         onOpenChange={(open) => {
           if (!open && !busy) setPreview(null);
         }}

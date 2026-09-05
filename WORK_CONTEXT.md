@@ -371,3 +371,8 @@ calendar URL/history synchronization. The owner also requested testing from a
 phone on a different network. An authenticated temporary HTTPS preview forwards
 only the existing synthetic local app; production deployment and GitHub push
 remain separate. See the unsold design document for the exact boundary and tests.
+
+2026-09-06 owner simplification: hide the demo price-cycle selector, stay quote,
+and pricing review/handoff UI until requested again. Display flags live in
+`frontend/src/lib/availability-features.ts`; preserve backend contracts and stored
+Missions. Availability, rates, inline expansion and browser navigation stay active.

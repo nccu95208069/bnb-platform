@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useCalendarPreferences } from "./calendar-preferences";
+import { availabilityFeatures } from "@/lib/availability-features";
 import { channelLabels } from "@/lib/availability";
 
 type State = ReturnType<typeof useCalendarPreferences.getState>;
@@ -12,15 +13,21 @@ function snapshot(s: State) {
     anchorDate: s.anchorDate,
     availabilityRoom: s.availabilityRoom,
     availabilityChannel: s.availabilityChannel,
-    availabilityCycle: s.availabilityCycle,
+    availabilityCycle: availabilityFeatures.demoPriceCycles
+      ? s.availabilityCycle
+      : (1 as const),
     availabilityOnly: s.availabilityOnly,
     searchQuery: s.searchQuery,
     expandedWeeks: s.expandedWeeks,
     availabilitySelection: s.availabilitySelection,
     selectedBookingId: s.selectedBookingId,
-    pricingPreview: s.pricingPreview,
+    pricingPreview: availabilityFeatures.pricingReview
+      ? s.pricingPreview
+      : null,
     pricingGoal: s.pricingGoal,
-    pricingMission: s.pricingMission,
+    pricingMission: availabilityFeatures.pricingReview
+      ? s.pricingMission
+      : null,
   };
 }
 function validDate(value: string | null): value is string {
@@ -48,7 +55,8 @@ function fromUrl(s: State) {
     next.availabilityRoom = room;
   if (channel && channel in channelLabels)
     next.availabilityChannel = channel as State["availabilityChannel"];
-  if (p.has("cycle")) next.availabilityCycle = p.get("cycle") === "2" ? 2 : 1;
+  if (availabilityFeatures.demoPriceCycles && p.has("cycle"))
+    next.availabilityCycle = p.get("cycle") === "2" ? 2 : 1;
   next.searchQuery = p.get("q") ?? "";
   next.availabilityOnly = p.get("available") === "1";
   next.expandedWeeks = (p.get("expanded") ?? "").split(",").filter(validDate);
@@ -70,8 +78,9 @@ function url(s: ReturnType<typeof snapshot>) {
     date: s.anchorDate,
     room: s.availabilityRoom,
     channel: s.availabilityChannel,
-    cycle: String(s.availabilityCycle),
   });
+  if (availabilityFeatures.demoPriceCycles)
+    p.set("cycle", String(s.availabilityCycle));
   if (s.searchQuery) p.set("q", s.searchQuery);
   if (s.availabilityOnly) p.set("available", "1");
   if (s.expandedWeeks.length) p.set("expanded", s.expandedWeeks.join(","));
@@ -98,13 +107,17 @@ export function useCalendarHistory() {
       remembered && url(remembered) === location.pathname + location.search
         ? remembered
         : fromUrl(useCalendarPreferences.getState());
-    useCalendarPreferences.setState(initial);
+    const visibleInitial = snapshot({
+      ...useCalendarPreferences.getState(),
+      ...initial,
+    });
+    useCalendarPreferences.setState(visibleInitial);
     history.replaceState(
-      { ...history.state, bnbCalendar: initial },
+      { ...history.state, bnbCalendar: visibleInitial },
       "",
-      url(initial),
+      url(visibleInitial),
     );
-    let current = JSON.stringify(initial);
+    let current = JSON.stringify(visibleInitial);
     const unsubscribe = useCalendarPreferences.subscribe(() => {
       if (restoring || queued) return;
       queued = true;
@@ -146,9 +159,13 @@ export function useCalendarHistory() {
       restoring = true;
       const value =
         event.state?.bnbCalendar ?? fromUrl(useCalendarPreferences.getState());
-      current = JSON.stringify(value);
-      useCalendarPreferences.setState({
+      const visibleValue = snapshot({
+        ...useCalendarPreferences.getState(),
         ...value,
+      });
+      current = JSON.stringify(visibleValue);
+      useCalendarPreferences.setState({
+        ...visibleValue,
         historyRevision: useCalendarPreferences.getState().historyRevision + 1,
       });
       restoring = false;

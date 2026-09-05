@@ -1,6 +1,7 @@
 "use client";
 import { Suspense, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { availabilityFeatures } from "@/lib/availability-features";
 import { useSearchParams } from "next/navigation";
 import { ClipboardList, Plus, RefreshCw } from "lucide-react";
 import { PricingMission } from "@/components/calendar/pricing-mission";
@@ -46,7 +47,12 @@ function MissionCenter() {
     if (!PAYMENT_SANDBOX || !permissions.viewPrices) return;
     try {
       const data = await paymentApi<{ missions: Mission[] }>("/missions");
-      setMissions(data.missions);
+      setMissions(
+        data.missions.filter(
+          (m) =>
+            availabilityFeatures.pricingReview || m.kind !== "review_pricing",
+        ),
+      );
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "任務讀取失敗");
@@ -167,7 +173,11 @@ function MissionCenter() {
             ) : selected && !selectedKind ? (
               <p>讀取任務中…</p>
             ) : selected && selectedKind === "review_pricing" ? (
-              <PricingMission key={selected} missionId={selected} />
+              availabilityFeatures.pricingReview ? (
+                <PricingMission key={selected} missionId={selected} />
+              ) : (
+                <p>調價交辦目前暫停顯示，既有紀錄已保留。</p>
+              )
             ) : (
               <PaymentWorkspace
                 key={selected ?? params.get("new") ?? "new"}
