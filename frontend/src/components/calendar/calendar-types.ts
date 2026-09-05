@@ -1,5 +1,5 @@
 export type CalendarView = "month" | "week" | "day";
-export type PaymentStatus = "paid" | "deposit" | "unpaid";
+export type PaymentStatus = "paid" | "deposit" | "unpaid" | "unknown";
 export type ReservationStatus = "confirmed" | "cancelled";
 export type PaymentMethod = "cash" | "bank_transfer" | "credit_card";
 export type PaymentType = "deposit" | "balance" | "other";
@@ -68,6 +68,12 @@ export type CalendarBooking = {
   pet_count: number;
   baby_supplies: BabySupplyKey[];
   service_note: string | null;
+  source_read_only?: boolean;
+  requirements_known?: boolean;
+  source_conflict?: boolean;
+  source_payment_label?: string;
+  source_order_linked?: boolean;
+  nightly_amounts?: { date: string; amount: number }[];
   source_segment_ids?: string[];
   stay_nights?: number;
   price_hidden?: boolean;
@@ -86,6 +92,8 @@ export type CalendarResponse = {
   booking_segment_count: number;
   total_amount: number;
   bookings: CalendarBooking[];
+  source?: { label: string; observed_at: string; read_only: boolean; automatic_sync: boolean; availability_authoritative: boolean };
+  source_summary?: { rows: number; accepted_rows: number; quarantined_rows: number; blocked_room_nights: number; missing_order_id: number; missing_payment_status: number };
   data_mode?: string;
   price_hidden?: boolean;
 };

@@ -1,0 +1,46 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { adaptSweetfunSheet } from "../src/lib/booking-sources/sweetfun-sheet.ts";
+
+const headers = ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "備註", "訂單編號"];
+const row = (patch = {}) => Object.assign(["301", "PRIVATE GUEST", "Agoda", "2026/9/15", "2026/9/16", "2026/8/1", "2500", "done", "OK", "PRIVATE-ROW", "PRIVATE NOTES", "PRIVATE-ORDER"], patch);
+const adapt = rows => adaptSweetfunSheet([headers, ...rows], "test-source", "2026-09-06T00:00:00Z");
+test("anonymizes before public projection and never treats platform done as money received", () => {
+  const result = adapt([row()]);
+  assert.equal(JSON.stringify(result).includes("PRIVATE"), false);
+  assert.equal(result.bookings[0].payment_status, "unknown");
+  assert.deepEqual(result.bookings[0].payments, []);
+  assert.equal(result.bookings[0].nightly_amounts[0].amount, 2500);
+});
+test("duplicate IDs and room-night conflicts are blocked, never chosen or double counted", () => {
+  const result = adapt([row(), row({ 6: "3000" })]);
+  assert.equal(result.summary.quarantined_rows, 2);
+  assert.equal(result.bookings.length, 1);
+  assert.equal(result.bookings[0].source_conflict, true);
+  assert.equal(result.bookings[0].room_rate, 0);
+});
+test("missing order IDs never merge by same guest across adjacent nights", () => {
+  const result = adapt([row({ 11: "" }), row({ 3: "2026/9/16", 4: "2026/9/17", 9: "row2", 11: "" })]);
+  assert.notEqual(result.bookings[0].order_id, result.bookings[1].order_id);
+});
+test("same explicit parent keeps linkage but preserves unequal daily amounts", () => {
+  const result = adapt([row(), row({ 3: "2026/9/16", 4: "2026/9/17", 9: "row2", 6: "3100" })]);
+  assert.equal(result.bookings[0].order_id, result.bookings[1].order_id);
+  assert.deepEqual(result.bookings.map(b => b.nightly_amounts[0].amount), [2500, 3100]);
+});
+test("unmapped whole-property rows block all rooms without inventing allocation", () => {
+  const result = adapt([row({ 0: "包棟" })]);
+  assert.equal(result.summary.blocked_room_nights, 6);
+  assert.equal(result.bookings.every(b => b.source_conflict), true);
+});
+test("whole-property ambiguity also quarantines physical-room bookings for that date", () => {
+  const result = adapt([row({ 0: "包棟" }), row({ 9: "another-row" })]);
+  assert.equal(result.summary.accepted_rows, 0);
+  assert.equal(result.bookings.length, 6);
+});
+test("bad schema fails closed; calendar-invalid dates are not normalized silently", () => {
+  assert.throws(() => adaptSweetfunSheet([["房號"]], "x", "x"), /SCHEMA/);
+  const result = adapt([row({ 3: "2026/2/30", 4: "2026/3/3" })]);
+  assert.equal(result.summary.accepted_rows, 0);
+  assert.equal(result.issues.some(i => i.code === "invalid_room_night"), true);
+});

@@ -1,3 +1,4 @@
+import { readBookingSnapshot } from "@/lib/booking-sources/snapshot";
 import { type NextRequest, NextResponse } from "next/server";
 
 type PaymentStatus = "paid" | "deposit" | "unpaid";
@@ -167,7 +168,7 @@ const OFFLAND_BOOKINGS = RAW_OFFLAND_BOOKINGS.map(
 
 const DEMO_BOOKINGS = [...SWEETFUN_BOOKINGS, ...OFFLAND_BOOKINGS];
 
-export function GET(request: NextRequest) {
+export async function GET(request: NextRequest) {
   const start = request.nextUrl.searchParams.get("start") ?? "2026-09-01";
   const end = request.nextUrl.searchParams.get("end") ?? "2026-10-01";
 
@@ -187,6 +188,31 @@ export function GET(request: NextRequest) {
       { detail: "查詢區間必須介於 1 到 1500 天" },
       { status: 400 },
     );
+  }
+
+  if (process.env.CALENDAR_SOURCE === "sheet_snapshot") {
+    try {
+      const snapshot = await readBookingSnapshot();
+      if (!snapshot) throw new Error("SNAPSHOT_NOT_CONFIGURED");
+      // Include every room-night of matching parent orders, so cross-month stays and totals
+      // remain complete. The calendar filters displayed dates independently.
+      const orderIds = new Set(snapshot.bookings
+        .filter(b => b.check_in < end && b.check_out >= start).map(b => b.order_id));
+      const bookings = snapshot.bookings.filter(b => orderIds.has(b.order_id));
+      return NextResponse.json({
+        year: startDate.getUTCFullYear(), month: startDate.getUTCMonth() + 1,
+        month_start: monthStart(start), month_end: monthEnd(start), period_start: start, period_end: end,
+        properties: PROPERTIES.filter(p => p.id === "sweetfun"), rooms: ROOMS.filter(r => r.property_id === "sweetfun"),
+        order_count: new Set(bookings.filter(b => !b.source_conflict).map(b => b.order_id)).size,
+        booking_segment_count: bookings.filter(b => !b.source_conflict).length,
+        total_amount: bookings.filter(b => !b.source_conflict).reduce((sum, b) => sum + b.room_rate, 0),
+        bookings, source: snapshot.source, source_summary: snapshot.summary,
+        data_mode: "anonymized_google_sheet_snapshot",
+      }, { headers: { "Cache-Control": "no-store" } });
+    } catch {
+      // Never fall back to fictional bookings when an operational source is configured.
+      return NextResponse.json({ detail: "訂房表快照暫時無法讀取，請稍後重試。" }, { status: 503 });
+    }
   }
 
   // Include bookings that check out exactly on `start`, so the day view can show

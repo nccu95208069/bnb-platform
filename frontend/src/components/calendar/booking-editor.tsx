@@ -89,6 +89,7 @@ export type UpdateBookingInput = {
 };
 
 const PAYMENT_LABELS = {
+  unknown: "付款待確認",
   paid: "已付清",
   deposit: "已付訂金",
   unpaid: "未付款",
@@ -922,11 +923,11 @@ export function BookingDetailsPanel({
                     <>
                       <DetailRow
                         label="本筆房費"
-                        value={formatMoney(booking.room_rate)}
+                        value={booking.source_conflict ? "待核對" : formatMoney(booking.room_rate)}
                       />
                       <DetailRow
-                        label="訂單總額"
-                        value={formatMoney(orderTotal)}
+                        label={booking.source_read_only ? "已串接紀錄合計" : "訂單總額"}
+                        value={booking.source_conflict ? "待核對" : formatMoney(orderTotal)}
                       />
                     </>
                   )}
@@ -939,16 +940,28 @@ export function BookingDetailsPanel({
                     label="外部編號"
                     value={booking.external_order_no ?? "—"}
                   />
-                  <DetailRow label="原始備註" value={booking.notes ?? "—"} />
+                  <DetailRow label={booking.source_read_only ? "資料說明" : "原始備註"} value={booking.notes ?? "—"} />
+                  {booking.source_payment_label && <DetailRow label="付款標記" value={booking.source_payment_label} />}
+                  {booking.source_read_only && <DetailRow label="入住需求" value="來源未提供結構化資料，尚未確認" /> }
                 </dl>
               </section>
 
-              <section>
+              {permissions.viewPrices && booking.nightly_amounts && (
+                <section>
+                  <h3 className="text-sm font-semibold">每晚登記房費</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">依 Sheet 逐列金額；抓單程式可能平均拆分，並非已核實的 OTA 每晚成交價。</p>
+                  <dl className="mt-2 divide-y rounded-xl border px-4">
+                    {booking.nightly_amounts.map(n => <DetailRow key={n.date} label={formatDate(n.date)} value={formatMoney(n.amount)} />)}
+                  </dl>
+                </section>
+              )}
+
+              {!booking.source_read_only && <section>
                 <h3 className="text-sm font-semibold">入住需求</h3>
                 <div className="mt-2">
                   <RequirementSummary booking={booking} />
                 </div>
-              </section>
+              </section>}
 
               {permissions.viewPrices && (
                 <section>
@@ -968,7 +981,7 @@ export function BookingDetailsPanel({
                       <div className="rounded-xl border border-dashed px-4 py-5 text-sm text-muted-foreground">
                         {paymentWorkspace
                           ? "尚未登記付款。完成上方付款任務後，明細會顯示在這裡。"
-                          : "匯入資料目前只含付款狀態；新增的逐筆付款會顯示在這裡。"}
+                          : booking.source_read_only ? "來源未提供可核對的逐筆收款帳。此版本為唯讀，尚未匯入付款紀錄。" : "匯入資料目前只含付款狀態；新增的逐筆付款會顯示在這裡。"}
                       </div>
                     ) : (
                       recordedPayments

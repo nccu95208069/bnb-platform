@@ -26,6 +26,7 @@ import { useActorPermissions } from "@/lib/access-control";
 import { PAYMENT_SANDBOX } from "@/lib/payment-workflow";
 import { cn } from "@/lib/utils";
 
+const SHEET_SNAPSHOT = process.env.NEXT_PUBLIC_CALENDAR_SOURCE === "sheet_snapshot";
 const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
 const PROPERTY_COLORS: Record<CalendarProperty["color"], string> = {
@@ -176,10 +177,10 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       {DEMO_MODE && !PAYMENT_SANDBOX && (
         <div className="mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-950">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em]">
-            Demo Site
+            {SHEET_SNAPSHOT ? "訂房表快照" : "Demo Site"}
           </p>
           <p className="mt-1 text-xs font-medium">
-            匿名資料 · 編輯僅儲存在此瀏覽器
+            {SHEET_SNAPSHOT ? "匿名唯讀 · 尚未自動同步" : "匿名資料 · 編輯僅儲存在此瀏覽器"}
           </p>
         </div>
       )}
@@ -242,7 +243,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           {PAYMENT_SANDBOX
             ? "隔離測試 · 固定管理者身分"
             : DEMO_MODE
-              ? "匿名化示範模式"
+              ? SHEET_SNAPSHOT ? "訂房表快照 · 唯讀" : "匿名化示範模式"
               : "系統連線正常"}
         </div>
         <p className="mt-1 text-[10px] text-muted-foreground">

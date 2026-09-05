@@ -376,7 +376,7 @@ function SoldBookingCalendar() {
   const rawEditedBookings = useMemo(
     () =>
       (data?.bookings ?? [])
-        .map((booking) => overlayEdits(booking, edits))
+        .map((booking) => data?.source?.read_only ? booking : overlayEdits(booking, edits))
         .filter((booking): booking is CalendarBooking => booking !== null),
     [data, edits],
   );
@@ -463,16 +463,16 @@ function SoldBookingCalendar() {
     const occupied = relevant.filter(
       (booking) => overlapNights(booking, displayPeriod) > 0,
     );
-    const orderCount = new Set(relevant.map((booking) => booking.order_id))
+    const orderCount = new Set(relevant.filter(b => !b.source_conflict).map((booking) => booking.order_id))
       .size;
     const arrivals = relevant.filter(
       (booking) =>
-        booking.check_in >= displayPeriod.start &&
+        !booking.source_conflict && booking.check_in >= displayPeriod.start &&
         booking.check_in < displayPeriod.end,
     ).length;
     const departures = relevant.filter(
       (booking) =>
-        booking.check_out >= displayPeriod.start &&
+        !booking.source_conflict && booking.check_out >= displayPeriod.start &&
         booking.check_out < displayPeriod.end,
     ).length;
     const roomNights = occupied.reduce(
@@ -480,6 +480,10 @@ function SoldBookingCalendar() {
       0,
     );
     const amount = occupied.reduce((sum, booking) => {
+      if (booking.source_conflict) return sum;
+      if (booking.nightly_amounts) return sum + booking.nightly_amounts
+        .filter(n => n.date >= displayPeriod.start && n.date < displayPeriod.end)
+        .reduce((total, n) => total + n.amount, 0);
       const totalNights = Math.max(
         1,
         dayDifference(booking.check_out, booking.check_in),
@@ -839,8 +843,8 @@ function SoldBookingCalendar() {
                 ? `${lastLoadedAt.toLocaleTimeString("zh-TW", {
                     hour: "2-digit",
                     minute: "2-digit",
-                  })} 更新`
-                : "等待同步"}
+                  })} ${data?.source ? "載入" : "更新"}`
+                : "等待載入"}
             </span>
           </div>
         </div>
@@ -849,7 +853,7 @@ function SoldBookingCalendar() {
       <div className="hidden gap-3 sm:grid-cols-2 md:grid xl:grid-cols-5">
         <MetricCard
           icon={CalendarDays}
-          label="訂單"
+          label={data?.source ? "訂單紀錄" : "訂單"}
           value={metrics.orderCount}
         />
         <MetricCard icon={LogIn} label="入住" value={metrics.arrivals} />
@@ -892,9 +896,17 @@ function SoldBookingCalendar() {
         </span>
       </div>
 
-      {DEMO_MODE && !PAYMENT_SANDBOX && (
+      {DEMO_MODE && !PAYMENT_SANDBOX && !data?.source && (
         <div className="hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 md:block">
           示範模式：可測試權限、付款、改期與取消；變更只保存在這台裝置。
+        </div>
+      )}
+
+      {data?.source && (
+        <div className="space-y-1 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950" role="status">
+          <p className="font-medium">{data.source.label} · 匿名唯讀快照 · {new Date(data.source.observed_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</p>
+          <p>尚未啟用自動同步。付款標記不等於入帳；沒有訂單也不代表可售。</p>
+          <p>全表 {data.source_summary?.rows} 列；{data.source_summary?.quarantined_rows} 列待核對，相關日期以「房況待核對」標示，未計入房費。缺訂單編號的紀錄暫不合併連住。</p>
         </div>
       )}
 
@@ -984,7 +996,9 @@ function SoldBookingCalendar() {
         orderSegments={selectedOrderSegments}
         rooms={data?.rooms ?? []}
         permissions={
-          PAYMENT_SANDBOX
+          data?.source?.read_only
+            ? { ...permissions, editBookings: false, cancelBookings: false, recordPayments: false }
+            : PAYMENT_SANDBOX
             ? { ...permissions, editBookings: false, cancelBookings: false }
             : permissions
         }

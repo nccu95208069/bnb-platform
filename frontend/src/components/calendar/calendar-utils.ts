@@ -38,12 +38,14 @@ export const PLATFORM_STYLES: Record<string, string> = {
 };
 
 export const PAYMENT_LABELS: Record<PaymentStatus, string> = {
+  unknown: "付款待確認",
   paid: "已付清",
   deposit: "已付訂金",
   unpaid: "未付款",
 };
 
 export const PAYMENT_DOT_STYLES: Record<PaymentStatus, string> = {
+  unknown: "bg-slate-400",
   paid: "bg-emerald-500",
   deposit: "bg-amber-500",
   unpaid: "bg-rose-500",
@@ -309,6 +311,10 @@ export function coalesceContiguousBookings(bookings: CalendarBooking[]) {
         ...current,
         check_out: booking.check_out > current.check_out ? booking.check_out : current.check_out,
         room_rate: current.room_rate + booking.room_rate,
+        nightly_amounts: current.nightly_amounts && booking.nightly_amounts
+          ? [...current.nightly_amounts, ...booking.nightly_amounts] : undefined,
+        source_payment_label: current.source_payment_label === booking.source_payment_label
+          ? current.source_payment_label : "各晚來源付款標記不同，需核對",
         source_segment_ids: [
           ...new Set([...(current.source_segment_ids ?? [current.id]), ...sourceIds]),
         ],

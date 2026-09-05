@@ -1,0 +1,8 @@
+node_modules
+.next
+.git
+.env*
+tests
+*.tsbuildinfo
+# .calendar-data contains only the anonymized server snapshot prepared for deployment.
+# It is deliberately excluded from Git, but included in this authorized Vercel build.
