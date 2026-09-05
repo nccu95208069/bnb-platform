@@ -89,6 +89,7 @@ export type AvailabilityResult = {
   source_notice: string;
 };
 export type PriceQuote = {
+  room: string;
   status: string;
   total: number | null;
   minimum_nights: number;

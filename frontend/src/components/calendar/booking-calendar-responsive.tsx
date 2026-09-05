@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import Link from "next/link";
+import { useCalendarHistory } from "./calendar-history";
 import { AvailabilityCalendar } from "@/components/calendar/availability-calendar";
 import { PAYMENT_SANDBOX } from "@/lib/payment-workflow";
 import { PaymentWorkspace } from "@/components/payments/payment-workspace";
@@ -192,15 +193,26 @@ function SoldBookingCalendar() {
   const permissions = useEffectivePermissions();
   const effectiveRole = useEffectiveRole();
 
-  const anchorDate = useCalendarPreferences(state => state.anchorDate);
-  const setAnchorDate = useCalendarPreferences(state => state.setAnchorDate);
-  const [visibleMonth, setVisibleMonth] = useState(() => startOfMonth(anchorDate));
-  const [monthTarget, setMonthTarget] = useState(() => startOfMonth(anchorDate));
+  const anchorDate = useCalendarPreferences((state) => state.anchorDate);
+  const setAnchorDate = useCalendarPreferences((state) => state.setAnchorDate);
+  const [visibleMonth, setVisibleMonth] = useState(() =>
+    startOfMonth(anchorDate),
+  );
+  const [monthTarget, setMonthTarget] = useState(() =>
+    startOfMonth(anchorDate),
+  );
   const [data, setData] = useState<CalendarResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedId = useCalendarPreferences((s) => s.selectedBookingId);
+  const setSelectedId = useCalendarPreferences((s) => s.setSelectedBookingId);
+  const historyRevision = useCalendarPreferences((s) => s.historyRevision);
+  useEffect(() => {
+    const month = startOfMonth(useCalendarPreferences.getState().anchorDate);
+    setVisibleMonth(month);
+    setMonthTarget(month);
+  }, [historyRevision]);
   const [reloadKey, setReloadKey] = useState(0);
   const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
@@ -208,7 +220,6 @@ function SoldBookingCalendar() {
   const hasLoadedData = useRef(false);
   const previousView = useRef<CalendarView>(view);
   const handledNavigationRequest = useRef(navigationRequest?.id ?? 0);
-  const openedOrderLink = useRef<string | null>(null);
 
   const requestPeriod = useMemo(
     () => fetchPeriod(anchorDate, view),
@@ -229,7 +240,8 @@ function SoldBookingCalendar() {
     void initializeAccess();
     if (
       PAYMENT_SANDBOX &&
-      new URLSearchParams(window.location.search).has("order")
+      new URLSearchParams(window.location.search).has("order") &&
+      !new URLSearchParams(window.location.search).has("view")
     )
       useCalendarPreferences.getState().setView("month");
   }, [initializeAccess]);
@@ -347,19 +359,6 @@ function SoldBookingCalendar() {
       active = false;
     };
   }, [reloadKey, requestPeriod.end, requestPeriod.start, setProperties]);
-
-  useEffect(() => {
-    if (!PAYMENT_SANDBOX) return;
-    const order = new URLSearchParams(window.location.search).get("order");
-    if (
-      order &&
-      openedOrderLink.current !== order &&
-      data?.bookings.some((b) => b.id === order)
-    ) {
-      openedOrderLink.current = order;
-      setSelectedId(order);
-    }
-  }, [data]);
 
   useEffect(() => {
     if (!PAYMENT_SANDBOX) return;
@@ -494,10 +493,13 @@ function SoldBookingCalendar() {
     return { orderCount, arrivals, departures, roomNights, amount };
   }, [displayPeriod, filteredBookings]);
 
-  const handleVisibleMonthChange = useCallback((month: string) => {
-    setVisibleMonth(month);
-    setAnchorDate(month);
-  }, [setAnchorDate]);
+  const handleVisibleMonthChange = useCallback(
+    (month: string) => {
+      setVisibleMonth(month);
+      setAnchorDate(month);
+    },
+    [setAnchorDate],
+  );
 
   function switchView(nextView: CalendarView) {
     if (nextView === view) return;
@@ -1005,21 +1007,42 @@ function SoldBookingCalendar() {
   );
 }
 
-
 export function BookingCalendarResponsive() {
-  const mode = useCalendarPreferences(state => state.mode);
-  const setMode = useCalendarPreferences(state => state.setMode);
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("mode") === "unsold") setMode("unsold");
-    else if (params.has("order") || params.get("mode") === "sold") setMode("sold");
-  }, [setMode]);
-  return <div>
-    {PAYMENT_SANDBOX && <div className="sticky top-14 z-40 mb-3 flex justify-end bg-background/95 py-2 backdrop-blur md:top-0">
-      <div className="inline-flex gap-1 rounded-xl border bg-muted/40 p-1" role="group" aria-label="切換已售與未售">
-        {(["sold", "unsold"] as const).map(value => <Button key={value} size="sm" variant={mode === value ? "default" : "ghost"} aria-pressed={mode===value} onClick={() => { setMode(value); window.history.replaceState(null,"",`/calendar?mode=${value}`); }}>{value === "sold" ? "已售訂單" : "未售房況"}</Button>)}
-      </div>
-    </div>}
-    {mode === "unsold" && PAYMENT_SANDBOX ? <AvailabilityCalendar /> : <SoldBookingCalendar />}
-  </div>;
+  const mode = useCalendarPreferences((state) => state.mode);
+  const setMode = useCalendarPreferences((state) => state.setMode);
+  const ready = useCalendarHistory();
+  if (!ready)
+    return <p className="p-4 text-sm text-muted-foreground">讀取日曆…</p>;
+  return (
+    <div>
+      {PAYMENT_SANDBOX && (
+        <div className="sticky top-14 z-40 mb-3 flex justify-end bg-background/95 py-2 backdrop-blur md:top-0">
+          <div
+            className="inline-flex gap-1 rounded-xl border bg-muted/40 p-1"
+            role="group"
+            aria-label="切換已售與未售"
+          >
+            {(["sold", "unsold"] as const).map((value) => (
+              <Button
+                key={value}
+                size="sm"
+                variant={mode === value ? "default" : "ghost"}
+                aria-pressed={mode === value}
+                onClick={() => {
+                  setMode(value);
+                }}
+              >
+                {value === "sold" ? "已售訂單" : "未售房況"}
+              </Button>
+            ))}
+          </div>
+        </div>
+      )}
+      {mode === "unsold" && PAYMENT_SANDBOX ? (
+        <AvailabilityCalendar />
+      ) : (
+        <SoldBookingCalendar />
+      )}
+    </div>
+  );
 }

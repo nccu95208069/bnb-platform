@@ -111,3 +111,23 @@ Viewer 可讀取價格與預演，但不能保存交辦；Housekeeper 不能交�
 - 前端建置與 TypeScript 通過；lint 無錯誤，保留原 week-carousel 一項未使用 import 警告。
 - 瀏覽器已驗證兩輪變價、最低兩晚限制、保存交辦、任務中心重新整理仍保存。
 - 實際調價引擎、預測售出機率、正式房況和通路讀回均未連接；所有價格為虛構。
+
+## 2026-09-05 操作一致性修正
+
+- 未售月曆「另幾房」沿用已售的原地整週展開，提供整列收合；點日期才進日檢視。
+  已售原有的展開後收合按鈕判斷也已修正。
+- mode/view/date/room/channel/cycle/expanded/stay/order 由網址與瀏覽歷程共同管理。
+  同一次點擊造成的日期及檢視變更只記一筆，Back/Forward 還原畫面、房晚詳情、
+  展開列與篩選，不只是改地址。調價預演暫存在 history.state，不寫入分享網址。
+- 手機跨網路預覽透過帳密保護的 HTTPS gateway 轉送本機假資料服務；未登入 401，
+  已登入房況讀取 200，異常 Origin 403。帳密、暫時網址與 tunnel 設定不加入 repo。
+  3000/8765/資料庫仍只綁 loopback，production proxy 仍拒絕，未發布正式網站。
+- `PAYMENT_SANDBOX_PREVIEW_ORIGIN` 僅額外允許指定 HTTPS 預覽 Origin；搭配 gateway
+  的驗證與 Host 轉送，不能單獨作為公開部署的授權機制。Next dev origin 同步限制。
+- 此預覽需電腦與背景服務持續運行；不是常駐正式部署。
+- 瀏覽器測試腳本見 `frontend/tests/browser/calendar-navigation.js`。
+
+本次驗證：前端 lint 無錯誤、TypeScript／build 通過；桌機 16 個導航斷言通過，
+外部 HTTPS 手機尺寸的 9 個查房／報價／保存交辦／Back 還原斷言通過，瀏覽器無錯誤。
+返回任務中心前的已保存提案會保留交辦內容與保存結果；打字與伺服器確認回應更新
+同一筆瀏覽紀錄，不額外增加頁面。所有網路測試資料仍為 synthetic preview。

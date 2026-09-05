@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -62,7 +62,6 @@ import {
   type AvailabilityResult,
   type Channel,
   type RoomNight,
-  type PricingPreview,
   type PriceQuote,
 } from "@/lib/availability";
 import { paymentApi, type Mission } from "@/lib/payment-workflow";
@@ -143,26 +142,27 @@ export function AvailabilityCalendar() {
   const setRoom = useCalendarPreferences((s) => s.setAvailabilityRoom);
   const cycle = useCalendarPreferences((s) => s.availabilityCycle);
   const setCycle = useCalendarPreferences((s) => s.setAvailabilityCycle);
-  const [onlyAvailable, setOnlyAvailable] = useState(false);
+  const onlyAvailable = useCalendarPreferences((s) => s.availabilityOnly);
+  const setOnlyAvailable = useCalendarPreferences((s) => s.setAvailabilityOnly);
+  const expandedWeeks = useCalendarPreferences((s) => s.expandedWeeks);
+  const setExpandedWeeks = useCalendarPreferences((s) => s.setExpandedWeeks);
   const [data, setData] = useState<AvailabilityResult | null>(null),
     [error, setError] = useState("");
   const [loading, setLoading] = useState(true),
     [refresh, setRefresh] = useState(0);
-  const [selected, setSelected] = useState<{
-    room: string;
-    date: string;
-  } | null>(null);
+  const selected = useCalendarPreferences((s) => s.availabilitySelection);
+  const setSelected = useCalendarPreferences((s) => s.setAvailabilitySelection);
   const [quote, setQuote] = useState<PriceQuote | null>(null),
     [nights, setNights] = useState("1");
-  const [preview, setPreview] = useState<PricingPreview | null>(null),
-    [busy, setBusy] = useState(false),
+  const preview = useCalendarPreferences((s) => s.pricingPreview);
+  const setPreview = useCalendarPreferences((s) => s.setPricingPreview);
+  const [busy, setBusy] = useState(false),
     [actionError, setActionError] = useState("");
-  const [goal, setGoal] = useState(
-    "請定價 Agent 核對此範圍，產生正式調價計畫並交由業主核准。",
-  );
-  const [mission, setMission] = useState<Mission | null>(null);
-  const actionLock = useRef(false),
-    requestKey = useRef("");
+  const goal = useCalendarPreferences((s) => s.pricingGoal);
+  const setGoal = useCalendarPreferences((s) => s.setPricingGoal);
+  const mission = useCalendarPreferences((s) => s.pricingMission);
+  const setMission = useCalendarPreferences((s) => s.setPricingMission);
+  const actionLock = useRef(false);
   const pendingRequest = useRef<Record<string, unknown> | null>(null);
   const handledNavigation = useRef(navigation?.id ?? 0);
   const period = useMemo(
@@ -312,18 +312,20 @@ export function AvailabilityCalendar() {
       ...selection,
       expected_snapshot: source.snapshot_id,
     });
-    setPreview(result);
+    const key = crypto.randomUUID();
+    setPreview({ ...result, review_key: key });
     setMission(null);
-    requestKey.current = crypto.randomUUID();
     pendingRequest.current = null;
   }
   async function handoff() {
     if (!preview) return;
+    if (pendingRequest.current?.idempotency_key !== preview.review_key)
+      pendingRequest.current = null;
     pendingRequest.current ??= {
       ...preview.query,
       expected_snapshot: preview.snapshot_id,
       goal,
-      idempotency_key: requestKey.current,
+      idempotency_key: preview.review_key,
     };
     const result = await paymentApi<Mission>(
       "/pricing-missions",
@@ -331,6 +333,12 @@ export function AvailabilityCalendar() {
     );
     setMission(result);
   }
+  const previewMission =
+    mission &&
+    (mission.request as Record<string, unknown>).idempotency_key ===
+      preview?.review_key
+      ? mission
+      : null;
   const rooms = data?.rooms ?? [];
   const periodReady =
     !loading &&
@@ -604,7 +612,9 @@ export function AvailabilityCalendar() {
                   ))}
                 </div>
                 <div className="grid grid-cols-7">
-                  {monthDays.map((day) => {
+                  {monthDays.map((day, index) => {
+                    const weekKey = monthDays[Math.floor(index / 7) * 7];
+                    const expanded = expandedWeeks.includes(weekKey);
                     const inMonth = day >= period.start && day < period.end;
                     const dayCells = cells.filter((c) => c.date === day);
                     const shown = dayCells.filter(
@@ -615,85 +625,117 @@ export function AvailabilityCalendar() {
                       (c) => c.state === "available",
                     ).length;
                     return (
-                      <div
-                        key={day}
-                        className={cn(
-                          "min-h-28 border-b border-r p-1 sm:min-h-44 sm:p-2",
-                          !inMonth && "bg-muted/25",
-                        )}
-                      >
-                        <button
-                          className="flex w-full items-center justify-between pb-1 text-left text-xs"
-                          aria-label={`${day} 查看日曆`}
-                          onClick={() => selectDay(day)}
-                        >
-                          <span
-                            className={cn(
-                              "flex size-6 items-center justify-center rounded-full",
-                              day === localTodayIso()
-                                ? "bg-primary text-primary-foreground"
-                                : "",
-                            )}
-                          >
-                            {Number(day.slice(-2))}
-                          </span>
-                          {inMonth && (
-                            <span className="hidden text-[10px] text-muted-foreground sm:inline">
-                              可售 {count}
-                            </span>
+                      <Fragment key={day}>
+                        <div
+                          data-unsold-date={day}
+                          className={cn(
+                            "min-h-28 border-b border-r p-1 sm:min-h-44 sm:p-2",
+                            !inMonth && "bg-muted/25",
                           )}
-                        </button>
-                        {shown.slice(0, 3).map((c, i) => (
+                        >
                           <button
-                            key={c.room}
-                            title={`${c.date} ${c.room} 房 ${inventoryLabels[c.state]}`}
-                            aria-label={`${c.date} ${c.room} 房 ${inventoryLabels[c.state]} ${hidePrice ? "" : priceText(c.pricing?.current_price)}`}
-                            onClick={() => openCell(c)}
-                            className={cn(
-                              "mb-1 w-full rounded-md border px-1 py-1 text-left sm:flex sm:items-center sm:justify-between",
-                              stateStyles[c.state],
-                              i === 2 && "hidden sm:flex",
-                            )}
+                            className="flex w-full items-center justify-between pb-1 text-left text-xs"
+                            aria-label={`${day} 查看日曆`}
+                            onClick={() => selectDay(day)}
                           >
-                            <span className="flex items-center gap-0.5 text-[10px] font-medium sm:text-xs">
-                              {c.room}
-                              {c.pricing &&
-                                !c.pricing.eligible &&
-                                c.state === "available" && (
-                                  <ShieldCheck className="hidden size-3 sm:inline" />
-                                )}
+                            <span
+                              className={cn(
+                                "flex size-6 items-center justify-center rounded-full",
+                                day === localTodayIso()
+                                  ? "bg-primary text-primary-foreground"
+                                  : "",
+                              )}
+                            >
+                              {Number(day.slice(-2))}
                             </span>
-                            <PricePair cell={c} compact hidePrice={hidePrice} />
+                            {inMonth && (
+                              <span className="hidden text-[10px] text-muted-foreground sm:inline">
+                                可售 {count}
+                              </span>
+                            )}
                           </button>
-                        ))}
-                        {shown.length > 2 && (
-                          <button
-                            className="w-full text-left text-[9px] text-muted-foreground sm:hidden"
-                            onClick={() => selectDay(day)}
+                          {shown
+                            .slice(0, expanded ? shown.length : 3)
+                            .map((c, i) => (
+                              <button
+                                key={c.room}
+                                title={`${c.date} ${c.room} 房 ${inventoryLabels[c.state]}`}
+                                aria-label={`${c.date} ${c.room} 房 ${inventoryLabels[c.state]} ${hidePrice ? "" : priceText(c.pricing?.current_price)}`}
+                                onClick={() => openCell(c)}
+                                className={cn(
+                                  "mb-1 w-full rounded-md border px-1 py-1 text-left sm:flex sm:items-center sm:justify-between",
+                                  stateStyles[c.state],
+                                  !expanded && i === 2 && "hidden sm:flex",
+                                )}
+                              >
+                                <span className="flex items-center gap-0.5 text-[10px] font-medium sm:text-xs">
+                                  {c.room}
+                                  {c.pricing &&
+                                    !c.pricing.eligible &&
+                                    c.state === "available" && (
+                                      <ShieldCheck className="hidden size-3 sm:inline" />
+                                    )}
+                                </span>
+                                <PricePair
+                                  cell={c}
+                                  compact
+                                  hidePrice={hidePrice}
+                                />
+                              </button>
+                            ))}
+                          {!expanded && shown.length > 2 && (
+                            <button
+                              className="w-full text-left text-[9px] text-muted-foreground sm:hidden"
+                              aria-expanded={false}
+                              aria-label={`${day} 展開其餘房間`}
+                              onClick={() =>
+                                setExpandedWeeks((v) => [...v, weekKey])
+                              }
+                            >
+                              另 {shown.length - 2} 房
+                            </button>
+                          )}
+                          {!expanded && shown.length > 3 && (
+                            <button
+                              className="hidden w-full text-left text-[10px] text-muted-foreground sm:block"
+                              aria-expanded={false}
+                              aria-label={`${day} 展開其餘房間`}
+                              onClick={() =>
+                                setExpandedWeeks((v) => [...v, weekKey])
+                              }
+                            >
+                              另 {shown.length - 3} 房
+                            </button>
+                          )}
+                          {inMonth && shown.length === 0 && (
+                            <p className="pt-2 text-[10px] text-muted-foreground">
+                              {day < data.asof
+                                ? "已過期"
+                                : search.trim()
+                                  ? "無符合條件"
+                                  : onlyAvailable
+                                    ? "無可售"
+                                    : "無未售"}
+                            </p>
+                          )}
+                        </div>
+                        {expanded && index % 7 === 6 && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="col-span-7 h-8 w-full rounded-none border-b bg-muted/20 text-xs"
+                            aria-label={`${weekKey} 收合這一列`}
+                            aria-expanded={true}
+                            onClick={() =>
+                              setExpandedWeeks((v) =>
+                                v.filter((w) => w !== weekKey),
+                              )
+                            }
                           >
-                            另 {shown.length - 2} 房
-                          </button>
+                            收合這一列
+                          </Button>
                         )}
-                        {shown.length > 3 && (
-                          <button
-                            className="hidden w-full text-left text-[10px] text-muted-foreground sm:block"
-                            onClick={() => selectDay(day)}
-                          >
-                            另 {shown.length - 3} 房 →
-                          </button>
-                        )}
-                        {inMonth && shown.length === 0 && (
-                          <p className="pt-2 text-[10px] text-muted-foreground">
-                            {day < data.asof
-                              ? "已過期"
-                              : search.trim()
-                                ? "無符合條件"
-                                : onlyAvailable
-                                  ? "無可售"
-                                  : "無未售"}
-                          </p>
-                        )}
-                      </div>
+                      </Fragment>
                     );
                   })}
                 </div>
@@ -925,33 +967,39 @@ export function AvailabilityCalendar() {
                         查核每晚房況與價格
                       </Button>
                     </div>
-                    {quote && (
-                      <div
-                        role="status"
-                        className="rounded-lg bg-muted/40 p-3 text-sm"
-                      >
-                        {quote.status === "quote_ready" ? (
-                          <>
-                            <p className="font-semibold">
-                              {quote.nights.length} 晚合計{" "}
-                              {priceText(quote.total)}
+                    {quote &&
+                      quote.room === selectedCell.room &&
+                      quote.start === selectedCell.date &&
+                      quote.channel === channel &&
+                      quote.nights[0]?.pricing?.price_version ===
+                        selectedCell.pricing.price_version && (
+                        <div
+                          role="status"
+                          className="rounded-lg bg-muted/40 p-3 text-sm"
+                        >
+                          {quote.status === "quote_ready" ? (
+                            <>
+                              <p className="font-semibold">
+                                {quote.nights.length} 晚合計{" "}
+                                {priceText(quote.total)}
+                              </p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {quote.message}
+                              </p>
+                            </>
+                          ) : (
+                            <p>
+                              目前無法提供連住報價：
+                              {policyLabels[quote.reason ?? ""] ??
+                                "需先查核房況"}
+                              {quote.reason === "minimum_stay"
+                                ? `（至少 ${quote.minimum_nights} 晚）`
+                                : ""}
+                              。
                             </p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {quote.message}
-                            </p>
-                          </>
-                        ) : (
-                          <p>
-                            目前無法提供連住報價：
-                            {policyLabels[quote.reason ?? ""] ?? "需先查核房況"}
-                            {quote.reason === "minimum_stay"
-                              ? `（至少 ${quote.minimum_nights} 晚）`
-                              : ""}
-                            。
-                          </p>
-                        )}
-                      </div>
-                    )}
+                          )}
+                        </div>
+                      )}
                   </section>
                   <Button
                     className="w-full"
@@ -1050,7 +1098,7 @@ export function AvailabilityCalendar() {
                   ))}
                 </ul>
               </details>
-              {mission ? (
+              {previewMission ? (
                 <div
                   role="status"
                   className="space-y-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3"
@@ -1058,7 +1106,9 @@ export function AvailabilityCalendar() {
                   <p className="font-medium">交辦已保存，等待定價引擎接手</p>
                   <p className="text-xs">尚未發布，正式計畫仍需原核准流程。</p>
                   <Button asChild>
-                    <Link href={`/missions?mission=${mission.mission_id}`}>
+                    <Link
+                      href={`/missions?mission=${previewMission.mission_id}`}
+                    >
                       到任務中心查看
                     </Link>
                   </Button>

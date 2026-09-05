@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
+import { useCalendarPreferences } from "./calendar-preferences";
 import { cn } from "@/lib/utils";
 
 import type {
@@ -85,14 +86,12 @@ function BookingChip({
   const nights = stayNightCount(booking);
   const progress = date ? stayProgressLabel(booking, date) : null;
   const continuesBefore = Boolean(date && booking.check_in < date);
-  const continuesAfter = Boolean(
-    date && booking.check_out > addDays(date, 1),
-  );
+  const continuesAfter = Boolean(date && booking.check_out > addDays(date, 1));
   const compactSuffix =
     nights > 1
       ? progress?.startsWith("入住")
         ? `${nights}晚`
-        : progress?.replace("續住 ", "續") ?? `${nights}晚`
+        : (progress?.replace("續住 ", "續") ?? `${nights}晚`)
       : "";
 
   return (
@@ -170,15 +169,19 @@ function MonthPanel({
   const mobile = useMediaQuery("(max-width: 767px)");
   const period = monthCalendarPeriod(monthStart);
   const weeks = chunkWeeks(dateRange(period.start, period.end));
-  const [expandedWeeks, setExpandedWeeks] = useState<string[]>([]);
+  const expandedWeeks = useCalendarPreferences((s) => s.expandedWeeks);
+  const setExpandedWeeks = useCalendarPreferences((s) => s.setExpandedWeeks);
   const propertyMap = useMemo(() => propertyById(properties), [properties]);
   const monthBookings = bookings.filter(
-    (booking) => booking.check_in < period.end && booking.check_out >= period.start,
+    (booking) =>
+      booking.check_in < period.end && booking.check_out >= period.start,
   );
   const activeRoomNights = monthBookings.reduce((sum, booking) => {
-    const visibleStart = booking.check_in > monthStart ? booking.check_in : monthStart;
+    const visibleStart =
+      booking.check_in > monthStart ? booking.check_in : monthStart;
     const monthEnd = startOfMonth(addDays(monthStart, 32));
-    const visibleEnd = booking.check_out < monthEnd ? booking.check_out : monthEnd;
+    const visibleEnd =
+      booking.check_out < monthEnd ? booking.check_out : monthEnd;
     return (
       sum +
       Math.max(
@@ -192,10 +195,18 @@ function MonthPanel({
   }, 0);
 
   return (
-    <section ref={sectionRef} data-month={monthStart} className="scroll-mt-2 bg-card">
+    <section
+      ref={sectionRef}
+      data-month={monthStart}
+      className="scroll-mt-2 bg-card"
+    >
       <div className="sticky top-0 z-20 flex items-center justify-between border-y bg-background/95 px-3 py-2.5 backdrop-blur md:px-4">
-        <h2 className="text-base font-semibold">{formatMonthLabel(monthStart)}</h2>
-        <span className="text-xs text-muted-foreground">{activeRoomNights} 房晚</span>
+        <h2 className="text-base font-semibold">
+          {formatMonthLabel(monthStart)}
+        </h2>
+        <span className="text-xs text-muted-foreground">
+          {activeRoomNights} 房晚
+        </span>
       </div>
 
       <div className="grid grid-cols-7 border-b bg-muted/35">
@@ -218,8 +229,8 @@ function MonthPanel({
         const limit = expanded ? Number.POSITIVE_INFINITY : mobile ? 2 : 4;
         const weekHasOverflow = week.some(
           (date) =>
-            monthBookings.filter((booking) => isOccupiedOn(booking, date)).length >
-            limit,
+            monthBookings.filter((booking) => isOccupiedOn(booking, date))
+              .length > (mobile ? 2 : 4),
         );
 
         return (
@@ -466,7 +477,10 @@ export function DayView({
   const bookingByRoom = new Map(
     bookings
       .filter((booking) => isOccupiedOn(booking, date))
-      .map((booking) => [roomKey(booking.property_id, booking.room_number), booking]),
+      .map((booking) => [
+        roomKey(booking.property_id, booking.room_number),
+        booking,
+      ]),
   );
 
   return (
@@ -546,7 +560,7 @@ export function DayView({
                     {current
                       ? arriving
                         ? "今日入住"
-                        : progress ?? "住宿中"
+                        : (progress ?? "住宿中")
                       : "空房"}
                   </span>
                 </div>

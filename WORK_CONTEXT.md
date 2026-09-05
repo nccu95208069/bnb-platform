@@ -364,3 +364,10 @@ room/date/channel. Two synthetic cycles demonstrate this; they are not T-39 fore
 The shared availability, nightly quote, pricing preview, and persistent handoff
 contracts are documented in `docs/work-handoff/UNSOLD_CALENDAR_DESIGN.md`.
 There is no rate publishing, pricing Agent connection, or production source change.
+
+Owner follow-up: unsold overflow must expand inline like sold; Back/Forward must
+restore meaningful calendar views and detail overlays. This is now handled by
+calendar URL/history synchronization. The owner also requested testing from a
+phone on a different network. An authenticated temporary HTTPS preview forwards
+only the existing synthetic local app; production deployment and GitHub push
+remain separate. See the unsold design document for the exact boundary and tests.

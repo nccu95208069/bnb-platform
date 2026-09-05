@@ -15,13 +15,16 @@ async function proxy(
   ) {
     return NextResponse.json({ detail: "sandbox_disabled" }, { status: 404 });
   }
+  // Optional authenticated phone preview; never enabled by default or in production.
+  const previewOrigin = process.env.PAYMENT_SANDBOX_PREVIEW_ORIGIN;
+  const allowedOrigins = ["http://127.0.0.1:3000", "http://localhost:3000"];
+  if (previewOrigin && /^https:\/\/[^/]+$/.test(previewOrigin))
+    allowedOrigins.push(previewOrigin);
   if (
     request.method === "POST" &&
     (request.headers.get("x-payment-sandbox") !== "1" ||
       (request.headers.get("origin") &&
-        !["http://127.0.0.1:3000", "http://localhost:3000"].includes(
-          request.headers.get("origin")!,
-        )))
+        !allowedOrigins.includes(request.headers.get("origin")!)))
   ) {
     return NextResponse.json(
       { detail: "same_origin_required" },
