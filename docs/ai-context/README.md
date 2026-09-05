@@ -1,14 +1,20 @@
-# BnB Platform — AI Context Hub
+# BnB Platform — LINE Reply Copilot Subsystem Context
 
-This folder is a public-safe, AI-readable specification hub for the current V1 product direction.
+This folder is a public-safe, AI-readable specification hub for the earlier LINE Reply Copilot subsystem.
 
-## Canonical entry
+## Current top-level context
 
-**Read this first:** [../../AI_CONTEXT.md](../../AI_CONTEXT.md)
+For the active Agent-First booking, occupancy, payment, reconciliation, Mission, and Tool product track, read:
 
-If there is any conflict between a topic page and `AI_CONTEXT.md`, follow `AI_CONTEXT.md` unless a newer owner-approved document explicitly supersedes it.
+1. [../../AGENTS.md](../../AGENTS.md)
+2. [../../WORK_CONTEXT.md](../../WORK_CONTEXT.md)
+3. [../work-handoff/README.md](../work-handoff/README.md)
 
-## Topic pages
+If this folder conflicts with those newer files or a later explicit owner decision, the newer source wins.
+
+## What remains valid here
+
+These pages preserve useful subsystem work for future or parallel messaging capabilities:
 
 1. [Product & decisions](product.md)
 2. [Mobile UI/UX](mobile-ui.md)
@@ -20,6 +26,8 @@ If there is any conflict between a topic page and `AI_CONTEXT.md`, follow `AI_CO
 8. [Evaluation / Stage 3B](evaluation.md)
 9. [Implementation plan & agent rules](implementation.md)
 10. [Sweetfun current business truth](sweetfun-current-truth.md)
+
+The root `AI_CONTEXT.md` is the detailed historical baseline for this Reply Copilot track. It is no longer the top-level product contract for the repository.
 
 ## Privacy boundary
 
