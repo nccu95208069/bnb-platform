@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { useAccess } from "@/components/access/access-provider";
 import {
   BookingDetailsPanel,
   type RecordPaymentInput,
@@ -31,6 +32,7 @@ import {
 } from "@/components/calendar/booking-editor";
 import { useCalendarPreferences } from "@/components/calendar/calendar-preferences";
 import type {
+  BabySupply,
   BookingAuditEvent,
   CalendarBooking,
   CalendarResponse,
@@ -61,10 +63,11 @@ import { WeekCarousel } from "@/components/calendar/week-carousel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiClient } from "@/lib/api-client";
+import { collapseConsecutiveBookings } from "@/lib/stay-utils";
 import { cn } from "@/lib/utils";
 
 const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
-const EDIT_STORAGE_KEY = "sweetfun-os-demo-edits-v3";
+const EDIT_STORAGE_KEY = "sweetfun-os-demo-edits-v4";
 const MONTHS = monthStarts("2025-01-01", 36);
 
 type OrderPatch = {
@@ -81,6 +84,11 @@ type SegmentPatch = {
   check_in?: string;
   check_out?: string;
   room_rate?: number;
+  extra_guest_count?: number;
+  extra_bed_count?: number;
+  pet_count?: number;
+  baby_supplies?: BabySupply[];
+  service_note?: string | null;
 };
 
 type DemoEditState = {
@@ -118,6 +126,21 @@ function MetricCard({
   );
 }
 
+function normalizeBooking(booking: CalendarBooking): CalendarBooking {
+  return {
+    ...booking,
+    source_segment_ids: booking.source_segment_ids ?? [booking.id],
+    extra_guest_count: booking.extra_guest_count ?? 0,
+    extra_bed_count: booking.extra_bed_count ?? 0,
+    pet_count: booking.pet_count ?? 0,
+    baby_supplies: booking.baby_supplies ?? [],
+    service_note: booking.service_note ?? null,
+    notes: booking.notes ?? null,
+    payments: booking.payments ?? [],
+    audit_log: booking.audit_log ?? [],
+  };
+}
+
 function overlayEdits(booking: CalendarBooking, edits: DemoEditState): CalendarBooking {
   const orderPatch = edits.orders[booking.order_id] ?? {};
   const segmentPatch = edits.segments[booking.id] ?? {};
@@ -132,19 +155,21 @@ function overlayEdits(booking: CalendarBooking, edits: DemoEditState): CalendarB
   };
 }
 
+function isSameStay(left: CalendarBooking, right: CalendarBooking) {
+  const ids = new Set(left.source_segment_ids ?? [left.id]);
+  return (right.source_segment_ids ?? [right.id]).some((id) => ids.has(id));
+}
+
 export function BookingCalendarResponsive() {
+  const { permissions, canAccessProperty } = useAccess();
   const view = useCalendarPreferences((state) => state.view);
   const setView = useCalendarPreferences((state) => state.setView);
   const query = useCalendarPreferences((state) => state.searchQuery);
   const setQuery = useCalendarPreferences((state) => state.setSearchQuery);
   const mobileSearchOpen = useCalendarPreferences((state) => state.mobileSearchOpen);
   const setMobileSearchOpen = useCalendarPreferences((state) => state.setMobileSearchOpen);
-  const setMobilePeriodLabel = useCalendarPreferences(
-    (state) => state.setMobilePeriodLabel,
-  );
-  const navigationRequest = useCalendarPreferences(
-    (state) => state.navigationRequest,
-  );
+  const setMobilePeriodLabel = useCalendarPreferences((state) => state.setMobilePeriodLabel);
+  const navigationRequest = useCalendarPreferences((state) => state.navigationRequest);
   const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);
   const setProperties = useCalendarPreferences((state) => state.setProperties);
 
@@ -280,27 +305,44 @@ export function BookingCalendarResponsive() {
     };
   }, [reloadKey, requestPeriod.end, requestPeriod.start, setProperties]);
 
+  const baseBookings = useMemo(
+    () => collapseConsecutiveBookings((data?.bookings ?? []).map(normalizeBooking)),
+    [data],
+  );
+
   const editedBookings = useMemo(
-    () => (data?.bookings ?? []).map((booking) => overlayEdits(booking, edits)),
-    [data, edits],
+    () =>
+      baseBookings.map((booking) => {
+        const edited = overlayEdits(booking, edits);
+        if (permissions.view_prices) return edited;
+        return {
+          ...edited,
+          room_rate: 0,
+          payments: [],
+          price_hidden: true,
+        };
+      }),
+    [baseBookings, edits, permissions.view_prices],
   );
 
   const selectedProperties = useMemo(
     () =>
-      (data?.properties ?? []).filter((property) =>
-        selectedPropertyIds.includes(property.id),
+      (data?.properties ?? []).filter(
+        (property) =>
+          canAccessProperty(property.id) && selectedPropertyIds.includes(property.id),
       ),
-    [data, selectedPropertyIds],
+    [canAccessProperty, data, selectedPropertyIds],
   );
 
   const propertyBookings = useMemo(
     () =>
       editedBookings.filter(
         (booking) =>
+          canAccessProperty(booking.property_id) &&
           selectedPropertyIds.includes(booking.property_id) &&
           booking.reservation_status === "confirmed",
       ),
-    [editedBookings, selectedPropertyIds],
+    [canAccessProperty, editedBookings, selectedPropertyIds],
   );
 
   const filteredBookings = useMemo(() => {
@@ -323,10 +365,11 @@ export function BookingCalendarResponsive() {
 
   const visibleRooms = useMemo(
     () =>
-      (data?.rooms ?? []).filter((room) =>
-        selectedPropertyIds.includes(room.property_id),
+      (data?.rooms ?? []).filter(
+        (room) =>
+          canAccessProperty(room.property_id) && selectedPropertyIds.includes(room.property_id),
       ),
-    [data, selectedPropertyIds],
+    [canAccessProperty, data, selectedPropertyIds],
   );
 
   const selectedBooking = useMemo(
@@ -336,16 +379,13 @@ export function BookingCalendarResponsive() {
 
   const selectedOrderSegments = useMemo(() => {
     if (!selectedBooking) return [];
-    return editedBookings.filter(
-      (booking) => booking.order_id === selectedBooking.order_id,
-    );
+    return editedBookings.filter((booking) => booking.order_id === selectedBooking.order_id);
   }, [editedBookings, selectedBooking]);
 
   const metrics = useMemo(() => {
     const relevant = filteredBookings.filter(
       (booking) =>
-        booking.check_in < displayPeriod.end &&
-        booking.check_out >= displayPeriod.start,
+        booking.check_in < displayPeriod.end && booking.check_out >= displayPeriod.start,
     );
     const occupied = relevant.filter(
       (booking) => overlapNights(booking, displayPeriod) > 0,
@@ -353,23 +393,18 @@ export function BookingCalendarResponsive() {
     const orderCount = new Set(relevant.map((booking) => booking.order_id)).size;
     const arrivals = relevant.filter(
       (booking) =>
-        booking.check_in >= displayPeriod.start &&
-        booking.check_in < displayPeriod.end,
+        booking.check_in >= displayPeriod.start && booking.check_in < displayPeriod.end,
     ).length;
     const departures = relevant.filter(
       (booking) =>
-        booking.check_out >= displayPeriod.start &&
-        booking.check_out < displayPeriod.end,
+        booking.check_out >= displayPeriod.start && booking.check_out < displayPeriod.end,
     ).length;
     const roomNights = occupied.reduce(
       (sum, booking) => sum + overlapNights(booking, displayPeriod),
       0,
     );
     const amount = occupied.reduce((sum, booking) => {
-      const totalNights = Math.max(
-        1,
-        dayDifference(booking.check_out, booking.check_in),
-      );
+      const totalNights = Math.max(1, dayDifference(booking.check_out, booking.check_in));
       const visibleNights = overlapNights(booking, displayPeriod);
       return sum + Math.round((booking.room_rate * visibleNights) / totalNights);
     }, 0);
@@ -430,7 +465,7 @@ export function BookingCalendarResponsive() {
   }
 
   function recordPayment(input: RecordPaymentInput) {
-    if (!selectedBooking) return;
+    if (!selectedBooking || !permissions.record_payments || !permissions.view_prices) return;
     const orderId = selectedBooking.order_id;
     const existingPatch = edits.orders[orderId] ?? {};
     const existingPayments = existingPatch.payments ?? selectedBooking.payments;
@@ -448,8 +483,7 @@ export function BookingCalendarResponsive() {
       0,
     );
     const paidAmount = payments.reduce((sum, item) => sum + item.amount, 0);
-    const paymentStatus: PaymentStatus =
-      paidAmount >= orderTotal ? "paid" : "deposit";
+    const paymentStatus: PaymentStatus = paidAmount >= orderTotal ? "paid" : "deposit";
     const event: BookingAuditEvent = {
       id: uniqueId("audit"),
       action: "record_payment",
@@ -480,11 +514,11 @@ export function BookingCalendarResponsive() {
     });
   }
 
-  function updateBooking(input: UpdateBookingInput) {
-    if (!selectedBooking) return;
+  function updateBooking(input: UpdateBookingInput): boolean {
+    if (!selectedBooking || !permissions.edit_bookings) return false;
     const conflict = editedBookings.find(
       (booking) =>
-        booking.order_id !== selectedBooking.order_id &&
+        !isSameStay(booking, selectedBooking) &&
         booking.reservation_status === "confirmed" &&
         booking.property_id === selectedBooking.property_id &&
         booking.room_id === input.roomId &&
@@ -496,13 +530,15 @@ export function BookingCalendarResponsive() {
       toast.error("無法修改：新日期已有訂單", {
         description: `${input.roomNumber} 房與 ${conflict.guest_name} 的住宿區間重疊。`,
       });
-      return;
+      return false;
     }
 
     const event: BookingAuditEvent = {
       id: uniqueId("audit"),
       action: "update_booking",
-      summary: `更新為 ${input.roomNumber} 房，${input.checkIn}–${input.checkOut}，房費 ${formatMoney(input.roomRate)}`,
+      summary: permissions.view_prices
+        ? `更新為 ${input.roomNumber} 房，${input.checkIn}–${input.checkOut}，房費 ${formatMoney(input.roomRate)}`
+        : `更新為 ${input.roomNumber} 房，${input.checkIn}–${input.checkOut}`,
       occurred_at: new Date().toISOString(),
     };
 
@@ -526,15 +562,21 @@ export function BookingCalendarResponsive() {
           room_number: input.roomNumber,
           check_in: input.checkIn,
           check_out: input.checkOut,
-          room_rate: input.roomRate,
+          room_rate: permissions.view_prices ? input.roomRate : selectedBooking.room_rate,
+          extra_guest_count: input.extraGuestCount,
+          extra_bed_count: input.extraBedCount,
+          pet_count: input.petCount,
+          baby_supplies: input.babySupplies,
+          service_note: input.serviceNote || null,
         },
       },
     }));
     toast.success("訂單資料已修改");
+    return true;
   }
 
   function cancelBooking(reason: string) {
-    if (!selectedBooking) return;
+    if (!selectedBooking || !permissions.cancel_bookings) return;
     const event: BookingAuditEvent = {
       id: uniqueId("audit"),
       action: "cancel_booking",
@@ -569,9 +611,7 @@ export function BookingCalendarResponsive() {
           <Input
             autoFocus
             value={query}
-            onChange={(event: ChangeEvent<HTMLInputElement>) =>
-              setQuery(event.target.value)
-            }
+            onChange={(event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)}
             placeholder="搜尋客人、房號或訂單編號"
             className="h-10 flex-1 border-0 bg-transparent px-1 text-base shadow-none focus-visible:ring-0"
           />
@@ -579,26 +619,21 @@ export function BookingCalendarResponsive() {
             variant="ghost"
             size="icon"
             onClick={() => setMobileSearchOpen(false)}
-            aria-label="關閉搜尋"
+            aria-label="關閉並清除搜尋"
           >
             <X className="size-5" />
           </Button>
         </div>
       )}
 
-
       <section className="sticky top-0 z-30 hidden overflow-hidden rounded-2xl border bg-background/95 shadow-sm backdrop-blur md:block">
         <div className="flex flex-col gap-4 border-b px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                SF
-              </span>
+              <span className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">SF</span>
               Sweetfun Operations
             </div>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight">
-              訂單與房況日曆
-            </h1>
+            <h1 className="mt-2 text-2xl font-semibold tracking-tight">訂單與房況日曆</h1>
           </div>
 
           <div className="flex items-center justify-end gap-2">
@@ -626,40 +661,21 @@ export function BookingCalendarResponsive() {
               disabled={loading || refreshing}
               aria-label="重新整理"
             >
-              <RefreshCw
-                className={cn(
-                  "size-4",
-                  (loading || refreshing) && "animate-spin",
-                )}
-              />
+              <RefreshCw className={cn("size-4", (loading || refreshing) && "animate-spin")} />
             </Button>
           </div>
         </div>
 
         <div className="flex flex-col gap-3 px-5 py-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-2">
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => navigate(-1)}
-              aria-label="上一個區間"
-            >
+            <Button variant="outline" size="icon" onClick={() => navigate(-1)} aria-label="上一個區間">
               <ChevronLeft className="size-4" />
             </Button>
-            <Button variant="outline" onClick={goToToday}>
-              今天
-            </Button>
-            <Button
-              variant="outline"
-              size="icon"
-              onClick={() => navigate(1)}
-              aria-label="下一個區間"
-            >
+            <Button variant="outline" onClick={goToToday}>今天</Button>
+            <Button variant="outline" size="icon" onClick={() => navigate(1)} aria-label="下一個區間">
               <ChevronRight className="size-4" />
             </Button>
-            <div className="ml-1 min-w-48 truncate text-base font-semibold">
-              {displayPeriod.label}
-            </div>
+            <div className="ml-1 min-w-48 truncate text-base font-semibold">{displayPeriod.label}</div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -667,19 +683,14 @@ export function BookingCalendarResponsive() {
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
-                onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                  setQuery(event.target.value)
-                }
+                onChange={(event: ChangeEvent<HTMLInputElement>) => setQuery(event.target.value)}
                 placeholder="搜尋客人、房號或訂單編號"
                 className="bg-background pl-9"
               />
             </div>
             <span className="whitespace-nowrap text-[11px] text-muted-foreground">
               {lastLoadedAt
-                ? `${lastLoadedAt.toLocaleTimeString("zh-TW", {
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })} 更新`
+                ? `${lastLoadedAt.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })} 更新`
                 : "等待同步"}
             </span>
           </div>
@@ -694,7 +705,7 @@ export function BookingCalendarResponsive() {
         <MetricCard
           icon={CircleDollarSign}
           label="房費"
-          value={formatMoney(metrics.amount)}
+          value={permissions.view_prices ? formatMoney(metrics.amount) : "已隱藏"}
         />
       </div>
 
@@ -702,24 +713,14 @@ export function BookingCalendarResponsive() {
         <span className="font-semibold text-foreground">圖例</span>
         {Object.entries(PLATFORM_LABELS).map(([platform, label]) => (
           <span key={platform} className="flex items-center gap-1.5">
-            <span
-              className={cn(
-                "size-2.5 rounded-sm border",
-                PLATFORM_STYLES[platform] ?? PLATFORM_STYLES.other,
-              )}
-            />
+            <span className={cn("size-2.5 rounded-sm border", PLATFORM_STYLES[platform] ?? PLATFORM_STYLES.other)} />
             {label}
           </span>
         ))}
         <span className="ml-auto flex flex-wrap items-center gap-3">
           {(Object.keys(PAYMENT_LABELS) as PaymentStatus[]).map((status) => (
             <span key={status} className="flex items-center gap-1.5">
-              <span
-                className={cn(
-                  "size-2 rounded-full",
-                  PAYMENT_DOT_STYLES[status],
-                )}
-              />
+              <span className={cn("size-2 rounded-full", PAYMENT_DOT_STYLES[status])} />
               {PAYMENT_LABELS[status]}
             </span>
           ))}
@@ -728,7 +729,7 @@ export function BookingCalendarResponsive() {
 
       {DEMO_MODE && (
         <div className="hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 md:block">
-          示範模式：可測試付款、改期與取消；變更只保存在這台裝置。
+          示範模式：可測試付款、改期、服務需求與權限畫面；變更只保存在這台裝置。
         </div>
       )}
 
@@ -738,13 +739,7 @@ export function BookingCalendarResponsive() {
             <AlertCircle className="size-4 shrink-0" />
             <span>{error}</span>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setReloadKey((value) => value + 1)}
-          >
-            重試
-          </Button>
+          <Button variant="outline" size="sm" onClick={() => setReloadKey((value) => value + 1)}>重試</Button>
         </div>
       )}
 
@@ -755,7 +750,7 @@ export function BookingCalendarResponsive() {
         </div>
       ) : selectedProperties.length === 0 ? (
         <div className="m-2 rounded-xl border border-dashed bg-card px-4 py-16 text-center text-sm text-muted-foreground md:m-0">
-          請從左上角選單選擇至少一間旅宿。
+          請從左上角選單選擇至少一間可查看的旅宿。
         </div>
       ) : (
         <>
@@ -780,9 +775,7 @@ export function BookingCalendarResponsive() {
                 bookings={filteredBookings}
                 rooms={visibleRooms}
                 properties={selectedProperties}
-                onNavigateWeek={(offset) =>
-                  setAnchorDate((value) => addDays(value, offset * 7))
-                }
+                onNavigateWeek={(offset) => setAnchorDate((value) => addDays(value, offset * 7))}
                 onSelectBooking={(booking) => setSelectedId(booking.id)}
                 onSelectDay={selectDay}
               />
@@ -816,7 +809,9 @@ export function BookingCalendarResponsive() {
       <BookingDetailsPanel
         booking={selectedBooking}
         orderSegments={selectedOrderSegments}
-        rooms={data?.rooms ?? []}
+        allBookings={editedBookings}
+        rooms={visibleRooms}
+        permissions={permissions}
         onClose={() => setSelectedId(null)}
         onRecordPayment={recordPayment}
         onUpdateBooking={updateBooking}
