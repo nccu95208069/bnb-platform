@@ -376,3 +376,13 @@ remain separate. See the unsold design document for the exact boundary and tests
 and pricing review/handoff UI until requested again. Display flags live in
 `frontend/src/lib/availability-features.ts`; preserve backend contracts and stored
 Missions. Availability, rates, inline expansion and browser navigation stay active.
+
+
+## Owner clarification — 2026-09-06, Sheet source pilot
+
+- Non-AI booking rows without a parent order number may use the source unique ID. It must stay unique and stable; it identifies a room-night and does not infer a cross-row stay relationship.
+- `done` means the guest paid in full. OTA collection and property bank settlement have no explicit records yet; separate fields/ledger are a future task.
+- Even allocation of order prices across room-nights is confirmed current upstream behavior; original nightly price preservation is a TODO.
+- Telephone/LINE orders, cancellations, date changes and room changes are fully updated in the Sweetfun operational Sheet.
+- Owner prefers event-driven synchronization of Sheet additions, deletions and corrections. Feasible design is Drive change notification plus authenticated re-read, atomic validated snapshot publication, subscription renewal and periodic reconciliation; this is not yet enabled.
+- `LINE AI Agent` identity fallback remains a separate clarification from non-AI rows.

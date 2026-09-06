@@ -2,13 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { adaptSweetfunSheet } from "../src/lib/booking-sources/sweetfun-sheet.ts";
 
-const headers = ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "備註", "訂單編號"];
-const row = (patch = {}) => Object.assign(["301", "PRIVATE GUEST", "Agoda", "2026/9/15", "2026/9/16", "2026/8/1", "2500", "done", "OK", "PRIVATE-ROW", "PRIVATE NOTES", "PRIVATE-ORDER"], patch);
+const headers = ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "備註", "訂單編號", "AI 登記"];
+const row = (patch = {}) => Object.assign(["301", "PRIVATE GUEST", "Agoda", "2026/9/15", "2026/9/16", "2026/8/1", "2500", "done", "OK", "PRIVATE-ROW", "PRIVATE NOTES", "PRIVATE-ORDER", ""], patch);
 const adapt = rows => adaptSweetfunSheet([headers, ...rows], "test-source", "2026-09-06T00:00:00Z");
-test("anonymizes before public projection and never treats platform done as money received", () => {
+test("done means guest paid in full but never synthesizes an OTA or property receipt", () => {
   const result = adapt([row()]);
   assert.equal(JSON.stringify(result).includes("PRIVATE"), false);
-  assert.equal(result.bookings[0].payment_status, "unknown");
+  assert.equal(result.bookings[0].payment_status, "paid");
   assert.deepEqual(result.bookings[0].payments, []);
   assert.equal(result.bookings[0].nightly_amounts[0].amount, 2500);
 });
@@ -43,4 +43,13 @@ test("bad schema fails closed; calendar-invalid dates are not normalized silentl
   const result = adapt([row({ 3: "2026/2/30", 4: "2026/3/3" })]);
   assert.equal(result.summary.accepted_rows, 0);
   assert.equal(result.issues.some(i => i.code === "invalid_room_night"), true);
+});
+
+test("manual missing parent uses unique ID; AI missing parent is separately flagged", () => {
+  const result = adapt([row({11: ""}), row({9: "row2", 3: "2026/9/16", 4: "2026/9/17", 11: "", 12: "LINE AI Agent"})]);
+  assert.equal(result.summary.manual_id_fallback_rows, 1);
+  assert.equal(result.summary.missing_ai_order_id, 1);
+  assert.equal(result.bookings[0].source_identity_kind, "manual_row");
+  assert.equal(result.bookings[1].source_identity_kind, "unlinked_ai_row");
+  assert.equal(result.bookings[0].source_order_linked, false);
 });

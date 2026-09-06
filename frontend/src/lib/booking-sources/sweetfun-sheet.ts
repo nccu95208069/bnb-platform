@@ -7,15 +7,16 @@ export type SourceIssue = { code: string; rows: number[]; date?: string; room?: 
 export type BookingSourceSnapshot = {
   schema_version: 1;
   source: { id: string; kind: "google_sheet_snapshot"; label: string; observed_at: string;
-    snapshot_version: string; price_basis: "sheet_recorded_room_night"; payment_ledger_available: false;
+    snapshot_version: string; adapter_version: string; price_basis: "sheet_recorded_room_night"; payment_ledger_available: false;
     read_only: true; anonymized: true; automatic_sync: false; availability_authoritative: false };
   bookings: CalendarBooking[];
   issues: SourceIssue[];
   summary: { rows: number; accepted_rows: number; quarantined_rows: number; blocked_room_nights: number;
-    missing_order_id: number; missing_payment_status: number };
+    missing_order_id: number; manual_id_fallback_rows: number; missing_ai_order_id: number; missing_payment_status: number };
 };
 
-const REQUIRED = ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "訂單編號"];
+const REQUIRED = ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "訂單編號", "AI 登記"];
+const ADAPTER_VERSION = "sweetfun-sheet-v2";
 const ROOMS = ["101", "102", "201", "202", "301", "302"];
 const PLATFORM: Record<string, string> = { booking: "booking", "booking.com": "booking", agoda: "agoda", airbnb: "airbnb", line: "direct", ctrip: "ctrip", owljourney: "owljourney" };
 const opaque = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 20);
@@ -85,11 +86,15 @@ export function adaptSweetfunSheet(values: unknown[][], sourceId: string, observ
     booking.platform = PLATFORM[r.get("預定平台").toLowerCase()] ?? "other";
     booking.booked_at = iso(r.get("預訂日期"));
     booking.room_rate = r.amount;
-    booking.source_payment_label = r.get("全額支付狀態") === "done" ? "來源標記 done（收款定義待確認）" :
+    booking.payment_status = r.get("全額支付狀態") === "done" ? "paid" : "unknown";
+    booking.source_payment_label = r.get("全額支付狀態") === "done" ? "客人已付清；OTA 收款與旅宿入帳尚未記錄" :
       ["not_yet", "not yet"].includes(r.get("全額支付狀態")) ? "來源標記尚未完成付款" : "來源未提供明確付款狀態";
     booking.source_order_linked = Boolean(r.order);
+    booking.source_identity_kind = r.order ? "parent_order" : !r.get("AI 登記") ? "manual_row" : "unlinked_ai_row";
     booking.nightly_amounts = [{ date: r.start!, amount: r.amount }];
-    booking.notes = r.order ? "已依來源訂單編號串接連住；公開畫面顯示匿名編號。" : "來源缺少訂單編號，暫以單晚紀錄顯示，不推測連住關係。";
+    booking.notes = r.order ? "已依來源訂單編號串接連住；公開畫面顯示匿名編號。" : !r.get("AI 登記")
+      ? "人工登記：依唯一 ID 識別此房晚。跨列連住需共同訂單編號才能合併。"
+      : "AI 登記未提供訂單編號：暫以唯一 ID 顯示房晚，跨列訂單關係待確認。";
     if (!PLATFORM[r.get("預定平台").toLowerCase()]) booking.notes += " 通路名稱需確認，暫列其他。";
     bookings.push(booking);
   }
@@ -106,10 +111,13 @@ export function adaptSweetfunSheet(values: unknown[][], sourceId: string, observ
   return {
     schema_version: 1,
     source: { id: sourceId, kind: "google_sheet_snapshot", label: "Sweetfun 訂房表", observed_at: observedAt,
-      snapshot_version: opaque(JSON.stringify(values)), price_basis: "sheet_recorded_room_night", payment_ledger_available: false,
+      snapshot_version: opaque(ADAPTER_VERSION + JSON.stringify(values)), adapter_version: ADAPTER_VERSION, price_basis: "sheet_recorded_room_night", payment_ledger_available: false,
       read_only: true, anonymized: true, automatic_sync: false, availability_authoritative: false },
     bookings, issues,
     summary: { rows: rows.length, accepted_rows: rows.length - blocked.size, quarantined_rows: blocked.size, blocked_room_nights: slots.size,
-      missing_order_id: rows.filter(r => !r.order).length, missing_payment_status: rows.filter(r => !r.get("全額支付狀態")).length },
+      missing_order_id: rows.filter(r => !r.order).length,
+      manual_id_fallback_rows: rows.filter(r => !r.order && !r.get("AI 登記")).length,
+      missing_ai_order_id: rows.filter(r => !r.order && r.get("AI 登記")).length,
+      missing_payment_status: rows.filter(r => !r.get("全額支付狀態")).length },
   };
 }

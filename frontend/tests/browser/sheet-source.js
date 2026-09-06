@@ -3,7 +3,7 @@
   const response = await fetch('/api/v1/bookings/calendar?start=2026-09-01&end=2026-10-01').then(r=>r.json());
   if (response.data_mode !== 'anonymized_google_sheet_snapshot') throw new Error('wrong source');
   if (response.bookings.filter(b=>b.check_in.startsWith('2026-09')).length !== 114) throw new Error('September row count');
-  if (response.bookings.some(b=>!b.source_read_only || b.payment_status!=='unknown' || b.external_order_no || b.payments.length)) throw new Error('projection safety');
+  if (response.bookings.some(b=>!b.source_read_only || !['unknown','paid'].includes(b.payment_status) || b.external_order_no || b.payments.length)) throw new Error('projection safety');
   const groups=Map.groupBy(response.bookings,b=>b.order_id+'|'+b.room_id);
   const stay=[...groups.values()].find(bs=>bs.length>=2&&bs[0].source_order_linked&&bs.every(b=>b.check_in.startsWith('2026-09')));
   if (!stay) throw new Error('no linked stay');

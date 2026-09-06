@@ -73,6 +73,7 @@ export type CalendarBooking = {
   source_conflict?: boolean;
   source_payment_label?: string;
   source_order_linked?: boolean;
+  source_identity_kind?: "parent_order" | "manual_row" | "unlinked_ai_row";
   nightly_amounts?: { date: string; amount: number }[];
   source_segment_ids?: string[];
   stay_nights?: number;

@@ -5,15 +5,17 @@ The production calendar can now consume an anonymous, read-only snapshot produce
 ## Contract and interpretation
 
 - `frontend/src/lib/booking-sources/sweetfun-sheet.ts` maps columns by verified header names, rejects missing/duplicate required headers, and emits the common calendar booking projection.
-- A source row is one physical room-night. Explicit parent order IDs link contiguous nights. Missing parent IDs remain ungrouped; never join by guest name or assume a row ID is an order ID.
+- A source row is one physical room-night. Explicit parent order IDs link contiguous nights. Owner accepts unique-ID fallback for non-AI rows missing an order ID; this is a valid row identity, not a defective record. Keep unique IDs stable through edits and unique within their source. Separate `manual_row` from `unlinked_ai_row`; neither establishes a cross-row parent relationship. Never join by guest name. The owner has not yet confirmed whether `LINE AI Agent` may use the same fallback rule.
 - IDs are namespaced by source and hashed for the public projection. Guest names, original order/OTA IDs, free-text notes, contact details and LINE IDs are not published.
 - Daily Sheet amounts remain separate. The current upstream local splitter distributes total order amounts evenly across room-nights, placing the remainder in the first entry. The Sheet amounts are not proven original OTA nightly rates or net payouts.
-- Payment status remains `unknown`, with a separate neutral source label. `done` is not evidence of an actual ledger receipt. No payment records are synthesized.
+- Owner-confirmed semantics (2026-09-06): `done` means the guest has paid in full and maps to `paid`. It does not establish OTA collection or settlement into the property account. Other incomplete/blank states remain `unknown`; no ledger receipts are synthesized.
 - `requirements_known: false` means legacy numeric UI defaults do not establish the absence of pets, extra beds or guest requirements.
 - Duplicate IDs, overlapping room-nights, unchecked rows and unknown rooms are quarantined. Affected calendar slots show an explicit conflict marker with no invented price. Unknown whole-property allocations block all six rooms and quarantine physical-room records on the same date.
 - Snapshot metadata exposes source identity, observation time, content version, read-only/anonymized flags, price basis and lack of authoritative availability/payment ledger.
 - Query returns complete parent order groups, even across month boundaries; UI sums only the actual nightly amounts in its visible period. An incomplete parent ID must not be presented as a verified full order total.
-- Source issues are retained in the snapshot. They are not yet production-persisted Mission Manager incidents. All operational writes remain disabled for this source.
+- Owner confirmed telephone/LINE orders, cancellations, date changes and room changes are fully maintained in this Sheet. This establishes order coverage; it does not supply maintenance/stop-sell inventory.
+
+Source issues are retained in the snapshot. They are not yet production-persisted Mission Manager incidents. All operational writes remain disabled for this source.
 
 ## Storage and deployment
 
@@ -44,3 +46,10 @@ Official references: [Apps Script trigger restrictions](https://developers.googl
 - `node --experimental-strip-types --test tests/sweetfun-sheet.test.mjs`: privacy projection, unknown payment semantics, conflict quarantine, stable parent grouping, nightly amounts, whole-property ambiguity and schema/date rejection.
 - `tests/browser/sheet-source.js`: source/September counts, read-only controls, nightly detail, Back, whole-property blocks and POST rejection. This is a read-only browser verification; it never modifies the Sheet.
 - Frontend lint/build and production API/browser checks are required. Existing week-carousel unused-import warning predates this change.
+
+## Owner follow-up and TODOs
+
+- [ ] Preserve original OTA per-night/per-room prices instead of only evenly allocated Sheet amounts; owner explicitly deferred this.
+- [ ] Add separate guest-payment, OTA-collection and property-settlement fields plus a proper payment ledger. Do not infer settlement from `done`.
+- [ ] Clarify `LINE AI Agent` fallback identity; other AI mail-ingestion rows have parent order IDs in the inspected source.
+- [ ] Event-driven Sheet synchronization: watch the specific Drive file for content changes, including API and manual updates; fetch the target tab, compare source-keyed snapshots, represent removed rows as retired source records, and publish a validated batch atomically. Notifications from other tabs/format-only edits should not alter bookings. Persist subscription identity/expiry, renew before expiry, deduplicate messages and reconcile periodically. Direct upstream batch-complete notification remains useful to avoid delete/reinsert intermediate states. Durable storage, application Google authorization and a receiver are still required; subscription is not enabled by this pilot.

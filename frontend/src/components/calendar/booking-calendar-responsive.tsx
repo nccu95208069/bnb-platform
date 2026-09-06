@@ -905,8 +905,8 @@ function SoldBookingCalendar() {
       {data?.source && (
         <div className="space-y-1 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950" role="status">
           <p className="font-medium">{data.source.label} · 匿名唯讀快照 · {new Date(data.source.observed_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</p>
-          <p>尚未啟用自動同步。付款標記不等於入帳；沒有訂單也不代表可售。</p>
-          <p>全表 {data.source_summary?.rows} 列；{data.source_summary?.quarantined_rows} 列待核對，相關日期以「房況待核對」標示，未計入房費。缺訂單編號的紀錄暫不合併連住。</p>
+          <p>尚未啟用自動同步。已付清指客人已付清，OTA 收款與旅宿入帳尚未記錄。</p>
+          <p>全表 {data.source_summary?.rows} 列；{data.source_summary?.quarantined_rows} 列待核對，相關日期以「房況待核對」標示，未計入房費。人工登記可用唯一 ID；跨列連住需共同編號。</p>
         </div>
       )}
 
