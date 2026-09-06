@@ -361,17 +361,19 @@ function SoldBookingCalendar() {
   }, [reloadKey, requestPeriod.end, requestPeriod.start, setProperties]);
 
   useEffect(() => {
-    if (!PAYMENT_SANDBOX) return;
+    if (!PAYMENT_SANDBOX && !data?.source?.automatic_sync) return;
     const refresh = () => {
       if (!document.hidden) setReloadKey((value) => value + 1);
     };
-    const timer = setInterval(refresh, 5000);
+    const timer = setInterval(refresh, PAYMENT_SANDBOX ? 5000 : 60_000);
     window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
     return () => {
       clearInterval(timer);
       window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
     };
-  }, []);
+  }, [data?.source?.automatic_sync]);
 
   const rawEditedBookings = useMemo(
     () =>
@@ -905,7 +907,11 @@ function SoldBookingCalendar() {
       {data?.source && (
         <div className="space-y-1 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950" role="status">
           <p className="font-medium">{data.source.label} · 匿名唯讀快照 · {new Date(data.source.observed_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</p>
-          <p>尚未啟用自動同步。已付清指客人已付清，OTA 收款與旅宿入帳尚未記錄。</p>
+          {data.source.automatic_sync && data.source.sync ? <div aria-live="polite">
+            <p>{({ waiting: "監控已設定，等待首次檢查。", healthy: "每分鐘自動檢查訂房表。", confirming: "發現資料變更，等待下一次檢查確認；目前保留上次資料。", error: "訂房表檢查失敗，目前保留上次資料，系統會自動重試。", stale: "已超過 5 分鐘未完成檢查，目前顯示上次資料。" })[data.source.sync.status]}</p>
+            <p>最後檢查：{data.source.sync.last_checked_at ? new Date(data.source.sync.last_checked_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }) : "尚未完成"} · 比對 {data.source.sync.cutoff} 起的入住紀錄與所有未來訂單。</p>
+          </div> : <p>尚未啟用自動同步。</p>}
+          <p>已付清指客人已付清，OTA 收款與旅宿入帳尚未記錄。</p>
           <p>訂單編號可空白，使用唯一 ID 識別每列；跨列連住需共同編號。</p>
           {(data.source_summary?.new_issue_rows ?? 0) > 0 && <p>新增或變更的問題涉及 {data.source_summary?.new_issue_rows} 列，相關房況待核對。</p>}
         </div>

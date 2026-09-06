@@ -94,7 +94,8 @@ export type CalendarResponse = {
   booking_segment_count: number;
   total_amount: number;
   bookings: CalendarBooking[];
-  source?: { label: string; observed_at: string; read_only: boolean; automatic_sync: boolean; availability_authoritative: boolean };
+  source?: { label: string; observed_at: string; read_only: boolean; automatic_sync: boolean; availability_authoritative: boolean;
+    sync?: { status: "waiting" | "healthy" | "confirming" | "error" | "stale"; last_checked_at: string | null; last_published_at: string | null; cutoff: string; interval_seconds: number; error_code: string | null } };
   source_summary?: { rows: number; accepted_rows: number; quarantined_rows: number; new_issue_rows?: number; historical_issue_rows?: number; blocked_room_nights: number; missing_order_id: number; missing_payment_status: number };
   data_mode?: string;
   price_hidden?: boolean;

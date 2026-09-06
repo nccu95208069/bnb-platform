@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-09-06 follow-up: [Sheet monitor implementation and activation status](SHEET_MONITOR.md). Do not confuse implemented local monitoring with an enabled production schedule.
+
 This folder organizes the product decisions, shipped implementation, unresolved work, and transition instructions needed to continue in ChatGPT Work or a coding agent.
 
 ## Read in this order

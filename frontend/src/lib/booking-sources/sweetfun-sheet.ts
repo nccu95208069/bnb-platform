@@ -8,7 +8,8 @@ export type BookingSourceSnapshot = {
   schema_version: 1;
   source: { id: string; kind: "google_sheet_snapshot"; label: string; observed_at: string;
     snapshot_version: string; adapter_version: string; price_basis: "sheet_recorded_room_night"; payment_ledger_available: false;
-    read_only: true; anonymized: true; automatic_sync: false; availability_authoritative: false };
+    read_only: true; anonymized: true; automatic_sync: boolean; availability_authoritative: false;
+    sync?: { status: "waiting" | "healthy" | "confirming" | "error" | "stale"; last_checked_at: string | null; last_published_at: string | null; cutoff: string; interval_seconds: number; error_code: string | null } };
   bookings: CalendarBooking[];
   issues: SourceIssue[];
   summary: { rows: number; accepted_rows: number; quarantined_rows: number; blocked_room_nights: number;
@@ -28,12 +29,12 @@ function iso(value: string): string | null {
   return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === result ? result : null;
 }
 
-export function adaptSweetfunSheet(values: unknown[][], sourceId: string, observedAt: string, acknowledgedIssues: string[] = []): BookingSourceSnapshot {
+export function adaptSweetfunSheet(values: unknown[][], sourceId: string, observedAt: string, acknowledgedIssues: string[] = [], sourceRowNumbers?: number[]): BookingSourceSnapshot {
   const headers = (values[0] ?? []).map(v => String(v).trim());
   if (REQUIRED.some(h => headers.filter(v => v === h).length !== 1)) throw new Error("SHEET_SCHEMA_MISMATCH");
   const rows = values.slice(1).map((row, index) => {
     const get = (name: string) => String(row[headers.indexOf(name)] ?? "").trim();
-    return { row: index + 2, get, room: get("房型"), uid: get("唯一ID"), order: get("訂單編號"),
+    return { row: sourceRowNumbers?.[index] ?? index + 2, get, room: get("房型"), uid: get("唯一ID"), order: get("訂單編號"),
       start: iso(get("入住日期")), end: iso(get("退房日期")), amount: Number(get("房費")) };
   }).filter(r => headers.some(h => r.get(h)));
   const issues: SourceIssue[] = [];

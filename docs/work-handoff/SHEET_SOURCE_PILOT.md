@@ -62,3 +62,20 @@ Owner defers the already-listed historical issues. `--acknowledge-current-issues
 Source summaries distinguish `new_issue_rows` from `historical_issue_rows`. Suppress the old cleanup banner; show acknowledged slots neutrally as historical room status. Preserve unresolved allocation/money exclusions rather than choosing a record or counting duplicate revenue. This changes acknowledgement/triage, not source truth or financial validation.
 
 For initial synchronization, recommend minute-scale authoritative reconciliation plus a writer batch-complete webhook to accelerate. Treat Google push as optional; it cannot replace source reads, channel renewal and failure recovery. No recurring synchronization has been enabled.
+
+## Confirmed rolling comparison window — 2026-09-06
+
+Owner requests a smaller routine comparison scope:
+
+- Use Asia/Taipei calendar dates. Include check-in dates on or after today minus 30 calendar days, with no future upper bound. For 2026-09-06 this means 2026-08-07 onward, inclusive; do not limit future bookings to the pricing engine's 90-day horizon.
+- Also include earlier check-ins that have not checked out. For the Sheet's room-night rows, retain complete linked parent groups when needed to keep stay details and totals consistent.
+- Preserve previously imported older records for historical calendar browsing. Aging out of the rolling window is not cancellation, deletion or issue resolution.
+- If a previously tracked J identity disappears from a filtered result, resolve its current source presence and dates before retiring it. A changed check-in can move outside the window. An authoritative source read/index is required to distinguish this from a deletion; an incomplete batch or failed read never proves deletion.
+- Keep out-of-scope unresolved issue fingerprints and acknowledgements. The current full-snapshot import's retirement behavior cannot be applied directly to partial results. Retire an acknowledgement only after an authoritative check verifies resolution.
+- Reading and comparing are separate costs. This Sheet is not sorted by stay date; the last N rows are not a valid substitute for the date predicate. Start with correct source reads and scoped comparison; optimize fetched ranges only with a reliable source index or upstream query contract.
+
+This records the agreed design for future ongoing synchronization. The deployed one-time snapshot and its full historical calendar remain unchanged; no recurring job or Google subscription is enabled by this decision.
+
+## Monitor implementation follow-up
+
+The owner subsequently requested implementing monitoring. The local implementation and verified read-only connection are documented in [SHEET_MONITOR.md](SHEET_MONITOR.md). Production activation is still pending the first-time storage integration terms and cloud deployment verification. The pilot's deployed snapshot boundary remains in force until activation is verified.
