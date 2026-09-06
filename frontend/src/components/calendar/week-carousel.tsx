@@ -88,7 +88,7 @@ function MobileBookingChip({
       )}
       <BookingIdentity booking={booking} />
       {nights > 1 && (
-        <span className="shrink-0 rounded-full bg-background/75 px-1.5 py-0.5 text-[10px] font-semibold">
+        <span className="shrink-0 rounded-full bg-white/20 text-inherit px-1.5 py-0.5 text-[10px] font-semibold">
           {stayProgressLabel(booking, date) ?? `${nights} 晚`}
         </span>
       )}
@@ -329,7 +329,7 @@ function DesktopWeekTimeline({
                         />
                         <BookingIdentity booking={booking} />
                         {nights > 1 && (
-                          <span className="ml-auto shrink-0 rounded-full bg-background/75 px-1.5 py-0.5 text-[10px] font-semibold">
+                          <span className="ml-auto shrink-0 rounded-full bg-white/20 text-inherit px-1.5 py-0.5 text-[10px] font-semibold">
                             連住 {nights} 晚
                           </span>
                         )}

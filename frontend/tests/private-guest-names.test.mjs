@@ -1,0 +1,11 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { attachPrivateGuestNames } from "../src/lib/booking-sources/private-guest-names.ts";
+import { adaptSheetBookings } from "../src/lib/booking-sources/sweetfun-sheet.ts";
+import { SWEETFUN_SOURCE, OFFLAND_SOURCE } from "../src/lib/booking-sources/config.ts";
+import { normalizeRows, HEADERS } from "../src/lib/sheet-monitor/reconcile.ts";
+const row = (patch = {}) => Object.assign(["301", "測試旅客甲", "Agoda", "2026/9/15", "2026/9/16", "2026/8/1", "2500", "done", "OK", "test-row", "private note", "test-order", "2"], patch);
+const snapshot = (values, source = SWEETFUN_SOURCE) => { const normalized = normalizeRows(values, source); return adaptSheetBookings([HEADERS, ...normalized.map(r => r.cells)], source.sourceId, "2026-09-06T00:00:00Z", [], normalized.map(r => r.sourceRow), source.property).bookings; };
+test("real source name overlays matching booking without changing public snapshot", () => { const values = [HEADERS, row()]; const publicRows = snapshot(values); const named = attachPrivateGuestNames(publicRows, values, SWEETFUN_SOURCE); assert.equal(named[0].guest_name, "測試旅客甲"); assert.equal(named[0].guest_name_kind, "real"); assert.equal(publicRows[0].guest_name_kind, "anonymous"); assert.equal(JSON.stringify(publicRows).includes("測試旅客甲"), false); assert.equal(JSON.stringify(named).includes("private note"), false); });
+test("missing, moved, deleted or duplicated identities never attach an unrelated name", () => { const base = snapshot([HEADERS, row()]); for (const rows of [[], [row({0:"302"})], [row({3:"2026/9/16",4:"2026/9/17"})], [row({11:"different-order"})], [row(),row({1:"測試旅客乙"})], [row({1:""})]]) { const result = attachPrivateGuestNames(base, [HEADERS,...rows], SWEETFUN_SOURCE); assert.notEqual(result[0].guest_name_kind, "real"); } });
+test("OFFLAND name/header aliases remain isolated from Sweetfun", () => { const headers = [...HEADERS]; headers[0]="房間"; headers[1]="用戶名稱"; headers[11]="刷卡狀態"; const values = [headers, row({0:"OFFLAND",1:"測試旅客乙"})]; const base = snapshot(values, OFFLAND_SOURCE); assert.equal(attachPrivateGuestNames(base, values, OFFLAND_SOURCE)[0].guest_name, "測試旅客乙"); const sweetfun = snapshot([HEADERS,row()]); assert.equal(attachPrivateGuestNames(sweetfun, values, OFFLAND_SOURCE)[0].guest_name_kind, "anonymous"); });

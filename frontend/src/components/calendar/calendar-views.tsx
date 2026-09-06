@@ -119,7 +119,7 @@ function BookingChip({
       {!compact && (
         <>
           {nights > 1 && (
-            <span className="shrink-0 rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] font-semibold">
+            <span className="shrink-0 rounded-full bg-white/20 text-inherit px-1.5 py-0.5 text-[10px] font-semibold">
               {progress ?? `連住 ${nights} 晚`}
             </span>
           )}
@@ -135,15 +135,6 @@ function BookingChip({
 // Full channel names remain in accessible labels and booking details.
 const MONTH_PLATFORM_LABELS: Record<string, string> = {
   direct: "直訂", booking: "Bkg", agoda: "Ago", airbnb: "Air", ctrip: "Trip", owljourney: "Owl", other: "其他",
-};
-const MONTH_PLATFORM_STYLES: Record<string, string> = {
-  direct: "bg-emerald-700 text-white hover:bg-emerald-800",
-  booking: "bg-sky-700 text-white hover:bg-sky-800",
-  agoda: "bg-violet-700 text-white hover:bg-violet-800",
-  airbnb: "bg-rose-700 text-white hover:bg-rose-800",
-  ctrip: "bg-amber-700 text-white hover:bg-amber-800",
-  owljourney: "bg-indigo-700 text-white hover:bg-indigo-800",
-  other: "bg-slate-600 text-white hover:bg-slate-700",
 };
 
 function chunkWeeks(days: string[]) {
@@ -171,6 +162,7 @@ function MonthPanel({
   const weeks = chunkWeeks(dateRange(period.start, period.end));
   const expandedWeeks = useCalendarPreferences((s) => s.expandedWeeks);
   const setExpandedWeeks = useCalendarPreferences((s) => s.setExpandedWeeks);
+  const hasGuestNames = bookings.some(booking => booking.guest_name_kind === "real");
   const monthBookings = bookings.filter(
     (booking) =>
       booking.check_in < period.end && booking.check_out >= period.start,
@@ -235,7 +227,7 @@ function MonthPanel({
 
         return (
           <div key={weekKey} className="border-b last:border-b-0" data-week={weekKey}>
-            <div className="relative grid min-h-[116px] grid-cols-7 py-0.5 [--month-lane-height:18px] md:min-h-32 md:py-1 md:[--month-lane-height:22px]"
+            <div className={cn("relative grid min-h-[116px] grid-cols-7 py-0.5 md:min-h-32 md:py-1", hasGuestNames ? "[--month-lane-height:30px] md:[--month-lane-height:32px]" : "[--month-lane-height:18px] md:[--month-lane-height:22px]")}
               style={{ gridTemplateRows: `24px repeat(${visibleLanes}, var(--month-lane-height))${hidden.some(Boolean) ? " 24px" : ""}`, rowGap: 2 }}>
               <div className="pointer-events-none absolute inset-0 grid grid-cols-7" aria-hidden="true">
                 {week.map(date => <div key={date} className={cn("border-r last:border-r-0",
@@ -269,15 +261,17 @@ function MonthPanel({
                   onClick={() => onSelectBooking(booking)}
                   style={{ gridColumn: `${segment.start + 1} / ${segment.end + 1}`, gridRow: segment.lane + 2 }}
                   className={cn("relative z-10 mx-0.5 flex min-w-0 items-center gap-0.5 overflow-hidden rounded-[3px] px-0.5 text-left text-[10px] leading-none font-medium focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:mx-1 md:px-1 md:text-[11px]",
-                    booking.source_conflict ? "bg-slate-200 text-slate-800 hover:bg-slate-300" : MONTH_PLATFORM_STYLES[booking.platform] ?? MONTH_PLATFORM_STYLES.other,
+                    booking.source_conflict ? "bg-slate-200 text-slate-800 hover:bg-slate-300" : PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
                     segment.continuesBefore && "ml-0 rounded-l-none border-l-0 sm:ml-0 md:ml-0",
                     segment.continuesAfter && "mr-0 rounded-r-none border-r-0 sm:mr-0 md:mr-0")}>
                   {segment.continuesBefore && <span aria-hidden="true">‹</span>}
-                  <span className="min-w-0 flex-1 truncate">
-                    <span className="font-semibold">{booking.source_conflict ? "待核對" : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
-                    {guestName && <span className="ml-1">{guestName}</span>}
-                    <span className="ml-1 opacity-85">{booking.room_number}</span>
-                    {nights > 1 && <span className="ml-1">{nights}晚</span>}
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate leading-[12px]">
+                      <span className="font-semibold">{booking.source_conflict ? "待核對" : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
+                      <span className="ml-1 opacity-85">{booking.room_number}</span>
+                      {nights > 1 && <span className="ml-1">{nights}晚</span>}
+                    </span>
+                    {guestName && <span className="block truncate leading-[12px]">{guestName}</span>}
                   </span>
                   {segment.continuesAfter && <span aria-hidden="true">›</span>}
                 </button>;

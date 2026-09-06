@@ -180,7 +180,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             {SHEET_SNAPSHOT ? "訂房表快照" : "Demo Site"}
           </p>
           <p className="mt-1 text-xs font-medium">
-            {SHEET_SNAPSHOT ? "匿名唯讀 · 同步狀態見日曆" : "匿名資料 · 編輯僅儲存在此瀏覽器"}
+            {SHEET_SNAPSHOT ? "唯讀 · 同步與登入狀態見日曆" : "匿名資料 · 編輯僅儲存在此瀏覽器"}
           </p>
         </div>
       )}

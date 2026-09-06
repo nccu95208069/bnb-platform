@@ -1,3 +1,6 @@
+import { OWNER_COOKIE, ownerAccessConfigured, validOwnerSession } from "@/lib/calendar-owner-session";
+import { readOperationalSheet } from "@/lib/sheet-monitor/google";
+import { attachPrivateGuestNames } from "@/lib/booking-sources/private-guest-names";
 import { readBookingSnapshot } from "@/lib/booking-sources/snapshot";
 import { activeSources } from "@/lib/booking-sources/config";
 import { collectSnapshots } from "@/lib/booking-sources/collection";
@@ -202,7 +205,13 @@ export async function GET(request: NextRequest) {
       // remain complete. The calendar filters displayed dates independently.
       const orderIds = new Set(allBookings
         .filter(b => b.check_in < end && b.check_out >= start).map(b => b.order_id));
-      const bookings = allBookings.filter(b => orderIds.has(b.order_id));
+      let bookings = allBookings.filter(b => orderIds.has(b.order_id));
+      const authenticated = validOwnerSession(request.cookies.get(OWNER_COOKIE)?.value);
+      if (authenticated) {
+        const namedSources = await Promise.all(snapshots.map(async ({ definition }) =>
+          attachPrivateGuestNames(bookings.filter(b => b.property_id === definition.property.id), await readOperationalSheet(definition), definition)));
+        bookings = namedSources.flat();
+      }
       return NextResponse.json({
         year: startDate.getUTCFullYear(), month: startDate.getUTCMonth() + 1,
         month_start: monthStart(start), month_end: monthEnd(start), period_start: start, period_end: end,
@@ -211,12 +220,13 @@ export async function GET(request: NextRequest) {
         booking_segment_count: bookings.filter(b => !b.source_conflict).length,
         total_amount: bookings.filter(b => !b.source_conflict).reduce((sum, b) => sum + b.room_rate, 0),
         bookings,
-        source: { ...snapshots[0].snapshot.source, automatic_sync: snapshots.some(s => s.snapshot.source.automatic_sync) },
+        source: { ...snapshots[0].snapshot.source, anonymized: !authenticated, automatic_sync: snapshots.some(s => s.snapshot.source.automatic_sync) },
         source_summary: snapshots[0].snapshot.summary,
-        sources: snapshots.map(({ definition, snapshot }) => ({ property_id: definition.property.id, source: snapshot.source, summary: snapshot.summary })),
+        sources: snapshots.map(({ definition, snapshot }) => ({ property_id: definition.property.id, source: { ...snapshot.source, anonymized: !authenticated }, summary: snapshot.summary })),
         source_errors: errors,
-        data_mode: "anonymized_google_sheet_snapshot",
-      }, { headers: { "Cache-Control": "no-store" } });
+        guest_access: { available: ownerAccessConfigured(), authenticated },
+        data_mode: authenticated ? "private_google_sheet_calendar" : "anonymized_google_sheet_snapshot",
+      }, { headers: { "Cache-Control": "private, no-store", "Vary": "Cookie" } });
     } catch {
       // Never fall back to fictional bookings when an operational source is configured.
       return NextResponse.json({ detail: "訂房表快照暫時無法讀取，請稍後重試。" }, { status: 503 });

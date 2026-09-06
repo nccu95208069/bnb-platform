@@ -28,13 +28,13 @@ export const PLATFORM_LABELS: Record<string, string> = {
 };
 
 export const PLATFORM_STYLES: Record<string, string> = {
-  direct: "border-emerald-200 bg-emerald-50 text-emerald-950 hover:bg-emerald-100",
-  agoda: "border-violet-200 bg-violet-50 text-violet-950 hover:bg-violet-100",
-  booking: "border-sky-200 bg-sky-50 text-sky-950 hover:bg-sky-100",
-  airbnb: "border-rose-200 bg-rose-50 text-rose-950 hover:bg-rose-100",
-  ctrip: "border-amber-200 bg-amber-50 text-amber-950 hover:bg-amber-100",
-  owljourney: "border-indigo-200 bg-indigo-50 text-indigo-950 hover:bg-indigo-100",
-  other: "border-slate-200 bg-slate-50 text-slate-950 hover:bg-slate-100",
+  direct: "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800",
+  agoda: "border-violet-700 bg-violet-700 text-white hover:bg-violet-800",
+  booking: "border-sky-700 bg-sky-700 text-white hover:bg-sky-800",
+  airbnb: "border-rose-700 bg-rose-700 text-white hover:bg-rose-800",
+  ctrip: "border-amber-700 bg-amber-700 text-white hover:bg-amber-800",
+  owljourney: "border-indigo-700 bg-indigo-700 text-white hover:bg-indigo-800",
+  other: "border-slate-600 bg-slate-600 text-white hover:bg-slate-700",
 };
 
 export const PAYMENT_LABELS: Record<PaymentStatus, string> = {
@@ -309,6 +309,8 @@ export function coalesceContiguousBookings(bookings: CalendarBooking[]) {
 
       current = {
         ...current,
+        guest_name: current.guest_name_kind === "real" && booking.guest_name_kind === "real" && current.guest_name !== booking.guest_name ? "連住姓名待核對" : current.guest_name,
+        guest_name_kind: current.guest_name_kind === "real" && (booking.guest_name_kind !== "real" || current.guest_name !== booking.guest_name) ? "missing" : current.guest_name_kind,
         check_out: booking.check_out > current.check_out ? booking.check_out : current.check_out,
         room_rate: current.room_rate + booking.room_rate,
         nightly_amounts: current.nightly_amounts && booking.nightly_amounts

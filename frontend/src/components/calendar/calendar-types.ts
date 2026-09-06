@@ -102,6 +102,7 @@ export type CalendarResponse = {
   source_summary?: { rows: number; accepted_rows: number; quarantined_rows: number; new_issue_rows?: number; historical_issue_rows?: number; blocked_room_nights: number; missing_order_id: number; missing_payment_status: number };
   sources?: { property_id: string; source: NonNullable<CalendarResponse["source"]>; summary: CalendarResponse["source_summary"] }[];
   source_errors?: { property_id: string; label: string }[];
+  guest_access?: { available: boolean; authenticated: boolean };
   data_mode?: string;
   price_hidden?: boolean;
 };

@@ -82,3 +82,11 @@ Real guest names are requested but **not enabled yet**: the currently deployed c
 Following the owner's Google Calendar comparison, month bars show room + short channel in one line (Bkg = Booking, Ago = Agoda, Trip = Ctrip, Owl = OwlJourney, 直訂 = direct). Six room lanes are visible by default; selected inventories can raise this to eight. Stays remain one clickable span per week. Full labels and details retain anonymous guest identifiers; real-name access remains pending. Status is now a collapsed native disclosure; failure/stale status and newly disputed rows remain visible outside its expanded explanation. The browser monitor fixture opens this disclosure before checking detailed state text.
 
 Verification: lint, production build, three stay-layout cases, and browser checks at phone/desktop sizes. This changes neither monitoring schedules nor public data projection.
+
+### Owner-private source names (2026-09-06)
+
+The monitor continues to strip names before storing rows/snapshots. On an authenticated owner calendar request, the API separately reads the registered operational Sheets and joins names against published row identities plus unchanged room/date/order/platform/amount; it never returns raw rows or notes. This permits name corrections to appear on the calendar's next refresh without putting PII into the public monitor. Missing/ambiguous/moved rows do not receive guessed names. Source reads are still bounded full-sheet reads, not a new push subscription.
+
+`/calendar-access` accepts a generated owner code, not an employee account. Server-only production keys are `CALENDAR_OWNER_CODE_HASH` and `CALENDAR_OWNER_SESSION_SECRET`. Cookie sessions last 12 hours. Rotate either setting to revoke sessions, or remove settings to disable private name access. Logout clears this browser's cookie. The owner's private entry link is a bearer credential and must not enter this document, git, logs or public pages. This temporary owner-only access does not enable existing demo permission management or Supabase identities.
+
+All month/week/day platform backgrounds now share `PLATFORM_STYLES`; private month labels use two compact lines to preserve readable names. Validate anonymous→login→named calendar→logout and compare actual colors in all views when changing this flow.
