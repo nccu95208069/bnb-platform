@@ -147,16 +147,17 @@
 }
 
 /* Shared platform tokens keep month/week/day, legend and dialogs consistent. */
-.calendar-platform-direct { --platform-bg: var(--platform-direct-bg); --platform-fg: var(--platform-direct-fg); }
-.calendar-platform-agoda { --platform-bg: var(--platform-agoda-bg); --platform-fg: var(--platform-agoda-fg); }
-.calendar-platform-booking { --platform-bg: var(--platform-booking-bg); --platform-fg: var(--platform-booking-fg); }
-.calendar-platform-airbnb { --platform-bg: var(--platform-airbnb-bg); --platform-fg: var(--platform-airbnb-fg); }
-.calendar-platform-ctrip { --platform-bg: var(--platform-ctrip-bg); --platform-fg: var(--platform-ctrip-fg); }
-.calendar-platform-owljourney { --platform-bg: var(--platform-owljourney-bg); --platform-fg: var(--platform-owljourney-fg); }
-.calendar-platform-other { --platform-bg: var(--platform-other-bg); --platform-fg: var(--platform-other-fg); }
+.calendar-platform-direct { --platform-bg: var(--platform-direct-bg); --platform-fg: var(--platform-direct-fg); --platform-border: var(--platform-direct-border); --platform-shadow: var(--platform-direct-shadow); }
+.calendar-platform-agoda { --platform-bg: var(--platform-agoda-bg); --platform-fg: var(--platform-agoda-fg); --platform-border: var(--platform-agoda-border); --platform-shadow: var(--platform-agoda-shadow); }
+.calendar-platform-booking { --platform-bg: var(--platform-booking-bg); --platform-fg: var(--platform-booking-fg); --platform-border: var(--platform-booking-border); --platform-shadow: var(--platform-booking-shadow); }
+.calendar-platform-airbnb { --platform-bg: var(--platform-airbnb-bg); --platform-fg: var(--platform-airbnb-fg); --platform-border: var(--platform-airbnb-border); --platform-shadow: var(--platform-airbnb-shadow); }
+.calendar-platform-ctrip { --platform-bg: var(--platform-ctrip-bg); --platform-fg: var(--platform-ctrip-fg); --platform-border: var(--platform-ctrip-border); --platform-shadow: var(--platform-ctrip-shadow); }
+.calendar-platform-owljourney { --platform-bg: var(--platform-owljourney-bg); --platform-fg: var(--platform-owljourney-fg); --platform-border: var(--platform-owljourney-border); --platform-shadow: var(--platform-owljourney-shadow); }
+.calendar-platform-other { --platform-bg: var(--platform-other-bg); --platform-fg: var(--platform-other-fg); --platform-border: var(--platform-other-border); --platform-shadow: var(--platform-other-shadow); }
 .calendar-platform {
   background-color: var(--platform-bg);
-  border-color: color-mix(in srgb, var(--platform-bg) 80%, var(--platform-fg));
+  border-color: var(--platform-border);
+  box-shadow: var(--platform-shadow);
   color: var(--platform-fg);
 }
 @media (hover: hover) {

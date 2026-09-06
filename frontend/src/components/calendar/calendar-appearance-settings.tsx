@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Check, Loader2 } from "lucide-react";
-import { CALENDAR_PALETTES, CHANNELS, DEFAULT_PALETTE, type PaletteId } from "@/lib/calendar-palettes";
+import { CALENDAR_PALETTES, CHANNELS, DEFAULT_PALETTE, platformAppearance, type PaletteId } from "@/lib/calendar-palettes";
 import { useCalendarAppearance } from "./calendar-appearance";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -34,7 +34,7 @@ export function CalendarAppearanceSettings() {
         </span>
         <span className="mt-1 block text-xs leading-5 text-muted-foreground">{preset.description}</span>
         <span className="mt-3 grid grid-cols-3 gap-1 rounded-xl border bg-white p-2" aria-hidden="true">
-          {CHANNELS.slice(0, 6).map((channel, i) => <span key={channel} className="truncate rounded px-1.5 py-1 text-[11px] font-medium" style={{ backgroundColor: preset.colors[channel].background, color: preset.colors[channel].foreground }}>{SAMPLE_LABELS[i]}</span>)}
+          {CHANNELS.slice(0, 6).map((channel, i) => <span key={channel} className="truncate rounded border px-1.5 py-1 text-[11px] font-medium" style={platformAppearance(preset.id, channel)}>{SAMPLE_LABELS[i]}</span>)}
         </span>
       </button>)}
     </div>

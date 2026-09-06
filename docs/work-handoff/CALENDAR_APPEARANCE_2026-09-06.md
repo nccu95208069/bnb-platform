@@ -50,3 +50,13 @@ sweetfun-n99r166j4-sweetfuns-projects.vercel.app. In the existing authenticated
 owner browser, Jewel saved successfully and survived a full reload; then Mist
 was restored and confirmed saved. No console errors observed in local or
 production verification. No credential or booking records changed.
+
+## Distinct styles revision
+
+Owner found the original five palettes too similar. Retain IDs/account preferences
+but revise earth to 復古暖陽 (mustard/terracotta/coffee with mixed light and dark
+bars), coast to 白瓷彩線 (white background, colored text, outline and inset side
+stripe), and slate to 黑白編輯 (neutral grayscale). Mist and Jewel remain.
+Preview and calendar now share platformAppearance tokens, including outlines
+that remain visible on the compact month's borderless bars. All 35 text pairs
+pass 4.5:1 contrast. No changes to persistence or account authentication.
