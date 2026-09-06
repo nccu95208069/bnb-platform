@@ -380,9 +380,16 @@ Missions. Availability, rates, inline expansion and browser navigation stay acti
 
 ## Owner clarification — 2026-09-06, Sheet source pilot
 
-- Non-AI booking rows without a parent order number may use the source unique ID. It must stay unique and stable; it identifies a room-night and does not infer a cross-row stay relationship.
+- J is the stable row identity for every row, regardless of AI/manual/LINE origin. L is an optional OwlNest parent order ID; N is the OTA confirmation ID scoped by platform. Missing L is allowed and does not invalidate the row. Never infer a cross-row stay from J or guest name.
 - `done` means the guest paid in full. OTA collection and property bank settlement have no explicit records yet; separate fields/ledger are a future task.
 - Even allocation of order prices across room-nights is confirmed current upstream behavior; original nightly price preservation is a TODO.
 - Telephone/LINE orders, cancellations, date changes and room changes are fully updated in the Sweetfun operational Sheet.
 - Owner prefers event-driven synchronization of Sheet additions, deletions and corrections. Feasible design is Drive change notification plus authenticated re-read, atomic validated snapshot publication, subscription renewal and periodic reconciliation; this is not yet enabled.
-- `LINE AI Agent` identity fallback remains a separate clarification from non-AI rows.
+- LINE AI Agent rows follow the same J/L/N rules; no further AI-specific identity question is pending.
+
+
+## Historical exceptions and synchronization reliability — owner follow-up
+
+The owner explicitly defers the already-listed source problems. The current known conflict fingerprints are acknowledged as historical exceptions; stop prompting for cleanup and do not let that cleanup block further integration. New or materially changed conflicts remain detectable. Acknowledgement follows exact records, not mutable row numbers, and ends once an issue disappears from an imported snapshot. It never proves disputed room allocation or money correct.
+
+The owner questioned relying on Google notifications. Google Drive watch is real but opt-in, expiring, and carries no sheet contents. Proposed first implementation: periodic authenticated source reconciliation (for example every minute) as the reliability baseline, with upstream batch-complete notification as an accelerator; Drive push is optional. This is a recommendation, not an enabled subscription or an approved latency SLA. The site is still a snapshot.

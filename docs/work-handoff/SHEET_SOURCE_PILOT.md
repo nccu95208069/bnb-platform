@@ -5,7 +5,7 @@ The production calendar can now consume an anonymous, read-only snapshot produce
 ## Contract and interpretation
 
 - `frontend/src/lib/booking-sources/sweetfun-sheet.ts` maps columns by verified header names, rejects missing/duplicate required headers, and emits the common calendar booking projection.
-- A source row is one physical room-night. Explicit parent order IDs link contiguous nights. Owner accepts unique-ID fallback for non-AI rows missing an order ID; this is a valid row identity, not a defective record. Keep unique IDs stable through edits and unique within their source. Separate `manual_row` from `unlinked_ai_row`; neither establishes a cross-row parent relationship. Never join by guest name. The owner has not yet confirmed whether `LINE AI Agent` may use the same fallback rule.
+- J identifies every source row regardless of origin. L optionally identifies the OwlNest parent order; N identifies an OTA order within its platform. A missing L is valid and uses J for row identity. Never infer a multi-row parent relationship from guest name, adjacency, AI status or a unique row ID.
 - IDs are namespaced by source and hashed for the public projection. Guest names, original order/OTA IDs, free-text notes, contact details and LINE IDs are not published.
 - Daily Sheet amounts remain separate. The current upstream local splitter distributes total order amounts evenly across room-nights, placing the remainder in the first entry. The Sheet amounts are not proven original OTA nightly rates or net payouts.
 - Owner-confirmed semantics (2026-09-06): `done` means the guest has paid in full and maps to `paid`. It does not establish OTA collection or settlement into the property account. Other incomplete/blank states remain `unknown`; no ledger receipts are synthesized.
@@ -51,5 +51,14 @@ Official references: [Apps Script trigger restrictions](https://developers.googl
 
 - [ ] Preserve original OTA per-night/per-room prices instead of only evenly allocated Sheet amounts; owner explicitly deferred this.
 - [ ] Add separate guest-payment, OTA-collection and property-settlement fields plus a proper payment ledger. Do not infer settlement from `done`.
-- [ ] Clarify `LINE AI Agent` fallback identity; other AI mail-ingestion rows have parent order IDs in the inspected source.
+- [x] All AI/manual/LINE rows follow J row identity, optional L parent identity and N OTA identity.
 - [ ] Event-driven Sheet synchronization: watch the specific Drive file for content changes, including API and manual updates; fetch the target tab, compare source-keyed snapshots, represent removed rows as retired source records, and publish a validated batch atomically. Notifications from other tabs/format-only edits should not alter bookings. Persist subscription identity/expiry, renew before expiry, deduplicate messages and reconcile periodically. Direct upstream batch-complete notification remains useful to avoid delete/reinsert intermediate states. Durable storage, application Google authorization and a receiver are still required; subscription is not enabled by this pilot.
+
+
+## Acknowledged historical issues
+
+Owner defers the already-listed historical issues. `--acknowledge-current-issues` was applied once to that exact baseline. It must never be used in recurring imports. Normal imports carry only acknowledged fingerprints from the immediately preceding snapshot; resolved issues drop out, so recurrence can alert again. Fingerprints cover issue type, source identity and relevant conflicting row content, independent of row position. Added/changed conflicts are not automatically acknowledged.
+
+Source summaries distinguish `new_issue_rows` from `historical_issue_rows`. Suppress the old cleanup banner; show acknowledged slots neutrally as historical room status. Preserve unresolved allocation/money exclusions rather than choosing a record or counting duplicate revenue. This changes acknowledgement/triage, not source truth or financial validation.
+
+For initial synchronization, recommend minute-scale authoritative reconciliation plus a writer batch-complete webhook to accelerate. Treat Google push as optional; it cannot replace source reads, channel renewal and failure recovery. No recurring synchronization has been enabled.

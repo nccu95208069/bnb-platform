@@ -3,7 +3,7 @@ import type { CalendarBooking } from "../../components/calendar/calendar-types";
 
 // Source adapters own format interpretation. Calendar UI consumes this common projection.
 // This projection is read-only and contains no guest identity or original order numbers.
-export type SourceIssue = { code: string; rows: number[]; date?: string; room?: string };
+export type SourceIssue = { code: string; rows: number[]; date?: string; room?: string; fingerprint: string; acknowledged: boolean };
 export type BookingSourceSnapshot = {
   schema_version: 1;
   source: { id: string; kind: "google_sheet_snapshot"; label: string; observed_at: string;
@@ -12,11 +12,11 @@ export type BookingSourceSnapshot = {
   bookings: CalendarBooking[];
   issues: SourceIssue[];
   summary: { rows: number; accepted_rows: number; quarantined_rows: number; blocked_room_nights: number;
-    missing_order_id: number; manual_id_fallback_rows: number; missing_ai_order_id: number; missing_payment_status: number };
+    missing_order_id: number; row_id_fallback_rows: number; missing_payment_status: number; new_issue_rows: number; historical_issue_rows: number };
 };
 
-const REQUIRED = ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "訂單編號", "AI 登記"];
-const ADAPTER_VERSION = "sweetfun-sheet-v2";
+const REQUIRED = ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "訂單編號"];
+const ADAPTER_VERSION = "sweetfun-sheet-v3";
 const ROOMS = ["101", "102", "201", "202", "301", "302"];
 const PLATFORM: Record<string, string> = { booking: "booking", "booking.com": "booking", agoda: "agoda", airbnb: "airbnb", line: "direct", ctrip: "ctrip", owljourney: "owljourney" };
 const opaque = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 20);
@@ -28,7 +28,7 @@ function iso(value: string): string | null {
   return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === result ? result : null;
 }
 
-export function adaptSweetfunSheet(values: unknown[][], sourceId: string, observedAt: string): BookingSourceSnapshot {
+export function adaptSweetfunSheet(values: unknown[][], sourceId: string, observedAt: string, acknowledgedIssues: string[] = []): BookingSourceSnapshot {
   const headers = (values[0] ?? []).map(v => String(v).trim());
   if (REQUIRED.some(h => headers.filter(v => v === h).length !== 1)) throw new Error("SHEET_SCHEMA_MISMATCH");
   const rows = values.slice(1).map((row, index) => {
@@ -37,10 +37,16 @@ export function adaptSweetfunSheet(values: unknown[][], sourceId: string, observ
       start: iso(get("入住日期")), end: iso(get("退房日期")), amount: Number(get("房費")) };
   }).filter(r => headers.some(h => r.get(h)));
   const issues: SourceIssue[] = [];
+  const acknowledged = new Set(acknowledgedIssues);
   const blocked = new Set<number>();
   const add = (code: string, records: typeof rows) => {
     records.forEach(r => blocked.add(r.row));
-    issues.push({ code, rows: records.map(r => r.row), date: records[0]?.start ?? undefined, room: records[0]?.room });
+    // Acknowledgement follows the exact conflicting records, never mutable sheet row numbers.
+    const fingerprint = opaque(JSON.stringify([sourceId, code, records.map(r =>
+      JSON.stringify([r.uid, r.room, r.start, r.end, r.order, r.amount, r.get("檢查狀態")])
+    ).sort()]));
+    issues.push({ code, rows: records.map(r => r.row), date: records[0]?.start ?? undefined,
+      room: records[0]?.room, fingerprint, acknowledged: acknowledged.has(fingerprint) });
   };
   for (const r of rows) {
     if (!r.uid) add("missing_row_id", [r]);
@@ -90,11 +96,9 @@ export function adaptSweetfunSheet(values: unknown[][], sourceId: string, observ
     booking.source_payment_label = r.get("全額支付狀態") === "done" ? "客人已付清；OTA 收款與旅宿入帳尚未記錄" :
       ["not_yet", "not yet"].includes(r.get("全額支付狀態")) ? "來源標記尚未完成付款" : "來源未提供明確付款狀態";
     booking.source_order_linked = Boolean(r.order);
-    booking.source_identity_kind = r.order ? "parent_order" : !r.get("AI 登記") ? "manual_row" : "unlinked_ai_row";
+    booking.source_identity_kind = r.order ? "parent_order" : "row";
     booking.nightly_amounts = [{ date: r.start!, amount: r.amount }];
-    booking.notes = r.order ? "已依來源訂單編號串接連住；公開畫面顯示匿名編號。" : !r.get("AI 登記")
-      ? "人工登記：依唯一 ID 識別此房晚。跨列連住需共同訂單編號才能合併。"
-      : "AI 登記未提供訂單編號：暫以唯一 ID 顯示房晚，跨列訂單關係待確認。";
+    booking.notes = r.order ? "已依來源訂單編號串接連住；公開畫面顯示匿名編號。" : "依唯一 ID 識別此房晚。訂單編號可空白；跨列連住需共同編號才能合併。";
     if (!PLATFORM[r.get("預定平台").toLowerCase()]) booking.notes += " 通路名稱需確認，暫列其他。";
     bookings.push(booking);
   }
@@ -102,22 +106,29 @@ export function adaptSweetfunSheet(values: unknown[][], sourceId: string, observ
   for (const { room, start, end } of slots.values()) {
     const id = `issue-${opaque(`${sourceId}:${room}:${start}`)}`;
     const marker = make(id, id, room, start, end);
-    marker.guest_name = "房況待核對";
+    const affectedRows = new Set(rows.filter(r => blocked.has(r.row) && r.start === start &&
+      (r.room === room || !ROOMS.includes(r.room))).map(r => r.row));
+    const relevantIssues = issues.filter(i => i.rows.some(row => affectedRows.has(row)));
+    marker.source_issue_acknowledged = relevantIssues.length > 0 && relevantIssues.every(i => i.acknowledged);
+    marker.guest_name = marker.source_issue_acknowledged ? "歷史房況" : "房況待核對";
     marker.source_conflict = true;
     marker.price_hidden = true;
-    marker.notes = "來源有重複、重疊、未核對或房間對應問題。此格不代表空房，也不計入房費；需先核對 Sheet。";
+    marker.notes = marker.source_issue_acknowledged
+      ? "擁有者已決定暫不追查此筆既有來源問題。保留歷史房況，不計入已核定房費，也不推定可售。"
+      : "來源有新的或已變動的重複、重疊、未核對或房間對應問題。此格不代表空房，也不計入房費；需先核對 Sheet。";
     bookings.push(marker);
   }
+  const newIssueRows = new Set(issues.filter(i => !i.acknowledged).flatMap(i => i.rows));
   return {
     schema_version: 1,
     source: { id: sourceId, kind: "google_sheet_snapshot", label: "Sweetfun 訂房表", observed_at: observedAt,
-      snapshot_version: opaque(ADAPTER_VERSION + JSON.stringify(values)), adapter_version: ADAPTER_VERSION, price_basis: "sheet_recorded_room_night", payment_ledger_available: false,
+      snapshot_version: opaque(ADAPTER_VERSION + JSON.stringify(values) + JSON.stringify(issues.filter(i => i.acknowledged).map(i => i.fingerprint).sort())), adapter_version: ADAPTER_VERSION, price_basis: "sheet_recorded_room_night", payment_ledger_available: false,
       read_only: true, anonymized: true, automatic_sync: false, availability_authoritative: false },
     bookings, issues,
     summary: { rows: rows.length, accepted_rows: rows.length - blocked.size, quarantined_rows: blocked.size, blocked_room_nights: slots.size,
       missing_order_id: rows.filter(r => !r.order).length,
-      manual_id_fallback_rows: rows.filter(r => !r.order && !r.get("AI 登記")).length,
-      missing_ai_order_id: rows.filter(r => !r.order && r.get("AI 登記")).length,
+      row_id_fallback_rows: rows.filter(r => !r.order).length,
+      new_issue_rows: newIssueRows.size, historical_issue_rows: blocked.size - newIssueRows.size,
       missing_payment_status: rows.filter(r => !r.get("全額支付狀態")).length },
   };
 }

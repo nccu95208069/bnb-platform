@@ -923,11 +923,11 @@ export function BookingDetailsPanel({
                     <>
                       <DetailRow
                         label="本筆房費"
-                        value={booking.source_conflict ? "待核對" : formatMoney(booking.room_rate)}
+                        value={booking.source_conflict ? (booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : formatMoney(booking.room_rate)}
                       />
                       <DetailRow
                         label={booking.source_read_only ? "已串接紀錄合計" : "訂單總額"}
-                        value={booking.source_conflict ? "待核對" : formatMoney(orderTotal)}
+                        value={booking.source_conflict ? (booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : formatMoney(orderTotal)}
                       />
                     </>
                   )}
