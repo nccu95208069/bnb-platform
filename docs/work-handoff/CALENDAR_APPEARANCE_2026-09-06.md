@@ -42,3 +42,11 @@ The legacy Reply Copilot integration settings remain available in non-Sheet buil
 
 Run API tests with:
 node --experimental-strip-types --loader ./frontend/tests/helpers/next-route-loader.mjs --test frontend/tests/calendar-appearance-route.test.mjs
+
+## Production verification
+
+Deployed commit 69b4353 to https://sweetfun-os.vercel.app via deployment
+sweetfun-n99r166j4-sweetfuns-projects.vercel.app. In the existing authenticated
+owner browser, Jewel saved successfully and survived a full reload; then Mist
+was restored and confirmed saved. No console errors observed in local or
+production verification. No credential or booking records changed.
