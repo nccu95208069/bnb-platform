@@ -1,4 +1,5 @@
-import { OWNER_COOKIE, ownerAccessConfigured, validOwnerSession } from "@/lib/calendar-owner-session";
+import { RedisOwnerCredentialStore, credentialSessionValid } from "@/lib/owner-password";
+import { OWNER_COOKIE, ownerAccessConfigured } from "@/lib/calendar-owner-session";
 import { readOperationalSheet } from "@/lib/sheet-monitor/google";
 import { attachPrivateGuestNames } from "@/lib/booking-sources/private-guest-names";
 import { readBookingSnapshot } from "@/lib/booking-sources/snapshot";
@@ -206,7 +207,8 @@ export async function GET(request: NextRequest) {
       const orderIds = new Set(allBookings
         .filter(b => b.check_in < end && b.check_out >= start).map(b => b.order_id));
       let bookings = allBookings.filter(b => orderIds.has(b.order_id));
-      const authenticated = validOwnerSession(request.cookies.get(OWNER_COOKIE)?.value);
+      const ownerCookie = request.cookies.get(OWNER_COOKIE)?.value;
+      const authenticated = ownerAccessConfigured() && Boolean(ownerCookie) && credentialSessionValid(ownerCookie, (await new RedisOwnerCredentialStore().read()).value);
       if (authenticated) {
         const namedSources = await Promise.all(snapshots.map(async ({ definition }) =>
           attachPrivateGuestNames(bookings.filter(b => b.property_id === definition.property.id), await readOperationalSheet(definition), definition)));
