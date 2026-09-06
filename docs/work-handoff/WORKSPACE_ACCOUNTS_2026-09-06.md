@@ -140,3 +140,13 @@ Live configuration and test-message receipt are recorded after deployment below.
 Primary API references:
 https://developers.google.com/workspace/gmail/api/auth/scopes
 https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send
+
+Live completion: source commit 8865a7c deployed to
+https://sweetfun-jmzulcoe5-sweetfuns-projects.vercel.app and aliased to
+https://sweetfun-os.vercel.app. Production Redis mail settings were initialized
+with gmail_oauth and read back successfully at 2026-09-06T12:38:10.173Z. The actual
+test email "Sweetfun OS 寄信已啟用" was confirmed via its exact Gmail message id
+with both SENT and INBOX labels. No messages to staff were sent during setup.
+The authoritative owner credential was identical before/after. The temporary
+plaintext Gmail credential copy and setup script were removed after verification.
+The retained production credential is encrypted in the private Redis mail key.
