@@ -419,8 +419,14 @@ export const useAccessControl = create<AccessControlState>()(
     }),
     {
       name: LIVE_SHEET ? "sweetfun-os-account-ui-v1" : "sweetfun-os-access-control",
+      merge: (persisted, current) => ({
+        ...current,
+        ...(persisted as Partial<AccessControlState>),
+        ...(LIVE_SHEET ? { previewRole: null, members: [] } : {}),
+      }),
       partialize: (state) => ({
-        previewRole: state.previewRole,
+        // A permission preview is temporary; never restore it after a reload/login.
+        previewRole: LIVE_SHEET ? null : state.previewRole,
         members: DEMO_MODE && !LIVE_SHEET ? state.members : [],
       }),
     },

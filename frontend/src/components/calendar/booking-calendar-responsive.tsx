@@ -191,7 +191,7 @@ function SoldBookingCalendar() {
 
   const initializeAccess = useAccessControl((state) => state.initialize);
   const membership = useAccessControl((state) => state.membership);
-  const permissions = useEffectivePermissions();
+  const rolePermissions = useEffectivePermissions();
   const effectiveRole = useEffectiveRole();
 
   const anchorDate = useCalendarPreferences((state) => state.anchorDate);
@@ -203,6 +203,7 @@ function SoldBookingCalendar() {
     startOfMonth(anchorDate),
   );
   const [data, setData] = useState<CalendarResponse | null>(null);
+  const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -360,7 +361,7 @@ function SoldBookingCalendar() {
     return () => {
       active = false;
     };
-  }, [reloadKey, requestPeriod.end, requestPeriod.start, setProperties, setSelectedId, initializeAccess]);
+  }, [reloadKey, requestPeriod.end, requestPeriod.start, setProperties, setSelectedId, initializeAccess, membership?.id, membership?.role]);
 
   useEffect(() => {
     if (!PAYMENT_SANDBOX && !data?.source?.automatic_sync) return;

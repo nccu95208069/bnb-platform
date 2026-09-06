@@ -239,7 +239,7 @@ export default function AccessManagementPage() {
         <CardHeader>
           <CardTitle className="text-base">權限預覽</CardTitle>
           <CardDescription>
-            僅供擁有者測試畫面；不會改變你的正式角色。
+            僅供擁有者暫時測試畫面；不會改變正式角色。重新整理或重新登入會恢復管理員檢視。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3 sm:flex-row sm:items-center">

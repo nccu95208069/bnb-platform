@@ -98,3 +98,20 @@ Real Gmail delivery still awaits the owner's dedicated app-password setup.
 
 Run:
 node --experimental-strip-types --loader ./frontend/tests/helpers/next-route-loader.mjs --test frontend/tests/workspace-auth*.test.mjs frontend/tests/calendar-appearance-route.test.mjs frontend/tests/owner-password.test.mjs frontend/tests/calendar-owner-session.test.mjs
+
+## Follow-up: owner cannot see booking prices
+
+A persisted viewer_no_price preview could survive an owner login and hide prices
+in the UI even when the server authorized full data. Live preview state is now
+session-only: legacy persisted previews are ignored, reload/login restores the
+owner's actual role, and the calendar displays an explicit preview notice with a
+restore-admin button. Calendar data reloads on account/role changes, and detail
+prices also honor the server's price_hidden flag rather than showing redacted zero
+values. Mobile month cells still prioritize platform/room/name; room fees are in
+the opened booking details.
+
+Regression test access-preview.test.mjs exercises persisted preview hydration,
+owner login, deliberate in-session preview, reload reset, and a real restricted
+member. Test, frontend lint and production build pass. Current phone state was not
+inspected because the Mac browser surface was locked; the persisted-preview defect
+is code/test-confirmed, not a claim of having observed this user's current storage.
