@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
+import { BookingIdentity, bookingIdentityText } from "./booking-identity";
 import { cn } from "@/lib/utils";
 
 import type {
@@ -73,7 +74,7 @@ function MobileBookingChip({
         "flex min-h-10 w-full min-w-0 items-center gap-1.5 rounded-md border px-2 py-1.5 text-left text-xs shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
       )}
-      title={`${booking.property_name}｜${booking.room_number}｜${booking.guest_name}`}
+      title={`${bookingIdentityText(booking)}｜${booking.property_name}｜${booking.check_in}–${booking.check_out}`}
     >
       {property ? (
         <span
@@ -85,10 +86,7 @@ function MobileBookingChip({
       ) : (
         <PaymentDot booking={booking} />
       )}
-      <span className="shrink-0 font-semibold">{booking.room_number}</span>
-      <span className="min-w-0 flex-1 truncate font-medium">
-        {booking.guest_name}
-      </span>
+      <BookingIdentity booking={booking} />
       {nights > 1 && (
         <span className="shrink-0 rounded-full bg-background/75 px-1.5 py-0.5 text-[10px] font-semibold">
           {stayProgressLabel(booking, date) ?? `${nights} 晚`}
@@ -318,7 +316,7 @@ function DesktopWeekTimeline({
                         gridColumn: `${startIndex + 2} / ${Math.max(startIndex + 3, endIndex + 2)}`,
                         gridRow: 1,
                       }}
-                      title={`${booking.guest_name}｜${booking.check_in}–${booking.check_out}｜連住 ${nights} 晚`}
+                      title={`${bookingIdentityText(booking)}｜${booking.property_name}｜${booking.check_in}–${booking.check_out}｜連住 ${nights} 晚`}
                     >
                       <span className="flex min-w-0 flex-1 items-center gap-2">
                         <span
@@ -329,12 +327,7 @@ function DesktopWeekTimeline({
                               : PAYMENT_DOT_STYLES[booking.payment_status],
                           )}
                         />
-                        <span className="shrink-0 font-semibold">
-                          {booking.room_number}
-                        </span>
-                        <span className="min-w-0 truncate font-medium">
-                          {booking.guest_name}
-                        </span>
+                        <BookingIdentity booking={booking} />
                         {nights > 1 && (
                           <span className="ml-auto shrink-0 rounded-full bg-background/75 px-1.5 py-0.5 text-[10px] font-semibold">
                             連住 {nights} 晚

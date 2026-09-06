@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
+import { BookingIdentity, bookingIdentityText, realGuestName } from "./booking-identity";
 import { layoutMonthWeek } from "./month-layout";
 import { useCalendarPreferences } from "./calendar-preferences";
 import { cn } from "@/lib/utils";
@@ -97,7 +98,7 @@ function BookingChip({
         compact && continuesAfter && "rounded-r-none border-r-4",
         PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
       )}
-      title={`${booking.property_name}｜${booking.room_number}｜${booking.guest_name}｜${booking.check_in}–${booking.check_out}${nights > 1 ? `｜連住 ${nights} 晚` : ""}`}
+      title={`${bookingIdentityText(booking)}｜${booking.property_name}｜${booking.check_in}–${booking.check_out}${nights > 1 ? `｜連住 ${nights} 晚` : ""}`}
     >
       {property ? (
         <span
@@ -109,7 +110,7 @@ function BookingChip({
       ) : (
         <PaymentDot booking={booking} />
       )}
-      <span className="shrink-0 font-semibold">{booking.room_number}</span>
+      <BookingIdentity booking={booking} />
       {compact && compactSuffix && (
         <span className="min-w-0 truncate font-semibold opacity-75">
           {compactSuffix}
@@ -117,9 +118,6 @@ function BookingChip({
       )}
       {!compact && (
         <>
-          <span className="min-w-0 flex-1 truncate font-medium">
-            {booking.guest_name}
-          </span>
           {nights > 1 && (
             <span className="shrink-0 rounded-full bg-background/70 px-1.5 py-0.5 text-[10px] font-semibold">
               {progress ?? `連住 ${nights} 晚`}
@@ -264,7 +262,7 @@ function MonthPanel({
               {segments.filter(s => s.lane < limit).map(segment => {
                 const { booking } = segment;
                 const nights = stayNightCount(booking);
-                const guestName = booking.guest_name_kind === "real" ? booking.guest_name.trim() : "";
+                const guestName = realGuestName(booking);
                 const label = `${PLATFORM_LABELS[booking.platform] ?? "其他"}｜${guestName || "姓名尚未開放"}｜${booking.property_name}｜${booking.room_number}｜${booking.check_in}–${booking.check_out}${nights > 1 ? `｜連住 ${nights} 晚` : ""}`;
                 return <button key={booking.id} type="button" title={label} aria-label={label}
                   data-stay-id={booking.id} data-stay-start={segment.start} data-stay-end={segment.end}
@@ -544,7 +542,7 @@ export function DayView({
                   </span>
                 </div>
                 <p className="mt-3 truncate text-sm text-muted-foreground">
-                  {current ? current.guest_name : "尚無入住安排"}
+                  {current ? bookingIdentityText(current) : "尚無入住安排"}
                 </p>
               </button>
             );
