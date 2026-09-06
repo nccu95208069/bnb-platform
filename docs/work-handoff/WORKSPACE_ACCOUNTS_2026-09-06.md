@@ -150,3 +150,22 @@ with both SENT and INBOX labels. No messages to staff were sent during setup.
 The authoritative owner credential was identical before/after. The temporary
 plaintext Gmail credential copy and setup script were removed after verification.
 The retained production credential is encrypted in the private Redis mail key.
+
+## Sidebar account controls
+
+All authenticated Sheet-calendar members (including non-owner roles) now see their
+name/email plus Change password and Logout in the shared desktop/mobile sidebar.
+The account footer stays visible while the navigation section scrolls. Logout uses
+the existing same-origin DELETE session endpoint, clears both cookie types and
+returns to /calendar-access; failed requests keep the current page and show an
+error. Anonymous visitors see Login instead. This is independent of whether a
+calendar data response has loaded.
+
+Replace the confusing snapshot/read-only badges with a single plain-language
+explanation that bookings are synchronized from the source Sheet and changes must
+currently be made there. This describes the data integration, not login status.
+
+Validation: frontend lint/build passed; logout route test confirms both cookies
+expire and cross-origin logout is rejected. Mobile 390x844 browser QA with a local
+synthetic member fixture confirms visible account/logout controls and successful
+navigation to login after logout. No production member session was used for QA.

@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { usePathname } from "next/navigation";
 import {
+  LogOut,
   CalendarDays,
   ClipboardList,
   Check,
@@ -23,7 +25,7 @@ import type {
 import { VIEW_LABELS } from "@/components/calendar/calendar-utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { useActorPermissions } from "@/lib/access-control";
+import { useAccessControl, useActorPermissions } from "@/lib/access-control";
 import { PAYMENT_SANDBOX } from "@/lib/payment-workflow";
 import { cn } from "@/lib/utils";
 
@@ -154,13 +156,38 @@ function PropertyFilters() {
   );
 }
 
+function SidebarAccount() {
+  const membership = useAccessControl(state => state.membership);
+  const initialized = useAccessControl(state => state.initialized);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  async function logout() {
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/calendar-session", { method: "DELETE", signal: AbortSignal.timeout(12000) });
+      if (!response.ok) throw new Error();
+      window.location.replace("/calendar-access");
+    } catch { setBusy(false); setError("登出未完成，請再試一次。"); }
+  }
+  if (!initialized) return <p className="text-xs text-muted-foreground">正在確認帳號…</p>;
+  if (!membership) return <Link href="/calendar-access" className="flex min-h-11 items-center justify-center rounded-lg border text-sm font-medium">登入帳號</Link>;
+  return <div className="space-y-3">
+    <div className="min-w-0"><p className="text-[11px] text-muted-foreground">目前登入帳號</p><p className="mt-1 truncate text-sm font-semibold">{membership.displayName}</p><p className="break-all text-xs text-muted-foreground">{membership.email}</p></div>
+    <div className="grid grid-cols-2 gap-2">
+      <Link href="/calendar-password" className="flex min-h-11 items-center justify-center rounded-lg border text-sm font-medium">變更密碼</Link>
+      <button type="button" disabled={busy} onClick={logout} className="flex min-h-11 items-center justify-center gap-2 rounded-lg border text-sm font-medium disabled:opacity-50"><LogOut className="size-4" />{busy ? "登出中…" : "登出"}</button>
+    </div>
+    {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
+  </div>;
+}
+
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
   const actorPermissions = useActorPermissions();
 
   return (
-    <div className="flex h-full flex-col bg-card">
-      <div className="flex h-16 items-center gap-3 border-b px-4">
+    <div className="flex h-full min-h-0 flex-col bg-card">
+      <div className="flex h-16 shrink-0 items-center gap-3 border-b px-4">
         <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-sm font-bold text-primary-foreground shadow-sm">
           SF
         </span>
@@ -172,16 +199,17 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       </div>
 
+      <div className="min-h-0 flex-1 overflow-y-auto">
       <CalendarViewFilters />
       <PropertyFilters />
 
       {DEMO_MODE && !PAYMENT_SANDBOX && (
         <div className="mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-950">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em]">
-            {SHEET_SNAPSHOT ? "訂房表快照" : "Demo Site"}
+            {SHEET_SNAPSHOT ? "訂單自動同步" : "Demo Site"}
           </p>
           <p className="mt-1 text-xs font-medium">
-            {SHEET_SNAPSHOT ? "唯讀 · 同步與登入狀態見日曆" : "匿名資料 · 編輯僅儲存在此瀏覽器"}
+            {SHEET_SNAPSHOT ? "資料來自訂房表，目前可查看；修改訂單請到原訂房表操作。" : "匿名資料 · 編輯僅儲存在此瀏覽器"}
           </p>
         </div>
       )}
@@ -239,23 +267,9 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </Link>
       </nav>
 
-      <div className="border-t p-4">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span
-            className={cn(
-              "size-2 rounded-full",
-              DEMO_MODE ? "bg-amber-500" : "bg-emerald-500",
-            )}
-          />
-          {PAYMENT_SANDBOX
-            ? "隔離測試 · 固定管理者身分"
-            : DEMO_MODE
-              ? SHEET_SNAPSHOT ? "訂房表快照 · 唯讀" : "匿名化示範模式"
-              : "系統連線正常"}
-        </div>
-        <p className="mt-1 text-[10px] text-muted-foreground">
-          BnB Platform v0.4
-        </p>
+      </div>
+      <div className="shrink-0 border-t p-4">
+        {SHEET_SNAPSHOT ? <SidebarAccount /> : <p className="text-xs text-muted-foreground">{PAYMENT_SANDBOX ? "隔離測試 · 固定管理者身分" : DEMO_MODE ? "匿名化示範模式" : "Sweetfun OS"}</p>}
       </div>
     </div>
   );
