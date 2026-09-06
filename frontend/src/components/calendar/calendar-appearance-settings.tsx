@@ -3,12 +3,40 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Check, Loader2 } from "lucide-react";
-import { CALENDAR_PALETTES, CHANNELS, DEFAULT_PALETTE, platformAppearance, type PaletteId } from "@/lib/calendar-palettes";
+import { CALENDAR_PALETTES, CHANNELS, DEFAULT_PALETTE, paletteById, platformAppearance, type PaletteId } from "@/lib/calendar-palettes";
 import { useCalendarAppearance } from "./calendar-appearance";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const SAMPLE_LABELS = ["Bkg 101", "直訂 201", "Ago 301", "Trip 102", "Owl 302", "Air 202", "其他"];
+
+const PREVIEW_STAYS = [
+  { channel: "booking", label: "Bkg 101 · 2晚", guest: "旅客甲", start: 1, span: 2, row: 1 },
+  { channel: "direct", label: "直訂 201", guest: "旅客乙", start: 3, span: 1, row: 1 },
+  { channel: "agoda", label: "Ago 301 · 2晚", guest: "旅客丙", start: 4, span: 2, row: 1 },
+  { channel: "ctrip", label: "Trip 102 · 2晚", guest: "旅客丁", start: 6, span: 2, row: 1 },
+  { channel: "owljourney", label: "Owl 302", guest: "旅客戊", start: 2, span: 1, row: 2 },
+  { channel: "airbnb", label: "Air 202 · 2晚", guest: "旅客己", start: 3, span: 2, row: 2 },
+  { channel: "booking", label: "Bkg 102", guest: "旅客庚", start: 6, span: 1, row: 2 },
+  { channel: "direct", label: "直訂 301", guest: "旅客辛", start: 7, span: 1, row: 2 },
+] as const;
+
+function PaletteCalendarPreview({ palette }: { palette: PaletteId }) {
+  return <div className="overflow-hidden rounded-xl border bg-white text-slate-800" aria-label={`${paletteById(palette).name}日曆示意`}>
+    <div className="grid grid-cols-7 border-b bg-slate-50 text-center text-[10px] text-slate-500">
+      {["一", "二", "三", "四", "五", "六", "日"].map(day => <span key={day} className="py-2">{day}</span>)}
+    </div>
+    <div className="grid grid-cols-7 text-center text-xs">
+      {[14, 15, 16, 17, 18, 19, 20].map(day => <span key={day} className="border-r py-2 last:border-0">{day}</span>)}
+    </div>
+    <div className="relative grid grid-cols-7 gap-y-1 pb-4">
+      <div className="pointer-events-none absolute inset-0 grid grid-cols-7" aria-hidden="true">{Array.from({length:7}, (_, i) => <span key={i} className="border-r last:border-0" />)}</div>
+      {PREVIEW_STAYS.map((stay, i) => <div key={i} className="relative mx-px min-w-0 rounded-sm border px-1 py-1 text-[10px] leading-3.5" style={{...platformAppearance(palette, stay.channel), gridColumn:`${stay.start} / span ${stay.span}`, gridRow:stay.row}}>
+        <span className="block truncate font-semibold">{stay.label}</span><span className="block truncate">{stay.guest}</span>
+      </div>)}
+    </div>
+  </div>;
+}
 
 export function CalendarAppearanceSettings() {
   const { palette, scope, saving, error, reload, save } = useCalendarAppearance();
@@ -41,9 +69,11 @@ export function CalendarAppearanceSettings() {
         </span>
       </button>)}
     </div>
-    <p className="text-xs text-muted-foreground">以上為配色預覽。平台仍以文字標示，付款狀態與異常提醒維持原本顏色。</p>
+    <p className="text-xs text-muted-foreground">平台仍以文字標示；付款狀態與異常提醒維持原本顏色。</p>
+    <div className="space-y-3"><div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-semibold">{paletteById(selected).name} · 日曆預覽</h2><span className="text-xs text-muted-foreground">示意資料</span></div><PaletteCalendarPreview palette={selected} /></div>
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}<button type="button" className="ml-3 underline" onClick={() => { setSaved(false); reload(); }}>重新讀取</button></div>}
-    <div className="flex flex-wrap items-center gap-3">
+    <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-3 rounded-xl border bg-background/95 p-3 shadow-sm backdrop-blur">
+      <span className="w-full text-sm font-medium">{paletteById(selected).name}{selected !== palette ? " · 尚未套用" : " · 目前配色"}</span>
       <Button disabled={saving || scope === "loading" || scope === "error"} onClick={async () => { setSaved(false); if (await save(selected)) { setDraft(null); setSaved(true); } }}>
         {saving && <Loader2 className="size-4 animate-spin" />}{saving ? "正在儲存…" : "套用配色"}
       </Button>

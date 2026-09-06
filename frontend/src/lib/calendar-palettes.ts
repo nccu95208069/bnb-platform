@@ -6,10 +6,10 @@ function colors(backgrounds: string[], foreground: string | string[]): ChannelCo
 }
 export const CALENDAR_PALETTES: { id: PaletteId; name: string; description: string; colors: ChannelColors }[] = [
   { id: "mist", name: "霧感莫蘭迪", description: "低彩度、柔霧底色，長時間看也舒服。", colors: colors(["#D9E4EB", "#DDE8DD", "#E5DFF0", "#EFE2D2", "#DBDFEF", "#EFDDDF", "#E3E5E7"], "#29343C") },
-  { id: "earth", name: "復古暖陽", description: "芥末黃、赤陶橘與咖啡棕，像老旅館的旅行海報。", colors: colors(["#E8BA54", "#C8CA85", "#774937", "#E5A078", "#F2D6A5", "#9A432D", "#DAD0B8"], ["#35251B", "#30351F", "#FFFFFF", "#35251B", "#35251B", "#FFFFFF", "#35251B"]) },
-  { id: "coast", name: "白瓷彩線", description: "留白為主，用彩色細框與側線辨識平台，輕盈俐落。", colors: colors(Array(7).fill("#FFFFFF"), ["#176080", "#1E6C4E", "#77458E", "#975310", "#46559B", "#A23559", "#58616B"]) },
-  { id: "slate", name: "黑白編輯", description: "純黑、石墨灰與紙白，像報刊排版，以平台文字辨識。", colors: colors(["#242424", "#EEEEEE", "#565656", "#FFFFFF", "#D1D1D1", "#3B3B3B", "#E2E2E2"], ["#FFFFFF", "#242424", "#FFFFFF", "#242424", "#242424", "#FFFFFF", "#242424"]) },
-  { id: "jewel", name: "寶石濃彩", description: "藍寶石、祖母綠與酒紅，飽和又有質感。", colors: colors(["#125A80", "#17634F", "#653E85", "#914D19", "#3F4887", "#922F50", "#465467"], "#FFFFFF") },
+  { id: "earth", name: "奶油花園", description: "奶油黃、蜜桃與嫩葉綠，明亮溫暖，像彩色手帳。", colors: colors(["#CFE6F2", "#E5ECAD", "#EACFE0", "#FFE09C", "#DACDF0", "#FFC6C0", "#EAE2CF"], "#35352E") },
+  { id: "coast", name: "海島晴空", description: "海水藍、薄荷綠與珊瑚粉，清爽鮮明，輕快有精神。", colors: colors(["#24759B", "#78CDC2", "#6866B3", "#F3B367", "#AED8EE", "#EDA0AC", "#C6D5DA"], ["#FFFFFF", "#153B40", "#FFFFFF", "#44301E", "#173D51", "#492335", "#2A3E47"]) },
+  { id: "slate", name: "午夜絲絨", description: "墨藍、松綠與深莓紫，深色底搭亮字，沉靜俐落。", colors: colors(["#172D48", "#193D39", "#382B4D", "#4A3529", "#283553", "#482F40", "#343C45"], "#EEF0F6") },
+  { id: "jewel", name: "皇家琉璃", description: "鈷藍、翡翠與紅寶石，高飽和實色，濃郁而清晰。", colors: colors(["#2450C7", "#007D66", "#8024AD", "#B55310", "#3F46B8", "#B82359", "#4B5B72"], "#FFFFFF") },
 ];
 export const DEFAULT_PALETTE: PaletteId = "mist";
 export function isPaletteId(value: unknown): value is PaletteId {
@@ -20,10 +20,9 @@ export function paletteById(id: PaletteId) {
 }
 export function platformAppearance(id: PaletteId, channel: (typeof CHANNELS)[number]) {
   const color = paletteById(id).colors[channel];
-  const borderColor = id === "coast" ? color.foreground
-    : `color-mix(in srgb, ${color.background} 80%, ${color.foreground})`;
+  const borderColor = `color-mix(in srgb, ${color.background} 80%, ${color.foreground})`;
   return { backgroundColor: color.background, color: color.foreground, borderColor,
-    boxShadow: id === "coast" ? `inset 0 0 0 1px ${color.foreground}, inset 3px 0 0 ${color.foreground}` : "none" };
+    boxShadow: "none" };
 }
 export function paletteCss(id: PaletteId) {
   return `:root{${CHANNELS.map((channel) => {
