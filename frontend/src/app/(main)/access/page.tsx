@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   Eye,
   EyeOff,
@@ -60,6 +60,8 @@ const EMPTY_FORM: SaveWorkspaceMemberInput = {
   propertyIds: [],
 };
 
+const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
 function statusLabel(status: WorkspaceMember["status"]) {
   if (status === "active") return "已啟用";
   if (status === "suspended") return "已停用";
@@ -90,6 +92,8 @@ export default function AccessManagementPage() {
   const [form, setForm] = useState<SaveWorkspaceMemberInput>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const formCardRef = useRef<HTMLDivElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void initialize().then(() => refreshMembers());
@@ -105,9 +109,20 @@ export default function AccessManagementPage() {
     [members],
   );
 
-  function beginCreate() {
+  function resetForm() {
     setEditingId(null);
     setForm({ ...EMPTY_FORM, propertyIds: properties.map((property) => property.id) });
+  }
+
+  function focusForm() {
+    // Keep focus inside the tap handler so iOS can open its keyboard.
+    nameInputRef.current?.focus({ preventScroll: true });
+    formCardRef.current?.scrollIntoView({ block: "start", behavior: "instant" });
+  }
+
+  function beginCreate() {
+    resetForm();
+    focusForm();
   }
 
   function beginEdit(member: WorkspaceMember) {
@@ -122,7 +137,7 @@ export default function AccessManagementPage() {
       allProperties: member.allProperties,
       propertyIds: member.propertyIds,
     });
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    focusForm();
   }
 
   function toggleProperty(propertyId: string) {
@@ -153,9 +168,11 @@ export default function AccessManagementPage() {
     try {
       await saveMember({ ...form, id: editingId ?? undefined });
       toast.success(editingId ? "成員權限已更新" : "成員已加入", {
-        description: "對方使用相同 Email 或手機登入後即可啟用帳號。",
+        description: DEMO_MODE
+          ? "已儲存在此瀏覽器供測試，尚未建立正式登入帳號。"
+          : "對方使用相同 Email 或手機登入後即可啟用帳號。",
       });
-      beginCreate();
+      resetForm();
     } catch (saveError) {
       toast.error(saveError instanceof Error ? saveError.message : "無法儲存權限");
     } finally {
@@ -194,10 +211,12 @@ export default function AccessManagementPage() {
           </div>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">權限管理</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            以 Email 或手機建立帳號，並指定角色與可查看的旅宿。
+            {DEMO_MODE
+              ? "目前為權限示範：資料只儲存在此瀏覽器，不會建立正式登入帳號。"
+              : "以 Email 或手機建立帳號，並指定角色與可查看的旅宿。"}
           </p>
         </div>
-        <Button variant="outline" onClick={beginCreate}>
+        <Button variant="outline" onClick={beginCreate} aria-controls="member-form-card">
           <Plus className="size-4" />
           新增使用者
         </Button>
@@ -235,7 +254,7 @@ export default function AccessManagementPage() {
       </Card>
 
       <div className="grid gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
-        <Card>
+        <Card id="member-form-card" ref={formCardRef} className="scroll-mt-16 md:scroll-mt-6">
           <CardHeader>
             <CardTitle className="text-base">
               {editingId ? "編輯使用者" : "新增使用者"}
@@ -250,6 +269,7 @@ export default function AccessManagementPage() {
                 <Label htmlFor="member-name">名稱</Label>
                 <Input
                   id="member-name"
+                  ref={nameInputRef}
                   value={form.displayName}
                   onChange={(event) =>
                     setForm((current) => ({ ...current, displayName: event.target.value }))
