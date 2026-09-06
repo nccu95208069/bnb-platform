@@ -99,7 +99,18 @@ function SupabaseAuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function LiveCalendarAccess({ children }: { children: React.ReactNode }) {
+  const initialize = useAccessControl(state => state.initialize);
+  useEffect(() => {
+    void initialize();
+    const refresh = () => { void initialize(); };
+    window.addEventListener("focus", refresh);
+    return () => window.removeEventListener("focus", refresh);
+  }, [initialize]);
+  return <>{children}</>;
+}
 export function AuthGuard({ children }: { children: React.ReactNode }) {
+  if (process.env.NEXT_PUBLIC_CALENDAR_SOURCE === "sheet_snapshot") return <LiveCalendarAccess>{children}</LiveCalendarAccess>;
   if (DEMO_MODE) {
     return <>{children}</>;
   }

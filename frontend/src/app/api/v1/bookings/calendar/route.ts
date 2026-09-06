@@ -1,5 +1,6 @@
-import { RedisOwnerCredentialStore, credentialSessionValid } from "@/lib/owner-password";
-import { OWNER_COOKIE, ownerAccessConfigured } from "@/lib/calendar-owner-session";
+import { principalFor } from "@/lib/workspace-auth/session";
+import { allowedProperty, projectBookings } from "@/lib/workspace-auth/projection";
+import { ownerAccessConfigured } from "@/lib/calendar-owner-session";
 import { readOperationalSheet } from "@/lib/sheet-monitor/google";
 import { attachPrivateGuestNames } from "@/lib/booking-sources/private-guest-names";
 import { readBookingSnapshot } from "@/lib/booking-sources/snapshot";
@@ -198,7 +199,8 @@ export async function GET(request: NextRequest) {
 
   if (process.env.CALENDAR_SOURCE === "sheet_snapshot") {
     try {
-      const definitions = activeSources();
+      const principal = await principalFor(request);
+      const definitions = activeSources().filter(d => allowedProperty(principal, d.property.id));
       const { snapshots, errors } = await collectSnapshots(definitions, readBookingSnapshot);
       const allBookings = snapshots.flatMap(s => s.snapshot.bookings);
       const loadedProperties = new Set(snapshots.map(s => s.definition.property.id));
@@ -207,14 +209,15 @@ export async function GET(request: NextRequest) {
       const orderIds = new Set(allBookings
         .filter(b => b.check_in < end && b.check_out >= start).map(b => b.order_id));
       let bookings = allBookings.filter(b => orderIds.has(b.order_id));
-      const ownerCookie = request.cookies.get(OWNER_COOKIE)?.value;
-      const authenticated = ownerAccessConfigured() && Boolean(ownerCookie) && credentialSessionValid(ownerCookie, (await new RedisOwnerCredentialStore().read()).value);
+      const authenticated = Boolean(principal);
       if (authenticated) {
         const namedSources = await Promise.all(snapshots.map(async ({ definition }) =>
           attachPrivateGuestNames(bookings.filter(b => b.property_id === definition.property.id), await readOperationalSheet(definition), definition)));
         bookings = namedSources.flat();
       }
+      bookings = projectBookings(bookings, principal);
       return NextResponse.json({
+        price_hidden: !principal?.viewPrices,
         year: startDate.getUTCFullYear(), month: startDate.getUTCMonth() + 1,
         month_start: monthStart(start), month_end: monthEnd(start), period_start: start, period_end: end,
         properties: PROPERTIES.filter(p => definitions.some(d => d.property.id === p.id)), rooms: ROOMS.filter(r => loadedProperties.has(r.property_id)),

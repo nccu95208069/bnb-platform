@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { OWNER_COOKIE, ownerAccessConfigured } from "@/lib/calendar-owner-session";
-import { RedisOwnerCredentialStore, credentialSessionValid } from "@/lib/owner-password";
+import { principalFor } from "@/lib/workspace-auth/session";
 import { CalendarAppearanceStore } from "@/lib/calendar-appearance-store";
 import { CALENDAR_PALETTES, DEFAULT_PALETTE, isPaletteId } from "@/lib/calendar-palettes";
 
 const headers = { "Cache-Control": "private, no-store", Vary: "Cookie" };
 async function account(request: NextRequest): Promise<string | null> {
-  const cookie = request.cookies.get(OWNER_COOKIE)?.value;
-  if (!cookie || !ownerAccessConfigured()) return null;
-  const credential = await new RedisOwnerCredentialStore().read();
-  return credentialSessionValid(cookie, credential.value) ? "calendar-owner" : null;
+  return (await principalFor(request))?.id ?? null;
 }
 export async function GET(request: NextRequest) {
   try {

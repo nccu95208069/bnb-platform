@@ -36,6 +36,8 @@ export type AccessMembership = {
 };
 
 export type WorkspaceMember = {
+  version?: number;
+  invitationStatus?: "pending" | "sent" | "failed" | null;
   id: string;
   displayName: string;
   email: string | null;
@@ -120,6 +122,7 @@ export const ROLE_DEFINITIONS: Record<
   },
 };
 
+const LIVE_SHEET = process.env.NEXT_PUBLIC_CALENDAR_SOURCE === "sheet_snapshot";
 const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 const DEMO_TENANT_ID = "demo-sweetfun-workspace";
 
@@ -223,6 +226,7 @@ type AccessControlState = {
   members: WorkspaceMember[];
   initialize: () => Promise<void>;
   refreshMembers: () => Promise<void>;
+  mailConfigured: boolean;
   saveMember: (input: SaveWorkspaceMemberInput) => Promise<void>;
   setMemberStatus: (memberId: string, status: WorkspaceMemberStatus) => Promise<void>;
   setPreviewRole: (role: WorkspaceRole | null) => void;
@@ -233,13 +237,28 @@ export const useAccessControl = create<AccessControlState>()(
   persist(
     (set, get) => ({
       initialized: false,
+      mailConfigured: false,
       loading: false,
       error: null,
-      membership: DEMO_MODE ? DEMO_OWNER : null,
+      membership: DEMO_MODE && !LIVE_SHEET ? DEMO_OWNER : null,
       previewRole: null,
-      members: DEMO_MODE ? DEFAULT_DEMO_MEMBERS : [],
+      members: DEMO_MODE && !LIVE_SHEET ? DEFAULT_DEMO_MEMBERS : [],
 
       initialize: async () => {
+        if (LIVE_SHEET) {
+          if (get().loading) return;
+          // Owner requested removal of the three browser-only test members.
+          try { window.localStorage.removeItem("sweetfun-os-access-control"); } catch { /* Storage can be unavailable. */ }
+          set({ loading: true });
+          try {
+            const response = await fetch("/api/calendar-session", { cache: "no-store" });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || "無法確認登入");
+            set({ membership: data.membership ?? null, initialized: true, loading: false, error: null,
+              ...(data.membership?.role !== "owner" ? { previewRole: null, members: [] } : {}) });
+          } catch (error) { set({ membership: null, members: [], previewRole: null, initialized: true, loading: false, error: error instanceof Error ? error.message : "無法確認登入" }); }
+          return;
+        }
         if (get().initialized) return;
         if (DEMO_MODE) {
           set({ initialized: true, membership: DEMO_OWNER, error: null });
@@ -266,6 +285,17 @@ export const useAccessControl = create<AccessControlState>()(
       },
 
       refreshMembers: async () => {
+        if (LIVE_SHEET) {
+          if (get().membership?.role !== "owner") return;
+          set({ loading: true });
+          try {
+            const response = await fetch("/api/workspace-members", { cache: "no-store" });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || "無法讀取成員");
+            set({ members: data.members, mailConfigured: data.mail.configured, loading: false, error: null });
+          } catch (error) { set({ members: [], loading: false, error: error instanceof Error ? error.message : "無法讀取成員" }); }
+          return;
+        }
         const membership = get().membership;
         if (!membership) return;
         if (DEMO_MODE) return;
@@ -291,6 +321,14 @@ export const useAccessControl = create<AccessControlState>()(
           throw new Error("只有擁有者可以調整成員權限");
         }
 
+        if (LIVE_SHEET) {
+          const current = get().members.find(m => m.id === input.id);
+          const response = await fetch("/api/workspace-members", { method: input.id ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, version: current?.version }) });
+          const data = await response.json();
+          await get().refreshMembers();
+          if (!response.ok) throw new Error(data.detail || (data.delivery === "failed" ? "成員已保存，但邀請信尚未確認寄出，請檢查寄信設定後重寄。" : "無法儲存成員"));
+          return;
+        }
         if (DEMO_MODE) {
           const now = new Date().toISOString();
           set((state) => {
@@ -336,6 +374,14 @@ export const useAccessControl = create<AccessControlState>()(
       },
 
       setMemberStatus: async (memberId, status) => {
+        if (LIVE_SHEET) {
+          const member = get().members.find(m => m.id === memberId);
+          const response = await fetch("/api/workspace-members", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: memberId, status, version: member?.version }) });
+          const data = await response.json();
+          await get().refreshMembers();
+          if (!response.ok) throw new Error(data.detail || "無法更新成員");
+          return;
+        }
         const membership = get().membership;
         if (!membership) throw new Error("尚未取得旅宿權限");
         if (!ROLE_DEFINITIONS[membership.role].permissions.manageMembers) {
@@ -359,23 +405,23 @@ export const useAccessControl = create<AccessControlState>()(
         await get().refreshMembers();
       },
 
-      setPreviewRole: (previewRole) => set({ previewRole }),
+      setPreviewRole: (previewRole) => set({ previewRole: !LIVE_SHEET || get().membership?.role === "owner" ? previewRole : null }),
 
       reset: () =>
         set({
           initialized: DEMO_MODE,
           loading: false,
           error: null,
-          membership: DEMO_MODE ? DEMO_OWNER : null,
+          membership: DEMO_MODE && !LIVE_SHEET ? DEMO_OWNER : null,
           previewRole: null,
-          members: DEMO_MODE ? DEFAULT_DEMO_MEMBERS : [],
+          members: DEMO_MODE && !LIVE_SHEET ? DEFAULT_DEMO_MEMBERS : [],
         }),
     }),
     {
-      name: "sweetfun-os-access-control",
+      name: LIVE_SHEET ? "sweetfun-os-account-ui-v1" : "sweetfun-os-access-control",
       partialize: (state) => ({
         previewRole: state.previewRole,
-        members: DEMO_MODE ? state.members : [],
+        members: DEMO_MODE && !LIVE_SHEET ? state.members : [],
       }),
     },
   ),
@@ -383,19 +429,19 @@ export const useAccessControl = create<AccessControlState>()(
 
 export function useActorPermissions() {
   return useAccessControl((state) =>
-    ROLE_DEFINITIONS[state.membership?.role ?? "viewer"].permissions,
+    ROLE_DEFINITIONS[state.membership?.role ?? (LIVE_SHEET ? "viewer_no_price" : "viewer")].permissions,
   );
 }
 
 export function useEffectiveRole() {
   return useAccessControl(
-    (state) => state.previewRole ?? state.membership?.role ?? "viewer",
+    (state) => (state.membership?.role === "owner" || !LIVE_SHEET ? state.previewRole : null) ?? state.membership?.role ?? (LIVE_SHEET ? "viewer_no_price" : "viewer"),
   );
 }
 
 export function useEffectivePermissions() {
   return useAccessControl((state) => {
-    const role = state.previewRole ?? state.membership?.role ?? "viewer";
+    const role = (state.membership?.role === "owner" || !LIVE_SHEET ? state.previewRole : null) ?? state.membership?.role ?? (LIVE_SHEET ? "viewer_no_price" : "viewer");
     return ROLE_DEFINITIONS[role].permissions;
   });
 }

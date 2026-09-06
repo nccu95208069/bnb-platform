@@ -60,7 +60,8 @@ const EMPTY_FORM: SaveWorkspaceMemberInput = {
   propertyIds: [],
 };
 
-const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+const LIVE_SHEET = process.env.NEXT_PUBLIC_CALENDAR_SOURCE === "sheet_snapshot";
+const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true" && !LIVE_SHEET;
 
 function statusLabel(status: WorkspaceMember["status"]) {
   if (status === "active") return "已啟用";
@@ -76,6 +77,8 @@ function statusVariant(status: WorkspaceMember["status"]) {
 
 export default function AccessManagementPage() {
   const properties = useCalendarPreferences((state) => state.properties);
+  const initialized = useAccessControl((state) => state.initialized);
+  const mailConfigured = useAccessControl((state) => state.mailConfigured);
   const membership = useAccessControl((state) => state.membership);
   const members = useAccessControl((state) => state.members);
   const loading = useAccessControl((state) => state.loading);
@@ -96,8 +99,11 @@ export default function AccessManagementPage() {
   const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    void initialize().then(() => refreshMembers());
-  }, [initialize, refreshMembers]);
+    void initialize();
+  }, [initialize]);
+  useEffect(() => {
+    if (membership?.role === "owner") void refreshMembers();
+  }, [membership?.id, membership?.role, refreshMembers]);
 
   const sortedMembers = useMemo(
     () =>
@@ -155,8 +161,8 @@ export default function AccessManagementPage() {
       toast.error("請填寫使用者名稱");
       return;
     }
-    if (!form.email.trim() && !form.phone.trim()) {
-      toast.error("Email 與手機至少填寫一項");
+    if ((LIVE_SHEET && !form.email.trim()) || (!form.email.trim() && !form.phone.trim())) {
+      toast.error(LIVE_SHEET ? "請填寫接收邀請信的 Email" : "Email 與手機至少填寫一項");
       return;
     }
     if (!form.allProperties && form.propertyIds.length === 0) {
@@ -167,10 +173,10 @@ export default function AccessManagementPage() {
     setSaving(true);
     try {
       await saveMember({ ...form, id: editingId ?? undefined });
-      toast.success(editingId ? "成員權限已更新" : "成員已加入", {
+      toast.success(editingId ? "成員權限已更新" : LIVE_SHEET ? "邀請信已寄出" : "成員已加入", {
         description: DEMO_MODE
           ? "已儲存在此瀏覽器供測試，尚未建立正式登入帳號。"
-          : "對方使用相同 Email 或手機登入後即可啟用帳號。",
+          : "請對方從邀請信設定密碼，再用 Email 與密碼登入。",
       });
       resetForm();
     } catch (saveError) {
@@ -190,12 +196,13 @@ export default function AccessManagementPage() {
     }
   }
 
+  if (!initialized) return <p className="p-5">正在確認管理者登入…</p>;
   if (!actorPermissions.manageMembers) {
     return (
       <Card className="mx-auto max-w-xl">
         <CardHeader>
           <CardTitle>沒有權限</CardTitle>
-          <CardDescription>只有旅宿擁有者可以管理使用者與角色。</CardDescription>
+          <CardDescription>只有旅宿擁有者可以管理使用者與角色。</CardDescription><a href="/calendar-access" className="underline">前往登入</a>
         </CardHeader>
       </Card>
     );
@@ -213,7 +220,7 @@ export default function AccessManagementPage() {
           <p className="mt-1 text-sm text-muted-foreground">
             {DEMO_MODE
               ? "目前為權限示範：資料只儲存在此瀏覽器，不會建立正式登入帳號。"
-              : "以 Email 或手機建立帳號，並指定角色與可查看的旅宿。"}
+              : "以 Email 寄送邀請，由成員自行設定密碼，並指定可查看的旅宿。"}
           </p>
         </div>
         <Button variant="outline" onClick={beginCreate} aria-controls="member-form-card">
@@ -222,6 +229,12 @@ export default function AccessManagementPage() {
         </Button>
       </div>
 
+      {LIVE_SHEET && <div className="rounded-xl border bg-card p-4 text-sm leading-6">
+        <p>初始管理者：sweetfuntw@gmail.com · 沿用你設定的私人密碼。</p>
+        <p>目前訂房表為唯讀，所有角色都不能修改正式訂單或收款。</p>
+        <p>{mailConfigured ? "Gmail 已連接，新增成員會寄送邀請信。" : "尚未完成 Gmail 寄信授權，完成後才能新增成員。"} <a href="/settings/email" className="underline">寄信設定</a></p>
+        <p className="text-muted-foreground">舊的測試成員已從此瀏覽器清除。下方只列正式帳號。</p>
+      </div>}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">權限預覽</CardTitle>
@@ -260,7 +273,7 @@ export default function AccessManagementPage() {
               {editingId ? "編輯使用者" : "新增使用者"}
             </CardTitle>
             <CardDescription>
-              使用者登入的 Email 與手機至少需填一項。手機請使用含國碼格式，例如 +886912345678。
+              {LIVE_SHEET ? "請填寫成員的 Email。邀請連結 24 小時有效，由本人設定密碼。手機僅供聯絡。" : "使用者登入的 Email 與手機至少需填一項。手機請使用含國碼格式，例如 +886912345678。"}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -282,6 +295,8 @@ export default function AccessManagementPage() {
                 <Label htmlFor="member-email">Email</Label>
                 <Input
                   id="member-email"
+                  disabled={LIVE_SHEET && Boolean(editingId)}
+                  required={LIVE_SHEET}
                   type="email"
                   value={form.email}
                   onChange={(event) =>
@@ -388,9 +403,9 @@ export default function AccessManagementPage() {
                     取消編輯
                   </Button>
                 )}
-                <Button type="submit" disabled={saving}>
+                <Button type="submit" disabled={saving || (LIVE_SHEET && !editingId && !mailConfigured)}>
                   {saving && <Loader2 className="size-4 animate-spin" />}
-                  {editingId ? "儲存權限" : "加入使用者"}
+                  {editingId ? "儲存權限" : LIVE_SHEET ? "寄送邀請信" : "加入使用者"}
                 </Button>
               </div>
             </form>
@@ -446,6 +461,7 @@ export default function AccessManagementPage() {
                         {statusLabel(member.status)}
                       </Badge>
                       <Badge variant="outline">{ROLE_DEFINITIONS[member.role].label}</Badge>
+                      {member.invitationStatus && <Badge variant={member.invitationStatus === "failed" ? "destructive" : "secondary"}>{member.invitationStatus === "sent" ? "邀請信已寄出" : member.invitationStatus === "failed" ? "邀請信未確認寄出" : "邀請處理中"}</Badge>}
                     </div>
                     <p className="mt-1 truncate text-xs text-muted-foreground">
                       {[member.email, member.phone].filter(Boolean).join(" · ") || "目前擁有者"}
@@ -461,7 +477,16 @@ export default function AccessManagementPage() {
                   </div>
 
                   {member.role !== "owner" && (
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
+                      {LIVE_SHEET && member.status !== "suspended" && <Button size="sm" variant="outline" onClick={async () => {
+                        try {
+                          const response = await fetch("/api/workspace-members", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: member.id, version: member.version }) });
+                          const result = await response.json();
+                          await refreshMembers();
+                          if (!response.ok) throw new Error(result.detail || "邀請信尚未確認寄出，請檢查寄信設定。");
+                          toast.success("設定密碼的邀請信已寄出");
+                        } catch (error) { toast.error(error instanceof Error ? error.message : "寄送失敗"); }
+                      }}>{member.status === "active" ? "寄送重設密碼信" : "重寄邀請"}</Button>}
                       <Button size="sm" variant="outline" onClick={() => beginEdit(member)}>
                         <Pencil className="size-3.5" />
                         編輯

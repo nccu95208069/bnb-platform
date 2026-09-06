@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 import { CALENDAR_PALETTES, CHANNELS, DEFAULT_PALETTE, platformAppearance, type PaletteId } from "@/lib/calendar-palettes";
 import { useCalendarAppearance } from "./calendar-appearance";
@@ -14,6 +14,8 @@ export function CalendarAppearanceSettings() {
   const { palette, scope, saving, error, reload, save } = useCalendarAppearance();
   const [draft, setDraft] = useState<PaletteId | null>(null);
   const [saved, setSaved] = useState(false);
+  const [isOwner, setIsOwner] = useState(false);
+  useEffect(() => { fetch("/api/calendar-session", { cache: "no-store" }).then(r => r.json()).then(d => setIsOwner(d.membership?.role === "owner")).catch(() => {}); }, []);
   const selected = draft ?? palette;
   return <section className="mx-auto max-w-4xl space-y-5 pb-8">
     <div>
@@ -24,6 +26,7 @@ export function CalendarAppearanceSettings() {
     <div className="rounded-xl border bg-card px-4 py-3 text-sm" aria-live="polite">
       {scope === "account" ? "私人帳號 · 配色會跨裝置保存，只影響你的畫面。" : scope === "device" ? <>目前未登入 · 配色只儲存在這個瀏覽器。<Link href="/calendar-access" className="ml-2 underline">登入後同步</Link></> : scope === "loading" ? "正在讀取你的配色…" : "暫時無法確認個人偏好。"}
     </div>
+    {isOwner && <Link href="/settings/email" className="block rounded-xl border bg-card px-4 py-3 text-sm underline">Gmail 寄信設定 · 成員邀請與設定密碼</Link>}
     <div className="grid gap-3 sm:grid-cols-2" role="group" aria-label="五種日曆配色">
       {CALENDAR_PALETTES.map((preset) => <button key={preset.id} type="button" aria-pressed={selected === preset.id} aria-label={preset.name} disabled={saving}
         onClick={() => { setDraft(preset.id); setSaved(false); }}

@@ -34,6 +34,11 @@ export function passwordProblem(password: unknown): string | null {
   if (!password.trim() || /^(.)\1+$/.test(password) || ["password1234", "123456789012"].includes(password.toLowerCase())) return "請使用較不容易猜到的密碼或長句。";
   return null;
 }
+export async function createPasswordCredential(password: string): Promise<OwnerCredential> {
+  if (passwordProblem(password)) throw new Error("PASSWORD_INVALID");
+  const salt = randomBytes(16).toString("hex");
+  return { schema: 1, kind: "password", salt, hash: (await derive(password, salt)).toString("hex"), revision: randomBytes(32).toString("hex") };
+}
 export async function changeOwnerPassword(store: OwnerCredentialStore, cookie: string | undefined, input: { currentPassword?: unknown; password?: unknown; confirmPassword?: unknown }) {
   const previous = await store.read();
   if (!credentialSessionValid(cookie, previous.value)) throw new Error("OWNER_UNAUTHORIZED");

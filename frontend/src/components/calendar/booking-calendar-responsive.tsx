@@ -68,7 +68,7 @@ import {
 import { WeekCarousel } from "@/components/calendar/week-carousel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { apiClient } from "@/lib/api-client";
+import { apiClient, ApiError } from "@/lib/api-client";
 import {
   useAccessControl,
   useEffectivePermissions,
@@ -343,6 +343,7 @@ function SoldBookingCalendar() {
         hasLoadedData.current = true;
       } catch (requestError) {
         if (!active) return;
+        if (requestError instanceof ApiError && [401,403].includes(requestError.status)) { setData(null); setSelectedId(null); void initializeAccess(); }
         setError(
           requestError instanceof Error
             ? requestError.message
@@ -359,7 +360,7 @@ function SoldBookingCalendar() {
     return () => {
       active = false;
     };
-  }, [reloadKey, requestPeriod.end, requestPeriod.start, setProperties]);
+  }, [reloadKey, requestPeriod.end, requestPeriod.start, setProperties, setSelectedId, initializeAccess]);
 
   useEffect(() => {
     if (!PAYMENT_SANDBOX && !data?.source?.automatic_sync) return;
