@@ -264,7 +264,8 @@ function MonthPanel({
               {segments.filter(s => s.lane < limit).map(segment => {
                 const { booking } = segment;
                 const nights = stayNightCount(booking);
-                const label = `${booking.property_name}｜${booking.room_number}｜${PLATFORM_LABELS[booking.platform] ?? "其他"}｜${booking.guest_name}｜${booking.check_in}–${booking.check_out}${nights > 1 ? `｜連住 ${nights} 晚` : ""}`;
+                const guestName = booking.guest_name_kind === "real" ? booking.guest_name.trim() : "";
+                const label = `${PLATFORM_LABELS[booking.platform] ?? "其他"}｜${guestName || "姓名尚未開放"}｜${booking.property_name}｜${booking.room_number}｜${booking.check_in}–${booking.check_out}${nights > 1 ? `｜連住 ${nights} 晚` : ""}`;
                 return <button key={booking.id} type="button" title={label} aria-label={label}
                   data-stay-id={booking.id} data-stay-start={segment.start} data-stay-end={segment.end}
                   onClick={() => onSelectBooking(booking)}
@@ -275,8 +276,9 @@ function MonthPanel({
                     segment.continuesAfter && "mr-0 rounded-r-none border-r-0 sm:mr-0 md:mr-0")}>
                   {segment.continuesBefore && <span aria-hidden="true">‹</span>}
                   <span className="min-w-0 flex-1 truncate">
-                    <span className="font-semibold">{booking.room_number}</span>
-                    <span>·{booking.source_conflict ? "待核對" : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
+                    <span className="font-semibold">{booking.source_conflict ? "待核對" : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
+                    {guestName && <span className="ml-1">{guestName}</span>}
+                    <span className="ml-1 opacity-85">{booking.room_number}</span>
                     {nights > 1 && <span className="ml-1">{nights}晚</span>}
                   </span>
                   {segment.continuesAfter && <span aria-hidden="true">›</span>}

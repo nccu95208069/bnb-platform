@@ -71,7 +71,7 @@ export function adaptSheetBookings(values: unknown[][], sourceId: string, observ
   }
   const make = (id: string, orderId: string, room: string, start: string, end: string): CalendarBooking => ({
     id, sheet_row_id: id, order_id: orderId, external_order_no: null, property_id: property.id, property_name: property.name,
-    room_id: property.rooms.find(r => r.number === room)!.id, room_number: room, guest_name: `旅客 ${orderId.slice(-6).toUpperCase()}`,
+    room_id: property.rooms.find(r => r.number === room)!.id, room_number: room, guest_name: `旅客 ${orderId.slice(-6).toUpperCase()}`, guest_name_kind: "anonymous",
     platform: "other", check_in: start, check_out: end, booked_at: null, room_rate: 0,
     payment_status: "unknown", reservation_status: "confirmed", notes: null, payments: [], audit_log: [],
     extra_guest_count: 0, extra_bed_count: 0, pet_count: 0, baby_supplies: [], service_note: null,

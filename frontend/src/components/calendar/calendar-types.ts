@@ -53,6 +53,8 @@ export type CalendarBooking = {
   room_id: string;
   room_number: string;
   guest_name: string;
+  // Only a server-authorized projection may mark a supplied source name as real.
+  guest_name_kind?: "real" | "anonymous" | "missing";
   platform: string;
   check_in: string;
   check_out: string;
