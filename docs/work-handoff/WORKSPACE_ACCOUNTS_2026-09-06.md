@@ -85,8 +85,16 @@ invite -> inspect -> activate -> member login -> separate palette -> scope ->
 suspend), owner-only APIs, CSRF, duplicate emails, privilege escalation, expected
 versions, expiring/reused/replaced tokens, concurrent activation, failed delivery,
 password encryption, session revocation and server-side monetary redaction. Existing
-owner credential and appearance authorization tests continue passing. Browser QA
-checks mobile login, authorization gating and production owner management UI.
+owner credential and appearance authorization tests continue passing. Local mobile browser QA passed for login and anonymous authorization gating.
+Production owner UI could not be inspected because the Mac was locked. Production
+HTTP checks passed: login/email-setup/activation pages 200, anonymous session
+unauthenticated, members/mail APIs 403, and calendar 200 with all 144 returned
+September booking rows monetarily redacted. All 15 targeted tests passed.
+
+Deployed source commit 54419b0 to production:
+https://sweetfun-88awpqmc5-sweetfuns-projects.vercel.app
+Alias: https://sweetfun-os.vercel.app
+Real Gmail delivery still awaits the owner's dedicated app-password setup.
 
 Run:
 node --experimental-strip-types --loader ./frontend/tests/helpers/next-route-loader.mjs --test frontend/tests/workspace-auth*.test.mjs frontend/tests/calendar-appearance-route.test.mjs frontend/tests/owner-password.test.mjs frontend/tests/calendar-owner-session.test.mjs
