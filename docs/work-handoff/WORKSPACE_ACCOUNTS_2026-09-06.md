@@ -115,3 +115,28 @@ owner login, deliberate in-session preview, reload reset, and a real restricted
 member. Test, frontend lint and production build pass. Current phone state was not
 inspected because the Mac browser surface was locked; the persisted-preview defect
 is code/test-confirmed, not a claim of having observed this user's current storage.
+
+## Gmail authorization follow-up (explicit owner approval)
+
+The owner subsequently explicitly approved copying/reusing the original order
+handler's Gmail credential and asked the agent to complete setup. This supersedes
+the earlier missing-authorization blocker. A read-only extraction of that exact
+Cloud Run GMAIL_TOKEN_B64 was approved and executed. Google refresh/profile checks
+confirmed sweetfuntw@gmail.com and gmail.send/modify/readonly scopes. The source
+service was not changed. No credential values are stored in this repository.
+
+The app now supports encrypted gmail_oauth mail settings alongside the existing
+app-password SMTP path. Each send refreshes access and validates the Gmail profile
+matches the fixed sender before sending through Gmail API. Only client id, client
+secret and refresh token are encrypted into the existing private Redis mail key;
+access tokens remain transient. OAuth setup has no public credential-import route.
+Owner settings show the connected Google method without requesting another secret.
+
+Tests cover encrypted persistence, invitation MIME/Chinese text, safe error handling,
+wrong sender, missing send scope, refresh failure, header injection and the original
+SMTP/member route flow. All 8 targeted tests, lint and production build passed.
+Live configuration and test-message receipt are recorded after deployment below.
+
+Primary API references:
+https://developers.google.com/workspace/gmail/api/auth/scopes
+https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send
