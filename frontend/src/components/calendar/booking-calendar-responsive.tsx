@@ -915,7 +915,13 @@ function SoldBookingCalendar() {
       {(data?.sources ?? (data?.source ? [{ property_id: "sweetfun", source: data.source, summary: data.source_summary }] : []))
         .filter(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)))
         .map(({ property_id, source, summary }) => (
-        <div key={property_id} className="space-y-1 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950" role="status">
+        <div key={property_id} className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-[11px] text-sky-950" role="status">
+          <details>
+            <summary className="cursor-pointer py-0.5">
+              <span className="font-medium">{source.label}</span> · 唯讀 · {source.automatic_sync && source.sync ? ({ healthy: "同步正常", confirming: "確認變更中", waiting: "等待首次檢查", error: "檢查失敗，保留上次資料", stale: "資料可能過期" })[source.sync.status] : "尚未自動同步"}
+              {source.sync?.last_checked_at && <span className="ml-1 text-sky-800">{new Date(source.sync.last_checked_at).toLocaleTimeString("zh-TW", {timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false})}</span>}
+            </summary>
+            <div className="mt-1 space-y-1 border-t border-sky-200 pt-1.5">
           <p className="font-medium">{source.label} · 匿名唯讀快照 · {new Date(source.observed_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</p>
           {source.automatic_sync && source.sync ? <div aria-live="polite">
             <p>{({ waiting: "監控已設定，等待首次檢查。", healthy: "每分鐘自動檢查訂房表。", confirming: "發現資料變更，等待下一次檢查確認；目前保留上次資料。", error: "訂房表檢查失敗，目前保留上次資料，系統會自動重試。", stale: "已超過 5 分鐘未完成檢查，目前顯示上次資料。" })[source.sync.status]}</p>
@@ -923,7 +929,9 @@ function SoldBookingCalendar() {
           </div> : <p>尚未啟用自動同步。</p>}
           <p>已付清指客人已付清，OTA 收款與旅宿入帳尚未記錄。</p>
           <p>訂單編號可空白，使用唯一 ID 識別每列；跨列連住需共同編號。</p>
-          {(summary?.new_issue_rows ?? 0) > 0 && <p>新增或變更的問題涉及 {summary?.new_issue_rows} 列，相關房況待核對。</p>}
+            </div>
+          </details>
+          {(summary?.new_issue_rows ?? 0) > 0 && <p className="mt-1">新增或變更的問題涉及 {summary?.new_issue_rows} 列，相關房況待核對。</p>}
         </div>
       ))}
 

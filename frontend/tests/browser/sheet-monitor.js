@@ -18,7 +18,9 @@
   };
   try {
     const button=[...document.querySelectorAll('button')].find(b=>b.getAttribute('aria-label')==='重新整理'||b.getAttribute('title')==='重新整理');
-    if(!button)throw new Error('refresh missing');button.click();
+    if(!button)throw new Error('refresh missing');
+    document.querySelectorAll('[role="status"] details:not([open]) summary').forEach(summary => summary.click());
+    button.click();
     await wait(()=>document.body.innerText.includes('每分鐘自動檢查訂房表'),'healthy status');
     const checks={confirming:'發現資料變更，等待下一次檢查確認',error:'訂房表檢查失敗，目前保留上次資料',stale:'已超過 5 分鐘未完成檢查',waiting:'監控已設定，等待首次檢查'};
     for(const [next,text] of Object.entries(checks)){

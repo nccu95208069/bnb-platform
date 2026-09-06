@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
 import { layoutMonthWeek } from "./month-layout";
@@ -14,6 +14,7 @@ import type {
 } from "./calendar-types";
 import {
   PAYMENT_DOT_STYLES,
+  PLATFORM_LABELS,
   PLATFORM_STYLES,
   PROPERTY_DOT_STYLES,
   WEEKDAY_LABELS,
@@ -41,20 +42,6 @@ export type CalendarViewProps = {
   onSelectBooking: (booking: CalendarBooking) => void;
   onSelectDay: (date: string) => void;
 };
-
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(false);
-
-  useEffect(() => {
-    const media = window.matchMedia(query);
-    const update = () => setMatches(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, [query]);
-
-  return matches;
-}
 
 function propertyById(properties: CalendarProperty[]) {
   return new Map(properties.map((property) => [property.id, property]));
@@ -147,6 +134,20 @@ function BookingChip({
   );
 }
 
+// Full channel names remain in accessible labels and booking details.
+const MONTH_PLATFORM_LABELS: Record<string, string> = {
+  direct: "直訂", booking: "Bkg", agoda: "Ago", airbnb: "Air", ctrip: "Trip", owljourney: "Owl", other: "其他",
+};
+const MONTH_PLATFORM_STYLES: Record<string, string> = {
+  direct: "bg-emerald-700 text-white hover:bg-emerald-800",
+  booking: "bg-sky-700 text-white hover:bg-sky-800",
+  agoda: "bg-violet-700 text-white hover:bg-violet-800",
+  airbnb: "bg-rose-700 text-white hover:bg-rose-800",
+  ctrip: "bg-amber-700 text-white hover:bg-amber-800",
+  owljourney: "bg-indigo-700 text-white hover:bg-indigo-800",
+  other: "bg-slate-600 text-white hover:bg-slate-700",
+};
+
 function chunkWeeks(days: string[]) {
   const weeks: string[][] = [];
   for (let index = 0; index < days.length; index += 7) {
@@ -158,6 +159,7 @@ function chunkWeeks(days: string[]) {
 function MonthPanel({
   monthStart,
   bookings,
+  rooms,
   properties,
   onSelectBooking,
   onSelectDay,
@@ -167,12 +169,10 @@ function MonthPanel({
   sectionRef: (node: HTMLElement | null) => void;
 }) {
   const today = localTodayIso();
-  const mobile = useMediaQuery("(max-width: 767px)");
   const period = monthCalendarPeriod(monthStart);
   const weeks = chunkWeeks(dateRange(period.start, period.end));
   const expandedWeeks = useCalendarPreferences((s) => s.expandedWeeks);
   const setExpandedWeeks = useCalendarPreferences((s) => s.setExpandedWeeks);
-  const propertyMap = useMemo(() => propertyById(properties), [properties]);
   const monthBookings = bookings.filter(
     (booking) =>
       booking.check_in < period.end && booking.check_out >= period.start,
@@ -227,17 +227,18 @@ function MonthPanel({
       {weeks.map((week) => {
         const weekKey = week[0];
         const expanded = expandedWeeks.includes(weekKey);
-        const limit = expanded ? Number.POSITIVE_INFINITY : mobile ? 2 : 4;
+        const defaultLimit = Math.max(6, Math.min(8, rooms.length));
+        const limit = expanded ? Number.POSITIVE_INFINITY : defaultLimit;
         const segments = layoutMonthWeek(monthBookings, week, addDays(week[6], 1));
         const laneCount = Math.max(0, ...segments.map(s => s.lane + 1));
-        const weekHasOverflow = laneCount > (mobile ? 2 : 4);
+        const weekHasOverflow = laneCount > defaultLimit;
         const visibleLanes = Math.min(laneCount, limit);
         const hidden = week.map((_, index) => segments.filter(s => s.lane >= limit && s.start <= index && s.end > index).length);
 
         return (
           <div key={weekKey} className="border-b last:border-b-0" data-week={weekKey}>
-            <div className="relative grid min-h-24 grid-cols-7 py-1 md:min-h-36 md:py-2"
-              style={{ gridTemplateRows: `32px repeat(${visibleLanes}, 40px) ${hidden.some(Boolean) ? "28px" : "0px"}`, rowGap: 4 }}>
+            <div className="relative grid min-h-[116px] grid-cols-7 py-0.5 [--month-lane-height:18px] md:min-h-32 md:py-1 md:[--month-lane-height:22px]"
+              style={{ gridTemplateRows: `24px repeat(${visibleLanes}, var(--month-lane-height))${hidden.some(Boolean) ? " 24px" : ""}`, rowGap: 2 }}>
               <div className="pointer-events-none absolute inset-0 grid grid-cols-7" aria-hidden="true">
                 {week.map(date => <div key={date} className={cn("border-r last:border-r-0",
                   [0, 6].includes(parseIso(date).getUTCDay()) && "bg-muted/15",
@@ -262,22 +263,21 @@ function MonthPanel({
               })}
               {segments.filter(s => s.lane < limit).map(segment => {
                 const { booking } = segment;
-                const property = propertyMap.get(booking.property_id);
                 const nights = stayNightCount(booking);
-                const label = `${booking.property_name}｜${booking.room_number}｜${booking.guest_name}｜${booking.check_in}–${booking.check_out}${nights > 1 ? `｜連住 ${nights} 晚` : ""}`;
+                const label = `${booking.property_name}｜${booking.room_number}｜${PLATFORM_LABELS[booking.platform] ?? "其他"}｜${booking.guest_name}｜${booking.check_in}–${booking.check_out}${nights > 1 ? `｜連住 ${nights} 晚` : ""}`;
                 return <button key={booking.id} type="button" title={label} aria-label={label}
                   data-stay-id={booking.id} data-stay-start={segment.start} data-stay-end={segment.end}
                   onClick={() => onSelectBooking(booking)}
                   style={{ gridColumn: `${segment.start + 1} / ${segment.end + 1}`, gridRow: segment.lane + 2 }}
-                  className={cn("relative z-10 mx-1 flex min-w-0 items-center gap-1 rounded-md border px-1.5 text-left text-[10px] shadow-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:mx-1.5 sm:text-[11px] md:mx-2",
-                    PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
+                  className={cn("relative z-10 mx-0.5 flex min-w-0 items-center gap-0.5 overflow-hidden rounded-[3px] px-0.5 text-left text-[10px] leading-none font-medium focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:mx-1 md:px-1 md:text-[11px]",
+                    booking.source_conflict ? "bg-slate-200 text-slate-800 hover:bg-slate-300" : MONTH_PLATFORM_STYLES[booking.platform] ?? MONTH_PLATFORM_STYLES.other,
                     segment.continuesBefore && "ml-0 rounded-l-none border-l-0 sm:ml-0 md:ml-0",
                     segment.continuesAfter && "mr-0 rounded-r-none border-r-0 sm:mr-0 md:mr-0")}>
                   {segment.continuesBefore && <span aria-hidden="true">‹</span>}
-                  {property && <span className={cn("size-1.5 shrink-0 rounded-full", PROPERTY_DOT_STYLES[property.color])} />}
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-semibold">{booking.room_number}{nights > 1 ? ` · ${nights}晚` : ""}</span>
-                    <span className="block truncate opacity-80">{booking.guest_name}</span>
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="font-semibold">{booking.room_number}</span>
+                    <span>·{booking.source_conflict ? "待核對" : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
+                    {nights > 1 && <span className="ml-1">{nights}晚</span>}
                   </span>
                   {segment.continuesAfter && <span aria-hidden="true">›</span>}
                 </button>;
@@ -345,14 +345,19 @@ export function MonthScroller({
     if (!root) return;
 
     const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-        const month = visible?.target.getAttribute("data-month");
-        if (month) onVisibleMonthChange(month);
+      () => {
+        // Keep the month with the most visible content active, including when
+        // focusing an order briefly reveals the previous month's last week.
+        const bounds = root.getBoundingClientRect();
+        const visible = [...monthRefs.current.entries()]
+          .map(([month, node]) => {
+            const rect = node.getBoundingClientRect();
+            return { month, height: Math.max(0, Math.min(rect.bottom, bounds.bottom) - Math.max(rect.top, bounds.top)) };
+          })
+          .sort((a, b) => b.height - a.height)[0];
+        if (visible && visible.height > 0) onVisibleMonthChange(visible.month);
       },
-      { root, threshold: [0.15, 0.35, 0.6], rootMargin: "-5% 0px -70% 0px" },
+      { root, threshold: [0, 0.15, 0.35, 0.5, 0.6, 0.85, 1] },
     );
 
     monthRefs.current.forEach((node) => observer.observe(node));
