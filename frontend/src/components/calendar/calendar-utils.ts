@@ -28,13 +28,13 @@ export const PLATFORM_LABELS: Record<string, string> = {
 };
 
 export const PLATFORM_STYLES: Record<string, string> = {
-  direct: "border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800",
-  agoda: "border-violet-700 bg-violet-700 text-white hover:bg-violet-800",
-  booking: "border-sky-700 bg-sky-700 text-white hover:bg-sky-800",
-  airbnb: "border-rose-700 bg-rose-700 text-white hover:bg-rose-800",
-  ctrip: "border-amber-700 bg-amber-700 text-white hover:bg-amber-800",
-  owljourney: "border-indigo-700 bg-indigo-700 text-white hover:bg-indigo-800",
-  other: "border-slate-600 bg-slate-600 text-white hover:bg-slate-700",
+  direct: "calendar-platform calendar-platform-direct",
+  agoda: "calendar-platform calendar-platform-agoda",
+  booking: "calendar-platform calendar-platform-booking",
+  airbnb: "calendar-platform calendar-platform-airbnb",
+  ctrip: "calendar-platform calendar-platform-ctrip",
+  owljourney: "calendar-platform calendar-platform-owljourney",
+  other: "calendar-platform calendar-platform-other",
 };
 
 export const PAYMENT_LABELS: Record<PaymentStatus, string> = {

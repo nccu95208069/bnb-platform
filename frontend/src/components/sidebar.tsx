@@ -11,6 +11,7 @@ import {
   Menu,
   Search,
   ShieldCheck,
+  Settings,
   X,
 } from "lucide-react";
 
@@ -230,6 +231,12 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
             權限管理
           </Link>
         )}
+        <Link href="/settings" onClick={onNavigate} className={cn(
+          "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+          pathname === "/settings" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+        )}>
+          <Settings className="size-4" />設定
+        </Link>
       </nav>
 
       <div className="border-t p-4">
@@ -308,7 +315,7 @@ export function Sidebar() {
           aria-label="回到今天"
         >
           <p className="truncate text-sm font-semibold">
-            {isCalendar ? mobilePeriodLabel : "任務中心"}
+            {isCalendar ? mobilePeriodLabel : pathname === "/settings" ? "設定" : pathname === "/access" ? "權限管理" : "任務中心"}
           </p>
           <p className="truncate text-[10px] text-muted-foreground">
             {selectedNames.length ? selectedNames.join("、") : "選擇旅宿"}

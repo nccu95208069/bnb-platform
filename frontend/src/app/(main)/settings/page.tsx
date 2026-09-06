@@ -27,8 +27,16 @@ import { apiClient, ApiError } from "@/lib/api-client";
 import type { SettingsResponse, SettingsUpdate } from "@/lib/types";
 import { Save, Loader2, Eye, EyeOff, Check } from "lucide-react";
 import { toast } from "sonner";
+import { CalendarAppearanceSettings } from "@/components/calendar/calendar-appearance-settings";
 
 export default function SettingsPage() {
+  return <>
+    <CalendarAppearanceSettings />
+    {process.env.NEXT_PUBLIC_CALENDAR_SOURCE !== "sheet_snapshot" && <LegacySettingsPage />}
+  </>;
+}
+
+function LegacySettingsPage() {
   const [loaded, setLoaded] = useState<SettingsResponse | null>(null);
   const [formValues, setFormValues] = useState<SettingsUpdate>({
     llm_provider: "claude",

@@ -145,3 +145,20 @@
     box-shadow: none;
   }
 }
+
+/* Shared platform tokens keep month/week/day, legend and dialogs consistent. */
+.calendar-platform-direct { --platform-bg: var(--platform-direct-bg); --platform-fg: var(--platform-direct-fg); }
+.calendar-platform-agoda { --platform-bg: var(--platform-agoda-bg); --platform-fg: var(--platform-agoda-fg); }
+.calendar-platform-booking { --platform-bg: var(--platform-booking-bg); --platform-fg: var(--platform-booking-fg); }
+.calendar-platform-airbnb { --platform-bg: var(--platform-airbnb-bg); --platform-fg: var(--platform-airbnb-fg); }
+.calendar-platform-ctrip { --platform-bg: var(--platform-ctrip-bg); --platform-fg: var(--platform-ctrip-fg); }
+.calendar-platform-owljourney { --platform-bg: var(--platform-owljourney-bg); --platform-fg: var(--platform-owljourney-fg); }
+.calendar-platform-other { --platform-bg: var(--platform-other-bg); --platform-fg: var(--platform-other-fg); }
+.calendar-platform {
+  background-color: var(--platform-bg);
+  border-color: color-mix(in srgb, var(--platform-bg) 80%, var(--platform-fg));
+  color: var(--platform-fg);
+}
+@media (hover: hover) {
+  button.calendar-platform:hover { filter: brightness(0.96); }
+}
