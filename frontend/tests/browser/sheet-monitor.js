@@ -13,6 +13,7 @@
     if(!String(args[0]).includes('/bookings/calendar') || !response.ok)return response;
     const data=await response.json();calls++;
     data.source={...data.source,automatic_sync:true,sync:{status,last_checked_at:'2026-09-06T02:00:00Z',last_published_at:'2026-09-06T01:59:00Z',cutoff:'2026-08-07',interval_seconds:60,error_code:status==='error'?'MONITOR_CHECK_FAILED':null}};
+    if (data.sources) data.sources = data.sources.map(entry => ({...entry, source: {...entry.source, automatic_sync: true, sync: data.source.sync}}));
     return new Response(JSON.stringify(data),{status:200,headers:{'Content-Type':'application/json'}});
   };
   try {

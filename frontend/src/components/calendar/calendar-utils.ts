@@ -315,6 +315,7 @@ export function coalesceContiguousBookings(bookings: CalendarBooking[]) {
           ? [...current.nightly_amounts, ...booking.nightly_amounts] : undefined,
         source_payment_label: current.source_payment_label === booking.source_payment_label
           ? current.source_payment_label : "各晚來源付款標記不同，需核對",
+        source_guest_count: current.source_guest_count === booking.source_guest_count ? current.source_guest_count : undefined,
         source_segment_ids: [
           ...new Set([...(current.source_segment_ids ?? [current.id]), ...sourceIds]),
         ],

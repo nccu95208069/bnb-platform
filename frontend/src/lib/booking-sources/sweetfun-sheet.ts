@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { CalendarBooking } from "../../components/calendar/calendar-types";
+import { SWEETFUN_SOURCE, type SheetProperty } from "./config.ts";
 
 // Source adapters own format interpretation. Calendar UI consumes this common projection.
 // This projection is read-only and contains no guest identity or original order numbers.
@@ -18,7 +19,6 @@ export type BookingSourceSnapshot = {
 
 const REQUIRED = ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "訂單編號"];
 const ADAPTER_VERSION = "sweetfun-sheet-v3";
-const ROOMS = ["101", "102", "201", "202", "301", "302"];
 const PLATFORM: Record<string, string> = { booking: "booking", "booking.com": "booking", agoda: "agoda", airbnb: "airbnb", line: "direct", ctrip: "ctrip", owljourney: "owljourney" };
 const opaque = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 20);
 function iso(value: string): string | null {
@@ -29,7 +29,8 @@ function iso(value: string): string | null {
   return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === result ? result : null;
 }
 
-export function adaptSweetfunSheet(values: unknown[][], sourceId: string, observedAt: string, acknowledgedIssues: string[] = [], sourceRowNumbers?: number[]): BookingSourceSnapshot {
+export function adaptSheetBookings(values: unknown[][], sourceId: string, observedAt: string, acknowledgedIssues: string[] = [], sourceRowNumbers?: number[], property: SheetProperty = SWEETFUN_SOURCE.property): BookingSourceSnapshot {
+  const ROOMS = property.rooms.map(r => r.number);
   const headers = (values[0] ?? []).map(v => String(v).trim());
   if (REQUIRED.some(h => headers.filter(v => v === h).length !== 1)) throw new Error("SHEET_SCHEMA_MISMATCH");
   const rows = values.slice(1).map((row, index) => {
@@ -69,8 +70,8 @@ export function adaptSweetfunSheet(values: unknown[][], sourceId: string, observ
     if (affected.length) add("unmapped_property_overlap", affected);
   }
   const make = (id: string, orderId: string, room: string, start: string, end: string): CalendarBooking => ({
-    id, sheet_row_id: id, order_id: orderId, external_order_no: null, property_id: "sweetfun", property_name: "水芳 Sweetfun",
-    room_id: `sweetfun-${room}`, room_number: room, guest_name: `旅客 ${orderId.slice(-6).toUpperCase()}`,
+    id, sheet_row_id: id, order_id: orderId, external_order_no: null, property_id: property.id, property_name: property.name,
+    room_id: property.rooms.find(r => r.number === room)!.id, room_number: room, guest_name: `旅客 ${orderId.slice(-6).toUpperCase()}`,
     platform: "other", check_in: start, check_out: end, booked_at: null, room_rate: 0,
     payment_status: "unknown", reservation_status: "confirmed", notes: null, payments: [], audit_log: [],
     extra_guest_count: 0, extra_bed_count: 0, pet_count: 0, baby_supplies: [], service_note: null,
@@ -93,6 +94,8 @@ export function adaptSweetfunSheet(values: unknown[][], sourceId: string, observ
     booking.platform = PLATFORM[r.get("預定平台").toLowerCase()] ?? "other";
     booking.booked_at = iso(r.get("預訂日期"));
     booking.room_rate = r.amount;
+    const guestCount = Number(r.get("入住人數"));
+    if (Number.isInteger(guestCount) && guestCount > 0) booking.source_guest_count = guestCount;
     booking.payment_status = r.get("全額支付狀態") === "done" ? "paid" : "unknown";
     booking.source_payment_label = r.get("全額支付狀態") === "done" ? "客人已付清；OTA 收款與旅宿入帳尚未記錄" :
       ["not_yet", "not yet"].includes(r.get("全額支付狀態")) ? "來源標記尚未完成付款" : "來源未提供明確付款狀態";
@@ -122,7 +125,7 @@ export function adaptSweetfunSheet(values: unknown[][], sourceId: string, observ
   const newIssueRows = new Set(issues.filter(i => !i.acknowledged).flatMap(i => i.rows));
   return {
     schema_version: 1,
-    source: { id: sourceId, kind: "google_sheet_snapshot", label: "Sweetfun 訂房表", observed_at: observedAt,
+    source: { id: sourceId, kind: "google_sheet_snapshot", label: property.sourceLabel, observed_at: observedAt,
       snapshot_version: opaque(ADAPTER_VERSION + JSON.stringify(values) + JSON.stringify(issues.filter(i => i.acknowledged).map(i => i.fingerprint).sort())), adapter_version: ADAPTER_VERSION, price_basis: "sheet_recorded_room_night", payment_ledger_available: false,
       read_only: true, anonymized: true, automatic_sync: false, availability_authoritative: false },
     bookings, issues,
@@ -133,3 +136,6 @@ export function adaptSweetfunSheet(values: unknown[][], sourceId: string, observ
       missing_payment_status: rows.filter(r => !r.get("全額支付狀態")).length },
   };
 }
+
+// Compatibility name for existing Sweetfun snapshot import tooling.
+export { adaptSheetBookings as adaptSweetfunSheet };

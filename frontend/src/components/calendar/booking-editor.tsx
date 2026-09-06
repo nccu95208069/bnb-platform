@@ -942,6 +942,7 @@ export function BookingDetailsPanel({
                   />
                   <DetailRow label={booking.source_read_only ? "資料說明" : "原始備註"} value={booking.notes ?? "—"} />
                   {booking.source_payment_label && <DetailRow label="付款標記" value={booking.source_payment_label} />}
+                  {booking.source_read_only && <DetailRow label="入住人數" value={booking.source_guest_count ? `${booking.source_guest_count} 人` : "來源未提供"} />}
                   {booking.source_read_only && <DetailRow label="入住需求" value="來源未提供結構化資料，尚未確認" /> }
                 </dl>
               </section>

@@ -73,6 +73,7 @@ export type CalendarBooking = {
   source_conflict?: boolean;
   source_issue_acknowledged?: boolean;
   source_payment_label?: string;
+  source_guest_count?: number;
   source_order_linked?: boolean;
   source_identity_kind?: "parent_order" | "row";
   nightly_amounts?: { date: string; amount: number }[];
@@ -97,6 +98,8 @@ export type CalendarResponse = {
   source?: { label: string; observed_at: string; read_only: boolean; automatic_sync: boolean; availability_authoritative: boolean;
     sync?: { status: "waiting" | "healthy" | "confirming" | "error" | "stale"; last_checked_at: string | null; last_published_at: string | null; cutoff: string; interval_seconds: number; error_code: string | null } };
   source_summary?: { rows: number; accepted_rows: number; quarantined_rows: number; new_issue_rows?: number; historical_issue_rows?: number; blocked_room_nights: number; missing_order_id: number; missing_payment_status: number };
+  sources?: { property_id: string; source: NonNullable<CalendarResponse["source"]>; summary: CalendarResponse["source_summary"] }[];
+  source_errors?: { property_id: string; label: string }[];
   data_mode?: string;
   price_hidden?: boolean;
 };

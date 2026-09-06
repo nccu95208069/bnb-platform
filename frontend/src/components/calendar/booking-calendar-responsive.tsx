@@ -375,6 +375,8 @@ function SoldBookingCalendar() {
     };
   }, [data?.source?.automatic_sync]);
 
+  const unavailableSelectedSource = data?.source_errors?.some(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)));
+
   const rawEditedBookings = useMemo(
     () =>
       (data?.bookings ?? [])
@@ -852,20 +854,26 @@ function SoldBookingCalendar() {
         </div>
       </section>
 
+      {data?.source_errors?.filter(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id))).map(item => (
+        <div key={item.property_id} role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          {item.label}暫時無法載入，相關房況與統計尚無法確認。其他民宿仍可正常查看。
+        </div>
+      ))}
+
       <div className="hidden gap-3 sm:grid-cols-2 md:grid xl:grid-cols-5">
         <MetricCard
           icon={CalendarDays}
           label={data?.source ? "訂單紀錄" : "訂單"}
-          value={metrics.orderCount}
+          value={unavailableSelectedSource ? "—" : metrics.orderCount}
         />
-        <MetricCard icon={LogIn} label="入住" value={metrics.arrivals} />
-        <MetricCard icon={LogOut} label="退房" value={metrics.departures} />
-        <MetricCard icon={DoorOpen} label="房晚" value={metrics.roomNights} />
+        <MetricCard icon={LogIn} label="入住" value={unavailableSelectedSource ? "—" : metrics.arrivals} />
+        <MetricCard icon={LogOut} label="退房" value={unavailableSelectedSource ? "—" : metrics.departures} />
+        <MetricCard icon={DoorOpen} label="房晚" value={unavailableSelectedSource ? "—" : metrics.roomNights} />
         <MetricCard
           icon={CircleDollarSign}
           label="房費"
           value={
-            permissions.viewPrices ? formatMoney(metrics.amount) : "已隱藏"
+            unavailableSelectedSource ? "—" : permissions.viewPrices ? formatMoney(metrics.amount) : "已隱藏"
           }
         />
       </div>
@@ -904,18 +912,20 @@ function SoldBookingCalendar() {
         </div>
       )}
 
-      {data?.source && (
-        <div className="space-y-1 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950" role="status">
-          <p className="font-medium">{data.source.label} · 匿名唯讀快照 · {new Date(data.source.observed_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</p>
-          {data.source.automatic_sync && data.source.sync ? <div aria-live="polite">
-            <p>{({ waiting: "監控已設定，等待首次檢查。", healthy: "每分鐘自動檢查訂房表。", confirming: "發現資料變更，等待下一次檢查確認；目前保留上次資料。", error: "訂房表檢查失敗，目前保留上次資料，系統會自動重試。", stale: "已超過 5 分鐘未完成檢查，目前顯示上次資料。" })[data.source.sync.status]}</p>
-            <p>最後檢查：{data.source.sync.last_checked_at ? new Date(data.source.sync.last_checked_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }) : "尚未完成"} · 比對 {data.source.sync.cutoff} 起的入住紀錄與所有未來訂單。</p>
+      {(data?.sources ?? (data?.source ? [{ property_id: "sweetfun", source: data.source, summary: data.source_summary }] : []))
+        .filter(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)))
+        .map(({ property_id, source, summary }) => (
+        <div key={property_id} className="space-y-1 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950" role="status">
+          <p className="font-medium">{source.label} · 匿名唯讀快照 · {new Date(source.observed_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</p>
+          {source.automatic_sync && source.sync ? <div aria-live="polite">
+            <p>{({ waiting: "監控已設定，等待首次檢查。", healthy: "每分鐘自動檢查訂房表。", confirming: "發現資料變更，等待下一次檢查確認；目前保留上次資料。", error: "訂房表檢查失敗，目前保留上次資料，系統會自動重試。", stale: "已超過 5 分鐘未完成檢查，目前顯示上次資料。" })[source.sync.status]}</p>
+            <p>最後檢查：{source.sync.last_checked_at ? new Date(source.sync.last_checked_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }) : "尚未完成"} · 比對 {source.sync.cutoff} 起的入住紀錄與所有未來訂單。</p>
           </div> : <p>尚未啟用自動同步。</p>}
           <p>已付清指客人已付清，OTA 收款與旅宿入帳尚未記錄。</p>
           <p>訂單編號可空白，使用唯一 ID 識別每列；跨列連住需共同編號。</p>
-          {(data.source_summary?.new_issue_rows ?? 0) > 0 && <p>新增或變更的問題涉及 {data.source_summary?.new_issue_rows} 列，相關房況待核對。</p>}
+          {(summary?.new_issue_rows ?? 0) > 0 && <p>新增或變更的問題涉及 {summary?.new_issue_rows} 列，相關房況待核對。</p>}
         </div>
-      )}
+      ))}
 
       {error && (
         <div className="m-2 flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive md:m-0">

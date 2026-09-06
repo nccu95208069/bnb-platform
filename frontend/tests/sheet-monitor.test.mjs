@@ -6,6 +6,8 @@ import { HEADERS, SOURCE_ID, cutoffDay, initialState, normalizeRows, reconcile, 
 import { authorized, runMonitor } from "../src/lib/sheet-monitor/runner.ts";
 import { readOperationalSheet } from "../src/lib/sheet-monitor/google.ts";
 import { RedisMonitorStore, COMMIT_SCRIPT } from "../src/lib/sheet-monitor/store.ts";
+import { SWEETFUN_SOURCE, OFFLAND_SOURCE, sourceDefinition } from "../src/lib/booking-sources/config.ts";
+import { collectSnapshots } from "../src/lib/booking-sources/collection.ts";
 
 const t0 = "2026-09-06T00:00:00Z", t1 = "2026-09-06T00:01:00Z", t2 = "2026-09-06T00:02:00Z", t3 = "2026-09-06T00:03:00Z";
 const row = (id, start = "2026-09-15", patch = {}) => Object.assign(["301", "DO_NOT_STORE_GUEST", "Agoda", start, new Date(Date.parse(start) + 86400000).toISOString().slice(0,10), "2026-08-01", "2500", "done", "OK", id, "DO_NOT_STORE_NOTE", ""], patch);
@@ -13,6 +15,65 @@ const values = rows => [HEADERS, ...rows];
 const seed = rows => adaptSweetfunSheet(values(rows), SOURCE_ID, t0);
 const ready = rows => reconcile(reconcile(initialState(seed(rows)), values(rows), t0), values(rows), t1);
 const confirm = (state, rows) => reconcile(reconcile(state, values(rows), t2), values(rows), t3);
+// Synthetic second property; this is not an assumption about OFFLAND's unread Sheet.
+const otherSource = { ...SWEETFUN_SOURCE, key:"fixture-villa", sourceId:"fixture-villa-sheet",
+  property:{ id:"fixture-villa",name:"Fixture villa",sourceLabel:"Fixture source",rooms:[{number:"301",id:"fixture-villa-unit"}] } };
+
+test("identical source row/order IDs are namespaced across properties",()=>{
+  const rows=values([row("same-row",undefined,{11:"same-order"})]);
+  const a=seed([row("same-row",undefined,{11:"same-order"})]);
+  const b=adaptSweetfunSheet(rows,otherSource.sourceId,t0,[],undefined,otherSource.property);
+  assert.notEqual(a.bookings[0].id,b.bookings[0].id);assert.notEqual(a.bookings[0].order_id,b.bookings[0].order_id);
+  assert.equal(b.bookings[0].property_id,"fixture-villa");assert.equal(b.bookings[0].room_id,"fixture-villa-unit");
+  const state=reconcile(reconcile(initialState(b),rows,t0,otherSource),rows,t1,otherSource);
+  assert.equal(state.snapshot.source.id,otherSource.sourceId);
+  assert.equal(state.snapshot.bookings[0].property_id,"fixture-villa");
+  assert.throws(()=>reconcile(state,rows,t2,SWEETFUN_SOURCE),/MONITOR_SOURCE_MISMATCH/);
+});
+test("conflicts block only configured units, with no cross-source acknowledgement reuse",()=>{
+  const rows=values([row("same"),row("same")]);
+  const a=seed([row("same"),row("same")]);
+  const b=adaptSweetfunSheet(rows,otherSource.sourceId,t0,a.issues.map(i=>i.fingerprint),undefined,otherSource.property);
+  assert.equal(b.summary.new_issue_rows,2);assert.equal(b.bookings.length,1);assert.equal(b.bookings[0].room_id,"fixture-villa-unit");
+  const unknown=adaptSweetfunSheet(values([row("unknown",undefined,{0:"UNKNOWN ROOM"})]),otherSource.sourceId,t0,[],undefined,otherSource.property);
+  assert.equal(unknown.bookings.length,1);assert.equal(unknown.bookings[0].property_id,"fixture-villa");
+});
+test("unverified sources and object prototype names are never routable",()=>{
+  assert.throws(()=>sourceDefinition("unregistered-property"),/NOT_CONFIGURED/);
+  assert.throws(()=>sourceDefinition("__proto__"),/NOT_CONFIGURED/);
+});
+test("OFFLAND verified headers map O to parent ID, L to guest count and NT$ to room-night amount",()=>{
+  const headers=["房間","用戶名稱","預定平台","入住日期","退房日期","預訂日期","房費","全額支付狀態","檢查狀態","唯一ID","備註","入住人數","付款日期","已付金額","刷卡狀態","付款UID"];
+  const first=["OFFLAND","PRIVATE NAME","Booking","2026/9/15","2026/9/16","2026/8/1","NT$10,000","","OK","row1","PRIVATE NOTE","8人","","","OBE123",""];
+  const second=[...first];second[0]="OFFLAND(連住)";second[3]="2026/9/16";second[4]="2026/9/17";second[9]="row2";second[6]="NT$12,000";
+  const rows=normalizeRows([headers,first,second],OFFLAND_SOURCE);
+  const snapshot=adaptSweetfunSheet([HEADERS,...rows.map(r=>r.cells)],OFFLAND_SOURCE.sourceId,t0,[],undefined,OFFLAND_SOURCE.property);
+  assert.equal(snapshot.summary.quarantined_rows,0);
+  assert.equal(snapshot.bookings[0].order_id,snapshot.bookings[1].order_id);
+  assert.deepEqual(snapshot.bookings.map(b=>b.room_rate),[10000,12000]);
+  assert.equal(snapshot.bookings[0].source_guest_count,8);
+  assert.equal(snapshot.bookings[0].payment_status,"unknown");assert.deepEqual(snapshot.bookings[0].payments,[]);
+  assert.equal(snapshot.bookings[0].room_id,"offland-villa");assert.equal(JSON.stringify(snapshot).includes("OBE123"),false);
+  assert.equal(JSON.stringify(rows).includes("PRIVATE"),false);
+});
+test("a failed property remains explicitly unavailable without discarding another property",async()=>{
+  const result=await collectSnapshots([SWEETFUN_SOURCE,OFFLAND_SOURCE],async source=>{
+    if(source.key==="offland")throw new Error("private provider error");return seed([row("a")]);
+  });
+  assert.equal(result.snapshots.length,1);assert.equal(result.snapshots[0].definition.key,"sweetfun");
+  assert.deepEqual(result.errors,[{property_id:"offland",label:"OFFLAND 訂房表"}]);
+  await assert.rejects(()=>collectSnapshots([SWEETFUN_SOURCE],async()=>{throw new Error("offline");}),/UNAVAILABLE/);
+});
+test("separate property locks and storage keys cannot overwrite each other",async()=>{
+  const original=globalThis.fetch;const acquired=[];
+  globalThis.fetch=async(_url,options)=>{const command=JSON.parse(options.body);acquired.push(command[1]);return Response.json({result:"OK"});};
+  try{
+    const a=new RedisMonitorStore("https://test.invalid","token",SWEETFUN_SOURCE);
+    const b=new RedisMonitorStore("https://test.invalid","token",otherSource);
+    assert.ok(await a.acquire());assert.ok(await b.acquire());assert.notEqual(acquired[0],acquired[1]);
+    await assert.rejects(()=>b.commit("owner",ready([row("a")])),/MONITOR_SOURCE_MISMATCH/);
+  }finally{globalThis.fetch=original;}
+});
 
 test("Taipei calendar cutoff is inclusive and crosses UTC midnight correctly", () => {
   assert.equal(cutoffDay("2026-09-05T16:00:00Z"), "2026-08-07");

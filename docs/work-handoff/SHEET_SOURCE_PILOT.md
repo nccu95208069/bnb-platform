@@ -1,6 +1,6 @@
 # Google Sheet booking source pilot — 2026-09-06
 
-The production calendar can now consume an anonymous, read-only snapshot produced by a dedicated Sweetfun Sheet adapter. This is a one-time data import, not a live Google connection. The operational Sheet is unchanged. The payment sandbox and live pricing engine are not connected to this source.
+This document records the original one-time Sweetfun import and its field contract. **Superseded runtime status:** both Sweetfun and OFFLAND now use verified recurring production monitoring; see [SHEET_MONITOR.md](SHEET_MONITOR.md). The anonymous, read-only projection and field semantics below remain applicable. The operational Sheet is unchanged. The payment sandbox and live pricing engine are not connected to this source.
 
 ## Contract and interpretation
 
@@ -25,7 +25,7 @@ Runtime `CALENDAR_SOURCE=sheet_snapshot` activates the source. Missing/broken co
 
 Production environment settings must be set on the project itself. Promoting a preview can replace deployment-specific runtime settings with production settings; always query the final production API and check `data_mode`, source version and counts after promotion.
 
-**Deployment prerequisite:** prepare and validate the anonymized snapshot before every deployment from a clean checkout. The public Git repository does not contain the data artifact. A Git/CI deployment without it will intentionally fail closed. This pilot should move to authenticated durable source storage when live synchronization is implemented.
+**Deployment prerequisite:** prepare and validate the anonymized snapshot before every deployment from a clean checkout. The public Git repository does not contain the data artifact. A Git/CI deployment without it will intentionally fail closed. Live monitoring now reads private Redis state; the bundled seeds remain required for initial bootstrap and deliberate disabled-monitor fallback.
 
 From `frontend/`, run `node --experimental-strip-types scripts/import-sheet-snapshot.mjs /absolute/private/input.json` with `{ values, observedAt }` from an authorized header-and-rows read. The adapter strips identity before writing the ignored artifact. Do not commit the private input. Set nonsecret Vercel flags with `vercel env update NAME production --value VALUE --yes`; stdin values can preserve an unintended trailing newline. Confirm exact values and final production responses rather than relying only on a successful deployment.
 
@@ -35,7 +35,7 @@ Each connector should produce a common versioned model, keeping source ID, prope
 
 Recommended live design: upstream completes an entire write batch, then emits a signed event with event ID and batch version; the receiver performs an idempotent ingestion and validation before atomically publishing a new snapshot. Retain last valid data and show stale/error status on failure. Add periodic reconciliation to capture manual edits and recover lost notifications. Do not publish intermediate delete-then-insert states.
 
-The current Google connector access in this task is not a reusable website credential. Configure a least-privilege service identity or delegated OAuth connection for the application before implementing ongoing reads. Source permissions need not become public.
+The initial interactive Google connector access was not a reusable website credential. The owner subsequently authorized a server credential, now configured for ongoing read-only reads; see the monitor document. Source permissions need not become public.
 
 Apps Script edit triggers do not run for API/script writes. Drive resource notifications are an alternative but still require a receiver, renewal and subsequent reads; they do not supply a complete changed-row payload. End-to-end delay includes Gmail polling, parsing/Sheet writes, ingestion and browser refresh. No subsecond SLA is claimed.
 
@@ -52,7 +52,7 @@ Official references: [Apps Script trigger restrictions](https://developers.googl
 - [ ] Preserve original OTA per-night/per-room prices instead of only evenly allocated Sheet amounts; owner explicitly deferred this.
 - [ ] Add separate guest-payment, OTA-collection and property-settlement fields plus a proper payment ledger. Do not infer settlement from `done`.
 - [x] All AI/manual/LINE rows follow J row identity, optional L parent identity and N OTA identity.
-- [ ] Event-driven Sheet synchronization: watch the specific Drive file for content changes, including API and manual updates; fetch the target tab, compare source-keyed snapshots, represent removed rows as retired source records, and publish a validated batch atomically. Notifications from other tabs/format-only edits should not alter bookings. Persist subscription identity/expiry, renew before expiry, deduplicate messages and reconcile periodically. Direct upstream batch-complete notification remains useful to avoid delete/reinsert intermediate states. Durable storage, application Google authorization and a receiver are still required; subscription is not enabled by this pilot.
+- [ ] Event-driven Sheet synchronization: watch the specific Drive file for content changes, including API and manual updates; fetch the target tab, compare source-keyed snapshots, represent removed rows as retired source records, and publish a validated batch atomically. Notifications from other tabs/format-only edits should not alter bookings. Persist subscription identity/expiry, renew before expiry, deduplicate messages and reconcile periodically. Direct upstream batch-complete notification remains useful to avoid delete/reinsert intermediate states. Durable storage and application Google authorization are now configured for polling; a notification receiver/subscription remains unimplemented.
 
 
 ## Acknowledged historical issues
@@ -61,7 +61,7 @@ Owner defers the already-listed historical issues. `--acknowledge-current-issues
 
 Source summaries distinguish `new_issue_rows` from `historical_issue_rows`. Suppress the old cleanup banner; show acknowledged slots neutrally as historical room status. Preserve unresolved allocation/money exclusions rather than choosing a record or counting duplicate revenue. This changes acknowledgement/triage, not source truth or financial validation.
 
-For initial synchronization, recommend minute-scale authoritative reconciliation plus a writer batch-complete webhook to accelerate. Treat Google push as optional; it cannot replace source reads, channel renewal and failure recovery. No recurring synchronization has been enabled.
+For initial synchronization, recommend minute-scale authoritative reconciliation plus a writer batch-complete webhook to accelerate. Treat Google push as optional; it cannot replace source reads, channel renewal and failure recovery. Recurring reconciliation is now enabled; Google push remains disabled.
 
 ## Confirmed rolling comparison window — 2026-09-06
 
@@ -74,8 +74,8 @@ Owner requests a smaller routine comparison scope:
 - Keep out-of-scope unresolved issue fingerprints and acknowledgements. The current full-snapshot import's retirement behavior cannot be applied directly to partial results. Retire an acknowledgement only after an authoritative check verifies resolution.
 - Reading and comparing are separate costs. This Sheet is not sorted by stay date; the last N rows are not a valid substitute for the date predicate. Start with correct source reads and scoped comparison; optimize fetched ranges only with a reliable source index or upstream query contract.
 
-This records the agreed design for future ongoing synchronization. The deployed one-time snapshot and its full historical calendar remain unchanged; no recurring job or Google subscription is enabled by this decision.
+This scope is now implemented by the recurring monitor while preserving historical calendar records. No Google push subscription is enabled.
 
 ## Monitor implementation follow-up
 
-The owner subsequently requested implementing monitoring. The local implementation and verified read-only connection are documented in [SHEET_MONITOR.md](SHEET_MONITOR.md). Production activation is still pending the first-time storage integration terms and cloud deployment verification. The pilot's deployed snapshot boundary remains in force until activation is verified.
+The owner subsequently requested implementing monitoring. The implementation, owner-approved cloud activation, actual scheduled-run evidence and OFFLAND mapping are documented in [SHEET_MONITOR.md](SHEET_MONITOR.md). Both sources are now monitored in production.

@@ -1,4 +1,6 @@
 import { readBookingSnapshot } from "@/lib/booking-sources/snapshot";
+import { activeSources } from "@/lib/booking-sources/config";
+import { collectSnapshots } from "@/lib/booking-sources/collection";
 import { type NextRequest, NextResponse } from "next/server";
 
 type PaymentStatus = "paid" | "deposit" | "unpaid";
@@ -192,21 +194,27 @@ export async function GET(request: NextRequest) {
 
   if (process.env.CALENDAR_SOURCE === "sheet_snapshot") {
     try {
-      const snapshot = await readBookingSnapshot();
-      if (!snapshot) throw new Error("SNAPSHOT_NOT_CONFIGURED");
+      const definitions = activeSources();
+      const { snapshots, errors } = await collectSnapshots(definitions, readBookingSnapshot);
+      const allBookings = snapshots.flatMap(s => s.snapshot.bookings);
+      const loadedProperties = new Set(snapshots.map(s => s.definition.property.id));
       // Include every room-night of matching parent orders, so cross-month stays and totals
       // remain complete. The calendar filters displayed dates independently.
-      const orderIds = new Set(snapshot.bookings
+      const orderIds = new Set(allBookings
         .filter(b => b.check_in < end && b.check_out >= start).map(b => b.order_id));
-      const bookings = snapshot.bookings.filter(b => orderIds.has(b.order_id));
+      const bookings = allBookings.filter(b => orderIds.has(b.order_id));
       return NextResponse.json({
         year: startDate.getUTCFullYear(), month: startDate.getUTCMonth() + 1,
         month_start: monthStart(start), month_end: monthEnd(start), period_start: start, period_end: end,
-        properties: PROPERTIES.filter(p => p.id === "sweetfun"), rooms: ROOMS.filter(r => r.property_id === "sweetfun"),
+        properties: PROPERTIES.filter(p => definitions.some(d => d.property.id === p.id)), rooms: ROOMS.filter(r => loadedProperties.has(r.property_id)),
         order_count: new Set(bookings.filter(b => !b.source_conflict).map(b => b.order_id)).size,
         booking_segment_count: bookings.filter(b => !b.source_conflict).length,
         total_amount: bookings.filter(b => !b.source_conflict).reduce((sum, b) => sum + b.room_rate, 0),
-        bookings, source: snapshot.source, source_summary: snapshot.summary,
+        bookings,
+        source: { ...snapshots[0].snapshot.source, automatic_sync: snapshots.some(s => s.snapshot.source.automatic_sync) },
+        source_summary: snapshots[0].snapshot.summary,
+        sources: snapshots.map(({ definition, snapshot }) => ({ property_id: definition.property.id, source: snapshot.source, summary: snapshot.summary })),
+        source_errors: errors,
         data_mode: "anonymized_google_sheet_snapshot",
       }, { headers: { "Cache-Control": "no-store" } });
     } catch {
