@@ -28,6 +28,8 @@ test('30-day sessions, persistent device ID, admin recovery and forced reset wit
   return Response.json({result});
  });
  const req=(path,method='GET',body,cookie)=>new NextRequest(`https://calendar.test/api/${path}`,{method,headers:{host:'calendar.test',origin:'https://calendar.test','user-agent':'Synthetic browser',...(cookie?{cookie}:{})},...(body?{body:JSON.stringify(body)}:{})});
+ const anonymousCalendar=await Calendar.GET(req('v1/bookings/calendar'));assert.equal(anonymousCalendar.status,401);assert.equal(JSON.stringify(await anonymousCalendar.json()).includes('bookings'),false);
+ const invalidCalendar=await Calendar.GET(req('v1/bookings/calendar','GET',null,'sf_calendar_member=invalid'));assert.equal(invalidCalendar.status,401);
  const login=await Session.POST(req('calendar-session','POST',{email:'sweetfuntw@gmail.com',code:ownerPassword}));assert.equal(login.status,200);assert.equal(login.cookies.get(OWNER_COOKIE).maxAge,30*86400);assert.equal(OWNER_SESSION_SECONDS,30*86400);
  const owner=`${OWNER_COOKIE}=${login.cookies.get(OWNER_COOKIE).value}`;
  const binding=ownerCredential.revision;assert.equal(validOwnerSession(login.cookies.get(OWNER_COOKIE).value,Date.now()+29*86400000,binding),true);

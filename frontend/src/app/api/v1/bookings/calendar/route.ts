@@ -176,6 +176,16 @@ const OFFLAND_BOOKINGS = RAW_OFFLAND_BOOKINGS.map(
 const DEMO_BOOKINGS = [...SWEETFUN_BOOKINGS, ...OFFLAND_BOOKINGS];
 
 export async function GET(request: NextRequest) {
+  // Authenticate before reading snapshots or returning any calendar metadata.
+  if (process.env.NODE_ENV === "production" || process.env.CALENDAR_SOURCE === "sheet_snapshot") {
+    try {
+      if ((await sessionMember(request))?.mustResetPassword) return NextResponse.json({detail:"請先重設密碼。",requires_password_reset:true},{status:403,headers:{"Cache-Control":"private, no-store"}});
+      if (!await principalFor(request)) return NextResponse.json({detail:"請先登入。"},{status:401,headers:{"Cache-Control":"private, no-store",Vary:"Cookie"}});
+    } catch {
+      return NextResponse.json({detail:"暫時無法確認登入，請稍後再試。"},{status:503,headers:{"Cache-Control":"private, no-store"}});
+    }
+  }
+
   const start = request.nextUrl.searchParams.get("start") ?? "2026-09-01";
   const end = request.nextUrl.searchParams.get("end") ?? "2026-10-01";
 
@@ -201,6 +211,7 @@ export async function GET(request: NextRequest) {
     try {
       if((await sessionMember(request))?.mustResetPassword) return NextResponse.json({detail:"請先重設密碼。",requires_password_reset:true},{status:403,headers:{"Cache-Control":"private, no-store"}});
       const principal = await principalFor(request);
+      if (!principal) return NextResponse.json({detail:"請先登入。"},{status:401,headers:{"Cache-Control":"private, no-store",Vary:"Cookie"}});
       const definitions = activeSources().filter(d => allowedProperty(principal, d.property.id));
       const { snapshots, errors } = await collectSnapshots(definitions, readBookingSnapshot);
       const allBookings = snapshots.flatMap(s => s.snapshot.bookings);

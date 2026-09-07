@@ -1,11 +1,19 @@
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+import { principalFor, sessionMember } from "@/lib/workspace-auth/session";
 import { AuthGuard } from "@/components/admin/auth-guard";
 import { Sidebar } from "@/components/sidebar";
 
-export default function MainLayout({
+export default async function MainLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  if (process.env.NEXT_PUBLIC_CALENDAR_SOURCE === "sheet_snapshot") {
+    const request = { cookies: await cookies() };
+    if ((await sessionMember(request))?.mustResetPassword) redirect("/reset-password");
+    if (!await principalFor(request)) redirect("/calendar-access");
+  }
   return (
     <AuthGuard>
       <div className="flex min-h-dvh bg-muted/20 md:h-screen md:overflow-hidden">

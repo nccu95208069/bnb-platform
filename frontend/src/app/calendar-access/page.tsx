@@ -32,7 +32,6 @@ export default function CalendarAccessPage() {
       <button disabled={busy} className="w-full rounded-lg bg-slate-900 px-4 py-3 font-medium text-white disabled:opacity-50">{busy ? "登入中…" : "登入"}</button>
       <p className="text-xs text-slate-500">管理員已設定帳號密碼者可直接登入；收到邀請信者請先開啟連結設定密碼。登入會在此瀏覽器保留 30 天。</p>
       <a href="/forgot-password" className="block text-center text-sm underline">忘記密碼？請管理員協助</a>
-      <a href="/calendar" className="block text-center text-sm underline">返回不顯示姓名的日曆</a>
     </form>
   </main>;
 }
