@@ -178,7 +178,10 @@ export function compareTaiwanAddresses(leftRaw: string, rightRaw: string): Addre
 
   const compactLeft = compactIdentityAddress(left);
   const compactRight = compactIdentityAddress(right);
-  if (compactLeft && compactLeft === compactRight) {
+  const hasComparableCore = Boolean(
+    left.district && right.district && left.road && right.road && left.number && right.number,
+  );
+  if (hasComparableCore && compactLeft === compactRight) {
     return {
       score: 1,
       status: "match",
