@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
+  Radar,
   Search,
   ShieldCheck,
   X,
@@ -195,6 +196,22 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           訂單日曆
         </Link>
 
+        {actorPermissions.viewPrices && (
+          <Link
+            href="/competitor-radar"
+            onClick={onNavigate}
+            className={cn(
+              "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
+              pathname === "/competitor-radar" || pathname.startsWith("/competitor-radar/")
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+            )}
+          >
+            <Radar className="size-4" />
+            競品雷達
+          </Link>
+        )}
+
         {actorPermissions.manageMembers && (
           <Link
             href="/access"
@@ -231,6 +248,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 export function Sidebar() {
+  const pathname = usePathname();
   const properties = useCalendarPreferences((state) => state.properties);
   const selectedPropertyIds = useCalendarPreferences(
     (state) => state.selectedPropertyIds,
@@ -255,6 +273,12 @@ export function Sidebar() {
   const selectedNames = properties
     .filter((property) => selectedPropertyIds.includes(property.id))
     .map((property) => property.short_name);
+  const isCalendarRoute = pathname === "/calendar" || pathname.startsWith("/calendar/");
+  const mobileTitle = pathname.startsWith("/competitor-radar")
+    ? "競品雷達"
+    : pathname.startsWith("/access")
+      ? "權限管理"
+      : "Sweetfun OS";
 
   return (
     <>
@@ -262,58 +286,76 @@ export function Sidebar() {
         <SidebarContent />
       </aside>
 
-      <header className="fixed inset-x-0 top-0 z-50 grid h-14 grid-cols-[40px_minmax(0,1fr)_120px] items-center gap-1 border-b bg-background/95 px-2 backdrop-blur md:hidden">
+      <header
+        className={cn(
+          "fixed inset-x-0 top-0 z-50 grid h-14 items-center gap-1 border-b bg-background/95 px-2 backdrop-blur md:hidden",
+          isCalendarRoute
+            ? "grid-cols-[40px_minmax(0,1fr)_120px]"
+            : "grid-cols-[40px_minmax(0,1fr)_40px]",
+        )}
+      >
         <Button
           variant="ghost"
           size="icon"
           className="size-9"
           onClick={() => setMobileMenuOpen(true)}
-          aria-label="開啟日曆與旅宿選單"
+          aria-label="開啟導覽與旅宿選單"
         >
           <Menu className="size-5" />
         </Button>
 
-        <button
-          type="button"
-          onClick={() => requestCalendarNavigation("today")}
-          className="min-w-0 px-1 text-center"
-          aria-label="回到今天"
-        >
-          <p className="truncate text-sm font-semibold">{mobilePeriodLabel}</p>
-          <p className="truncate text-[10px] text-muted-foreground">
-            {selectedNames.length ? selectedNames.join("、") : "選擇旅宿"}
-          </p>
-        </button>
+        {isCalendarRoute ? (
+          <button
+            type="button"
+            onClick={() => requestCalendarNavigation("today")}
+            className="min-w-0 px-1 text-center"
+            aria-label="回到今天"
+          >
+            <p className="truncate text-sm font-semibold">{mobilePeriodLabel}</p>
+            <p className="truncate text-[10px] text-muted-foreground">
+              {selectedNames.length ? selectedNames.join("、") : "選擇旅宿"}
+            </p>
+          </button>
+        ) : (
+          <div className="min-w-0 px-1 text-center">
+            <p className="truncate text-sm font-semibold">{mobileTitle}</p>
+            <p className="truncate text-[10px] text-muted-foreground">旅宿營運工作台</p>
+          </div>
+        )}
 
-        <div className="flex items-center justify-end gap-0.5">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            onClick={() => requestCalendarNavigation("previous")}
-            aria-label="上一個日期區間"
-          >
-            <ChevronLeft className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            onClick={() => requestCalendarNavigation("next")}
-            aria-label="下一個日期區間"
-          >
-            <ChevronRight className="size-4" />
-          </Button>
-          <Button
-            variant={mobileSearchOpen ? "secondary" : "ghost"}
-            size="icon"
-            className="size-9"
-            onClick={() => setMobileSearchOpen(true)}
-            aria-label="搜尋訂單"
-          >
-            <Search className="size-4" />
-          </Button>
-        </div>
+        {isCalendarRoute ? (
+          <div className="flex items-center justify-end gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9"
+              onClick={() => requestCalendarNavigation("previous")}
+              aria-label="上一個日期區間"
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9"
+              onClick={() => requestCalendarNavigation("next")}
+              aria-label="下一個日期區間"
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+            <Button
+              variant={mobileSearchOpen ? "secondary" : "ghost"}
+              size="icon"
+              className="size-9"
+              onClick={() => setMobileSearchOpen(true)}
+              aria-label="搜尋訂單"
+            >
+              <Search className="size-4" />
+            </Button>
+          </div>
+        ) : (
+          <span />
+        )}
       </header>
 
       <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
@@ -322,7 +364,7 @@ export function Sidebar() {
           className="w-[88vw] max-w-sm p-0 pb-[env(safe-area-inset-bottom)] [&>button]:hidden"
         >
           <SheetTitle className="sr-only">
-            Sweetfun OS 日曆顯示與旅宿篩選
+            Sweetfun OS 導覽與旅宿篩選
           </SheetTitle>
           <div className="absolute right-3 top-3 z-10">
             <Button
