@@ -1,0 +1,42 @@
+name: Radar Booking City Search Probe
+on:
+  push:
+    branches: [feat/competitor-radar-testable-preview]
+    paths: [.github/workflows/radar-booking-city-search-probe.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      VERCEL_TEAM_ID: team_rtARGegsahiZ6hOY7l2dUWGw
+      VERCEL_PROJECT_ID: prj_5a6ilBSvneWYIDTGoCFFZhAjWYeM
+    steps:
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+      - run: |
+          mkdir -p /tmp/booking-city && cd /tmp/booking-city
+          npm init -y >/dev/null
+          npm install --save-exact @vercel/sandbox >/dev/null
+      - name: Search Ruifang with selected dates and inspect Sweetfun card
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        working-directory: /tmp/booking-city
+        run: |
+          cat > probe.mjs <<'JS'
+          import { Sandbox } from '@vercel/sandbox';
+          const box=await Sandbox.create({token:process.env.VERCEL_TOKEN,teamId:process.env.VERCEL_TEAM_ID,projectId:process.env.VERCEL_PROJECT_ID,source:{type:'snapshot',snapshotId:'snap_c3rDmQdTPMoDHIu55bxS3MruQxZz'},timeout:5*60*1000,resources:{vcpus:2},networkPolicy:'allow-all'});
+          async function run(args,limit=650000){const r=await box.runCommand({cmd:'agent-browser',args});const out=(await r.stdout()).slice(0,limit);if(r.exitCode)throw new Error((await r.stderr()).slice(0,5000));return out}
+          async function ev(source,limit){return run(['eval',source],limit)}
+          try{
+            await run(['open','https://www.booking.com/city/tw/ruifang.zh-tw.html']);await run(['wait','6500']);
+            await ev(`(()=>{const a=[...document.querySelectorAll('button')].filter(x=>/選擇日期|入住日/.test((x.innerText||'')+(x.getAttribute('aria-label')||'')));a.at(-1)?.click();return a.length})()`);await run(['wait','400']);
+            for(const day of ['2026-09-15','2026-09-16']){await ev(`(()=>{const x=[...document.querySelectorAll('[data-date="${day}"]')].find(x=>!x.closest('[aria-disabled="true"]')&&!x.hasAttribute('disabled'));if(!x)return false;(x.closest('button')||x).click();return true})()`);await run(['wait','600'])}
+            const clicked=await ev(`(()=>{const x=[...document.querySelectorAll('button')].find(x=>/^搜尋$/.test((x.innerText||'').trim()));if(!x)return false;x.click();return true})()`);
+            await run(['wait','--load','networkidle']);await run(['wait','8000']);
+            const result=await ev(`JSON.stringify((()=>{const cards=[...document.querySelectorAll('[data-testid="property-card"]')];const card=cards.find(x=>/水芳瑞芳-九份|Sweetfun/i.test(x.innerText||''));return{clicked:${JSON.stringify(clicked)},url:location.href,title:document.title,cardCount:cards.length,cardText:(card?.innerText||'').slice(0,30000),links:[...card?.querySelectorAll('a')||[]].map(a=>a.href).slice(0,20),dateControls:[...document.querySelectorAll('input,button')].map(x=>(x.value||x.innerText||x.getAttribute('aria-label')||'').trim()).filter(x=>/9 月 15 日|9 月 16 日|2026-09-15|2026-09-16/.test(x)).slice(0,30),body:(document.body.innerText||'').slice(0,90000)}})())`,650000);
+            console.log(result);
+          }finally{await box.runCommand({cmd:'agent-browser',args:['close']}).catch(()=>undefined);await box.stop().catch(()=>undefined)}
+          JS
+          node probe.mjs
