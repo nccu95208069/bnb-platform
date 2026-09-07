@@ -1085,7 +1085,7 @@ export function BookingCalendarResponsive() {
   return (
     <div>
       {showUnsold && (
-        <div className="sticky top-14 z-40 mb-3 flex justify-end bg-background/95 py-2 backdrop-blur md:top-0">
+        <div className="sticky top-14 z-40 mb-1 flex justify-end bg-background/95 py-1 backdrop-blur md:top-0">
           <div
             className="inline-flex gap-1 rounded-xl border bg-muted/40 p-1"
             role="group"

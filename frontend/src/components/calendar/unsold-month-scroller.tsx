@@ -197,6 +197,20 @@ function MonthPanel({month,root,props}: {month:string;root:RefObject<HTMLDivElem
 }
 export function UnsoldMonthScroller(props:Props) {
  const root=useRef<HTMLDivElement>(null);
+ useLayoutEffect(()=>{
+  const container=root.current;if(!container)return;
+  let frame=0;
+  const measure=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{
+   const height=window.visualViewport?.height ?? window.innerHeight;
+   const top=container.getBoundingClientRect().top;
+   container.style.height=`${Math.max(280,height-Math.max(0,top)-8)}px`;
+  });};
+  measure();
+  const observer=new ResizeObserver(measure);
+  if(container.parentElement)observer.observe(container.parentElement);
+  window.addEventListener("resize",measure);window.visualViewport?.addEventListener("resize",measure);
+  return ()=>{observer.disconnect();cancelAnimationFrame(frame);window.removeEventListener("resize",measure);window.visualViewport?.removeEventListener("resize",measure);};
+ },[]);
  const scrollingMonth=useRef<string|null>(null);
  const lastJump=useRef(props.jump);
  const onVisible=useRef(props.onVisibleMonth);
@@ -226,7 +240,7 @@ export function UnsoldMonthScroller(props:Props) {
   container.addEventListener("scroll",scroll,{passive:true});
   return ()=>{container.removeEventListener("scroll",scroll);cancelAnimationFrame(frame);};
  },[]);
- return <div ref={root} role="region" aria-label="未售月曆，可上下捲動月份" tabIndex={0} className="h-[calc(100dvh-224px)] min-h-[520px] overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm md:h-[calc(100dvh-250px)]">
+ return <div ref={root} role="region" aria-label="未售月曆，可上下捲動月份" tabIndex={0} className="h-[calc(100dvh-280px)] min-h-[280px] overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm">
   {MONTHS.map(month=><MonthPanel key={month} month={month} root={root} props={props}/>)}
  </div>;
 }

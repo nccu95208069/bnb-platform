@@ -41,10 +41,11 @@ const PROPERTY_COLORS: Record<CalendarProperty["color"], string> = {
 
 function CalendarViewFilters() {
   const view = useCalendarPreferences((state) => state.view);
+  const mode = useCalendarPreferences((state) => state.mode);
   const setView = useCalendarPreferences((state) => state.setView);
 
   return (
-    <section className="px-3 pt-4 md:hidden">
+    <section className={cn("px-3 pt-4", mode !== "unsold" && "md:hidden")}>
       <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
         日曆檢視
       </p>

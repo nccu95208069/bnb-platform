@@ -7,7 +7,6 @@ import { UnsoldMonthScroller } from "./unsold-month-scroller";
 import { availabilityFeatures } from "@/lib/availability-features";
 import {
   ArrowRight,
-  CalendarDays,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
@@ -307,7 +306,7 @@ export function AvailabilityCalendar() {
     JSON.stringify(data?.query.rooms) === JSON.stringify(query.rooms);
   const focusedError = actionError && !preview && !selectedCell;
   return (
-    <div className="space-y-4 pb-8">
+    <div className="space-y-2 px-2 pb-2 md:px-0">
       {searchOpen && (
         <div className="fixed inset-x-0 top-0 z-[70] flex h-14 gap-2 border-b bg-background p-2 md:hidden">
           <Input
@@ -327,43 +326,8 @@ export function AvailabilityCalendar() {
           </Button>
         </div>
       )}
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="hidden items-center gap-2 text-xs font-medium text-emerald-700 sm:flex">
-            <CalendarDays className="size-4" />
-            房況與售價
-          </p>
-          <h1 className="mt-1 text-xl font-semibold sm:text-2xl">未售房況</h1>
-          <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
-            查看各日期的未售房間與售價。
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border p-1">
-            {(["month", "week", "day"] as const).map((v) => (
-              <Button
-                key={v}
-                size="sm"
-                variant={view === v ? "secondary" : "ghost"}
-                aria-pressed={view === v}
-                onClick={() => setView(v)}
-              >
-                {{ month: "月", week: "週", day: "日" }[v]}
-              </Button>
-            ))}
-          </div>
-          <Button
-            variant="outline"
-            size="icon"
-            aria-label="更新未售房況"
-            disabled={loading}
-            onClick={() => setRefresh((v) => v + 1)}
-          >
-            <RefreshCw className={cn("size-4", loading && "animate-spin")} />
-          </Button>
-        </div>
-      </header>
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card p-3">
+      <h1 className="sr-only">未售房況</h1>
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="hidden items-center gap-1 md:flex">
           <Button
             variant="ghost"
@@ -390,7 +354,7 @@ export function AvailabilityCalendar() {
           </Button>
           <span className="ml-2 text-sm font-semibold">{period.label}</span>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Select value={room} onValueChange={setRoom}>
             <SelectTrigger className="w-28" aria-label="篩選房間">
               <SelectValue />
@@ -419,38 +383,14 @@ export function AvailabilityCalendar() {
               ))}
             </SelectContent>
           </Select>
+          <Button variant="ghost" size="icon" className="size-8" aria-label="更新未售房況" disabled={loading} onClick={() => setRefresh(v => v + 1)}><RefreshCw className={cn("size-4", loading && "animate-spin")} /></Button>
         </div>
       </div>
-      {!PAYMENT_SANDBOX && <p className="rounded-lg border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">水芳 Sweetfun · {data?.source_notice ?? "價格與庫存讀取中"}</p>}
-      <div className="grid grid-cols-3 gap-2">
-        {[
-          ["未售房晚", data?.counts.available ?? 0, "text-emerald-700"],
-          [
-            "暫留・封房・維修",
-            (data?.counts.held ?? 0) +
-              (data?.counts.blocked ?? 0) +
-              (data?.counts.maintenance ?? 0),
-            "text-muted-foreground",
-          ],
-          [
-            "待確認・衝突",
-            (data?.counts.unknown ?? 0) + (data?.counts.conflict ?? 0),
-            "text-amber-700",
-          ],
-        ].map(([label, count, color]) => (
-          <Card key={label} className="gap-0 py-0 shadow-none">
-            <CardContent className="p-3 sm:p-4">
-              <p className="text-[10px] text-muted-foreground sm:text-xs">
-                {label}
-              </p>
-              <p
-                className={cn("mt-1 text-xl font-semibold sm:text-2xl", color)}
-              >
-                {loading ? "—" : count}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
+      {!PAYMENT_SANDBOX && <p className="text-[11px] text-muted-foreground" aria-label="房價上次更新時間">房價更新 {data?.cells[0]?.pricing?.observed_at ? new Intl.DateTimeFormat("zh-TW", { timeZone:"Asia/Taipei", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" }).format(new Date(data.cells[0].pricing.observed_at)) : "讀取中"}</p>}
+      <div className="flex items-center gap-3 text-xs" aria-label="未售房況摘要">
+        <span>未售 <strong className="tabular-nums">{loading ? "—" : data?.counts.available ?? 0}</strong></span>
+        <span className="text-muted-foreground">暫留／封房 <strong className="tabular-nums">{loading ? "—" : (data?.counts.held ?? 0) + (data?.counts.blocked ?? 0) + (data?.counts.maintenance ?? 0)}</strong></span>
+        <span className="text-amber-700">待確認 <strong className="tabular-nums">{loading ? "—" : (data?.counts.unknown ?? 0) + (data?.counts.conflict ?? 0)}</strong></span>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex gap-2">
@@ -492,24 +432,11 @@ export function AvailabilityCalendar() {
           )}
         </div>
       </div>
-      <div aria-label="銷售機率圖例" className="flex flex-wrap gap-2 text-xs">
-        <span className="rounded border border-red-300 bg-red-100 px-2 py-1 text-red-950">高 ≥60%</span>
-        <span className="rounded border border-emerald-300 bg-emerald-100 px-2 py-1 text-emerald-950">中 40%–未滿60%</span>
-        <span className="rounded border border-blue-300 bg-blue-100 px-2 py-1 text-blue-950">低 &lt;40%</span>
-        <span className="rounded border bg-slate-50 px-2 py-1 text-slate-700">灰：未提供預測</span>
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span>
-          色彩代表未售房晚的銷售機率
-        </span>
-        <span>
-          <span className="text-amber-500">●</span> 暫留／待確認
-        </span>
-        <span>● 封房／維修</span>
-        <span className="hidden items-center gap-1 sm:flex">
-          <ShieldCheck className="size-3" />
-          接單前請重新確認庫存與價格
-        </span>
+      <div aria-label="銷售機率圖例" className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] leading-4">
+        <span className="text-red-800">● 高 ≥60%</span>
+        <span className="text-emerald-800" title="40% 至未滿 60%">● 中 40–60%</span>
+        <span className="text-blue-800">● 低 &lt;40%</span>
+        <span className="text-slate-500">● 未提供</span>
       </div>
       {availabilityFeatures.demoPriceCycles && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3">
