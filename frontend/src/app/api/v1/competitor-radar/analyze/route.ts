@@ -1,11 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 
-import { sanitizeCompetitorAnalysis } from "@/lib/competitor-radar/sanitize";
+import { analyzeCompetitorProperty } from "@/lib/competitor-radar/analyze-property";
 import { guardCompetitorAnalysis } from "@/lib/competitor-radar/server-guard";
-import {
-  analyzeOfficialWebsite,
-  PublicUrlError,
-} from "@/lib/competitor-radar/website";
+import { PublicUrlError } from "@/lib/competitor-radar/website";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,9 +36,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const analysis = sanitizeCompetitorAnalysis(
-      await analyzeOfficialWebsite(body.url.trim()),
-    );
+    const analysis = await analyzeCompetitorProperty(body.url.trim());
     return NextResponse.json(analysis, {
       headers: { "Cache-Control": "no-store" },
     });
