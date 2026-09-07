@@ -1,4 +1,5 @@
 name: Radar Preview Check
+# Acceptance revision: explicit TWD labels and an observable NT$2,400 fixture.
 
 on:
   push:
