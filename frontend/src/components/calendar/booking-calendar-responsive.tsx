@@ -1075,12 +1075,16 @@ export function BookingCalendarResponsive() {
   const setMode = useCalendarPreferences((state) => state.setMode);
   const ready = useCalendarHistory();
   const { viewPrices } = useEffectivePermissions();
-  useEffect(() => { if (ready && !viewPrices && mode === "unsold") setMode("sold"); }, [ready, viewPrices, mode, setMode]);
+  const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);
+  const membership = useAccessControl((state) => state.membership);
+  const sweetfunAllowed = PAYMENT_SANDBOX || !!membership?.allProperties || !!membership?.propertyIds.includes("sweetfun");
+  const showUnsold = viewPrices && sweetfunAllowed && (selectedPropertyIds.length === 0 || selectedPropertyIds.includes("sweetfun"));
+  useEffect(() => { if (ready && !showUnsold && mode === "unsold") setMode("sold"); }, [ready, showUnsold, mode, setMode]);
   if (!ready)
     return <p className="p-4 text-sm text-muted-foreground">讀取日曆…</p>;
   return (
     <div>
-      {viewPrices && (
+      {showUnsold && (
         <div className="sticky top-14 z-40 mb-3 flex justify-end bg-background/95 py-2 backdrop-blur md:top-0">
           <div
             className="inline-flex gap-1 rounded-xl border bg-muted/40 p-1"
@@ -1103,7 +1107,7 @@ export function BookingCalendarResponsive() {
           </div>
         </div>
       )}
-      {mode === "unsold" && viewPrices ? (
+      {mode === "unsold" && showUnsold ? (
         <AvailabilityCalendar />
       ) : (
         <SoldBookingCalendar />
