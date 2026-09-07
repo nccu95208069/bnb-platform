@@ -1,5 +1,6 @@
 name: Radar Sandbox OTA Probe
 
+# UAT rerun: 2026-09-08
 on:
   push:
     branches: [feat/competitor-radar-testable-preview]
@@ -39,7 +40,7 @@ jobs:
           try{
             e.open=await c(['open','https://www.booking.com/hotel/tw/shui-fang-sweetfun-rui-fang-jiu-fen.zh-tw.html']);await c(['wait','7000']);
             e.openPicker=await j(`(()=>{const a=[...document.querySelectorAll('button')].filter(x=>/選擇日期|入住日/.test((x.innerText||'')+(x.getAttribute('aria-label')||'')));a.at(-1)?.click();return a.length})()`);await c(['wait','500']);
-            e.checkin=await date('2026-09-28');await c(['wait','900']);e.checkout=await date('2026-09-29');await c(['wait','1000']);
+            e.checkin=await date('2026-09-15');await c(['wait','900']);e.checkout=await date('2026-09-16');await c(['wait','1000']);
             e.controls=await j(`JSON.stringify([...document.querySelectorAll('button,a,[role="button"]')].map((x,i)=>({i,text:(x.innerText||x.textContent||'').trim(),aria:x.getAttribute('aria-label'),href:x.href||''})).filter(x=>/顯示價格|查看客房供應情況/.test((x.text||'')+(x.aria||''))).slice(0,60))`);
             e.click=await j(`(()=>{const all=[...document.querySelectorAll('button,a,[role="button"]')].filter(x=>/顯示價格/.test((x.innerText||x.textContent||'').trim()));const results=[];for(const x of all){x.click();results.push((x.innerText||x.textContent||'').trim())}return {count:all.length,results}})()`);
             await c(['wait','--load','networkidle']);await c(['wait','10000']);
