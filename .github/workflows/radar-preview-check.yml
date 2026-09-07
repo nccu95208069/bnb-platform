@@ -15,6 +15,9 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
     env:
       RADAR_PREVIEW_MODE: 'true'
       RADAR_BUILD_SHA: ${{ github.sha }}
@@ -45,8 +48,8 @@ jobs:
       - name: Strict unit test compilation and execution
         working-directory: frontend
         run: |
-          ./node_modules/.bin/tsc tests/competitor-radar-preview.test.ts --outDir /tmp/radar-unit --module commonjs --target es2022 --esModuleInterop --skipLibCheck --types node
-          node --test /tmp/radar-unit/tests/competitor-radar-preview.test.js | tee /tmp/radar-evidence/unit-tests.txt
+          ./node_modules/.bin/tsc tests/competitor-radar-preview.test.ts tests/competitor-radar-draft-safety.test.ts --outDir /tmp/radar-unit --module commonjs --target es2022 --esModuleInterop --skipLibCheck --strict --types node
+          node --test /tmp/radar-unit/tests/competitor-radar-*.test.js | tee /tmp/radar-evidence/unit-tests.txt
       - run: npm run lint
         working-directory: frontend
       - run: npm run build
@@ -59,7 +62,6 @@ jobs:
           /tmp/radar-browser/node_modules/.bin/playwright install --with-deps chromium webkit
       - name: Desktop and mobile browser acceptance
         working-directory: frontend
-        shell: bash
         run: |
           npm run start -- --port 3137 > /tmp/radar-evidence/server.log 2>&1 &
           server_pid=$!
