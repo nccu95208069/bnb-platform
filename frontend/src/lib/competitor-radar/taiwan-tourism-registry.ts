@@ -1,12 +1,9 @@
 import { inflateRawSync } from "node:zlib";
 
-import { normalizeTaiwanAddress, parseTaiwanAddress, textSimilarity } from "./address";
+import { parseTaiwanAddress, textSimilarity } from "./address";
 import { scorePropertyIdentity } from "./identity";
 import type {
-  CompetitorRadarAnalysis,
-  IdentityEvidence,
   PlatformKey,
-  PlatformSourceDraft,
   PropertyIdentityInput,
   PropertyIdentityMatch,
 } from "./types";
@@ -14,11 +11,22 @@ import type {
 const REGISTRY_ARCHIVE_URL =
   "https://media.taiwan.net.tw/XMLReleaseAll_public/v2.0/Zh_tw/Hotel-json.zip";
 const REGISTRY_SOURCE_URL = "https://data.gov.tw/dataset/7780";
+const REGISTRY_PORTAL_ORIGIN = "https://media.taiwan.net.tw";
+const REGISTRY_SEARCH_PATH = "/zh-tw/portal/travel";
+const REGISTRY_JSON_PREFIX = "/zh-tw/portal/travel/json/";
 const REGISTRY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const REGISTRY_FETCH_TIMEOUT_MS = 8_000;
 const MAX_ARCHIVE_BYTES = 32_000_000;
 const MAX_JSON_BYTES = 96_000_000;
+const MAX_PORTAL_HTML_BYTES = 512_000;
+const MAX_RECORD_JSON_BYTES = 512_000;
 const MAX_REGISTRY_CANDIDATES = 5;
+const MAX_PORTAL_SEARCHES = 3;
+const MAX_PORTAL_RECORDS = 5;
+
+const BROWSER_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+  "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
 const PLATFORM_HOSTS: Record<Exclude<PlatformKey, "official">, RegExp[]> = {
   booking: [/(^|\.)booking\.com$/i],
@@ -32,6 +40,7 @@ interface JsonRecord {
 
 export interface TourismRegistryRecord {
   hotelId: string;
+  registrationNumber?: string;
   name: string;
   alternateNames: string[];
   address?: string;
@@ -59,8 +68,15 @@ interface RegistryCache {
   records: TourismRegistryRecord[];
 }
 
-let cache: RegistryCache | null = null;
-let inFlight: Promise<TourismRegistryRecord[]> | null = null;
+interface TimedValue<T> {
+  loadedAt: number;
+  value: T;
+}
+
+let archiveCache: RegistryCache | null = null;
+let archiveInFlight: Promise<TourismRegistryRecord[]> | null = null;
+const portalSearchCache = new Map<string, TimedValue<string[]>>();
+const portalRecordCache = new Map<string, TimedValue<TourismRegistryRecord>>();
 
 function isRecord(value: unknown): value is JsonRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -181,17 +197,30 @@ function collectHotelNodes(value: unknown): JsonRecord[] {
   return result;
 }
 
-function normalizeRegistryRecord(raw: JsonRecord): TourismRegistryRecord | null {
+export function normalizeRegistryRecord(raw: JsonRecord): TourismRegistryRecord | null {
   const hotelId = asString(getField(raw, "HotelID"));
   const name = asString(getField(raw, "HotelName"));
   if (!hotelId || !name) return null;
 
   const reservationUrls = collectUrls(getField(raw, "ReservationURLs", "ReservationURL"));
-  const sameAsUrls = collectUrls(getField(raw, "SameAsURLs", "SameAsURL"));
-  const websiteUrl = collectUrls(getField(raw, "WebsiteURL", "WebsiteURLs"))[0];
+  const sameAsUrls = collectUrls(
+    getField(raw, "SameAsURLs", "SameAsURL", "SocialMediaURLs"),
+  );
+  const websiteUrl = collectUrls(
+    getField(raw, "WebsiteURL", "WebsiteUrl", "WebsiteURLs"),
+  )[0];
 
   return {
     hotelId,
+    registrationNumber: asString(
+      getField(
+        raw,
+        "HotelLicenseNumber",
+        "RegistrationNumber",
+        "RegistrationNo",
+        "LicenseNumber",
+      ),
+    ),
     name,
     alternateNames: collectAliases(getField(raw, "AlternateNames", "AlternateName")),
     address: formatPostalAddress(getField(raw, "PostalAddress", "Address")),
@@ -266,7 +295,7 @@ export function decodeRegistryArchive(buffer: Buffer): unknown {
     if (uncompressedSize && decoded.length !== uncompressedSize) {
       throw new Error("registry_zip_size_mismatch");
     }
-    return JSON.parse(decoded.toString("utf8"));
+    return JSON.parse(decoded.toString("utf8").replace(/^\uFEFF/, ""));
   }
 
   throw new Error("registry_json_entry_not_found");
@@ -275,9 +304,9 @@ export function decodeRegistryArchive(buffer: Buffer): unknown {
 async function readLimitedBytes(response: Response, maximum: number): Promise<Buffer> {
   const contentLength = Number(response.headers.get("content-length"));
   if (Number.isFinite(contentLength) && contentLength > maximum) {
-    throw new Error("registry_archive_too_large");
+    throw new Error("registry_resource_too_large");
   }
-  if (!response.body) throw new Error("registry_archive_empty");
+  if (!response.body) throw new Error("registry_resource_empty");
 
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -289,48 +318,221 @@ async function readLimitedBytes(response: Response, maximum: number): Promise<Bu
     bytes += value.byteLength;
     if (bytes > maximum) {
       await reader.cancel();
-      throw new Error("registry_archive_too_large");
+      throw new Error("registry_resource_too_large");
     }
     chunks.push(value);
   }
   return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
 }
 
-async function fetchRegistryRecords(): Promise<TourismRegistryRecord[]> {
+function looksLikeTransportRejection(buffer: Buffer): boolean {
+  const prefix = buffer.subarray(0, Math.min(buffer.length, 2_000)).toString("utf8");
+  return /Request Rejected|安全性因素暫時被鎖定|requested URL was rejected/i.test(prefix);
+}
+
+async function fetchOfficialResource(
+  url: URL,
+  accept: string,
+  maximumBytes: number,
+): Promise<{ body: Buffer; contentType: string }> {
+  if (url.origin !== REGISTRY_PORTAL_ORIGIN) throw new Error("registry_origin_rejected");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REGISTRY_FETCH_TIMEOUT_MS);
   try {
-    const response = await fetch(REGISTRY_ARCHIVE_URL, {
-      headers: { Accept: "application/zip,application/octet-stream" },
+    const response = await fetch(url, {
+      headers: {
+        Accept: accept,
+        "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.7",
+        "User-Agent": BROWSER_USER_AGENT,
+      },
       cache: "no-store",
       redirect: "error",
       signal: controller.signal,
     });
     if (!response.ok) throw new Error(`registry_http_${response.status}`);
-    const archive = await readLimitedBytes(response, MAX_ARCHIVE_BYTES);
-    const payload = decodeRegistryArchive(archive);
-    return collectHotelNodes(payload)
-      .map(normalizeRegistryRecord)
-      .filter((record): record is TourismRegistryRecord => Boolean(record));
+    const body = await readLimitedBytes(response, maximumBytes);
+    if (looksLikeTransportRejection(body)) throw new Error("registry_transport_rejected");
+    return { body, contentType: response.headers.get("content-type")?.toLowerCase() ?? "" };
   } finally {
     clearTimeout(timer);
   }
 }
 
-async function loadRegistryRecords(): Promise<TourismRegistryRecord[]> {
-  if (cache && Date.now() - cache.loadedAt < REGISTRY_CACHE_TTL_MS) return cache.records;
-  if (inFlight) return inFlight;
+async function fetchArchiveRecords(): Promise<TourismRegistryRecord[]> {
+  const { body, contentType } = await fetchOfficialResource(
+    new URL(REGISTRY_ARCHIVE_URL),
+    "application/zip,application/octet-stream,*/*;q=0.5",
+    MAX_ARCHIVE_BYTES,
+  );
+  if (body.length < 4 || body.readUInt32LE(0) !== 0x04034b50) {
+    throw new Error(
+      contentType.includes("text/html")
+        ? "registry_transport_rejected"
+        : "registry_archive_not_zip",
+    );
+  }
+  const payload = decodeRegistryArchive(body);
+  const records = collectHotelNodes(payload)
+    .map(normalizeRegistryRecord)
+    .filter((record): record is TourismRegistryRecord => Boolean(record));
+  if (!records.length) throw new Error("registry_contains_no_hotels");
+  return records;
+}
 
-  inFlight = fetchRegistryRecords()
+async function loadArchiveRecords(): Promise<TourismRegistryRecord[]> {
+  if (archiveCache && Date.now() - archiveCache.loadedAt < REGISTRY_CACHE_TTL_MS) {
+    return archiveCache.records;
+  }
+  if (archiveInFlight) return archiveInFlight;
+
+  archiveInFlight = fetchArchiveRecords()
     .then((records) => {
-      if (!records.length) throw new Error("registry_contains_no_hotels");
-      cache = { loadedAt: Date.now(), records };
+      archiveCache = { loadedAt: Date.now(), records };
       return records;
     })
     .finally(() => {
-      inFlight = null;
+      archiveInFlight = null;
     });
-  return inFlight;
+  return archiveInFlight;
+}
+
+function decodeHtmlEntities(value: string): string {
+  const named: Record<string, string> = {
+    amp: "&",
+    apos: "'",
+    gt: ">",
+    lt: "<",
+    nbsp: " ",
+    quot: '"',
+  };
+  return value
+    .replace(/&([a-z]+);/gi, (match, name: string) => named[name.toLowerCase()] ?? match)
+    .replace(/&#(\d+);/g, (_match, code: string) => String.fromCodePoint(Number(code)))
+    .replace(/&#x([0-9a-f]+);/gi, (_match, code: string) =>
+      String.fromCodePoint(Number.parseInt(code, 16)),
+    );
+}
+
+export function parsePortalSearchHotelIds(html: string): string[] {
+  const ids: string[] = [];
+  const patterns = [
+    /\/zh-tw\/portal\/travel\/details\/(hotel_[a-z0-9_]+)/gi,
+    /ID:\s*(Hotel_[A-Z0-9_]+)/gi,
+  ];
+  for (const pattern of patterns) {
+    for (const match of html.matchAll(pattern)) {
+      if (match[1]) ids.push(match[1]);
+    }
+  }
+  return unique(ids.map((id) => id.toLowerCase())).slice(0, MAX_PORTAL_RECORDS);
+}
+
+function normalizedPhone(value: string | undefined | null): string {
+  if (!value) return "";
+  let digits = value.replace(/\D/g, "");
+  if (digits.startsWith("886")) digits = `0${digits.slice(3)}`;
+  return digits;
+}
+
+function portalSearchTerms(seed: PropertyIdentityInput): string[] {
+  const terms: string[] = [];
+  const phone = normalizedPhone(seed.phone);
+  if (phone.length >= 8) terms.push(phone);
+
+  if (seed.name) {
+    const chineseName = seed.name.match(/[\u3400-\u9fff]{2,24}/)?.[0];
+    if (chineseName) terms.push(chineseName);
+    else terms.push(seed.name.normalize("NFKC").trim().slice(0, 80));
+  }
+
+  if (seed.address) {
+    const parsed = parseTaiwanAddress(seed.address);
+    if (parsed.road && parsed.number) {
+      terms.push(
+        `${parsed.district ?? ""}${parsed.road}${parsed.number}${
+          parsed.subNumber ? `之${parsed.subNumber}` : ""
+        }號`,
+      );
+    }
+  }
+
+  return unique(terms).slice(0, MAX_PORTAL_SEARCHES);
+}
+
+async function searchPortalHotelIds(keyword: string): Promise<string[]> {
+  const key = keyword.toLocaleLowerCase("zh-TW");
+  const cached = portalSearchCache.get(key);
+  if (cached && Date.now() - cached.loadedAt < REGISTRY_CACHE_TTL_MS) return cached.value;
+
+  const url = new URL(REGISTRY_SEARCH_PATH, REGISTRY_PORTAL_ORIGIN);
+  url.searchParams.set("Keyword", keyword);
+  const { body, contentType } = await fetchOfficialResource(
+    url,
+    "text/html,application/xhtml+xml",
+    MAX_PORTAL_HTML_BYTES,
+  );
+  if (contentType && !contentType.includes("text/html")) {
+    throw new Error("registry_portal_search_not_html");
+  }
+  const ids = parsePortalSearchHotelIds(decodeHtmlEntities(body.toString("utf8")));
+  portalSearchCache.set(key, { loadedAt: Date.now(), value: ids });
+  return ids;
+}
+
+async function fetchPortalRecord(hotelId: string): Promise<TourismRegistryRecord> {
+  const normalizedId = hotelId.toLowerCase();
+  if (!/^hotel_[a-z0-9_]+$/.test(normalizedId)) {
+    throw new Error("registry_hotel_id_invalid");
+  }
+  const cached = portalRecordCache.get(normalizedId);
+  if (cached && Date.now() - cached.loadedAt < REGISTRY_CACHE_TTL_MS) return cached.value;
+
+  const url = new URL(`${REGISTRY_JSON_PREFIX}${normalizedId}`, REGISTRY_PORTAL_ORIGIN);
+  const { body, contentType } = await fetchOfficialResource(
+    url,
+    "application/json,text/plain,*/*;q=0.5",
+    MAX_RECORD_JSON_BYTES,
+  );
+  if (contentType && !contentType.includes("json")) {
+    throw new Error("registry_portal_record_not_json");
+  }
+  const text = body.toString("utf8").replace(/^\uFEFF/, "").trim();
+  if (!text.startsWith("{") && !text.startsWith("[")) {
+    throw new Error("registry_portal_record_not_json");
+  }
+  const nodes = collectHotelNodes(JSON.parse(text));
+  const raw = nodes.find(
+    (node) => asString(getField(node, "HotelID"))?.toLowerCase() === normalizedId,
+  );
+  const record = raw ? normalizeRegistryRecord(raw) : null;
+  if (!record) throw new Error("registry_portal_record_invalid");
+  portalRecordCache.set(normalizedId, { loadedAt: Date.now(), value: record });
+  return record;
+}
+
+async function loadPortalRecords(seed: PropertyIdentityInput): Promise<TourismRegistryRecord[]> {
+  const terms = portalSearchTerms(seed);
+  if (!terms.length) return [];
+
+  const idResults = await Promise.allSettled(terms.map(searchPortalHotelIds));
+  const ids = unique(
+    idResults.flatMap((result) => (result.status === "fulfilled" ? result.value : [])),
+  ).slice(0, MAX_PORTAL_RECORDS);
+  if (!ids.length) {
+    const failed = idResults.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
+    return [];
+  }
+
+  const recordResults = await Promise.allSettled(ids.map(fetchPortalRecord));
+  const records = recordResults.flatMap((result) =>
+    result.status === "fulfilled" ? [result.value] : [],
+  );
+  if (!records.length) {
+    const failed = recordResults.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
+  }
+  return records;
 }
 
 function platformForUrl(value: string): Exclude<PlatformKey, "official"> | null {
@@ -356,13 +558,6 @@ function platformUrls(record: TourismRegistryRecord) {
   return result;
 }
 
-function normalizedPhone(value: string | undefined): string {
-  if (!value) return "";
-  let digits = value.replace(/\D/g, "");
-  if (digits.startsWith("886")) digits = `0${digits.slice(3)}`;
-  return digits;
-}
-
 function quickCandidate(record: TourismRegistryRecord, seed: PropertyIdentityInput): boolean {
   const seedAddress = seed.address ? parseTaiwanAddress(seed.address) : null;
   const recordAddress = record.address ? parseTaiwanAddress(record.address) : null;
@@ -370,7 +565,16 @@ function quickCandidate(record: TourismRegistryRecord, seed: PropertyIdentityInp
     return false;
   }
 
-  const seedPhone = normalizedPhone(seed.phone ?? undefined);
+  if (
+    seed.registrationNumber &&
+    record.registrationNumber &&
+    seed.registrationNumber.normalize("NFKC").replace(/\D/g, "") ===
+      record.registrationNumber.normalize("NFKC").replace(/\D/g, "")
+  ) {
+    return true;
+  }
+
+  const seedPhone = normalizedPhone(seed.phone);
   const recordPhone = normalizedPhone(record.phone);
   if (seedPhone && recordPhone && seedPhone === recordPhone) return true;
 
@@ -388,6 +592,7 @@ function matchRecord(
   let best = scorePropertyIdentity(seed, {
     name: record.name,
     address: record.address,
+    registrationNumber: record.registrationNumber,
     phone: record.phone,
     websiteUrl: record.websiteUrl,
     latitude: record.latitude,
@@ -398,6 +603,7 @@ function matchRecord(
     const candidate = scorePropertyIdentity(seed, {
       name,
       address: record.address,
+      registrationNumber: record.registrationNumber,
       phone: record.phone,
       websiteUrl: record.websiteUrl,
       latitude: record.latitude,
@@ -412,10 +618,10 @@ function matchRecord(
   return { record, match: best, matchedName: bestName, platformUrls: platformUrls(record) };
 }
 
-export async function findTourismRegistryCandidates(
+function rankCandidates(
+  records: TourismRegistryRecord[],
   seed: PropertyIdentityInput,
-): Promise<TourismRegistryCandidate[]> {
-  const records = await loadRegistryRecords();
+): TourismRegistryCandidate[] {
   return records
     .filter((record) => quickCandidate(record, seed))
     .map((record) => matchRecord(record, seed))
@@ -430,109 +636,34 @@ export async function findTourismRegistryCandidates(
     .slice(0, MAX_REGISTRY_CANDIDATES);
 }
 
-function registryEvidence(candidate: TourismRegistryCandidate): IdentityEvidence[] {
-  const source: IdentityEvidence = {
-    field: "website",
-    label: "交通部觀光署旅宿資料",
-    strength: candidate.match.status === "confirmed" ? "strong" : "supporting",
-    score: candidate.match.score,
-    detail: `HotelID ${candidate.record.hotelId}；名稱「${candidate.record.name}」${
-      candidate.record.updateTime ? `；資料更新 ${candidate.record.updateTime}` : ""
-    }。`,
-  };
-  return [
-    source,
-    ...candidate.match.evidence.map((item) => ({
-      ...item,
-      label: `政府資料：${item.label}`,
-    })),
-  ];
-}
-
-function enrichPlatformSources(
-  sources: PlatformSourceDraft[],
-  candidate: TourismRegistryCandidate,
-): PlatformSourceDraft[] {
-  return sources.map((source) => {
-    if (source.platform === "official") return source;
-    const registryUrl = candidate.platformUrls[source.platform];
-    if (!registryUrl || source.sourceUrl) return source;
-    return {
-      ...source,
-      sourceUrl: registryUrl,
-      status: "identity_review",
-      identityConfidence: candidate.match.score,
-      identityEvidence: registryEvidence(candidate),
-      message:
-        "交通部觀光署旅宿資料提供此平台候選網址；仍需讀取 OTA 頁面並再次核對地址、電話或座標後才能確認。",
-    };
-  });
-}
-
-export async function enrichAnalysisWithTourismRegistry(
-  analysis: CompetitorRadarAnalysis,
-): Promise<CompetitorRadarAnalysis> {
-  const candidates = await findTourismRegistryCandidates({
-    name: analysis.property.name,
-    address: analysis.property.address,
-    phone: analysis.property.phone,
-    websiteUrl: analysis.property.sourceUrl,
-    latitude: analysis.property.latitude,
-    longitude: analysis.property.longitude,
-  });
-
-  if (!candidates.length) {
-    return {
-      ...analysis,
-      warnings: [
-        ...analysis.warnings,
-        "交通部觀光署旅宿資料未找到足以辨識的候選；不會僅因名稱相似而自動合併。",
-      ],
-    };
+export async function findTourismRegistryCandidates(
+  seed: PropertyIdentityInput,
+): Promise<TourismRegistryCandidate[]> {
+  let portalError: unknown;
+  try {
+    const portalRecords = await loadPortalRecords(seed);
+    const portalCandidates = rankCandidates(portalRecords, seed);
+    if (portalCandidates.length) return portalCandidates;
+  } catch (error) {
+    portalError = error;
   }
 
-  const best = candidates[0]!;
-  const confirmed = best.match.status === "confirmed";
-  const secondary = candidates.slice(1).filter((item) => item.match.score >= 0.55);
-  const governmentAddress = best.record.address;
-  const warnings = [...analysis.warnings];
-  if (!confirmed) {
-    warnings.push(
-      `政府資料最佳候選為「${best.record.name}」（${Math.round(
-        best.match.score * 100,
-      )}%），仍需使用者確認。`,
-    );
+  try {
+    return rankCandidates(await loadArchiveRecords(), seed);
+  } catch (archiveError) {
+    if (portalError) {
+      throw new AggregateError(
+        [portalError, archiveError],
+        "registry_portal_and_archive_unavailable",
+      );
+    }
+    throw archiveError;
   }
-  if (secondary.length) {
-    warnings.push(
-      `另有 ${secondary.length} 個政府資料候選達人工複核門檻；目前不自動選用。`,
-    );
-  }
-
-  return {
-    ...analysis,
-    property: {
-      ...analysis.property,
-      address: analysis.property.address ?? governmentAddress,
-      normalizedAddress:
-        analysis.property.normalizedAddress ??
-        (governmentAddress ? normalizeTaiwanAddress(governmentAddress) : undefined),
-      phone: analysis.property.phone ?? best.record.phone,
-      latitude: analysis.property.latitude ?? best.record.latitude,
-      longitude: analysis.property.longitude ?? best.record.longitude,
-      identityStatus: confirmed ? "confirmed" : analysis.property.identityStatus,
-      confidence: confirmed
-        ? Math.max(analysis.property.confidence, best.match.score)
-        : analysis.property.confidence,
-    },
-    identityEvidence: [...analysis.identityEvidence, ...registryEvidence(best)],
-    platformSources: enrichPlatformSources(analysis.platformSources, best),
-    warnings,
-  };
 }
 
 export const tourismRegistryMetadata = {
   archiveUrl: REGISTRY_ARCHIVE_URL,
   sourceUrl: REGISTRY_SOURCE_URL,
+  portalOrigin: REGISTRY_PORTAL_ORIGIN,
   cacheTtlMs: REGISTRY_CACHE_TTL_MS,
 };
