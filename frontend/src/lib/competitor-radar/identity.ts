@@ -74,7 +74,7 @@ export function scorePropertyIdentity(
   let totalWeight = 0;
   let exactRegistration = false;
   let strongAddress = false;
-  let supportingSignal = false;
+  let corroboratingSignals = 0;
   let hardConflict = false;
 
   if (left.registrationNumber && right.registrationNumber) {
@@ -136,7 +136,7 @@ export function scorePropertyIdentity(
     totalWeight += 0.08;
     if (matched) {
       weightedScore += 0.08;
-      supportingSignal = true;
+      corroboratingSignals += 1;
     }
     addEvidence(
       evidence,
@@ -155,7 +155,7 @@ export function scorePropertyIdentity(
     totalWeight += 0.06;
     if (matched) {
       weightedScore += 0.06;
-      supportingSignal = true;
+      corroboratingSignals += 1;
     }
     addEvidence(
       evidence,
@@ -172,7 +172,7 @@ export function scorePropertyIdentity(
     const geoScore = meters <= 50 ? 1 : meters <= 150 ? 0.82 : meters <= 500 ? 0.45 : 0;
     totalWeight += 0.12;
     weightedScore += 0.12 * geoScore;
-    supportingSignal ||= meters <= 150;
+    if (meters <= 150) corroboratingSignals += 1;
     if (meters > 1500) {
       hardConflict = true;
       conflicts.push(`經緯度相距 ${Math.round(meters)} 公尺`);
@@ -191,7 +191,6 @@ export function scorePropertyIdentity(
     const similarity = textSimilarity(left.name, right.name);
     totalWeight += 0.1;
     weightedScore += 0.1 * similarity;
-    supportingSignal ||= similarity >= 0.72;
     addEvidence(
       evidence,
       "name",
@@ -211,9 +210,13 @@ export function scorePropertyIdentity(
   let status: PropertyIdentityMatch["status"] = "review";
   if (hardConflict) {
     status = "rejected";
-  } else if (exactRegistration || strongAddress || (score >= 0.82 && supportingSignal)) {
+  } else if (
+    exactRegistration ||
+    strongAddress ||
+    (score >= 0.82 && corroboratingSignals >= 2)
+  ) {
     status = "confirmed";
-  } else if (score < 0.55) {
+  } else if (score < 0.45 && corroboratingSignals === 0) {
     status = "rejected";
   }
 
