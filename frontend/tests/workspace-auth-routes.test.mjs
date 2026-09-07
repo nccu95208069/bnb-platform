@@ -9,6 +9,8 @@ import * as Mail from '../src/app/api/workspace-mail/route.ts';
 import * as Invitation from '../src/app/api/workspace-invitation/route.ts';
 import * as Recovery from '../src/app/api/workspace-recovery/route.ts';
 import * as Appearance from '../src/app/api/calendar-appearance/route.ts';
+import {provisionPhoneMembers} from '../src/lib/workspace-auth/provision-members.ts';
+import {RedisWorkspaceStore} from '../src/lib/workspace-auth/store.ts';
 import {OWNER_COOKIE} from '../src/lib/calendar-owner-session.ts';
 import {MEMBER_COOKIE,createMemberSession} from '../src/lib/workspace-auth/session.ts';
 import {createPasswordCredential} from '../src/lib/owner-password.ts';
@@ -83,5 +85,16 @@ test('complete API flow preserves owner password, sends invitation, activates, l
  assert.equal((await Members.PATCH(request('workspace-members','PATCH',{id:manager.id,version:1,status:'suspended'},godCookie))).status,200);
  assert.equal((await Mail.GET(request('workspace-mail','GET',null,managerCookie))).status,403);
  assert.equal(data.get('sweetfun-os:owner-auth:v1:credential'),ownerRaw);
+
+ const phoneAccounts=await provisionPhoneMembers(new RedisWorkspaceStore(),[{phone:'0911111111',password:memberPassword,displayName:'Phone fixture',role:'viewer_no_price',allProperties:false,propertyIds:['offland']}]);
+ for(const phone of ['0911111111','+886911111111']){
+  const response=await Session.POST(request('calendar-session','POST',{email:phone,code:memberPassword}));
+  assert.equal(response.status,200);
+  const cookie=`${MEMBER_COOKIE}=${response.cookies.get(MEMBER_COOKIE).value}`;
+  const info=await(await Session.GET(request('calendar-session','GET',null,cookie))).json();
+  assert.equal(info.membership.viewPrices,false);assert.deepEqual(info.membership.propertyIds,['offland']);
+ }
+ await assert.rejects(()=>provisionPhoneMembers(new RedisWorkspaceStore(),[{phone:'+886911111111',password:memberPassword,displayName:'Duplicate',role:'admin',allProperties:false,propertyIds:['sweetfun']}]),/PHONE_EXISTS/);
+ assert.equal(phoneAccounts[0].mustResetPassword,false);
 
 });

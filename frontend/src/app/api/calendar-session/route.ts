@@ -1,6 +1,6 @@
 import { recordDevice } from "@/lib/workspace-auth/devices";
 import { principalFor, sessionMember, validMemberSession, memberPrincipal, MEMBER_COOKIE, createMemberSession } from "@/lib/workspace-auth/session";
-import { ADMIN_EMAIL, normalizedEmail, nextWorkspace } from "@/lib/workspace-auth/types";
+import { ADMIN_EMAIL, normalizedEmail, normalizedPhone, nextWorkspace } from "@/lib/workspace-auth/types";
 import { RedisWorkspaceStore } from "@/lib/workspace-auth/store";
 import { NextRequest, NextResponse } from "next/server";
 import { OWNER_COOKIE, OWNER_SESSION_SECONDS, createOwnerSession, ownerAccessConfigured } from "@/lib/calendar-owner-session";
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
   try {
     const input = await body(request), email = normalizedEmail(input.email), workspace = new RedisWorkspaceStore();
     await workspace.limit("login-global", 100, 900);
-    await workspace.limit(`login:${email}`, 20, 900);
+    await workspace.limit(`login:${normalizedPhone(email)||email}`, 20, 900);
     if (email === ADMIN_EMAIL) {
       const store = new RedisOwnerCredentialStore();
       if (!await store.consumeAttempt()) throw new Error("OWNER_RATE_LIMITED");
@@ -64,7 +64,9 @@ export async function POST(request: NextRequest) {
       if (!await credentialMatches(input.code, credential.value)) throw new Error("UNAUTHORIZED");
       return await cookieResponse(request, createOwnerSession(Date.now(), credentialBinding(credential.value)));
     }
-    const member = (await workspace.read()).value.members.find(m => m.email === email);
+    const phone = normalizedPhone(email);
+    const matches = (await workspace.read()).value.members.filter(m => phone ? normalizedPhone(m.phone) === phone : Boolean(email) && m.email === email);
+    const member = matches.length === 1 ? matches[0] : null;
     if (!member || member.status !== "active" || !member.credential || !await credentialMatches(input.code, member.credential)) throw new Error("UNAUTHORIZED");
     return await cookieResponse(request, createMemberSession(member), true, member.id, Boolean(member.mustResetPassword));
   } catch (error) { return failure(error); }

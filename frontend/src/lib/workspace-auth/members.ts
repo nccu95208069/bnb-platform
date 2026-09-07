@@ -2,18 +2,18 @@ import {checkManagement} from './management.ts';
 import {ownerPrincipal,type Principal} from './types.ts';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {createPasswordCredential,passwordProblem} from '../owner-password.ts';
-import {ADMIN_EMAIL,PROPERTY_IDS,nextWorkspace,normalizedEmail,validEmail,type Member,type MemberRole} from './types.ts';
+import {ADMIN_EMAIL,PROPERTY_IDS,nextWorkspace,normalizedEmail,normalizedPhone,validEmail,type Member,type MemberRole} from './types.ts';
 import type {WorkspaceStore} from './store.ts';
 export const hashToken=(value:string)=>createHash('sha256').update(value).digest('hex');
 export type InviteSender=(to:string,token:string)=>Promise<void>;
 const roles:MemberRole[]=['admin','housekeeper','viewer','viewer_no_price'];
 export function memberInput(input:Record<string,unknown>) {
   const email=normalizedEmail(input.email),displayName=typeof input.displayName==='string'?input.displayName.trim():'';
-  const role=input.role as MemberRole,allProperties=input.allProperties===true;
+  const role=input.role as MemberRole,allProperties=input.allProperties===true,phone=normalizedPhone(input.phone);
   const propertyIds=allProperties?[...PROPERTY_IDS]:Array.isArray(input.propertyIds)?[...new Set(input.propertyIds)].filter((p):p is string=>typeof p==='string'&&PROPERTY_IDS.includes(p)):[];
-  if(!validEmail(email)||email===ADMIN_EMAIL||!displayName||displayName.length>100||!roles.includes(role)||!propertyIds.length)throw new Error('INVALID_INPUT');
+  if((email ? !validEmail(email) : !phone)||email===ADMIN_EMAIL||!displayName||displayName.length>100||!roles.includes(role)||!propertyIds.length)throw new Error('INVALID_INPUT');
   if(!allProperties&&(!Array.isArray(input.propertyIds)||input.propertyIds.length!==propertyIds.length))throw new Error('INVALID_INPUT');
-  return {email,displayName,role,allProperties,propertyIds,phone:typeof input.phone==='string'?input.phone.trim().slice(0,30)||null:null};
+  return {email,displayName,role,allProperties,propertyIds,phone:phone||null};
 }
 export async function inviteMember(store:WorkspaceStore,input:Record<string,unknown>,send:InviteSender,now=Date.now(),actor:Principal=ownerPrincipal()) {
   const state=await store.read();
@@ -24,13 +24,15 @@ export async function inviteMember(store:WorkspaceStore,input:Record<string,unkn
     const existing=state.value.members.find(m=>m.id===id);
     if(!existing)throw new Error('NOT_FOUND');
     checkManagement(actor,input,existing);
+    if(!validEmail(existing.email))throw new Error('INVALID_INPUT');
     if(existing.status==='suspended')throw new Error('INVITE_INVALID');
     if(input.version!==existing.version)throw new Error('VERSION_CONFLICT');
     member={...existing,version:existing.version+1};
   } else {
     checkManagement(actor,input);
     const values=memberInput(input);
-    if(state.value.members.some(m=>m.email===values.email))throw new Error('EMAIL_EXISTS');
+    if(!values.email)throw new Error('INVALID_INPUT');
+    if(state.value.members.some(m=>(values.email&&m.email===values.email)||(values.phone&&normalizedPhone(m.phone)===values.phone)))throw new Error('EMAIL_EXISTS');
     if(state.value.members.length>=100)throw new Error('INVALID_INPUT');
     member={...values,id:randomBytes(16).toString('hex'),status:'invited',invitedAt:new Date(now).toISOString(),acceptedAt:null,lastActiveAt:null,credential:null,invitation:null,version:1};
   }
@@ -75,6 +77,7 @@ export async function updateMember(store:WorkspaceStore,input:Record<string,unkn
     if(updated.credential?.kind==='password')updated.credential={...updated.credential,revision:randomBytes(32).toString('hex')};
   } else {
     const values=memberInput(input);
+    if(values.phone && state.value.members.some(m=>m.id!==member.id&&normalizedPhone(m.phone)===values.phone))throw new Error('EMAIL_EXISTS');
     if(values.email!==member.email)throw new Error('INVALID_INPUT');
     updated={...member,...values,version:member.version+1};
   }

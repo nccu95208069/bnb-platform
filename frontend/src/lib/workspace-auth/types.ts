@@ -24,3 +24,10 @@ export function publicMember(member: Member) {
 }
 export const normalizedEmail = (input: unknown) => typeof input === 'string' ? input.trim().toLowerCase() : '';
 export const validEmail = (input: string) => /^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,}$/i.test(input) && input.length <= 254;
+
+export function normalizedPhone(input: unknown): string {
+  if (typeof input !== 'string') return '';
+  const value = input.trim().replace(/[\s()-]/g, '');
+  if (/^09\d{8}$/.test(value)) return '+886' + value.slice(1);
+  return /^\+8869\d{8}$/.test(value) ? value : '';
+}
