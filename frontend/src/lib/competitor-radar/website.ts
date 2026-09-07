@@ -1,6 +1,14 @@
-import { lookup } from "node:dns/promises";
 import { randomUUID } from "node:crypto";
+import { lookup } from "node:dns/promises";
+import {
+  request as httpRequest,
+  type ClientRequest,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+} from "node:http";
+import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
+import { checkServerIdentity } from "node:tls";
 
 import { normalizeTaiwanAddress } from "./address";
 import { extractRoomFeatures, SWEETFUN_GOLDEN_ROOMS } from "./rooms";
@@ -46,6 +54,18 @@ interface FetchedPage {
   requestedUrl: string;
   finalUrl: string;
   html: string;
+}
+
+interface PinnedPublicTarget {
+  url: URL;
+  address: string;
+  family: 4 | 6;
+}
+
+interface RawHttpPage {
+  status: number;
+  headers: IncomingHttpHeaders;
+  body: string;
 }
 
 interface JsonRecord {
@@ -182,28 +202,39 @@ function formatAddress(value: unknown): string | undefined {
     .join("");
 }
 
+function isPlausibleRegistrationNumber(value: string | undefined): boolean {
+  if (!value) return false;
+  const compact = value.normalize("NFKC").replace(/\s+/g, "");
+  const digitCount = (compact.match(/\d/g) ?? []).length;
+  if (digitCount < 1) return false;
+  if (/(?:電話|手機|fax|tel)/i.test(compact)) return false;
+  return (
+    /(?:民宿|旅館|hotel|registration|license|登記|證號|字號|編號)/i.test(compact) ||
+    /^[A-Z]?\d{2,10}(?:-\d+)?號?$/i.test(compact)
+  );
+}
+
 function extractIdentifier(value: unknown): string | undefined {
   const direct = asString(value);
-  if (direct) return direct;
+  if (isPlausibleRegistrationNumber(direct)) return direct;
+
   const values = Array.isArray(value) ? value : [value];
   for (const item of values) {
     if (!isRecord(item)) continue;
     const candidate = asString(item.value) ?? asString(item.identifier) ?? asString(item.name);
-    if (candidate && /(?:民宿|旅館|hotel|registration|license|證|字號|編號)/i.test(candidate)) {
-      return candidate;
-    }
+    if (isPlausibleRegistrationNumber(candidate)) return candidate;
   }
   return undefined;
 }
 
 function extractRegistrationNumber(text: string): string | undefined {
   const patterns = [
-    /((?:臺|台|新北|宜蘭|花蓮|臺東|台東|澎湖|金門|連江)?[^，。;；\s]{0,8}(?:民宿|旅館)(?:登記證|登記|編號|證號|字號)?\s*[:：]?\s*(?:第\s*)?[A-Z0-9\-]{1,12}\s*號?)/i,
-    /(?:registration|license)\s*(?:no\.?|number)?\s*[:：#]?\s*([A-Z0-9-]{2,20})/i,
+    /((?:臺|台|新北|宜蘭|花蓮|臺東|台東|澎湖|金門|連江)?[^，。;；\s]{0,8}(?:民宿|旅館)(?:登記證|登記|編號|證號|字號)?\s*[:：]?\s*(?:第\s*)?[A-Z]?\d{1,10}(?:-\d+)?\s*號?)/i,
+    /(?:registration|license)\s*(?:no\.?|number)?\s*[:：#]?\s*([A-Z]?\d{1,12}(?:-\d+)?)/i,
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
-    if (match?.[1]) return match[1].trim();
+    if (match?.[1] && isPlausibleRegistrationNumber(match[1])) return match[1].trim();
   }
   return undefined;
 }
@@ -228,10 +259,12 @@ function extractPhone(text: string): string | undefined {
 }
 
 function simplifyTitle(title: string): string {
-  return title
-    .split(/[|｜]/)[0]
-    ?.split(/[-–—]\s*(?:官方|官網|住宿|訂房)/)[0]
-    ?.trim() || title.trim();
+  return (
+    title
+      .split(/[|｜]/)[0]
+      ?.split(/[-–—]\s*(?:官方|官網|住宿|訂房)/)[0]
+      ?.trim() || title.trim()
+  );
 }
 
 function getGeo(node: JsonRecord | undefined): { latitude?: number; longitude?: number } {
@@ -306,7 +339,7 @@ function isBlockedIp(address: string): boolean {
   );
 }
 
-async function validatePublicUrl(value: string): Promise<URL> {
+async function validateAndPinPublicUrl(value: string): Promise<PinnedPublicTarget> {
   let url: URL;
   try {
     url = new URL(value);
@@ -333,92 +366,182 @@ async function validatePublicUrl(value: string): Promise<URL> {
     throw new PublicUrlError("不可分析內部網路網址。");
   }
 
-  if (isIP(hostname)) {
+  const literalFamily = isIP(hostname);
+  if (literalFamily) {
     if (isBlockedIp(hostname)) throw new PublicUrlError("不可分析私有或保留 IP。");
-    return url;
+    return { url, address: hostname, family: literalFamily as 4 | 6 };
   }
 
-  let addresses: Awaited<ReturnType<typeof lookup>>;
+  let addresses: Array<{ address: string; family: number }>;
   try {
-    addresses = await lookup(hostname, { all: true, verbatim: true });
+    addresses = (await lookup(hostname, { all: true, verbatim: true })) as Array<{
+      address: string;
+      family: number;
+    }>;
   } catch {
     throw new PublicUrlError("無法解析這個網址的網域。");
   }
+
   if (!addresses.length || addresses.some(({ address }) => isBlockedIp(address))) {
     throw new PublicUrlError("網址解析到私有或保留網路位址。");
   }
-  return url;
+
+  const pinned = addresses.find(({ family }) => family === 4) ?? addresses[0];
+  if (!pinned || (pinned.family !== 4 && pinned.family !== 6)) {
+    throw new PublicUrlError("網域沒有可安全連線的位址。");
+  }
+  return { url, address: pinned.address, family: pinned.family };
 }
 
-async function readLimitedText(response: Response): Promise<string> {
-  if (!response.body) return "";
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let output = "";
-  let bytes = 0;
+function headerValue(value: string | string[] | undefined): string {
+  return Array.isArray(value) ? value[0] ?? "" : value ?? "";
+}
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    bytes += value.byteLength;
-    if (bytes > MAX_HTML_BYTES) {
-      await reader.cancel();
-      throw new PublicUrlError("網頁內容超過 2 MB，已停止分析。");
+function requestPinnedPage(target: PinnedPublicTarget): Promise<RawHttpPage> {
+  return new Promise((resolve, reject) => {
+    const { url, address, family } = target;
+    let request: ClientRequest | undefined;
+    let response: IncomingMessage | undefined;
+    let timer: NodeJS.Timeout | undefined;
+    let settled = false;
+    let bytes = 0;
+    const chunks: Buffer[] = [];
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      timer = undefined;
+    };
+
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      response?.destroy();
+      request?.destroy();
+      reject(error);
+    };
+
+    const succeed = (page: RawHttpPage) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolve(page);
+    };
+
+    const onResponse = (incoming: IncomingMessage) => {
+      response = incoming;
+      const contentLength = Number(headerValue(incoming.headers["content-length"]));
+      if (Number.isFinite(contentLength) && contentLength > MAX_HTML_BYTES) {
+        fail(new PublicUrlError("網頁內容超過 2 MB，已停止分析。"));
+        return;
+      }
+
+      incoming.on("data", (chunk: Buffer) => {
+        if (settled) return;
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        bytes += buffer.byteLength;
+        if (bytes > MAX_HTML_BYTES) {
+          fail(new PublicUrlError("網頁內容超過 2 MB，已停止分析。"));
+          return;
+        }
+        chunks.push(buffer);
+      });
+      incoming.once("aborted", () => fail(new PublicUrlError("網站在回傳內容時中斷連線。")));
+      incoming.once("error", () => fail(new PublicUrlError("讀取網站內容失敗。")));
+      incoming.once("end", () =>
+        succeed({
+          status: incoming.statusCode ?? 0,
+          headers: incoming.headers,
+          body: Buffer.concat(chunks).toString("utf8"),
+        }),
+      );
+    };
+
+    const path = `${url.pathname || "/"}${url.search}`;
+    const commonOptions = {
+      protocol: url.protocol,
+      hostname: address,
+      family,
+      port: url.port ? Number(url.port) : url.protocol === "https:" ? 443 : 80,
+      method: "GET",
+      path,
+      headers: {
+        Accept: "text/html,application/xhtml+xml",
+        "Accept-Encoding": "identity",
+        "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.7",
+        Connection: "close",
+        Host: url.host,
+        "User-Agent":
+          "Mozilla/5.0 (compatible; SweetfunCompetitorRadar/0.1; +https://sweetfun-os.vercel.app)",
+      },
+    };
+
+    try {
+      request =
+        url.protocol === "https:"
+          ? httpsRequest(
+              {
+                ...commonOptions,
+                servername: isIP(url.hostname) ? undefined : url.hostname,
+                checkServerIdentity: (_hostname, certificate) =>
+                  checkServerIdentity(url.hostname, certificate),
+              },
+              onResponse,
+            )
+          : httpRequest(commonOptions, onResponse);
+    } catch {
+      fail(new PublicUrlError("無法建立網站連線。"));
+      return;
     }
-    output += decoder.decode(value, { stream: true });
-  }
-  return output + decoder.decode();
+
+    request.once("error", (error) => {
+      if (error instanceof PublicUrlError) {
+        fail(error);
+      } else {
+        fail(new PublicUrlError("無法連線到這個網站。"));
+      }
+    });
+    timer = setTimeout(
+      () => fail(new PublicUrlError("網站回應逾時。")),
+      FETCH_TIMEOUT_MS,
+    );
+    request.end();
+  });
 }
 
 async function fetchPublicHtml(input: string): Promise<FetchedPage> {
-  let current = await validatePublicUrl(input);
-  const requestedUrl = current.toString();
+  let current = await validateAndPinPublicUrl(input);
+  const requestedUrl = current.url.toString();
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    let response: Response;
-    try {
-      response = await fetch(current, {
-        method: "GET",
-        redirect: "manual",
-        cache: "no-store",
-        signal: controller.signal,
-        headers: {
-          Accept: "text/html,application/xhtml+xml",
-          "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.7",
-          "User-Agent":
-            "Mozilla/5.0 (compatible; SweetfunCompetitorRadar/0.1; +https://sweetfun-os.vercel.app)",
-        },
-      });
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") {
-        throw new PublicUrlError("網站回應逾時。");
-      }
-      throw new PublicUrlError("無法連線到這個網站。");
-    } finally {
-      clearTimeout(timeout);
-    }
+    const response = await requestPinnedPage(current);
 
     if (response.status >= 300 && response.status < 400) {
-      const location = response.headers.get("location");
+      const location = headerValue(response.headers.location);
       if (!location) throw new PublicUrlError("網站重新導向但沒有提供目的地。");
-      current = await validatePublicUrl(new URL(location, current).toString());
+      if (redirectCount === MAX_REDIRECTS) {
+        throw new PublicUrlError("網站重新導向次數過多。");
+      }
+      current = await validateAndPinPublicUrl(new URL(location, current.url).toString());
       continue;
     }
 
-    if (!response.ok) {
+    if (response.status < 200 || response.status >= 300) {
       throw new PublicUrlError(`網站回傳 HTTP ${response.status}，無法分析。`);
     }
-    const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
+    const contentType = headerValue(response.headers["content-type"]).toLowerCase();
     if (contentType && !contentType.includes("text/html") && !contentType.includes("xhtml")) {
       throw new PublicUrlError("網址不是 HTML 網頁。");
+    }
+    const contentEncoding = headerValue(response.headers["content-encoding"]).toLowerCase();
+    if (contentEncoding && contentEncoding !== "identity") {
+      throw new PublicUrlError("網站未依要求回傳未壓縮 HTML，為避免解壓縮風險已停止分析。");
     }
 
     return {
       requestedUrl,
-      finalUrl: current.toString(),
-      html: await readLimitedText(response),
+      finalUrl: current.url.toString(),
+      html: response.body,
     };
   }
 
@@ -520,7 +643,9 @@ function roomsFromJsonLd(html: string, sourceUrl: string): CanonicalRoomDraft[] 
     if (!jsonLdTypes(node).some((type) => ["hotelroom", "room", "suite"].includes(type))) continue;
     const name = asString(node.name);
     if (!name) continue;
-    rooms.push(roomFromText(name, sourceUrl, "website_jsonld", JSON.stringify(node).slice(0, 3000)));
+    rooms.push(
+      roomFromText(name, sourceUrl, "website_jsonld", JSON.stringify(node).slice(0, 3000)),
+    );
   }
   return rooms;
 }
