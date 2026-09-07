@@ -1,4 +1,5 @@
-import { principalFor, MEMBER_COOKIE, createMemberSession } from "@/lib/workspace-auth/session";
+import { recordDevice } from "@/lib/workspace-auth/devices";
+import { principalFor, sessionMember, validMemberSession, memberPrincipal, MEMBER_COOKIE, createMemberSession } from "@/lib/workspace-auth/session";
 import { ADMIN_EMAIL, normalizedEmail, nextWorkspace } from "@/lib/workspace-auth/types";
 import { RedisWorkspaceStore } from "@/lib/workspace-auth/store";
 import { NextRequest, NextResponse } from "next/server";
@@ -6,10 +7,12 @@ import { OWNER_COOKIE, OWNER_SESSION_SECONDS, createOwnerSession, ownerAccessCon
 import { RedisOwnerCredentialStore, credentialBinding, credentialMatches, changeOwnerPassword, createPasswordCredential, passwordProblem } from "@/lib/owner-password";
 const headers = { "Cache-Control": "private, no-store", "Vary": "Cookie", "Referrer-Policy": "no-referrer" };
 const sameOrigin = (request: NextRequest) => request.headers.get("origin") === `${request.nextUrl.protocol}//${request.headers.get("host")}`;
-function cookieResponse(request: NextRequest, session: string, member = false) {
-  const response = NextResponse.json({ authenticated: true }, { headers });
-  response.cookies.set(member ? MEMBER_COOKIE : OWNER_COOKIE, session, { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict", path: "/", maxAge: OWNER_SESSION_SECONDS });
+async function cookieResponse(request: NextRequest, session: string, member = false, accountId = "calendar-owner", mustReset = false) {
+  const duration = mustReset ? 1800 : OWNER_SESSION_SECONDS;
+  const response = NextResponse.json({ authenticated: true, requires_password_reset: mustReset }, { headers });
+  response.cookies.set(member ? MEMBER_COOKIE : OWNER_COOKIE, session, { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict", path: "/", maxAge: duration });
   response.cookies.set(member ? OWNER_COOKIE : MEMBER_COOKIE, "", { path: "/", maxAge: 0, httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict" });
+  await recordDevice(request,response,accountId,duration);
   return response;
 }
 async function body(request: NextRequest) {
@@ -39,6 +42,8 @@ function failure(error: unknown) {
 export async function GET(request: NextRequest) {
   if (!ownerAccessConfigured()) return NextResponse.json({ available: false, authenticated: false }, { headers });
   try {
+    const limited = await sessionMember(request);
+    if(limited?.mustResetPassword) return NextResponse.json({available:true,authenticated:true,requires_password_reset:true,membership:null},{headers});
     const principal = await principalFor(request);
     const hasCustomPassword = principal?.role === "owner" ? (await new RedisOwnerCredentialStore().read()).value.kind === "password" : Boolean(principal);
     return NextResponse.json({ available: true, authenticated: Boolean(principal), has_custom_password: hasCustomPassword,
@@ -57,31 +62,34 @@ export async function POST(request: NextRequest) {
       if (!await store.consumeAttempt()) throw new Error("OWNER_RATE_LIMITED");
       const credential = await store.read();
       if (!await credentialMatches(input.code, credential.value)) throw new Error("UNAUTHORIZED");
-      return cookieResponse(request, createOwnerSession(Date.now(), credentialBinding(credential.value)));
+      return await cookieResponse(request, createOwnerSession(Date.now(), credentialBinding(credential.value)));
     }
     const member = (await workspace.read()).value.members.find(m => m.email === email);
     if (!member || member.status !== "active" || !member.credential || !await credentialMatches(input.code, member.credential)) throw new Error("UNAUTHORIZED");
-    return cookieResponse(request, createMemberSession(member), true);
+    return await cookieResponse(request, createMemberSession(member), true, member.id, Boolean(member.mustResetPassword));
   } catch (error) { return failure(error); }
 }
 export async function PATCH(request: NextRequest) {
   if (!sameOrigin(request)) return NextResponse.json({ detail: "請從本站變更密碼。" }, { status: 403, headers });
   if (!ownerAccessConfigured()) return NextResponse.json({ detail: "私人檢視尚未啟用。" }, { status: 503, headers });
   try {
-    const input = await body(request), principal = await principalFor(request);
+    const input = await body(request), limited = await sessionMember(request);
+    const principal = await principalFor(request) ?? (limited?.mustResetPassword ? memberPrincipal(limited) : null);
     if (!principal) throw new Error("OWNER_UNAUTHORIZED");
     if (principal.role === "owner") {
       const session = await changeOwnerPassword(new RedisOwnerCredentialStore(), request.cookies.get(OWNER_COOKIE)?.value, input);
-      return cookieResponse(request, session);
+      return await cookieResponse(request, session);
     }
     const store = new RedisWorkspaceStore();
     await store.limit(`password:${principal.id}`, 10, 900);
     const state = await store.read(), member = state.value.members.find(m => m.id === principal.id);
-    if (!member?.credential || !await credentialMatches(input.currentPassword, member.credential)) throw new Error("OWNER_CURRENT_PASSWORD");
+    if (!member || !validMemberSession(request.cookies.get(MEMBER_COOKIE)?.value,member)) throw new Error("OWNER_UNAUTHORIZED");
+    if (!member?.credential || (!member.mustResetPassword && !await credentialMatches(input.currentPassword, member.credential))) throw new Error("OWNER_CURRENT_PASSWORD");
     if (passwordProblem(input.password) || input.password !== input.confirmPassword) throw new Error("PASSWORD_INVALID");
-    const updated = { ...member, credential: await createPasswordCredential(input.password), version: member.version + 1, invitation: null };
+    if(member.mustResetPassword && await credentialMatches(input.password,member.credential)) throw new Error("PASSWORD_INVALID");
+    const updated = { ...member, mustResetPassword: false, credential: await createPasswordCredential(input.password), version: member.version + 1, invitation: null };
     await store.replace(state.raw, nextWorkspace(state.value, state.value.members.map(m => m.id === member.id ? updated : m), "password_changed", member.id, member.id));
-    return cookieResponse(request, createMemberSession(updated), true);
+    return await cookieResponse(request, createMemberSession(updated), true, updated.id);
   } catch (error) { return failure(error); }
 }
 export async function DELETE(request: NextRequest) {

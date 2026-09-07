@@ -239,7 +239,7 @@ function MonthPanel({
                 const arrivals = monthBookings.filter(b => b.check_in === date).length;
                 const departures = monthBookings.filter(b => b.check_out === date).length;
                 return <div key={date} className="relative flex items-start justify-between px-1 md:px-2" style={{gridColumn: index + 1, gridRow: 1}}>
-                  <button type="button" onClick={() => onSelectDay(date)}
+                  <button data-calendar-date={date} type="button" onClick={() => onSelectDay(date)}
                     className={cn("flex size-6 items-center justify-center rounded-full text-[11px] font-semibold hover:bg-accent md:size-7 md:text-xs",
                       !isSameMonth(date, monthStart) && "text-muted-foreground",
                       date === today && "bg-primary text-primary-foreground hover:bg-primary/90")}>
@@ -308,6 +308,8 @@ function MonthPanel({
 export function MonthScroller({
   months,
   targetMonth,
+  targetDate,
+  targetRevision,
   bookings,
   rooms,
   properties,
@@ -317,6 +319,8 @@ export function MonthScroller({
 }: CalendarViewProps & {
   months: string[];
   targetMonth: string;
+  targetDate?: string;
+  targetRevision?: number;
   onVisibleMonthChange: (month: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -327,12 +331,13 @@ export function MonthScroller({
     const node = monthRefs.current.get(targetMonth);
     const container = scrollRef.current;
     if (!node || !container) return;
+    const day = targetDate?.startsWith(targetMonth.slice(0,7)) ? node.querySelector<HTMLElement>(`[data-calendar-date="${targetDate}"]`) : null;
     container.scrollTo({
-      top: node.offsetTop - container.offsetTop,
+      top: day ? Math.max(0,day.getBoundingClientRect().top-container.getBoundingClientRect().top+container.scrollTop-72) : node.offsetTop - container.offsetTop,
       behavior: firstScroll.current ? "auto" : "smooth",
     });
     firstScroll.current = false;
-  }, [targetMonth]);
+  }, [targetMonth,targetDate,targetRevision]);
 
   useEffect(() => {
     const root = scrollRef.current;

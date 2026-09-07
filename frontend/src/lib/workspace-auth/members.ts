@@ -54,7 +54,7 @@ export async function activateMember(store:WorkspaceStore,input:Record<string,un
   const state=await store.read(),member=invitedMember(input.token,state.value.members,now);
   if(passwordProblem(input.password)||input.password!==input.confirmPassword)throw new Error('PASSWORD_INVALID');
   const credential=await createPasswordCredential(input.password as string);
-  const updated:Member={...member,credential,status:'active',acceptedAt:member.acceptedAt??new Date(now).toISOString(),invitation:null,version:member.version+1};
+  const updated:Member={...member,mustResetPassword:false,credential,status:'active',acceptedAt:member.acceptedAt??new Date(now).toISOString(),invitation:null,version:member.version+1};
   await store.replace(state.raw,nextWorkspace(state.value,state.value.members.map(m=>m.id===member.id?updated:m),'password_activated',member.id,member.id));
   return updated;
 }

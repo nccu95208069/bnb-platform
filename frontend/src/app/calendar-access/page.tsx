@@ -19,7 +19,8 @@ export default function CalendarAccessPage() {
     try {
       const response = await fetch("/api/calendar-session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, code }), cache: "no-store" });
       if (!response.ok) throw new Error((await response.json()).detail || "暫時無法登入，請稍後再試。");
-      setCode(""); window.location.replace("/calendar");
+      const result = await response.json();
+      setCode(""); window.location.replace(result.requires_password_reset ? "/reset-password" : "/calendar");
     } catch (error) { setError(error instanceof Error ? error.message : "暫時無法登入。"); setBusy(false); }
   }
   return <main className="flex min-h-dvh items-center justify-center bg-slate-50 px-5">
@@ -29,7 +30,8 @@ export default function CalendarAccessPage() {
       <label className="block text-sm font-medium">密碼<input aria-label="密碼" type="password" autoComplete="current-password" required value={code} onChange={e => setCode(e.target.value)} className="mt-2 block w-full rounded-lg border px-3 py-2.5" /></label>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
       <button disabled={busy} className="w-full rounded-lg bg-slate-900 px-4 py-3 font-medium text-white disabled:opacity-50">{busy ? "登入中…" : "登入"}</button>
-      <p className="text-xs text-slate-500">第一次使用？請先開啟邀請信中的連結設定密碼。忘記密碼請管理者從成員清單重寄設定連結。</p>
+      <p className="text-xs text-slate-500">第一次使用？請先開啟邀請信中的連結設定密碼。登入會在此瀏覽器保留 30 天。</p>
+      <a href="/forgot-password" className="block text-center text-sm underline">忘記密碼？請管理員協助</a>
       <a href="/calendar" className="block text-center text-sm underline">返回不顯示姓名的日曆</a>
     </form>
   </main>;

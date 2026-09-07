@@ -1,4 +1,5 @@
 "use client";
+import { LoginDevices } from "@/components/account/login-devices";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
@@ -94,6 +95,10 @@ export default function AccessManagementPage() {
 
   const [form, setForm] = useState<SaveWorkspaceMemberInput>(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
+  const [recoveryPassword,setRecoveryPassword] = useState("");
+  const [recoveryFor,setRecoveryFor] = useState("");
+  const [recoveryBusy,setRecoveryBusy] = useState(false);
+  const [deviceAccount,setDeviceAccount] = useState<string|null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const formCardRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
@@ -235,6 +240,11 @@ export default function AccessManagementPage() {
         <p>{mailConfigured ? "Gmail 已連接，新增成員會寄送邀請信。" : "尚未完成 Gmail 寄信授權，完成後才能新增成員。"} <a href="/settings/email" className="underline">寄信設定</a></p>
         <p className="text-muted-foreground">舊的測試成員已從此瀏覽器清除。下方只列正式帳號。</p>
       </div>}
+      {LIVE_SHEET && <Card><CardHeader><CardTitle className="text-base">忘記密碼 · 管理員協助</CardTitle><CardDescription>所有帳號共用固定臨時密碼。先對指定成員按「啟用臨時密碼」，再把密碼交給對方；對方須設定新密碼後才能進入日曆。</CardDescription></CardHeader><CardContent className="space-y-3">
+        <Button variant="outline" disabled={recoveryBusy} onClick={async()=>{try{const r=await fetch('/api/workspace-recovery',{cache:'no-store'});const d=await r.json();if(!r.ok)throw new Error(d.detail);setRecoveryPassword(d.password);setRecoveryFor('');}catch(e){toast.error(e instanceof Error?e.message:'無法讀取');}}}>查看固定臨時密碼</Button>
+        {recoveryPassword && <div className="space-y-2 rounded-lg border p-3"><p className="text-sm">{recoveryFor?`${recoveryFor} 已啟用重設，原密碼及舊登入已失效。`:'只有已啟用重設的帳號能使用此密碼。'}</p><code className="block break-all select-all text-base">{recoveryPassword}</code><Button variant="outline" size="sm" onClick={async()=>{try{await navigator.clipboard.writeText(recoveryPassword);toast.success('已複製');}catch{toast.error('請長按密碼複製');}}}>複製臨時密碼</Button></div>}
+      </CardContent></Card>}
+      {deviceAccount && <div><Button variant="ghost" onClick={()=>setDeviceAccount(null)}>關閉裝置紀錄</Button><LoginDevices key={deviceAccount} accountId={deviceAccount}/></div>}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">權限預覽</CardTitle>
@@ -461,6 +471,7 @@ export default function AccessManagementPage() {
                         {statusLabel(member.status)}
                       </Badge>
                       <Badge variant="outline">{ROLE_DEFINITIONS[member.role].label}</Badge>
+                      {member.mustResetPassword && <Badge variant="secondary">待設定新密碼</Badge>}
                       {member.invitationStatus && <Badge variant={member.invitationStatus === "failed" ? "destructive" : "secondary"}>{member.invitationStatus === "sent" ? "邀請信已寄出" : member.invitationStatus === "failed" ? "邀請信未確認寄出" : "邀請處理中"}</Badge>}
                     </div>
                     <p className="mt-1 truncate text-xs text-muted-foreground">
@@ -478,15 +489,10 @@ export default function AccessManagementPage() {
 
                   {member.role !== "owner" && (
                     <div className="flex flex-wrap gap-2">
-                      {LIVE_SHEET && member.status !== "suspended" && <Button size="sm" variant="outline" onClick={async () => {
-                        try {
-                          const response = await fetch("/api/workspace-members", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: member.id, version: member.version }) });
-                          const result = await response.json();
-                          await refreshMembers();
-                          if (!response.ok) throw new Error(result.detail || "邀請信尚未確認寄出，請檢查寄信設定。");
-                          toast.success("設定密碼的邀請信已寄出");
-                        } catch (error) { toast.error(error instanceof Error ? error.message : "寄送失敗"); }
-                      }}>{member.status === "active" ? "寄送重設密碼信" : "重寄邀請"}</Button>}
+                      {LIVE_SHEET && member.status !== "suspended" && <Button size="sm" variant="outline" disabled={recoveryBusy} onClick={async()=>{
+                        setRecoveryBusy(true);try{const r=await fetch('/api/workspace-recovery',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:member.id,version:member.version})});const d=await r.json();if(!r.ok)throw new Error(d.detail);setRecoveryPassword(d.password);setRecoveryFor(member.displayName);await refreshMembers();toast.success('已啟用臨時密碼，請到上方複製並交給成員');}catch(e){toast.error(e instanceof Error?e.message:'無法重設');}finally{setRecoveryBusy(false);}
+                      }}>啟用臨時密碼</Button>}
+                      {LIVE_SHEET && <Button size="sm" variant="outline" onClick={()=>setDeviceAccount(member.id)}>登入裝置</Button>}
                       <Button size="sm" variant="outline" onClick={() => beginEdit(member)}>
                         <Pencil className="size-3.5" />
                         編輯

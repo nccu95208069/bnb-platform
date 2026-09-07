@@ -199,6 +199,7 @@ function SoldBookingCalendar() {
   const [visibleMonth, setVisibleMonth] = useState(() =>
     startOfMonth(anchorDate),
   );
+  const [todayRequest,setTodayRequest] = useState(0);
   const [monthTarget, setMonthTarget] = useState(() =>
     startOfMonth(anchorDate),
   );
@@ -258,6 +259,7 @@ function SoldBookingCalendar() {
     handledNavigationRequest.current = navigationRequest.id;
 
     if (navigationRequest.action === "today") {
+      setTodayRequest(value=>value+1);
       const today = localTodayIso();
       setAnchorDate(today);
       if (view === "month") {
@@ -538,6 +540,7 @@ function SoldBookingCalendar() {
   }
 
   function goToToday() {
+    setTodayRequest(value=>value+1);
     const today = localTodayIso();
     setAnchorDate(today);
     if (view === "month") {
@@ -972,6 +975,8 @@ function SoldBookingCalendar() {
               <MonthScroller
                 months={MONTHS}
                 targetMonth={monthTarget}
+                targetDate={todayRequest ? localTodayIso() : undefined}
+                targetRevision={todayRequest}
                 bookings={filteredBookings}
                 rooms={visibleRooms}
                 properties={selectedProperties}

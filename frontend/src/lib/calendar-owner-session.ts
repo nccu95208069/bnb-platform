@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 export const OWNER_COOKIE = "sf_calendar_owner";
-export const OWNER_SESSION_SECONDS = 12 * 60 * 60;
+export const OWNER_SESSION_SECONDS = 30 * 24 * 60 * 60;
 const validKey = (value: string | undefined): value is string => Boolean(value && /^[a-f0-9]{64}$/.test(value));
 export function ownerAccessConfigured(): boolean {
   return validKey(process.env.CALENDAR_OWNER_CODE_HASH) && validKey(process.env.CALENDAR_OWNER_SESSION_SECRET);

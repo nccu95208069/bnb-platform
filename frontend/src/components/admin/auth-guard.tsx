@@ -101,12 +101,16 @@ function SupabaseAuthGuard({ children }: { children: React.ReactNode }) {
 
 function LiveCalendarAccess({ children }: { children: React.ReactNode }) {
   const initialize = useAccessControl(state => state.initialize);
+  const requiresReset = useAccessControl(state => state.requiresPasswordReset);
+  const router = useRouter();
+  useEffect(() => { if(requiresReset) router.replace("/reset-password"); }, [requiresReset,router]);
   useEffect(() => {
     void initialize();
     const refresh = () => { void initialize(); };
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
   }, [initialize]);
+  if(requiresReset) return <LoadingScreen />;
   return <>{children}</>;
 }
 export function AuthGuard({ children }: { children: React.ReactNode }) {

@@ -1,0 +1,59 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {NextRequest} from 'next/server';
+import * as Session from '../src/app/api/calendar-session/route.ts';
+import * as Recovery from '../src/app/api/workspace-recovery/route.ts';
+import * as Devices from '../src/app/api/account-devices/route.ts';
+import * as Calendar from '../src/app/api/v1/bookings/calendar/route.ts';
+import {createPasswordCredential} from '../src/lib/owner-password.ts';
+import {OWNER_COOKIE,OWNER_SESSION_SECONDS,validOwnerSession} from '../src/lib/calendar-owner-session.ts';
+import {MEMBER_COOKIE,principalFor,validMemberSession} from '../src/lib/workspace-auth/session.ts';
+import {DEVICE_COOKIE} from '../src/lib/workspace-auth/devices.ts';
+
+test('30-day sessions, persistent device ID, admin recovery and forced reset without email',async t=>{
+ process.env.CALENDAR_SOURCE='sheet_snapshot';process.env.CALENDAR_OWNER_CODE_HASH=createHash('sha256').update('a'.repeat(32)).digest('hex');process.env.CALENDAR_OWNER_SESSION_SECRET='b'.repeat(64);
+ process.env.KV_REST_API_URL='https://redis.invalid';process.env.KV_REST_API_TOKEN='synthetic';
+ const ownerPassword='Synthetic owner passphrase!',oldPassword='Synthetic old member passphrase!',newPassword='Synthetic new member passphrase!';
+ const ownerCredential=await createPasswordCredential(ownerPassword);
+ const member={id:'c'.repeat(32),displayName:'Fixture',email:'member@example.test',phone:null,role:'viewer',status:'active',allProperties:false,propertyIds:['offland'],invitedAt:'',acceptedAt:null,lastActiveAt:null,credential:await createPasswordCredential(oldPassword),invitation:null,version:1};
+ const stateKey='sweetfun-os:workspace-auth:v1:members';const data=new Map([['sweetfun-os:owner-auth:v1:credential',JSON.stringify(ownerCredential)],[stateKey,JSON.stringify({version:1,members:[member]})]]),hashes=new Map();
+ t.mock.method(globalThis,'fetch',async(url,options)=>{assert.equal(url,'https://redis.invalid','No mail or SMS network calls');const c=JSON.parse(options.body);let result=null;
+  if(c[0]==='GET')result=data.get(c[1])??null;
+  if(c[0]==='SET'){if(c[3]!=='NX'||!data.has(c[1]))data.set(c[1],c[2]);result='OK';}
+  if(c[0]==='HSET'){const h=hashes.get(c[1])??new Map();h.set(c[2],c[3]);hashes.set(c[1],h);result=1;}
+  if(c[0]==='HGET')result=hashes.get(c[1])?.get(c[2])??null;
+  if(c[0]==='HVALS')result=[...(hashes.get(c[1])?.values()??[])];
+  if(c[0]==='EVAL'){if(c[1].includes('local old')){result=(data.get(c[3])??'')===c[4]?1:0;if(result)data.set(c[3],c[5]);}else result=1;}
+  return Response.json({result});
+ });
+ const req=(path,method='GET',body,cookie)=>new NextRequest(`https://calendar.test/api/${path}`,{method,headers:{host:'calendar.test',origin:'https://calendar.test','user-agent':'Synthetic browser',...(cookie?{cookie}:{})},...(body?{body:JSON.stringify(body)}:{})});
+ const login=await Session.POST(req('calendar-session','POST',{email:'sweetfuntw@gmail.com',code:ownerPassword}));assert.equal(login.status,200);assert.equal(login.cookies.get(OWNER_COOKIE).maxAge,30*86400);assert.equal(OWNER_SESSION_SECONDS,30*86400);
+ const owner=`${OWNER_COOKIE}=${login.cookies.get(OWNER_COOKIE).value}`;
+ const binding=ownerCredential.revision;assert.equal(validOwnerSession(login.cookies.get(OWNER_COOKIE).value,Date.now()+29*86400000,binding),true);
+ const oldLogin=await Session.POST(req('calendar-session','POST',{email:member.email,code:oldPassword}));assert.equal(oldLogin.status,200);
+ const oldCookie=`${MEMBER_COOKIE}=${oldLogin.cookies.get(MEMBER_COOKIE).value}`;const deviceId=oldLogin.cookies.get(DEVICE_COOKIE).value;
+ assert.equal(validMemberSession(oldLogin.cookies.get(MEMBER_COOKIE).value,member,Date.now()+29*86400000),true);
+ assert.equal((await Recovery.GET(req('workspace-recovery','GET',null,oldCookie))).status,403);
+ const reset=await Recovery.POST(req('workspace-recovery','POST',{id:member.id,version:1},owner));assert.equal(reset.status,200);const temp=(await reset.json()).password;
+ assert.equal(await principalFor(req('x','GET',null,oldCookie)),null);
+ const fixed=(await(await Recovery.GET(req('workspace-recovery','GET',null,owner))).json()).password;assert.equal(fixed,temp);
+ assert.equal((await Session.POST(req('calendar-session','POST',{email:member.email,code:oldPassword}))).status,401);
+ const limited=await Session.POST(req('calendar-session','POST',{email:member.email,code:temp},`${DEVICE_COOKIE}=${deviceId}`));assert.equal((await limited.json()).requires_password_reset,true);assert.equal(limited.cookies.get(DEVICE_COOKIE).value,deviceId);
+ const limitedCookie=`${MEMBER_COOKIE}=${limited.cookies.get(MEMBER_COOKIE).value}; ${DEVICE_COOKIE}=${deviceId}`;
+ assert.equal(await principalFor(req('x','GET',null,limitedCookie)),null);
+ assert.equal((await Calendar.GET(req('v1/bookings/calendar','GET',null,limitedCookie))).status,403);
+ assert.equal((await Devices.GET(req('account-devices','GET',null,limitedCookie))).status,403);
+ assert.equal((await Session.GET(req('calendar-session','GET',null,limitedCookie))).status,200);
+ assert.equal((await Session.PATCH(req('calendar-session','PATCH',{password:temp,confirmPassword:temp},limitedCookie))).status,400);
+ const complete=await Session.PATCH(req('calendar-session','PATCH',{password:newPassword,confirmPassword:newPassword},limitedCookie));assert.equal(complete.status,200);assert.equal((await complete.json()).requires_password_reset,false);
+ const newCookie=`${MEMBER_COOKIE}=${complete.cookies.get(MEMBER_COOKIE).value}; ${DEVICE_COOKIE}=${deviceId}`;
+ assert.equal((await principalFor(req('x','GET',null,newCookie))).id,member.id);
+ assert.equal(await principalFor(req('x','GET',null,limitedCookie)),null);
+ assert.equal((await Session.POST(req('calendar-session','POST',{email:member.email,code:temp}))).status,401);
+ const list=await(await Devices.GET(req('account-devices','GET',null,newCookie))).json();assert.equal(list.devices.length,1);assert.equal(list.currentDeviceId,deviceId);
+ assert.equal((await Devices.GET(req('account-devices?account=calendar-owner','GET',null,newCookie))).status,403);
+ const current=JSON.parse(data.get(stateKey)).members[0];
+ const again=await Recovery.POST(req('workspace-recovery','POST',{id:member.id,version:current.version},owner));assert.equal((await again.json()).password,temp);
+ assert.equal(data.get('sweetfun-os:owner-auth:v1:credential'),JSON.stringify(ownerCredential));
+});

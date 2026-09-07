@@ -311,7 +311,7 @@ export function Sidebar() {
         <SidebarContent />
       </aside>
 
-      <header className="fixed inset-x-0 top-0 z-50 grid h-14 grid-cols-[40px_minmax(0,1fr)_120px] items-center gap-1 border-b bg-background/95 px-2 backdrop-blur md:hidden">
+      <header className="fixed inset-x-0 top-0 z-50 grid h-14 grid-cols-[40px_minmax(0,1fr)_152px] items-center gap-1 border-b bg-background/95 px-2 backdrop-blur md:hidden">
         <Button
           variant="ghost"
           size="icon"
@@ -339,6 +339,7 @@ export function Sidebar() {
         <div className="flex items-center justify-end gap-0.5">
           {isCalendar ? (
             <>
+              <Button variant="ghost" size="sm" className="px-1.5" onClick={() => requestCalendarNavigation("today")}>今天</Button>
               <Button
                 variant="ghost"
                 size="icon"

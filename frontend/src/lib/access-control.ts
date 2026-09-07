@@ -36,6 +36,7 @@ export type AccessMembership = {
 };
 
 export type WorkspaceMember = {
+  mustResetPassword?: boolean;
   version?: number;
   invitationStatus?: "pending" | "sent" | "failed" | null;
   id: string;
@@ -218,6 +219,7 @@ function demoId() {
 }
 
 type AccessControlState = {
+  requiresPasswordReset: boolean;
   initialized: boolean;
   loading: boolean;
   error: string | null;
@@ -236,6 +238,7 @@ type AccessControlState = {
 export const useAccessControl = create<AccessControlState>()(
   persist(
     (set, get) => ({
+      requiresPasswordReset: false,
       initialized: false,
       mailConfigured: false,
       loading: false,
@@ -254,7 +257,7 @@ export const useAccessControl = create<AccessControlState>()(
             const response = await fetch("/api/calendar-session", { cache: "no-store" });
             const data = await response.json();
             if (!response.ok) throw new Error(data.detail || "無法確認登入");
-            set({ membership: data.membership ?? null, initialized: true, loading: false, error: null,
+            set({ requiresPasswordReset: Boolean(data.requires_password_reset), membership: data.membership ?? null, initialized: true, loading: false, error: null,
               ...(data.membership?.role !== "owner" ? { previewRole: null, members: [] } : {}) });
           } catch (error) { set({ membership: null, members: [], previewRole: null, initialized: true, loading: false, error: error instanceof Error ? error.message : "無法確認登入" }); }
           return;

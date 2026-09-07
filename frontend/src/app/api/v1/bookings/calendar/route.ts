@@ -1,4 +1,4 @@
-import { principalFor } from "@/lib/workspace-auth/session";
+import { principalFor, sessionMember } from "@/lib/workspace-auth/session";
 import { allowedProperty, projectBookings } from "@/lib/workspace-auth/projection";
 import { ownerAccessConfigured } from "@/lib/calendar-owner-session";
 import { readOperationalSheet } from "@/lib/sheet-monitor/google";
@@ -199,6 +199,7 @@ export async function GET(request: NextRequest) {
 
   if (process.env.CALENDAR_SOURCE === "sheet_snapshot") {
     try {
+      if((await sessionMember(request))?.mustResetPassword) return NextResponse.json({detail:"請先重設密碼。",requires_password_reset:true},{status:403,headers:{"Cache-Control":"private, no-store"}});
       const principal = await principalFor(request);
       const definitions = activeSources().filter(d => allowedProperty(principal, d.property.id));
       const { snapshots, errors } = await collectSnapshots(definitions, readBookingSnapshot);

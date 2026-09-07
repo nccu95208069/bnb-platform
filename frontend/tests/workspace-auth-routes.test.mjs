@@ -19,6 +19,8 @@ test('complete API flow preserves owner password, sends invitation, activates, l
  const ownerRaw=JSON.stringify(await createPasswordCredential(password));
  const data=new Map([['sweetfun-os:owner-auth:v1:credential',ownerRaw]]);const mails=[];
  t.mock.method(globalThis,'fetch',async(_url,opt)=>{const c=JSON.parse(opt.body);let result=null;
+  if(c[0]==='HSET'){data.set(c[1]+':'+c[2],c[3]);result=1;}
+  if(c[0]==='HGET')result=data.get(c[1]+':'+c[2])??null;
   if(c[0]==='GET')result=data.get(c[1])??null;
   if(c[0]==='SET'){data.set(c[1],c[2]);result='OK';}
   if(c[0]==='EVAL'){
