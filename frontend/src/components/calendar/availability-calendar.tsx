@@ -586,7 +586,7 @@ export function AvailabilityCalendar() {
                       {days.map((day) => (
                         <th key={day} className="min-w-28 border-b p-2">
                           <button onClick={() => selectDay(day)}>
-                            {day.slice(5)}
+                            {day.slice(5).replace("-", "/")}
                             <span className="ml-1 text-xs text-muted-foreground">
                               {
                                 ["日", "一", "二", "三", "四", "五", "六"][
