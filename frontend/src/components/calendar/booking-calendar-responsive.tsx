@@ -509,7 +509,7 @@ function SoldBookingCalendar() {
   const handleVisibleMonthChange = useCallback(
     (month: string) => {
       setVisibleMonth(month);
-      setAnchorDate(month);
+      setAnchorDate((current) => startOfMonth(current) === month ? current : month);
     },
     [setAnchorDate],
   );

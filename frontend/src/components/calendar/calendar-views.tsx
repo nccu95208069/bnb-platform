@@ -325,7 +325,6 @@ export function MonthScroller({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const monthRefs = useRef(new Map<string, HTMLElement>());
-  const firstScroll = useRef(true);
 
   useEffect(() => {
     const node = monthRefs.current.get(targetMonth);
@@ -334,9 +333,9 @@ export function MonthScroller({
     const day = targetDate?.startsWith(targetMonth.slice(0,7)) ? node.querySelector<HTMLElement>(`[data-calendar-date="${targetDate}"]`) : null;
     container.scrollTo({
       top: day ? Math.max(0,day.getBoundingClientRect().top-container.getBoundingClientRect().top+container.scrollTop-72) : node.offsetTop - container.offsetTop,
-      behavior: firstScroll.current ? "auto" : "smooth",
+      // Do not publish intermediate months into navigation history.
+      behavior: "instant",
     });
-    firstScroll.current = false;
   }, [targetMonth,targetDate,targetRevision]);
 
   useEffect(() => {

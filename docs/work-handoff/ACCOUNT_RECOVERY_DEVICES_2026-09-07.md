@@ -80,3 +80,8 @@ confirmation, stale revisions, encrypted persistence, new temporary login and ol
 password/session rejection after a manual change. Test, lint and production build
 pass. No production shared password or member credential was changed by the agent;
 the owner will enter the desired value in the private management UI.
+
+### Today navigation follow-up
+- Calendar month jumps now scroll instantly, so intervening months cannot overwrite the destination through visibility/history updates.
+- Visible-month tracking preserves the selected day when it is already in that month.
+- Mobile regression: November → Today, repeat, Back → November, Forward → Today; actual day remains visible. Browser regression script: `frontend/tests/browser/calendar-today.js`.
