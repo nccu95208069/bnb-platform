@@ -1,4 +1,4 @@
-import type { Channel } from './availability';
+import type { Channel, SalesProbability } from './availability';
 
 export const PRICING_KEY = 'sweetfun-os:pricing:v1:sweetfun';
 export const PRICING_ROOMS = ['101', '102', '201', '202', '301', '302'];
@@ -12,6 +12,7 @@ export type PricingSnapshot = {
   cells: {
     date: string; room: string; channels: Partial<Record<Channel, number>>;
     rack_price: number | null; daytype: string; baseline_version: string;
+    sales_probability?: SalesProbability | null;
     stock: { count: number | null; is_lock: boolean } | null;
   }[];
 };
@@ -29,6 +30,8 @@ export function validatePricingSnapshot(value: unknown): PricingSnapshot {
         Object.entries(c.channels).some(([ch,p]) => !PRICING_CHANNELS.includes(ch as Channel) || !Number.isSafeInteger(p) || p <= 0) ||
         (c.rack_price !== null && (!Number.isSafeInteger(c.rack_price) || c.rack_price <= 0)) ||
         (c.stock !== null && (typeof c.stock.is_lock !== 'boolean' || (c.stock.count !== null && (!Number.isSafeInteger(c.stock.count) || c.stock.count < 0))))) throw Error('INVALID_PRICING_CELL');
+    const probability = c.sales_probability;
+    if (probability != null && (!Number.isFinite(probability.value) || probability.value < 0 || probability.value > 1 || !/^\d{4}-\d{2}-\d{2}$/.test(probability.asof) || !Number.isFinite(Date.parse(probability.asof)) || new Date(probability.asof).toISOString().slice(0,10) !== probability.asof || probability.asof > new Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Taipei",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(s.observed_at)) || !/^[a-f0-9]{20}$/.test(probability.source_version))) throw Error("INVALID_SALES_PROBABILITY");
     seen.add(key);
   }
   return s;

@@ -20,7 +20,7 @@ export function liveAvailability(query: AvailabilityQuery, bookings: BookingSour
     else if (state === 'available' && p?.stock?.count === 0) state = 'unknown';
     const reason = {available:'訂房表尚無訂單；接單前仍須確認通路庫存與住宿限制。',sold:'訂房表已有訂單',past:'已過去的房晚',conflict:'訂房表有衝突，需先確認',unknown:'訂房表同步或通路庫存待確認',blocked:'OwlNest 最近一次觀測為封房，重新開放前請再次確認',held:'暫留',maintenance:'維修'}[state];
     const stalePrice = !!prices && now.getTime() - Date.parse(prices.observed_at) > 4 * 86400000;
-    cells.push({date,room,state,reason,sellable_units:null,minimum_nights:0,max_guests:0,
+    cells.push({date,room,state,reason,sales_probability:p?.sales_probability ?? null,sellable_units:null,minimum_nights:0,max_guests:0,
       inventory_observed_at:bookings.source.sync?.last_checked_at ?? bookings.source.observed_at,
       freshness:healthy ? 'sheet_unsold_not_booking_confirmation' : 'stale',
       pricing: { current_price:p?.channels[query.channel] ?? null, base_price:p?.rack_price ?? null,

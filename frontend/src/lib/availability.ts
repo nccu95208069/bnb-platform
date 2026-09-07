@@ -57,7 +57,9 @@ export type NightPrice = {
   source: string;
   suggestion_source: string;
 };
+export type SalesProbability = { value: number; asof: string; source_version: string };
 export type RoomNight = {
+  sales_probability?: SalesProbability | null;
   date: string;
   room: string;
   state: InventoryState;

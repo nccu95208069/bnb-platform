@@ -10,6 +10,8 @@ import datetime as dt
 import hashlib
 import json
 import os
+import math
+import re
 import pathlib
 import subprocess
 import sys
@@ -21,7 +23,22 @@ def main():
     parser.add_argument('--pricing-repo', required=True, type=pathlib.Path)
     parser.add_argument('--output', required=True, type=pathlib.Path)
     parser.add_argument('--end', default='2027-06-30')
+    parser.add_argument('--probability-plan', type=pathlib.Path, help='Explicit T39 plan containing p_sell; no plan is executed')
     args = parser.parse_args()
+    probabilities = {}
+    if args.probability_plan:
+        match = re.fullmatch(r't39_plan_(\d{8})\.csv', args.probability_plan.name)
+        if not match:
+            raise RuntimeError('Probability plan filename must identify its as-of date')
+        asof = dt.datetime.strptime(match[1], '%Y%m%d').date().isoformat()
+        plan_bytes = args.probability_plan.read_bytes()
+        plan_version = hashlib.sha256(plan_bytes).hexdigest()[:20]
+        for row in csv.DictReader(plan_bytes.decode('utf-8-sig').splitlines()):
+            key = (row['date'], row['room'])
+            value = float(row['p_sell'])
+            if key in probabilities or not math.isfinite(value) or not 0 <= value <= 1:
+                raise RuntimeError('Invalid or duplicate sale probability')
+            probabilities[key] = {'value':value,'asof':asof,'source_version':plan_version}
     repo = args.pricing_repo.resolve()
     sys.path.insert(0, str(repo / 'scripts'))
     import owlnest_prices as owl
@@ -60,6 +77,7 @@ def main():
             rack_price = None
         cells.append({'date':date,'room':room,'channels':{mapping[k]:v for k,v in prices.items()},
                       'stock':stocks.get((owl.ROOM_IDS[room],date)), 'rack_price':rack_price,
+                      'sales_probability':probabilities.get((date,room)),
                       'daytype':build_panel.daytype_for_date(date), 'baseline_version':versions.get((date,room),'')})
     if before != {p: hashlib.sha256((repo / p).read_bytes()).hexdigest() for p in tracked}:
         raise RuntimeError('Pricing inputs changed during read; retry')

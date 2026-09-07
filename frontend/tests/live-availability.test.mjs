@@ -51,3 +51,13 @@ test('real route rejects anonymous, hidden-price, reset-required and wrong-prope
  member.mustResetPassword=false;assert.equal((await GET(request(cookie(),'&channel=invalid'))).status,400);
  assert.equal(priceReads,0);
 });
+
+ test('probability groups preserve thresholds and missing values',async()=>{
+ const {probabilityBand,probabilityText}=await import('../src/lib/sales-probability.ts');
+ const p=value=>({value,asof:'2026-09-07',source_version:'a'.repeat(20)});
+ for(const [v,b] of [[0,'low'],[0.39999,'low'],[0.4,'medium'],[0.59999,'medium'],[0.6,'high'],[1,'high']])assert.equal(probabilityBand(p(v)),b);
+ assert.equal(probabilityBand(null),'unknown');assert.equal(probabilityBand(p(NaN)),'unknown');assert.equal(probabilityText(p(0.39999)),'售出 39.9%');
+ const snapshot=structuredClone(prices);snapshot.cells[0].sales_probability=p(0.6);
+ validatePricingSnapshot(snapshot);assert.equal(liveAvailability(query,source,snapshot,now).cells[0].sales_probability.value,0.6);
+ snapshot.cells[0].sales_probability.value=1.1;assert.throws(()=>validatePricingSnapshot(snapshot));
+ });

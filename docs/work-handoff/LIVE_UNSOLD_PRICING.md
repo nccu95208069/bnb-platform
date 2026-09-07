@@ -29,3 +29,9 @@ Storage: private compressed Redis key `sweetfun-os:pricing:v1:sweetfun`, previou
 Initial export has 1,782 room/date cells, each with five channel prices, through 2027-06-30. Publication verified version `b1dae415a22200df26b7`. Price provenance is observed rather than guaranteed current.
 
 Tests cover checkout, source outage, conflicts, channel-specific prices, missing prices, stock locks, stale data, malformed snapshots and real-route auth/property/hidden-price/reset-required denials. Frontend build passes; existing lint warnings unrelated to this change remain.
+
+## Sales probability colors (owner request)
+
+Month/week/day use red for p_sell ≥0.60, green for 0.40≤p_sell<0.60, blue below 0.40. Missing predictions stay gray, never inferred from rates. Percentage and model as-of date appear in the detail; percentages also appear in cells. Existing conflicts/unknown/blocked states retain their operational warnings. Hidden-price accounts still cannot read this endpoint.
+
+Export with optional `--probability-plan /path/to/t39_plan_YYYYMMDD.csv`. The current integration reads the explicit September 7 plan p_sell keyed by exact room/date, validates finite 0..1 and duplicate keys, records the file hash and as-of date, and never executes the plan. No matching plan row means no prediction, including excluded dates; this is not evidence of zero probability. The values are the engine's model scores, not guaranteed future sales or proof a proposed price was applied.

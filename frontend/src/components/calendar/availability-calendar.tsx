@@ -1,6 +1,7 @@
 "use client";
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { probabilityBand, probabilityStyles, probabilityText } from "@/lib/sales-probability";
 import { availabilityFeatures } from "@/lib/availability-features";
 import {
   ArrowRight,
@@ -82,6 +83,9 @@ const stateStyles: Record<string, string> = {
   sold: "border-border bg-muted/40 text-muted-foreground",
   past: "border-transparent bg-muted/30 text-muted-foreground",
 };
+function roomNightStyle(cell: RoomNight) {
+  return cell.state === "available" ? probabilityStyles[probabilityBand(cell.sales_probability)] : stateStyles[cell.state];
+}
 function PricePair({
   cell,
   compact = false,
@@ -110,6 +114,7 @@ function PricePair({
       >
         {priceText(p.current_price)}
       </p>
+      <p className={compact ? "text-[9px] leading-tight opacity-80" : "text-xs"}>{probabilityText(cell.sales_probability)}</p>
       {!compact && (
         <p className="text-xs text-muted-foreground">
           {p.suggested_price != null
@@ -543,9 +548,15 @@ export function AvailabilityCalendar() {
           )}
         </div>
       </div>
+      <div aria-label="銷售機率圖例" className="flex flex-wrap gap-2 text-xs">
+        <span className="rounded border border-red-300 bg-red-100 px-2 py-1 text-red-950">高 ≥60%</span>
+        <span className="rounded border border-emerald-300 bg-emerald-100 px-2 py-1 text-emerald-950">中 40%–未滿60%</span>
+        <span className="rounded border border-blue-300 bg-blue-100 px-2 py-1 text-blue-950">低 &lt;40%</span>
+        <span className="rounded border bg-slate-50 px-2 py-1 text-slate-700">灰：未提供預測</span>
+      </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span>
-          <span className="text-emerald-600">●</span> 未售
+          色彩代表未售房晚的銷售機率
         </span>
         <span>
           <span className="text-amber-500">●</span> 暫留／待確認
@@ -678,7 +689,7 @@ export function AvailabilityCalendar() {
                                 onClick={() => openCell(c)}
                                 className={cn(
                                   "mb-1 w-full rounded-md border px-1 py-1 text-left sm:flex sm:items-center sm:justify-between",
-                                  stateStyles[c.state],
+                                  roomNightStyle(c),
                                   !expanded && i === 2 && "hidden sm:flex",
                                 )}
                               >
@@ -798,7 +809,7 @@ export function AvailabilityCalendar() {
                                 <button
                                   className={cn(
                                     "min-h-24 w-full rounded-lg border p-2 text-left",
-                                    stateStyles[c.state],
+                                    roomNightStyle(c),
                                     !matches(c) && "opacity-35",
                                   )}
                                   onClick={() => openCell(c)}
@@ -825,13 +836,13 @@ export function AvailabilityCalendar() {
             {view === "day" && (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {cells.filter(matches).map((c) => (
-                  <Card key={c.room} className="overflow-hidden py-0">
+                  <Card key={c.room} className={cn("overflow-hidden py-0", roomNightStyle(c))}>
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
                         <h2 className="text-lg font-semibold">{c.room} 房</h2>
                         <Badge
                           variant="outline"
-                          className={stateStyles[c.state]}
+                          className={roomNightStyle(c)}
                         >
                           {inventoryLabels[c.state]}
                         </Badge>
@@ -882,11 +893,15 @@ export function AvailabilityCalendar() {
             <div className="space-y-5 px-4 pb-8">
               <Badge
                 variant="outline"
-                className={stateStyles[selectedCell.state]}
+                className={roomNightStyle(selectedCell)}
               >
                 {inventoryLabels[selectedCell.state]}
               </Badge>
               <p className="text-sm">{selectedCell.reason}</p>
+              {selectedCell.state === "available" && <div className={cn("rounded-lg border p-3 text-sm", roomNightStyle(selectedCell))}>
+                <p className="font-semibold">{probabilityText(selectedCell.sales_probability)}</p>
+                {selectedCell.sales_probability && <p className="mt-1 text-xs">模型預測日期：{selectedCell.sales_probability.asof}。這是定價模型的售出機率，非成交保證，也不表示調價已執行。</p>}
+              </div>}
               {!hidePrice && selectedCell.pricing && (
                 <>
                   <div className="grid grid-cols-3 gap-2 rounded-xl bg-muted/40 p-3">
