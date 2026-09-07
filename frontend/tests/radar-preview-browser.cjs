@@ -81,7 +81,7 @@ async function run() {
   assert.match(await page.locator('table').first().innerText(), /NT\$2,400/);
   assert.match(await page.locator('table').first().innerText(), /房型已辨識/);
   assert.match(await page.locator('table').first().innerText(), /日期已核對/);
-  await page.getByRole('button', { name: /Agoda/ }).click();
+  await page.getByRole('button', { name: 'A. Agoda', exact: true }).click();
   await page.getByRole('heading', { name: 'Agoda' }).waitFor();
   assert.equal(await page.locator('table').last().locator('thead th').count(), 15);
   assert.ok(await page.locator('[aria-label="有房"]').count() > 0);
@@ -106,7 +106,7 @@ async function run() {
   await phone.getByRole('heading', { name: '未來 14 天價格與可售狀態' }).waitFor();
   await phone.getByRole('button', { name: '開始分析' }).waitFor();
   assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
-  await phone.getByRole('button', { name: /Booking\.com/ }).click();
+  await phone.getByRole('button', { name: 'B. Booking.com', exact: true }).click();
   await phone.getByRole('heading', { name: 'Booking.com' }).waitFor();
   await phone.screenshot({ path: path.join(out, 'radar-mobile-webkit.png'), fullPage: true });
   assert.deepEqual(phoneErrors, []);
