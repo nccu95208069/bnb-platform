@@ -1,5 +1,6 @@
 "use client";
 
+import { PaymentBadge } from "./payment-badge";
 import { useEffect, useMemo, useRef } from "react";
 import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
@@ -14,7 +15,6 @@ import type {
   CalendarRoom,
 } from "./calendar-types";
 import {
-  PAYMENT_DOT_STYLES,
   PLATFORM_LABELS,
   PLATFORM_STYLES,
   PROPERTY_DOT_STYLES,
@@ -48,16 +48,7 @@ function propertyById(properties: CalendarProperty[]) {
   return new Map(properties.map((property) => [property.id, property]));
 }
 
-function PaymentDot({ booking }: { booking: CalendarBooking }) {
-  return (
-    <span
-      className={cn(
-        "inline-block size-2 shrink-0 rounded-full",
-        PAYMENT_DOT_STYLES[booking.payment_status],
-      )}
-    />
-  );
-}
+function PaymentDot({ booking }: { booking: CalendarBooking }) { return <PaymentBadge booking={booking} />; }
 
 function BookingChip({
   booking,
@@ -274,6 +265,7 @@ function MonthPanel({
                     {guestName && <span className="block truncate leading-[12px]">{guestName}</span>}
                     <GuestRemarks booking={booking} compact limit={segment.end-segment.start>1?2:1} />
                   </span>
+                  <PaymentBadge booking={booking} compact />
                   {segment.continuesAfter && <span aria-hidden="true">›</span>}
                 </button>;
               })}

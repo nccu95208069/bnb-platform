@@ -1,4 +1,5 @@
 "use client";
+import { OsPaymentPanel } from "@/components/payments/os-payment-panel";
 
 import { CalendarPrivacy } from "./calendar-privacy";
 import {
@@ -900,7 +901,7 @@ function SoldBookingCalendar() {
             {label}
           </span>
         ))}
-        <span className="ml-auto flex flex-wrap items-center gap-3">
+        {permissions.viewPrices && <span className="ml-auto flex flex-wrap items-center gap-3">
           {(Object.keys(PAYMENT_LABELS) as PaymentStatus[]).map((status) => (
             <span key={status} className="flex items-center gap-1.5">
               <span
@@ -912,8 +913,10 @@ function SoldBookingCalendar() {
               {PAYMENT_LABELS[status]}
             </span>
           ))}
-        </span>
+        </span>}
       </div>
+
+      {permissions.viewPrices && <p className="px-2 text-[10px] text-muted-foreground lg:hidden">✓ 已付清 · 訂 已付訂金 · 未 未付款 · ? 待確認</p>}
 
       {DEMO_MODE && !PAYMENT_SANDBOX && !data?.source && (
         <div className="hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 md:block">
@@ -1052,7 +1055,9 @@ function SoldBookingCalendar() {
             : permissions
         }
         paymentWorkspace={
-          PAYMENT_SANDBOX && selectedBooking && permissions.viewPrices ? (
+          data?.source?.read_only && selectedBooking && permissions.viewPrices && !selectedBooking.source_conflict ? (
+            <OsPaymentPanel key={selectedBooking.order_id} property={selectedBooking.property_id} order={selectedBooking.order_id} canRecord={permissions.recordPayments} onChange={() => setReloadKey(v=>v+1)} />
+          ) : PAYMENT_SANDBOX && selectedBooking && permissions.viewPrices ? (
             <PaymentWorkspace
               key={selectedBooking.order_id}
               orderId={selectedBooking.order_id}

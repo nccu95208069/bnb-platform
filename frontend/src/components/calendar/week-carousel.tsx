@@ -1,5 +1,6 @@
 "use client";
 
+import { PaymentBadge } from "./payment-badge";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
 import { BookingIdentity, bookingIdentityText } from "./booking-identity";
@@ -43,16 +44,7 @@ function propertyById(properties: CalendarProperty[]) {
   return new Map(properties.map((property) => [property.id, property]));
 }
 
-function PaymentDot({ booking }: { booking: CalendarBooking }) {
-  return (
-    <span
-      className={cn(
-        "inline-block size-2 shrink-0 rounded-full",
-        PAYMENT_DOT_STYLES[booking.payment_status],
-      )}
-    />
-  );
-}
+function PaymentDot({ booking }: { booking: CalendarBooking }) { return <PaymentBadge booking={booking} />; }
 
 function MobileBookingChip({
   booking,

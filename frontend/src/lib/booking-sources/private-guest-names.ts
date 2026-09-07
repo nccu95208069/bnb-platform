@@ -16,7 +16,9 @@ export function attachPrivateGuestNames(bookings: CalendarBooking[], values: unk
   const names = new Map(normalized.map(row => {
     const id = `sheet-${createHash("sha256").update(`${source.sourceId}:row:${row.cells[9]}`).digest("hex").slice(0, 20)}`;
     const name = String(values[row.sourceRow - 1]?.[headers.indexOf("預定人姓名")] ?? "").trim();
-    return [id, name];
+    const raw = values[row.sourceRow - 1] ?? [];
+    const field = (label: string) => { const indices = headers.flatMap((h,i)=>h === label ? [i] : []); return indices.length === 1 ? String(raw[indices[0]] ?? "").trim() : ""; };
+    return [id, {name, ota: field("OTA訂單編號"), owl: field("訂單編號")}];
   }));
   return bookings.map(booking => {
     if (booking.property_id !== source.property.id || booking.source_conflict) return booking;
@@ -24,8 +26,8 @@ export function attachPrivateGuestNames(bookings: CalendarBooking[], values: unk
     // A moved/deleted/reused row or an unconfirmed source change must not attach
     // another stay's identity to the last published calendar record.
     const matches = row && row.order_id === booking.order_id && row.room_id === booking.room_id && row.check_in === booking.check_in && row.check_out === booking.check_out && row.platform === booking.platform && row.room_rate === booking.room_rate;
-    const name = matches ? names.get(booking.id) ?? "" : "";
-    return { ...booking, guest_remarks: parseGuestRemarks(name), guest_name: name || (matches ? "姓名未提供" : "姓名待同步確認"), guest_name_kind: name ? "real" : "missing",
+    const name = matches ? names.get(booking.id)?.name ?? "" : "";
+    return { ...booking, external_order_no: matches ? names.get(booking.id)?.ota || null : null, owlnest_order_no: matches ? names.get(booking.id)?.owl || null : null, guest_remarks: parseGuestRemarks(name), guest_name: name || (matches ? "姓名未提供" : "姓名待同步確認"), guest_name_kind: name ? "real" : "missing",
       notes: booking.notes?.replace("公開畫面顯示匿名編號。", "私人檢視顯示來源姓名。") ?? null };
   });
 }

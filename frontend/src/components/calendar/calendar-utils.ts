@@ -63,6 +63,8 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   cash: "現金",
   bank_transfer: "匯款",
   credit_card: "信用卡",
+  ota: "OTA 代收",
+  other: "其他",
 };
 
 export const PAYMENT_TYPE_LABELS: Record<PaymentType, string> = {
@@ -310,6 +312,9 @@ export function coalesceContiguousBookings(bookings: CalendarBooking[]) {
 
       current = {
         ...current,
+        external_order_no: current.external_order_no || booking.external_order_no,
+        owlnest_order_no: current.owlnest_order_no || booking.owlnest_order_no,
+        payment_status: current.payment_status === booking.payment_status ? current.payment_status : "unknown",
         guest_name_sources: [...new Set([...(current.guest_name_sources ?? (current.guest_name_kind === "real" ? [current.guest_name] : [])), ...(booking.guest_name_sources ?? (booking.guest_name_kind === "real" ? [booking.guest_name] : []))])],
         guest_remarks: mergeGuestRemarks([...(current.guest_remarks ?? (current.guest_name_kind === "real" ? parseGuestRemarks(current.guest_name) : [])), ...(booking.guest_remarks ?? (booking.guest_name_kind === "real" ? parseGuestRemarks(booking.guest_name) : []))]),
         guest_name: current.guest_name_kind === "real" && booking.guest_name_kind === "real" && comparableGuestName(current.guest_name) !== comparableGuestName(booking.guest_name) ? "連住姓名待核對" : current.guest_name,

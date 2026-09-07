@@ -942,10 +942,11 @@ export function BookingDetailsPanel({
                     label="預訂日"
                     value={formatDate(booking.booked_at)}
                   />
-                  <DetailRow label="訂單編號" value={booking.order_id} />
+                  <DetailRow label="OTA 訂單編號" value={booking.external_order_no || "來源未提供"} />
+                  <DetailRow label="OwlNest 訂單編號" value={booking.owlnest_order_no || "來源未提供"} />
                   <DetailRow
-                    label="外部編號"
-                    value={booking.external_order_no ?? "—"}
+                    label="系統內部 ID"
+                    value={booking.order_id}
                   />
                   <DetailRow label={booking.source_read_only ? "資料說明" : "原始備註"} value={booking.notes ?? "—"} />
                   {booking.source_payment_label && <DetailRow label="付款標記" value={booking.source_payment_label} />}
@@ -971,7 +972,7 @@ export function BookingDetailsPanel({
                 </div>
               </section>}
 
-              {permissions.viewPrices && (
+              {permissions.viewPrices && !(booking.source_read_only && paymentWorkspace) && (
                 <section>
                   <div className="flex items-center justify-between">
                     <h3 className="flex items-center gap-2 text-sm font-semibold">

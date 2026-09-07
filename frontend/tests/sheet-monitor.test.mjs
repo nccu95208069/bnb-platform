@@ -224,7 +224,7 @@ test("Google reader uses readonly scope, fixed target and a complete metadata-bo
     }
     assert.equal(options.headers.Authorization,"Bearer test-token");
     if(calls.length===2)return Response.json({properties:{timeZone:"Asia/Taipei"},sheets:[{properties:{sheetId:1097364331,title:"工作表1",gridProperties:{rowCount:2000,columnCount:38}}}]});
-    assert.match(decodeURIComponent(String(url)),/工作表1'!A1:L2000/);
+    assert.match(decodeURIComponent(String(url)),/工作表1'!A1:N2000/);
     return Response.json({majorDimension:"ROWS",values:values([row("a")])});
   };
   try {assert.equal((await readOperationalSheet()).length,2);assert.equal(calls.length,3);}

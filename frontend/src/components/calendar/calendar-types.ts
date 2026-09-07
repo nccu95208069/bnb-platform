@@ -1,7 +1,7 @@
 export type CalendarView = "month" | "week" | "day";
 export type PaymentStatus = "paid" | "deposit" | "unpaid" | "unknown";
 export type ReservationStatus = "confirmed" | "cancelled";
-export type PaymentMethod = "cash" | "bank_transfer" | "credit_card";
+export type PaymentMethod = "cash" | "bank_transfer" | "credit_card" | "ota" | "other";
 export type PaymentType = "deposit" | "balance" | "other";
 export type BabySupplyKey =
   | "baby_bath"
@@ -48,6 +48,7 @@ export type CalendarBooking = {
   sheet_row_id: string;
   order_id: string;
   external_order_no: string | null;
+  owlnest_order_no?: string | null;
   property_id: string;
   property_name: string;
   room_id: string;

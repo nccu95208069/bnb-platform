@@ -38,7 +38,7 @@ export async function readOperationalSheet(source: SheetSourceDefinition = SWEET
   if (!sheet || sheet.title !== source.sheetTitle || metadata.properties?.timeZone !== "Asia/Taipei") throw new Error("SHEET_IDENTITY_MISMATCH");
   const rowCount = sheet.gridProperties.rowCount;
   const lastColumn = source.lastColumn ?? "L";
-  if (!Number.isInteger(rowCount) || rowCount < 2 || rowCount > 50_000 || sheet.gridProperties.columnCount < (lastColumn === "O" ? 15 : 12)) throw new Error("SHEET_GRID_UNSUPPORTED");
+  if (!Number.isInteger(rowCount) || rowCount < 2 || rowCount > 50_000 || sheet.gridProperties.columnCount < (lastColumn === "O" ? 15 : lastColumn === "N" ? 14 : 12)) throw new Error("SHEET_GRID_UNSUPPORTED");
   // One complete bounded read, including the J identity/date index for moved/deleted
   // rows. Do not truncate by a guessed last row or assume the Sheet is date-sorted.
   const range = encodeURIComponent(`'${source.sheetTitle.replaceAll("'", "''")}'!A1:${lastColumn}${rowCount}`);

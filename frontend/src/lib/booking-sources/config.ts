@@ -24,7 +24,7 @@ export const SWEETFUN_SOURCE: SheetSourceDefinition = {
   property: { id: "sweetfun", name: "水芳 Sweetfun", sourceLabel: "Sweetfun 訂房表",
     rooms: ["101", "102", "201", "202", "301", "302"].map(number => ({ number, id: `sweetfun-${number}` })) },
   spreadsheetId: "1ZU1aJ4mLgysBz1UM84GLzljuWly8saF0p1HaNmAIBWc", sheetId: 1097364331,
-  sheetTitle: "工作表1", snapshotFile: "source-snapshot.json", credentialEnv: "SHEET_MONITOR_GOOGLE_CREDENTIALS",
+  sheetTitle: "工作表1", lastColumn: "N", snapshotFile: "source-snapshot.json", credentialEnv: "SHEET_MONITOR_GOOGLE_CREDENTIALS",
 };
 export const OFFLAND_SOURCE: SheetSourceDefinition = {
   key: "offland", sourceId: "offland-operations-sheet-v1",

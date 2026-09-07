@@ -1,3 +1,4 @@
+import { overlayPayments } from "@/lib/os-payments";
 import { principalFor, sessionMember } from "@/lib/workspace-auth/session";
 import { allowedProperty, projectBookings } from "@/lib/workspace-auth/projection";
 import { ownerAccessConfigured } from "@/lib/calendar-owner-session";
@@ -227,6 +228,7 @@ export async function GET(request: NextRequest) {
           attachPrivateGuestNames(bookings.filter(b => b.property_id === definition.property.id), await readOperationalSheet(definition), definition)));
         bookings = namedSources.flat();
       }
+      if (principal.viewPrices) bookings = await overlayPayments(bookings);
       bookings = projectBookings(bookings, principal);
       return NextResponse.json({
         price_hidden: !principal?.viewPrices,
