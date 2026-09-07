@@ -10,21 +10,20 @@ for (const name of ['package.json', 'package-lock.json', 'tsconfig.json', 'next-
   if (existsSync(join(source, name))) cpSync(join(source, name), join(target, name));
 }
 cpSync(join(source, 'src'), join(target, 'src'), { recursive: true });
-// Build only these routes. No calendar, auth, order, sheet, cron or payment API is deployed.
+// No calendar, auth, order, sheet, cron or payment API is deployed.
 rmSync(join(target, 'src/app'), { recursive: true, force: true });
 mkdirSync(join(target, 'src/app/api/radar-preview'), { recursive: true });
 mkdirSync(join(target, 'src/app/radar-test'), { recursive: true });
 cpSync(join(source, 'src/app/globals.css'), join(target, 'src/app/globals.css'));
 cpSync(join(source, 'src/app/radar-test/page.tsx'), join(target, 'src/app/radar-test/page.tsx'));
+cpSync(join(source, 'src/app/radar-test/page.tsx'), join(target, 'src/app/page.tsx'));
 cpSync(join(source, 'src/app/api/radar-preview/route.ts'), join(target, 'src/app/api/radar-preview/route.ts'));
-writeFileSync(join(target, 'src/app/page.tsx'), 'export { default, metadata, dynamic } from "./radar-test/page";\n');
 writeFileSync(join(target, 'src/app/layout.tsx'), `import type { Metadata } from "next";
 import "./globals.css";
 export const metadata: Metadata = { title: "Daili｜競品雷達測試站", robots: { index: false, follow: false } };
 export default function Layout({ children }: Readonly<{ children: React.ReactNode }>) { return <html lang="zh-Hant"><body style={{ margin: 0, background: "#fff" }}>{children}</body></html>; }
 `);
 writeFileSync(join(target, 'vercel.json'), JSON.stringify({ framework: 'nextjs', regions: ['hnd1'], headers: [{ source: '/(.*)', headers: [{ key: 'X-Robots-Tag', value: 'noindex, nofollow' }, { key: 'X-Content-Type-Options', value: 'nosniff' }, { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' }] }] }, null, 2));
-// Explicit assertion: app-route allowlist and absence of environment files.
 function files(dir, prefix = '') { return readdirSync(dir, { withFileTypes: true }).flatMap(entry => entry.isDirectory() ? files(join(dir, entry.name), prefix + entry.name + '/') : [prefix + entry.name]); }
 const routes = files(join(target, 'src/app')).filter(p => /(?:page|route)\.tsx?$/.test(p));
 if (JSON.stringify(routes.sort()) !== JSON.stringify(['api/radar-preview/route.ts', 'page.tsx', 'radar-test/page.tsx'])) throw new Error('Unexpected route in isolated artifact');
