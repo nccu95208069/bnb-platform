@@ -97,6 +97,7 @@ export interface PropertyIdentityMatch {
 
 export interface RegistryCandidateSummary {
   hotelId: string;
+  registrationNumber?: string;
   name: string;
   matchedName: string;
   address?: string;
