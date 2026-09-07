@@ -7,6 +7,12 @@ function isPlausibleRegistrationNumber(value: string | undefined): boolean {
   const digitCount = (compact.match(/\d/g) ?? []).length;
   if (digitCount < 1 || digitCount > 12) return false;
   if (/https?:|www\.|@|(?:電話|手機|fax|tel)/i.test(compact)) return false;
+
+  // The website extractor only emits a standalone value after validating the
+  // surrounding label/text as registration context. Keep that clean ID while
+  // continuing to reject arbitrary JSON-LD brand identifiers at extraction.
+  if (/^[A-Z]?\d{1,12}(?:-\d+)?號?$/i.test(compact)) return true;
+
   return /(?:民宿|旅館|registration|license|登記|證號|字號|編號)/i.test(compact);
 }
 
