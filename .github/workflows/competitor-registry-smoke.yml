@@ -35,7 +35,31 @@ jobs:
           cat > /tmp/registry-smoke.ts <<'TS'
           import { findTourismRegistryCandidates } from "./src/lib/competitor-radar/taiwan-tourism-registry";
 
+          const archiveUrl = "https://media.taiwan.net.tw/XMLReleaseAll_public/v2.0/Zh_tw/Hotel-json.zip";
+
+          async function logTransport() {
+            const response = await fetch(archiveUrl, {
+              headers: { Accept: "application/zip,application/octet-stream" },
+              redirect: "manual",
+            });
+            const bytes = Buffer.from(await response.arrayBuffer());
+            console.log(JSON.stringify({
+              status: response.status,
+              url: response.url,
+              contentType: response.headers.get("content-type"),
+              contentEncoding: response.headers.get("content-encoding"),
+              contentLength: response.headers.get("content-length"),
+              location: response.headers.get("location"),
+              byteLength: bytes.length,
+              first32Hex: bytes.subarray(0, 32).toString("hex"),
+              first160Text: bytes.subarray(0, 160).toString("utf8"),
+              last32Hex: bytes.subarray(Math.max(0, bytes.length - 32)).toString("hex"),
+            }, null, 2));
+          }
+
           async function main() {
+            await logTransport();
+
             const expectedHotelId = "Hotel_A15010000H_035813";
             const candidates = await findTourismRegistryCandidates({
               name: "水芳 Sweetfun",
