@@ -26,60 +26,65 @@ jobs:
       - name: Install project dependencies
         run: npm ci
 
-      - name: Inspect official search and detail HTML
+      - name: Inspect official per-property JSON
         shell: bash
         run: |
-          cat > registry-portal-probe.mjs <<'JS'
-          const searchUrl = "https://media.taiwan.net.tw/zh-tw/portal/travel?Keyword=%E6%B0%B4%E8%8A%B3";
-          const detailUrl = "https://media.taiwan.net.tw/zh-tw/portal/travel/details/hotel_a15010000h_035813";
+          cat > registry-json-probe.mjs <<'JS'
+          const jsonUrl = "https://media.taiwan.net.tw/zh-tw/portal/travel/json/hotel_a15010000h_035813";
           const headers = {
-            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            Accept: "application/json,text/plain,*/*",
             "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.7",
+            Referer: "https://media.taiwan.net.tw/zh-tw/portal/travel/details/hotel_a15010000h_035813",
             "User-Agent":
               "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
           };
 
-          function excerpt(html, needle, radius = 1200) {
-            const index = html.toLowerCase().indexOf(needle.toLowerCase());
-            if (index < 0) return `MISSING: ${needle}`;
-            return html.slice(Math.max(0, index - radius), Math.min(html.length, index + radius));
+          const response = await fetch(jsonUrl, { headers, redirect: "error" });
+          const body = Buffer.from(await response.arrayBuffer());
+          const text = body.toString("utf8");
+          console.log(JSON.stringify({
+            status: response.status,
+            contentType: response.headers.get("content-type"),
+            contentDisposition: response.headers.get("content-disposition"),
+            contentLength: response.headers.get("content-length"),
+            byteLength: body.length,
+            first32Hex: body.subarray(0, 32).toString("hex"),
+            first500Text: text.slice(0, 500),
+            rejected: /Request Rejected|安全性因素暫時被鎖定/i.test(text),
+          }, null, 2));
+
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          if (/Request Rejected|安全性因素暫時被鎖定/i.test(text)) {
+            throw new Error("official per-property JSON transport rejected");
           }
 
-          async function fetchHtml(url) {
-            const response = await fetch(url, { headers, redirect: "error" });
-            const html = await response.text();
-            console.log(JSON.stringify({
-              url,
-              status: response.status,
-              contentType: response.headers.get("content-type"),
-              length: html.length,
-              rejected: /Request Rejected|安全性因素暫時被鎖定/i.test(html),
-            }, null, 2));
-            if (!response.ok || /Request Rejected|安全性因素暫時被鎖定/i.test(html)) {
-              throw new Error(`portal transport rejected for ${url}`);
-            }
-            return html;
-          }
+          const parsed = JSON.parse(text.replace(/^\uFEFF/, ""));
+          const root = Array.isArray(parsed) ? parsed[0] : parsed;
+          console.log("TOP_LEVEL_KEYS", Object.keys(root ?? {}));
+          console.log("PARSED_RECORD", JSON.stringify({
+            HotelID: root?.HotelID,
+            HotelName: root?.HotelName,
+            PostalAddress: root?.PostalAddress,
+            Telephones: root?.Telephones,
+            RegistrationNumber: root?.RegistrationNumber,
+            WebsiteURL: root?.WebsiteURL,
+            ReservationURLs: root?.ReservationURLs,
+            SameAsURLs: root?.SameAsURLs,
+            PositionLat: root?.PositionLat,
+            PositionLon: root?.PositionLon,
+            TotalRooms: root?.TotalRooms,
+          }, null, 2));
 
-          const searchHtml = await fetchHtml(searchUrl);
-          console.log("--- SEARCH RESULT EXCERPT ---");
-          console.log(excerpt(searchHtml, "Hotel_A15010000H_035813", 1800));
-
-          const detailHtml = await fetchHtml(detailUrl);
-          for (const needle of [
+          const serialized = JSON.stringify(parsed);
+          for (const expected of [
             "Hotel_A15010000H_035813",
+            "水芳",
             "中山路24",
             "0973400562",
-            "WebsiteURL",
-            "SameAs",
-            "Reservation",
-            "經度",
-            "緯度",
           ]) {
-            console.log(`--- DETAIL EXCERPT: ${needle} ---`);
-            console.log(excerpt(detailHtml, needle, 900));
+            if (!serialized.includes(expected)) throw new Error(`Missing ${expected}`);
           }
           JS
 
-          node registry-portal-probe.mjs
-          rm registry-portal-probe.mjs
+          node registry-json-probe.mjs
+          rm registry-json-probe.mjs
