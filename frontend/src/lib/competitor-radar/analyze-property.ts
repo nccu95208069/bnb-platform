@@ -14,17 +14,12 @@ import type {
 } from "./types";
 import { analyzeOfficialWebsite } from "./website";
 
-const RETRYABLE_REGISTRY_TRANSPORT_ERRORS = [
-  "registry_zip_eocd_not_found",
-  "registry_archive_empty",
-  "registry_transport_rejected",
-];
-
 function summarizeRegistryCandidate(
   candidate: TourismRegistryCandidate,
 ): RegistryCandidateSummary {
   return {
     hotelId: candidate.record.hotelId,
+    registrationNumber: candidate.record.registrationNumber,
     name: candidate.record.name,
     matchedName: candidate.matchedName,
     address: candidate.record.address,
@@ -45,15 +40,18 @@ function summarizeRegistryCandidate(
 }
 
 function registryEvidence(candidate: TourismRegistryCandidate): IdentityEvidence[] {
+  const license = candidate.record.registrationNumber
+    ? `；旅館民宿證號 ${candidate.record.registrationNumber}`
+    : "";
   return [
     {
       field: "website",
       label: "交通部觀光署旅宿資料",
       strength: candidate.match.status === "confirmed" ? "strong" : "supporting",
       score: candidate.match.score,
-      detail: `HotelID ${candidate.record.hotelId}；候選名稱「${candidate.record.name}」${
-        candidate.record.updateTime ? `；資料更新 ${candidate.record.updateTime}` : ""
-      }。HotelID 是政府資料識別碼，不等同地方民宿登記證號。`,
+      detail: `HotelID ${candidate.record.hotelId}${license}；候選名稱「${
+        candidate.record.name
+      }」${candidate.record.updateTime ? `；資料更新 ${candidate.record.updateTime}` : ""}。HotelID 是政府資料識別碼，不等同地方旅館民宿證號。`,
     },
     ...candidate.match.evidence.map((item) => ({
       ...item,
@@ -80,26 +78,6 @@ function enrichPlatformCandidates(
         "政府旅宿資料提供此 OTA 候選網址；必須再讀取 OTA 頁面並核對身分後，才可用於房型、價格與待售量監控。",
     };
   });
-}
-
-async function findRegistryCandidatesWithTransportRetry(
-  seed: PropertyIdentityInput,
-): Promise<TourismRegistryCandidate[]> {
-  try {
-    return await findTourismRegistryCandidates(seed);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "unknown_error";
-    const retryable = RETRYABLE_REGISTRY_TRANSPORT_ERRORS.some((code) =>
-      message.includes(code),
-    );
-    if (!retryable) throw error;
-
-    // The official host has been observed returning a short HTTP 200 WAF page
-    // in one cloud region and a valid ZIP moments later elsewhere. Retry only
-    // that transport shape once; do not retry timeouts or parser failures.
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    return findTourismRegistryCandidates(seed);
-  }
 }
 
 function registryUnavailable(
@@ -133,6 +111,7 @@ export async function analyzeCompetitorProperty(
   const identitySeed: PropertyIdentityInput = {
     name: websiteAnalysis.property.name,
     address: websiteAnalysis.property.address,
+    registrationNumber: websiteAnalysis.property.registrationNumber,
     phone: websiteAnalysis.property.phone,
     websiteUrl: websiteAnalysis.property.sourceUrl,
     latitude: websiteAnalysis.property.latitude,
@@ -140,7 +119,7 @@ export async function analyzeCompetitorProperty(
   };
 
   try {
-    const registryCandidates = await findRegistryCandidatesWithTransportRetry(identitySeed);
+    const registryCandidates = await findTourismRegistryCandidates(identitySeed);
     const usableCandidates = registryCandidates.filter(
       (candidate) => candidate.match.status !== "rejected",
     );
@@ -179,7 +158,7 @@ export async function analyzeCompetitorProperty(
         },
         warnings: [
           ...websiteAnalysis.warnings,
-          `政府資料出現 ${confirmedCandidates.length} 個高信心候選；未寫入 HotelID、地址、電話或 OTA 網址。`,
+          `政府資料出現 ${confirmedCandidates.length} 個高信心候選；未寫入 HotelID、旅館民宿證號、地址、電話或 OTA 網址。`,
         ],
       };
     }
@@ -209,6 +188,8 @@ export async function analyzeCompetitorProperty(
             normalizedAddress:
               websiteAnalysis.property.normalizedAddress ??
               (best.record.address ? normalizeTaiwanAddress(best.record.address) : undefined),
+            registrationNumber:
+              websiteAnalysis.property.registrationNumber ?? best.record.registrationNumber,
             phone: websiteAnalysis.property.phone ?? best.record.phone,
             latitude: websiteAnalysis.property.latitude ?? best.record.latitude,
             longitude: websiteAnalysis.property.longitude ?? best.record.longitude,
@@ -226,7 +207,7 @@ export async function analyzeCompetitorProperty(
         selectedHotelId: confirmed ? best.record.hotelId : undefined,
         candidates: summaries,
         message: confirmed
-          ? `政府資料已找到唯一高信心候選「${best.record.name}」；HotelID 是政府資料識別碼，不等同地方民宿登記證號。`
+          ? `政府資料已找到唯一高信心候選「${best.record.name}」；HotelID 與旅館民宿證號分開保存。`
           : `政府資料最佳候選為「${best.record.name}」，但證據尚不足以自動確認，請人工複核。`,
       },
       warnings,
