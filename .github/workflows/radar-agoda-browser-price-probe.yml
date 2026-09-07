@@ -1,0 +1,38 @@
+name: Radar Agoda Browser Price Probe
+on:
+  push:
+    branches: [feat/competitor-radar-testable-preview]
+    paths: [.github/workflows/radar-agoda-browser-price-probe.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      VERCEL_TEAM_ID: team_rtARGegsahiZ6hOY7l2dUWGw
+      VERCEL_PROJECT_ID: prj_5a6ilBSvneWYIDTGoCFFZhAjWYeM
+    steps:
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+      - run: |
+          mkdir -p /tmp/agoda-browser && cd /tmp/agoda-browser
+          npm init -y >/dev/null
+          npm install --save-exact @vercel/sandbox >/dev/null
+      - name: Open one dated Agoda page and inspect visible quote
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        working-directory: /tmp/agoda-browser
+        run: |
+          cat > probe.mjs <<'JS'
+          import { Sandbox } from '@vercel/sandbox';
+          const url='https://www.agoda.com/sweetfun-101/hotel/taipei-tw.html?checkIn=2026-09-15&los=1&rooms=1&adults=2&children=0&currencyCode=TWD';
+          const box=await Sandbox.create({token:process.env.VERCEL_TOKEN,teamId:process.env.VERCEL_TEAM_ID,projectId:process.env.VERCEL_PROJECT_ID,source:{type:'snapshot',snapshotId:'snap_c3rDmQdTPMoDHIu55bxS3MruQxZz'},timeout:5*60*1000,resources:{vcpus:2},networkPolicy:'allow-all'});
+          async function run(args,limit=700000){const r=await box.runCommand({cmd:'agent-browser',args});const out=(await r.stdout()).slice(0,limit);if(r.exitCode)throw new Error((await r.stderr()).slice(0,5000));return out}
+          try{
+            await run(['open',url]);await run(['wait','--load','networkidle']);await run(['wait','10000']);
+            const result=await run(['eval',`JSON.stringify({requested:${JSON.stringify(url)},returned:location.href,title:document.title,body:(document.body.innerText||'').slice(0,140000),prices:[...document.querySelectorAll('[data-element-name*="price"],[data-selenium*="price"],[class*="Price"],[class*="price"]')].map(x=>(x.innerText||x.textContent||'').trim()).filter(Boolean).slice(0,200),dateText:[...document.querySelectorAll('input,button')].map(x=>(x.value||x.innerText||x.getAttribute('aria-label')||'').trim()).filter(x=>/2026|Sep|9月|9 月/.test(x)).slice(0,80),blocked:/captcha|verify you are human|access denied|request rejected/i.test(document.body.innerText||'')})`]);
+            console.log(result);
+          }finally{await box.runCommand({cmd:'agent-browser',args:['close']}).catch(()=>undefined);await box.stop().catch(()=>undefined)}
+          JS
+          node probe.mjs
