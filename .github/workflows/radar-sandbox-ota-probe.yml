@@ -21,11 +21,10 @@ jobs:
           node-version: '24'
       - name: Install probe SDK
         run: |
-          mkdir -p /tmp/radar-ota-probe
-          cd /tmp/radar-ota-probe
+          mkdir -p /tmp/radar-ota-probe && cd /tmp/radar-ota-probe
           npm init -y >/dev/null
           npm install --save-exact @vercel/sandbox >/dev/null
-      - name: Open dated Booking search and property detail
+      - name: Follow Booking property result link
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         working-directory: /tmp/radar-ota-probe
@@ -43,70 +42,35 @@ jobs:
             networkPolicy: 'allow-all',
           });
           const evidence = { createdAt: new Date().toISOString(), steps: {} };
-          async function cmd(args, limit = 240000) {
+          async function cmd(args, limit = 300000) {
             const c = await sandbox.runCommand({ cmd: 'agent-browser', args });
             return { exitCode: c.exitCode, stdout: (await c.stdout()).slice(0, limit), stderr: (await c.stderr()).slice(0, 5000) };
           }
           async function js(source, limit) { return cmd(['eval', source], limit); }
+          async function clickDate(date) {
+            return js(`(()=>{const e=[...document.querySelectorAll('[data-date="${date}"]')].find(x=>!x.closest('[aria-disabled="true"]')&&!x.hasAttribute('disabled'));if(!e)return 'missing';(e.closest('button')||e).click();return 'clicked'})()`);
+          }
           try {
-            const params = new URLSearchParams({
-              ss: '水芳',
-              checkin: '2026-09-28',
-              checkout: '2026-09-29',
-              group_adults: '2',
-              group_children: '0',
-              no_rooms: '1',
-              selected_currency: 'TWD',
-              changed_currency: '1',
-              lang: 'zh-tw',
-            });
-            const searchUrl = `https://www.booking.com/searchresults.zh-tw.html?${params}`;
-            evidence.steps.open = await cmd(['open', searchUrl]);
-            await cmd(['wait', '--load', 'networkidle']);
-            await cmd(['wait', '7000']);
-            evidence.steps.search = await js(`JSON.stringify({
-              url: location.href,
-              title: document.title,
-              dateButtons: [...document.querySelectorAll('button')].map(b=>(b.innerText||b.getAttribute('aria-label')||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,12),
-              currency: [...document.querySelectorAll('button')].map(b=>(b.getAttribute('aria-label')||b.innerText||'').trim()).filter(t=>/價格為|TWD|新臺幣|USD/.test(t)).slice(0,12),
-              cards: [...document.querySelectorAll('[data-testid="property-card"]')].map((card,index)=>({
-                index,
-                title: card.querySelector('[data-testid="title"]')?.textContent?.trim()||'',
-                address: card.querySelector('[data-testid="address"]')?.textContent?.trim()||'',
-                price: card.querySelector('[data-testid="price-and-discounted-price"]')?.textContent?.trim()||'',
-                text: (card.innerText||'').trim().slice(0,6000),
-                links: [...card.querySelectorAll('a[href]')].map(a=>({text:(a.innerText||a.getAttribute('aria-label')||'').trim(),href:a.href})).slice(0,20)
-              })),
-              body: (document.body.innerText||'').slice(0,30000)
-            })`, 300000);
-            evidence.steps.follow = await js(`(()=>{
-              const cards=[...document.querySelectorAll('[data-testid="property-card"]')];
-              const card=cards.find(c=>/水芳瑞芳-九份|Sweetfun/i.test(c.innerText||''));
-              if(!card)return 'sweetfun-card-not-found:'+cards.length;
-              const links=[...card.querySelectorAll('a[href]')];
-              const link=links.find(a=>/\/hotel\/tw\/shui-fang-sweetfun-rui-fang-jiu-fen/i.test(a.href))||links[0];
-              if(!link)return 'sweetfun-link-not-found';
-              const href=link.href; location.href=href; return href;
-            })()`);
-            await cmd(['wait', '--load', 'networkidle']);
-            await cmd(['wait', '8000']);
-            evidence.steps.property = await js(`JSON.stringify({
-              url:location.href,
-              title:document.title,
-              dateButtons:[...document.querySelectorAll('button')].map(b=>(b.innerText||b.getAttribute('aria-label')||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,12),
-              currency:[...document.querySelectorAll('button')].map(b=>(b.getAttribute('aria-label')||b.innerText||'').trim()).filter(t=>/價格為|TWD|新臺幣|USD/.test(t)).slice(0,12),
-              propertyName:document.querySelector('h2')?.innerText?.trim()||'',
-              address:[...document.querySelectorAll('button,a')].map(e=>(e.innerText||'').trim()).find(t=>/中山路24/.test(t))||'',
-              table:document.querySelector('#hprt-table')?.innerText?.slice(0,50000)||'',
-              rows:[...document.querySelectorAll('#hprt-table tr')].slice(0,120).map((tr,i)=>({i,text:(tr.innerText||'').trim().slice(0,6000),html:tr.outerHTML.slice(0,16000)})),
-              body:(document.body.innerText||'').slice(0,50000)
-            })`, 400000);
+            await cmd(['open','https://www.booking.com/hotel/tw/shui-fang-sweetfun-rui-fang-jiu-fen.zh-tw.html']);
+            await cmd(['wait','7000']);
+            evidence.steps.openPicker = await js(`(()=>{const b=[...document.querySelectorAll('button')].find(x=>/選擇日期|入住日/.test((x.innerText||'')+(x.getAttribute('aria-label')||'')));if(!b)return 'missing';b.click();return 'opened'})()`);
+            await cmd(['wait','400']);
+            evidence.steps.checkin = await clickDate('2026-09-28');
+            await cmd(['wait','800']);
+            evidence.steps.checkout = await clickDate('2026-09-29');
+            await cmd(['wait','700']);
+            evidence.steps.search = await js(`(()=>{const b=[...document.querySelectorAll('button')].filter(x=>(x.innerText||'').trim()==='搜尋')[0];if(!b)return 'missing';b.click();return 'clicked'})()`);
+            await cmd(['wait','--load','networkidle']);
+            await cmd(['wait','6000']);
+            evidence.steps.links = await js(`JSON.stringify({url:location.href,dates:[...document.querySelectorAll('button')].map(b=>(b.innerText||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,8),links:[...document.querySelectorAll('a[href]')].map(a=>({text:(a.innerText||a.getAttribute('aria-label')||'').trim(),href:a.href})).filter(x=>/shui-fang-sweetfun-rui-fang-jiu-fen/i.test(x.href)||/水芳瑞芳-九份|Sweetfun/i.test(x.text)).slice(0,30),body:(document.body.innerText||'').slice(0,20000)})`,300000);
+            evidence.steps.follow = await js(`(()=>{const a=[...document.querySelectorAll('a[href]')].find(x=>/\/hotel\/tw\/shui-fang-sweetfun-rui-fang-jiu-fen/i.test(x.href));return a?(location.href=a.href,a.href):'missing'})()`);
+            await cmd(['wait','--load','networkidle']);
+            await cmd(['wait','8000']);
+            evidence.steps.property = await js(`JSON.stringify({url:location.href,title:document.title,dates:[...document.querySelectorAll('button')].map(b=>(b.innerText||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,8),table:document.querySelector('#hprt-table')?.innerText?.slice(0,60000)||'',rows:[...document.querySelectorAll('#hprt-table tr')].slice(0,120).map(tr=>({text:(tr.innerText||'').trim().slice(0,6000),html:tr.outerHTML.slice(0,18000)})),body:(document.body.innerText||'').slice(0,60000)})`,500000);
             await cmd(['close']);
           } finally { await sandbox.stop(); }
-          await writeFile('ota-probe.json', JSON.stringify(evidence, null, 2));
-          const concise = {};
-          for (const [key, value] of Object.entries(evidence.steps)) concise[key] = { exitCode: value.exitCode, stdout: value.stdout.slice(0,25000), stderr: value.stderr.slice(0,500) };
-          console.log(JSON.stringify(concise, null, 2));
+          await writeFile('ota-probe.json', JSON.stringify(evidence,null,2));
+          console.log(JSON.stringify(Object.fromEntries(Object.entries(evidence.steps).map(([k,v])=>[k,{exitCode:v.exitCode,stdout:v.stdout.slice(0,40000),stderr:v.stderr.slice(0,500)}])),null,2));
           JS
           node probe.mjs
       - uses: actions/upload-artifact@v4
