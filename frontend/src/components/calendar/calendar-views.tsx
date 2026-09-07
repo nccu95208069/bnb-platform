@@ -262,10 +262,10 @@ function MonthPanel({
                       <span className="ml-1 opacity-85">{booking.room_number}</span>
                       {nights > 1 && <span className="ml-1">{nights}晚</span>}
                     </span>
-                    {guestName && <span className="block truncate leading-[12px]">{guestName}</span>}
+                    {guestName && <span className="block truncate pr-3 leading-[12px]">{guestName}</span>}
                     <GuestRemarks booking={booking} compact limit={segment.end-segment.start>1?2:1} />
                   </span>
-                  <PaymentBadge booking={booking} compact />
+                  <span className="absolute bottom-0.5 right-0.5"><PaymentBadge booking={booking} compact /></span>
                   {segment.continuesAfter && <span aria-hidden="true">›</span>}
                 </button>;
               })}
