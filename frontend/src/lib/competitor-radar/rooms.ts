@@ -173,7 +173,15 @@ export function scoreRoomMatch(leftName: string, rightName: string): RoomMatchSc
   earned += 0.08 * nameScore;
   if (nameScore >= 0.68) reasons.push("房型名稱語意相近");
 
-  const score = possible > 0 ? Math.max(0, Math.min(1, earned / possible)) : 0;
+  const rawScore = possible > 0 ? Math.max(0, Math.min(1, earned / possible)) : 0;
+  const hasDiscriminatingSignal = Boolean(
+    (left.roomNumber && right.roomNumber) ||
+      (viewScore !== null && viewScore > 0) ||
+      (amenityScore !== null && amenityScore > 0),
+  );
+  // Generic labels such as "Deluxe Double Room" recur across several physical rooms.
+  // Capacity + name alone may suggest a candidate, but may never auto-confirm it.
+  const score = hasDiscriminatingSignal ? rawScore : Math.min(rawScore, 0.74);
   return {
     score,
     confidence: score >= 0.82 ? "high" : score >= 0.62 ? "medium" : "low",
