@@ -65,7 +65,7 @@ import {
   type RoomNight,
   type PriceQuote,
 } from "@/lib/availability";
-import { paymentApi, type Mission } from "@/lib/payment-workflow";
+import { PAYMENT_SANDBOX, paymentApi, type Mission } from "@/lib/payment-workflow";
 import {
   useEffectivePermissions,
   useEffectiveRole,
@@ -114,7 +114,7 @@ function PricePair({
         <p className="text-xs text-muted-foreground">
           {p.suggested_price != null
             ? `建議 ${priceText(p.suggested_price)}${delta ? `（${delta > 0 ? "+" : ""}${delta}）` : ""}`
-            : (policyLabels[p.exclusion ?? p.policy] ?? "尚無建議")}
+            : p.source === "bnb-pricing / OwlNest readback" ? `牌價 ${priceText(p.base_price)}${p.policy === "stale_snapshot" ? " · 價格待更新" : ""}` : (policyLabels[p.exclusion ?? p.policy] ?? "尚無建議")}
         </p>
       )}
     </div>
@@ -129,6 +129,8 @@ export function AvailabilityCalendar() {
   const navigation = useCalendarPreferences((s) => s.navigationRequest),
     setPeriodLabel = useCalendarPreferences((s) => s.setMobilePeriodLabel);
   const setProperties = useCalendarPreferences((s) => s.setProperties);
+  const selectedPropertyIds = useCalendarPreferences((s) => s.selectedPropertyIds);
+  const property = selectedPropertyIds.includes("sweetfun") || selectedPropertyIds.length === 0 ? "sweetfun" : selectedPropertyIds[0];
   const search = useCalendarPreferences((s) => s.searchQuery),
     setSearch = useCalendarPreferences((s) => s.setSearchQuery);
   const searchOpen = useCalendarPreferences((s) => s.mobileSearchOpen),
@@ -208,12 +210,14 @@ export function AvailabilityCalendar() {
     let active = true;
     setLoading(true);
     setError("");
-    availabilityApi
-      .check(query)
+    setData(null);
+    const params = new URLSearchParams({start:query.start,end:query.end,rooms:query.rooms.join(","),channel:query.channel,property});
+    const request = PAYMENT_SANDBOX ? availabilityApi.check(query) : fetch(`/api/v1/availability?${params}`,{cache:"no-store"}).then(async r => { const value = await r.json(); if (!r.ok) throw new Error(value.detail); return value as AvailabilityResult; });
+    request
       .then((result) => {
         if (!active) return;
         setData(result);
-        setProperties([
+        if (PAYMENT_SANDBOX) setProperties([
           {
             id: result.property_id,
             name: "Sweetfun 測試旅宿",
@@ -233,7 +237,8 @@ export function AvailabilityCalendar() {
     return () => {
       active = false;
     };
-  }, [query, refresh, setProperties]);
+  }, [query, refresh, setProperties, property]);
+  useEffect(() => { const timer = window.setInterval(() => setRefresh(v => v + 1), 60000); const focus=()=>setRefresh(v=>v+1); window.addEventListener("focus",focus); return ()=>{clearInterval(timer);window.removeEventListener("focus",focus);}; }, []);
   const cells = useMemo(() => data?.cells ?? [], [data]);
   const byKey = useMemo(
     () => new Map(cells.map((c) => [`${c.date}|${c.room}`, c])),
@@ -380,7 +385,7 @@ export function AvailabilityCalendar() {
           </p>
           <h1 className="mt-1 text-xl font-semibold sm:text-2xl">未售房況</h1>
           <p className="mt-1 hidden text-sm text-muted-foreground sm:block">
-            查看各日期的可售房間與售價。
+            查看各日期的未售房間與售價。
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -466,9 +471,10 @@ export function AvailabilityCalendar() {
           </Select>
         </div>
       </div>
+      {!PAYMENT_SANDBOX && <p className="rounded-lg border bg-muted/30 p-3 text-xs leading-relaxed text-muted-foreground">水芳 Sweetfun · {data?.source_notice ?? "價格與庫存讀取中"}</p>}
       <div className="grid grid-cols-3 gap-2">
         {[
-          ["可售房晚", data?.counts.available ?? 0, "text-emerald-700"],
+          ["未售房晚", data?.counts.available ?? 0, "text-emerald-700"],
           [
             "暫留・封房・維修",
             (data?.counts.held ?? 0) +
@@ -503,14 +509,14 @@ export function AvailabilityCalendar() {
             variant={onlyAvailable ? "outline" : "secondary"}
             onClick={() => setOnlyAvailable(false)}
           >
-            可售與待處理
+            未售與待處理
           </Button>
           <Button
             size="sm"
             variant={onlyAvailable ? "secondary" : "outline"}
             onClick={() => setOnlyAvailable(true)}
           >
-            只看可售
+            只看未售
           </Button>
         </div>
         <div className="flex items-center gap-2">
@@ -538,7 +544,7 @@ export function AvailabilityCalendar() {
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span>
-          <span className="text-emerald-600">●</span> 可售
+          <span className="text-emerald-600">●</span> 未售
         </span>
         <span>
           <span className="text-amber-500">●</span> 暫留／待確認
@@ -546,7 +552,7 @@ export function AvailabilityCalendar() {
         <span>● 封房／維修</span>
         <span className="hidden items-center gap-1 sm:flex">
           <ShieldCheck className="size-3" />
-          價格保護，不代表不能訂房
+          接單前請重新確認庫存與價格
         </span>
       </div>
       {availabilityFeatures.demoPriceCycles && (
@@ -657,7 +663,7 @@ export function AvailabilityCalendar() {
                             </span>
                             {inMonth && (
                               <span className="hidden text-[10px] text-muted-foreground sm:inline">
-                                可售 {count}
+                                未售 {count}
                               </span>
                             )}
                           </button>
@@ -677,7 +683,7 @@ export function AvailabilityCalendar() {
                               >
                                 <span className="flex items-center gap-0.5 text-[10px] font-medium sm:text-xs">
                                   {c.room}
-                                  {c.pricing &&
+                                  {availabilityFeatures.pricingReview && c.pricing &&
                                     !c.pricing.eligible &&
                                     c.state === "available" && (
                                       <ShieldCheck className="hidden size-3 sm:inline" />
@@ -834,7 +840,7 @@ export function AvailabilityCalendar() {
                       </div>
                       <p className="text-xs text-muted-foreground">
                         {c.state === "available"
-                          ? `最多 ${c.max_guests} 人 · 最少 ${c.minimum_nights} 晚`
+                          ? PAYMENT_SANDBOX ? `最多 ${c.max_guests} 人 · 最少 ${c.minimum_nights} 晚` : "訂房表未售；接單前請確認住宿限制"
                           : c.reason}
                       </p>
                       <Button
@@ -884,12 +890,12 @@ export function AvailabilityCalendar() {
                 <>
                   <div className="grid grid-cols-3 gap-2 rounded-xl bg-muted/40 p-3">
                     {[
-                      ["基準價", selectedCell.pricing.base_price],
+                      ["牌價", selectedCell.pricing.base_price],
                       [
-                        `${channelLabels[channel]} 目前價`,
+                        `${channelLabels[channel]} 觀測價`,
                         selectedCell.pricing.current_price,
                       ],
-                      ["建議・未發布", selectedCell.pricing.suggested_price],
+                      ...(PAYMENT_SANDBOX ? [["建議・未發布", selectedCell.pricing.suggested_price]] : []),
                     ].map(([label, value]) => (
                       <div key={label}>
                         <p className="text-[10px] text-muted-foreground">
@@ -903,7 +909,7 @@ export function AvailabilityCalendar() {
                   </div>
                   <p className="flex items-start gap-2 text-xs text-muted-foreground">
                     <CircleHelp className="size-4 shrink-0" />
-                    價格版本 {selectedCell.pricing.price_version}
+                    {selectedCell.pricing.limits}。價格讀取：{selectedCell.pricing.observed_at ? new Date(selectedCell.pricing.observed_at).toLocaleString("zh-TW", {timeZone:"Asia/Taipei"}) : "尚無資料"}。價格版本 {selectedCell.pricing.price_version}
                     。客人前台實付尚未核對，通路促銷可能使實付與系統價不同。
                   </p>
                   {availabilityFeatures.pricingReview && (

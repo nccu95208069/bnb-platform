@@ -17,7 +17,7 @@ export const channelLabels: Record<Channel, string> = {
   owljourney: "揪你",
 };
 export const inventoryLabels: Record<InventoryState, string> = {
-  available: "可售",
+  available: "未售",
   sold: "已售",
   held: "暫留",
   blocked: "封房",
@@ -27,6 +27,8 @@ export const inventoryLabels: Record<InventoryState, string> = {
   past: "已過期",
 };
 export const policyLabels: Record<string, string> = {
+  observed_snapshot: "通路觀測價",
+  stale_snapshot: "價格待更新",
   tiered: "可進調價預演",
   holdout: "對照組・保護中",
   pm_skip: "人工保留價格",
