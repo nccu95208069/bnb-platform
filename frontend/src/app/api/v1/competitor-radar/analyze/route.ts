@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 
+import { sanitizeCompetitorAnalysis } from "@/lib/competitor-radar/sanitize";
 import {
   analyzeOfficialWebsite,
   PublicUrlError,
@@ -28,7 +29,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const analysis = await analyzeOfficialWebsite(body.url.trim());
+    const analysis = sanitizeCompetitorAnalysis(
+      await analyzeOfficialWebsite(body.url.trim()),
+    );
     return NextResponse.json(analysis, {
       headers: { "Cache-Control": "no-store" },
     });
