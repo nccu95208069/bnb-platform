@@ -1,0 +1,63 @@
+name: Radar Create Browser Snapshot
+
+on:
+  push:
+    branches: [feat/competitor-radar-testable-preview]
+    paths: [.github/workflows/radar-create-browser-snapshot.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      VERCEL_TEAM_ID: team_rtARGegsahiZ6hOY7l2dUWGw
+      VERCEL_PROJECT_ID: prj_5a6ilBSvneWYIDTGoCFFZhAjWYeM
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install sandbox SDK
+        run: |
+          mkdir -p /tmp/radar-snapshot
+          cd /tmp/radar-snapshot
+          npm init -y >/dev/null
+          npm install --save-exact @vercel/sandbox >/dev/null
+      - name: Create snapshot
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        working-directory: /tmp/radar-snapshot
+        run: |
+          cat > create.mjs <<'JS'
+          import { Sandbox } from '@vercel/sandbox';
+          import { writeFile } from 'node:fs/promises';
+          const deps = ['nss','nspr','libxkbcommon','atk','at-spi2-atk','at-spi2-core','libXcomposite','libXdamage','libXrandr','libXfixes','libXcursor','libXi','libXtst','libXScrSaver','libXext','mesa-libgbm','libdrm','mesa-libGL','mesa-libEGL','cups-libs','alsa-lib','pango','cairo','gtk3','dbus-libs'];
+          const credentials = { token: process.env.VERCEL_TOKEN, teamId: process.env.VERCEL_TEAM_ID, projectId: process.env.VERCEL_PROJECT_ID };
+          const sandbox = await Sandbox.create({ ...credentials, runtime: 'node24', timeout: 8 * 60 * 1000, resources: { vcpus: 2 }, networkPolicy: 'allow-all' });
+          try {
+            let c = await sandbox.runCommand({ cmd: 'sh', args: ['-lc', `sudo dnf clean all >/dev/null 2>&1; sudo dnf install -y --skip-broken ${deps.join(' ')} >/tmp/dnf.log 2>&1; sudo ldconfig`] });
+            if (c.exitCode) throw new Error(`system dependencies failed: ${await c.stderr()}`);
+            c = await sandbox.runCommand({ cmd: 'npm', args: ['install', '-g', 'agent-browser@0.36.0'] });
+            if (c.exitCode) throw new Error(`agent-browser failed: ${await c.stderr()}`);
+            c = await sandbox.runCommand({ cmd: 'npx', args: ['agent-browser', 'install'] });
+            if (c.exitCode) throw new Error(`browser install failed: ${await c.stderr()}`);
+            c = await sandbox.runCommand({ cmd: 'agent-browser', args: ['open', 'https://example.com'] });
+            if (c.exitCode) throw new Error(`browser smoke failed: ${await c.stderr()}`);
+            await sandbox.runCommand({ cmd: 'agent-browser', args: ['close'] });
+            const snapshot = await sandbox.snapshot();
+            const result = { snapshotId: snapshot.snapshotId, createdAt: new Date().toISOString(), agentBrowser: '0.36.0', runtime: 'node24' };
+            await writeFile('snapshot.json', JSON.stringify(result, null, 2));
+            console.log('RADAR_BROWSER_SNAPSHOT', JSON.stringify(result));
+          } catch (error) {
+            await sandbox.stop().catch(() => undefined);
+            throw error;
+          }
+          JS
+          node create.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: radar-browser-snapshot
+          path: /tmp/radar-snapshot/snapshot.json
+          retention-days: 14
