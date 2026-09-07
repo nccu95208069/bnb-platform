@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 
 import { sanitizeCompetitorAnalysis } from "@/lib/competitor-radar/sanitize";
+import { guardCompetitorAnalysis } from "@/lib/competitor-radar/server-guard";
 import {
   analyzeOfficialWebsite,
   PublicUrlError,
@@ -14,6 +15,14 @@ interface AnalyzeRequest {
 }
 
 export async function POST(request: NextRequest) {
+  const guard = await guardCompetitorAnalysis(request);
+  if (!guard.ok) {
+    return NextResponse.json(
+      { detail: guard.detail },
+      { status: guard.status, headers: guard.headers },
+    );
+  }
+
   let body: AnalyzeRequest;
   try {
     body = (await request.json()) as AnalyzeRequest;
