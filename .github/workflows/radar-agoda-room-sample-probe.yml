@@ -1,0 +1,43 @@
+name: Radar Agoda Room Sample Probe
+on:
+  push:
+    branches: [feat/competitor-radar-testable-preview]
+    paths: [.github/workflows/radar-agoda-room-sample-probe.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      VERCEL_TEAM_ID: team_rtARGegsahiZ6hOY7l2dUWGw
+      VERCEL_PROJECT_ID: prj_5a6ilBSvneWYIDTGoCFFZhAjWYeM
+    steps:
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+      - run: |
+          mkdir -p /tmp/agoda-sample && cd /tmp/agoda-sample
+          npm init -y >/dev/null
+          npm install --save-exact @vercel/sandbox >/dev/null
+      - name: Inspect five Sweetfun Agoda room pages on one future date
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        working-directory: /tmp/agoda-sample
+        run: |
+          cat > probe.mjs <<'JS'
+          import { Sandbox } from '@vercel/sandbox';
+          const rooms=[['101','sweetfun-101'],['201','sweetfun'],['202','sweetfun-202'],['301','sweetfun-301'],['302','sweetfun-302']];
+          const box=await Sandbox.create({token:process.env.VERCEL_TOKEN,teamId:process.env.VERCEL_TEAM_ID,projectId:process.env.VERCEL_PROJECT_ID,source:{type:'snapshot',snapshotId:'snap_c3rDmQdTPMoDHIu55bxS3MruQxZz'},timeout:5*60*1000,resources:{vcpus:2},networkPolicy:'allow-all'});
+          async function run(args,limit=350000){const r=await box.runCommand({cmd:'agent-browser',args});const out=(await r.stdout()).slice(0,limit);if(r.exitCode)throw new Error((await r.stderr()).slice(0,5000));return out}
+          const result=[];
+          try{
+            for(const [room,slug] of rooms){
+              const url=`https://www.agoda.com/${slug}/hotel/taipei-tw.html?checkIn=2026-09-28&los=1&rooms=1&adults=2&children=0&currencyCode=TWD`;
+              await run(['open',url]);await run(['wait','--load','networkidle']);await run(['wait','5000']);
+              const raw=await run(['eval',`JSON.stringify((()=>{const body=(document.body.innerText||'').replace(/\\s+/g,' ');const nodes=[...document.querySelectorAll('[data-element-name*="price"],[data-selenium*="price"],[class*="Price"],[class*="price"]')].map(x=>(x.innerText||x.textContent||'').trim()).filter(x=>x&&!/price match/i.test(x));return{room:${JSON.stringify(room)},url:location.href,title:document.title,date:body.includes('28 Sep 2026')&&body.includes('29 Sep 2026'),soldOut:/Sold out!.*Our last room is already booked|Looks like we're sold out/i.test(body),nodes:nodes.slice(0,80),money:(nodes.join(' | ').match(/(?:TWD|NT\\$|NTD|US\\$|USD)\\s*[0-9][0-9,.]*/g)||[]).slice(0,20)}})())`]);
+              result.push(JSON.parse(JSON.parse(raw))); console.log(result.at(-1));
+            }
+          }finally{await box.runCommand({cmd:'agent-browser',args:['close']}).catch(()=>undefined);await box.stop().catch(()=>undefined)}
+          console.log(JSON.stringify(result,null,2));
+          JS
+          node probe.mjs
