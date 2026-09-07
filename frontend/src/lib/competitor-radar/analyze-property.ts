@@ -1,3 +1,4 @@
+import { normalizeTaiwanAddress } from "./address";
 import { sanitizeCompetitorAnalysis } from "./sanitize";
 import {
   findTourismRegistryCandidates,
@@ -143,9 +144,7 @@ export async function analyzeCompetitorProperty(
             address: websiteAnalysis.property.address ?? best.record.address,
             normalizedAddress:
               websiteAnalysis.property.normalizedAddress ??
-              (best.record.address
-                ? best.record.address.normalize("NFKC").replace(/\s+/g, "")
-                : undefined),
+              (best.record.address ? normalizeTaiwanAddress(best.record.address) : undefined),
             phone: websiteAnalysis.property.phone ?? best.record.phone,
             latitude: websiteAnalysis.property.latitude ?? best.record.latitude,
             longitude: websiteAnalysis.property.longitude ?? best.record.longitude,
