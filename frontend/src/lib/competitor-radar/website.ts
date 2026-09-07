@@ -8,9 +8,9 @@ import {
 } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
-import { checkServerIdentity } from "node:tls";
+import { checkServerIdentity, type PeerCertificate } from "node:tls";
 
-import { normalizeTaiwanAddress } from "./address";
+import { normalizeTaiwanAddress, parseTaiwanAddress } from "./address";
 import { extractRoomFeatures, SWEETFUN_GOLDEN_ROOMS } from "./rooms";
 import type {
   CanonicalRoomDraft,
@@ -24,7 +24,8 @@ import type {
 const MAX_HTML_BYTES = 2_000_000;
 const MAX_REDIRECTS = 5;
 const MAX_ROOM_PAGES = 12;
-const FETCH_TIMEOUT_MS = 12_000;
+const PER_REQUEST_TIMEOUT_MS = 12_000;
+const TOTAL_CRAWL_TIMEOUT_MS = 48_000;
 const ROOM_FETCH_CONCURRENCY = 4;
 
 const LODGING_TYPES = new Set([
@@ -48,6 +49,10 @@ export class PublicUrlError extends Error {
     super(message);
     this.name = "PublicUrlError";
   }
+}
+
+interface CrawlBudget {
+  deadlineMs: number;
 }
 
 interface FetchedPage {
@@ -95,6 +100,16 @@ function asString(value: unknown): string | undefined {
   if (typeof value === "string" && value.trim()) return value.trim();
   if (typeof value === "number") return String(value);
   return undefined;
+}
+
+function remainingBudgetMs(budget: CrawlBudget): number {
+  const remaining = budget.deadlineMs - Date.now();
+  if (remaining <= 0) throw new PublicUrlError("分析已超過整體時間上限。");
+  return remaining;
+}
+
+function requestTimeoutMs(budget: CrawlBudget): number {
+  return Math.max(1, Math.min(PER_REQUEST_TIMEOUT_MS, remainingBudgetMs(budget)));
 }
 
 function decodeHtmlEntities(value: string): string {
@@ -169,7 +184,7 @@ function parseJsonLd(html: string): JsonRecord[] {
     try {
       flattenJsonLd(JSON.parse(raw), nodes);
     } catch {
-      // Invalid third-party JSON-LD should not fail the entire analysis.
+      // Invalid third-party JSON-LD must not fail the complete analysis.
     }
   }
   return nodes;
@@ -192,37 +207,40 @@ function formatAddress(value: unknown): string | undefined {
   const direct = asString(value);
   if (direct) return direct;
   if (!isRecord(value)) return undefined;
-  return [
+  const parts = [
     asString(value.postalCode),
     asString(value.addressRegion),
     asString(value.addressLocality),
     asString(value.streetAddress),
-  ]
-    .filter(Boolean)
-    .join("");
+  ].filter(Boolean);
+  return parts.length ? parts.join("") : undefined;
 }
 
-function isPlausibleRegistrationNumber(value: string | undefined): boolean {
+function hasCompleteTaiwanAddress(value: string | undefined): boolean {
   if (!value) return false;
+  const parsed = parseTaiwanAddress(value);
+  return Boolean(parsed.district && parsed.road && parsed.number);
+}
+
+function registrationShape(value: string): boolean {
   const compact = value.normalize("NFKC").replace(/\s+/g, "");
-  const digitCount = (compact.match(/\d/g) ?? []).length;
-  if (digitCount < 1) return false;
-  if (/(?:電話|手機|fax|tel)/i.test(compact)) return false;
-  return (
-    /(?:民宿|旅館|hotel|registration|license|登記|證號|字號|編號)/i.test(compact) ||
-    /^[A-Z]?\d{2,10}(?:-\d+)?號?$/i.test(compact)
-  );
+  if (/https?:|www\.|@|(?:電話|手機|fax|tel)/i.test(compact)) return false;
+  const digits = compact.match(/\d/g) ?? [];
+  if (!digits.length || digits.length > 12) return false;
+  return /(?:民宿|旅館|registration|license|登記|證號|字號|編號)/i.test(compact);
 }
 
 function extractIdentifier(value: unknown): string | undefined {
   const direct = asString(value);
-  if (isPlausibleRegistrationNumber(direct)) return direct;
+  if (direct && registrationShape(direct)) return direct;
 
   const values = Array.isArray(value) ? value : [value];
   for (const item of values) {
     if (!isRecord(item)) continue;
-    const candidate = asString(item.value) ?? asString(item.identifier) ?? asString(item.name);
-    if (isPlausibleRegistrationNumber(candidate)) return candidate;
+    const label = asString(item.name) ?? asString(item.propertyID) ?? "";
+    const candidate = asString(item.value) ?? asString(item.identifier);
+    if (!candidate) continue;
+    if (registrationShape(`${label}:${candidate}`)) return candidate;
   }
   return undefined;
 }
@@ -234,7 +252,7 @@ function extractRegistrationNumber(text: string): string | undefined {
   ];
   for (const pattern of patterns) {
     const match = text.match(pattern);
-    if (match?.[1] && isPlausibleRegistrationNumber(match[1])) return match[1].trim();
+    if (match?.[1]) return match[1].trim();
   }
   return undefined;
 }
@@ -288,7 +306,6 @@ function extractWebsiteMetadata(html: string, finalUrl: string): WebsiteMetadata
     extractMeta(html, "og:site_name") ??
     extractMeta(html, "og:title")?.split(/[|｜]/)[0]?.trim() ??
     title;
-  const identifier = extractIdentifier(lodging?.identifier);
   const geo = getGeo(lodging);
 
   return {
@@ -298,7 +315,8 @@ function extractWebsiteMetadata(html: string, finalUrl: string): WebsiteMetadata
       extractMeta(html, "description") ??
       extractMeta(html, "og:description"),
     address: formatAddress(lodging?.address) ?? extractAddressFromText(visibleText),
-    registrationNumber: identifier ?? extractRegistrationNumber(visibleText),
+    registrationNumber:
+      extractIdentifier(lodging?.identifier) ?? extractRegistrationNumber(visibleText),
     phone: asString(lodging?.telephone) ?? extractPhone(visibleText),
     ...geo,
   };
@@ -339,7 +357,11 @@ function isBlockedIp(address: string): boolean {
   );
 }
 
-async function validateAndPinPublicUrl(value: string): Promise<PinnedPublicTarget> {
+async function validateAndPinPublicUrl(
+  value: string,
+  budget: CrawlBudget,
+): Promise<PinnedPublicTarget> {
+  remainingBudgetMs(budget);
   let url: URL;
   try {
     url = new URL(value);
@@ -397,7 +419,10 @@ function headerValue(value: string | string[] | undefined): string {
   return Array.isArray(value) ? value[0] ?? "" : value ?? "";
 }
 
-function requestPinnedPage(target: PinnedPublicTarget): Promise<RawHttpPage> {
+function requestPinnedPage(
+  target: PinnedPublicTarget,
+  budget: CrawlBudget,
+): Promise<RawHttpPage> {
   return new Promise((resolve, reject) => {
     const { url, address, family } = target;
     let request: ClientRequest | undefined;
@@ -436,7 +461,7 @@ function requestPinnedPage(target: PinnedPublicTarget): Promise<RawHttpPage> {
         return;
       }
 
-      incoming.on("data", (chunk: Buffer) => {
+      incoming.on("data", (chunk: Buffer | string) => {
         if (settled) return;
         const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
         bytes += buffer.byteLength;
@@ -472,7 +497,7 @@ function requestPinnedPage(target: PinnedPublicTarget): Promise<RawHttpPage> {
         Connection: "close",
         Host: url.host,
         "User-Agent":
-          "Mozilla/5.0 (compatible; SweetfunCompetitorRadar/0.1; +https://sweetfun-os.vercel.app)",
+          "Mozilla/5.0 (compatible; SweetfunCompetitorRadar/0.2; +https://sweetfun-os.vercel.app)",
       },
     };
 
@@ -483,7 +508,7 @@ function requestPinnedPage(target: PinnedPublicTarget): Promise<RawHttpPage> {
               {
                 ...commonOptions,
                 servername: isIP(url.hostname) ? undefined : url.hostname,
-                checkServerIdentity: (_hostname, certificate) =>
+                checkServerIdentity: (_hostname: string, certificate: PeerCertificate) =>
                   checkServerIdentity(url.hostname, certificate),
               },
               onResponse,
@@ -495,26 +520,27 @@ function requestPinnedPage(target: PinnedPublicTarget): Promise<RawHttpPage> {
     }
 
     request.once("error", (error) => {
-      if (error instanceof PublicUrlError) {
-        fail(error);
-      } else {
-        fail(new PublicUrlError("無法連線到這個網站。"));
-      }
+      if (error instanceof PublicUrlError) fail(error);
+      else fail(new PublicUrlError("無法連線到這個網站。"));
     });
     timer = setTimeout(
       () => fail(new PublicUrlError("網站回應逾時。")),
-      FETCH_TIMEOUT_MS,
+      requestTimeoutMs(budget),
     );
     request.end();
   });
 }
 
-async function fetchPublicHtml(input: string): Promise<FetchedPage> {
-  let current = await validateAndPinPublicUrl(input);
+async function fetchPublicHtml(
+  input: string,
+  budget: CrawlBudget,
+): Promise<FetchedPage> {
+  let current = await validateAndPinPublicUrl(input, budget);
   const requestedUrl = current.url.toString();
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
-    const response = await requestPinnedPage(current);
+    remainingBudgetMs(budget);
+    const response = await requestPinnedPage(current, budget);
 
     if (response.status >= 300 && response.status < 400) {
       const location = headerValue(response.headers.location);
@@ -522,7 +548,7 @@ async function fetchPublicHtml(input: string): Promise<FetchedPage> {
       if (redirectCount === MAX_REDIRECTS) {
         throw new PublicUrlError("網站重新導向次數過多。");
       }
-      current = await validateAndPinPublicUrl(new URL(location, current.url).toString());
+      current = await validateAndPinPublicUrl(new URL(location, current.url).toString(), budget);
       continue;
     }
 
@@ -616,6 +642,19 @@ function slug(value: string): string {
   return normalized || randomUUID().slice(0, 8);
 }
 
+function normalizeSourceUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    url.search = "";
+    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+    return url.toString();
+  } catch {
+    return value;
+  }
+}
+
 function roomFromText(
   name: string,
   sourceUrl: string | undefined,
@@ -696,13 +735,31 @@ function mergeRooms(rooms: CanonicalRoomDraft[]): CanonicalRoomDraft[] {
     golden_fixture: 1,
     manual: 5,
   };
-  const byKey = new Map<string, CanonicalRoomDraft>();
+
+  const bySourceUrl = new Map<string, CanonicalRoomDraft>();
+  const withoutSourceUrl: CanonicalRoomDraft[] = [];
   for (const room of rooms) {
-    const key = room.roomNumber ?? slug(room.name);
-    const current = byKey.get(key);
-    if (!current || priority[room.origin] > priority[current.origin]) byKey.set(key, room);
+    const sourceKey = normalizeSourceUrl(room.sourceUrl);
+    if (!sourceKey) {
+      withoutSourceUrl.push(room);
+      continue;
+    }
+    const current = bySourceUrl.get(sourceKey);
+    if (!current || priority[room.origin] > priority[current.origin]) {
+      bySourceUrl.set(sourceKey, room);
+    }
   }
-  return [...byKey.values()].sort((left, right) => {
+
+  const byIdentity = new Map<string, CanonicalRoomDraft>();
+  for (const room of [...withoutSourceUrl, ...bySourceUrl.values()]) {
+    const key = room.roomNumber ? `number:${room.roomNumber}` : `name:${slug(room.name)}`;
+    const current = byIdentity.get(key);
+    if (!current || priority[room.origin] > priority[current.origin]) {
+      byIdentity.set(key, room);
+    }
+  }
+
+  return [...byIdentity.values()].sort((left, right) => {
     if (left.roomNumber && right.roomNumber) return left.roomNumber.localeCompare(right.roomNumber);
     if (left.roomNumber) return -1;
     if (right.roomNumber) return 1;
@@ -799,12 +856,15 @@ function seedIdentityEvidence(metadata: WebsiteMetadata, finalUrl: string): Iden
     });
   }
   if (metadata.address) {
+    const complete = hasCompleteTaiwanAddress(metadata.address);
     evidence.push({
       field: "address",
       label: "地址",
-      strength: "strong",
-      score: 1,
-      detail: `官網找到地址：${metadata.address}`,
+      strength: complete ? "strong" : "weak",
+      score: complete ? 1 : 0.45,
+      detail: complete
+        ? `官網找到可辨識至道路與門牌的地址：${metadata.address}`
+        : `官網只找到不完整地址：${metadata.address}；不能單獨確認住宿身分。`,
     });
   }
   if (metadata.phone) {
@@ -820,12 +880,13 @@ function seedIdentityEvidence(metadata: WebsiteMetadata, finalUrl: string): Iden
 }
 
 export async function analyzeOfficialWebsite(inputUrl: string): Promise<CompetitorRadarAnalysis> {
-  const root = await fetchPublicHtml(inputUrl);
+  const budget: CrawlBudget = { deadlineMs: Date.now() + TOTAL_CRAWL_TIMEOUT_MS };
+  const root = await fetchPublicHtml(inputUrl, budget);
   const metadata = extractWebsiteMetadata(root.html, root.finalUrl);
   const links = extractLinks(root.html, root.finalUrl);
   const details = roomDetailLinks(links, root.finalUrl);
   const detailResults = await mapWithConcurrency(details, ROOM_FETCH_CONCURRENCY, ({ url }) =>
-    fetchPublicHtml(url),
+    fetchPublicHtml(url, budget),
   );
 
   const detailRooms = detailResults.flatMap((result) => {
@@ -857,12 +918,13 @@ export async function analyzeOfficialWebsite(inputUrl: string): Promise<Competit
   }
   const failedDetails = detailResults.filter((result) => result.status === "rejected").length;
   if (failedDetails) {
-    warnings.push(`${failedDetails} 個房型詳情頁擷取失敗；其餘成功資料仍保留。`);
+    warnings.push(`${failedDetails} 個房型詳情頁擷取失敗或超出整體時間預算；其餘成功資料仍保留。`);
   }
 
   const identityEvidence = seedIdentityEvidence(metadata, root.finalUrl);
-  const hasStrongIdentity = Boolean(metadata.registrationNumber || metadata.address);
-  const confidence = metadata.registrationNumber ? 0.98 : metadata.address ? 0.9 : 0.62;
+  const completeAddress = hasCompleteTaiwanAddress(metadata.address);
+  const hasStrongIdentity = Boolean(metadata.registrationNumber || completeAddress);
+  const confidence = metadata.registrationNumber ? 0.98 : completeAddress ? 0.9 : 0.62;
   const start = dateInTaipei();
 
   return {
