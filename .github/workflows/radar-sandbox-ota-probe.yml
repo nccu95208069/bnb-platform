@@ -11,7 +11,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 7
     env:
       VERCEL_TEAM_ID: team_rtARGegsahiZ6hOY7l2dUWGw
       VERCEL_PROJECT_ID: prj_5a6ilBSvneWYIDTGoCFFZhAjWYeM
@@ -24,7 +24,7 @@ jobs:
           mkdir -p /tmp/radar-ota-probe && cd /tmp/radar-ota-probe
           npm init -y >/dev/null
           npm install --save-exact @vercel/sandbox >/dev/null
-      - name: Follow Booking property result link
+      - name: Inspect in-place dated room table
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         working-directory: /tmp/radar-ota-probe
@@ -37,40 +37,42 @@ jobs:
             teamId: process.env.VERCEL_TEAM_ID,
             projectId: process.env.VERCEL_PROJECT_ID,
             source: { type: 'snapshot', snapshotId: 'snap_c3rDmQdTPMoDHIu55bxS3MruQxZz' },
-            timeout: 6 * 60 * 1000,
+            timeout: 5 * 60 * 1000,
             resources: { vcpus: 2 },
             networkPolicy: 'allow-all',
           });
           const evidence = { createdAt: new Date().toISOString(), steps: {} };
-          async function cmd(args, limit = 300000) {
+          async function cmd(args, limit = 500000) {
             const c = await sandbox.runCommand({ cmd: 'agent-browser', args });
             return { exitCode: c.exitCode, stdout: (await c.stdout()).slice(0, limit), stderr: (await c.stderr()).slice(0, 5000) };
           }
           async function js(source, limit) { return cmd(['eval', source], limit); }
-          async function clickDate(date) {
-            return js(`(()=>{const e=[...document.querySelectorAll('[data-date="${date}"]')].find(x=>!x.closest('[aria-disabled="true"]')&&!x.hasAttribute('disabled'));if(!e)return 'missing';(e.closest('button')||e).click();return 'clicked'})()`);
-          }
+          async function clickDate(date) { return js(`(()=>{const e=[...document.querySelectorAll('[data-date="${date}"]')].find(x=>!x.closest('[aria-disabled="true"]')&&!x.hasAttribute('disabled'));if(!e)return 'missing';(e.closest('button')||e).click();return 'clicked'})()`); }
           try {
-            await cmd(['open','https://www.booking.com/hotel/tw/shui-fang-sweetfun-rui-fang-jiu-fen.zh-tw.html']);
+            evidence.steps.open = await cmd(['open','https://www.booking.com/hotel/tw/shui-fang-sweetfun-rui-fang-jiu-fen.zh-tw.html']);
             await cmd(['wait','7000']);
+            evidence.steps.before = await js(`JSON.stringify({url:location.href,table:document.querySelector('#hprt-table')?.innerText?.slice(0,30000)||'',dates:[...document.querySelectorAll('button')].map(b=>(b.innerText||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,8)})`);
             evidence.steps.openPicker = await js(`(()=>{const b=[...document.querySelectorAll('button')].find(x=>/選擇日期|入住日/.test((x.innerText||'')+(x.getAttribute('aria-label')||'')));if(!b)return 'missing';b.click();return 'opened'})()`);
-            await cmd(['wait','400']);
+            await cmd(['wait','500']);
             evidence.steps.checkin = await clickDate('2026-09-28');
-            await cmd(['wait','800']);
+            await cmd(['wait','900']);
             evidence.steps.checkout = await clickDate('2026-09-29');
-            await cmd(['wait','700']);
-            evidence.steps.search = await js(`(()=>{const b=[...document.querySelectorAll('button')].filter(x=>(x.innerText||'').trim()==='搜尋')[0];if(!b)return 'missing';b.click();return 'clicked'})()`);
-            await cmd(['wait','--load','networkidle']);
-            await cmd(['wait','6000']);
-            evidence.steps.links = await js(`JSON.stringify({url:location.href,dates:[...document.querySelectorAll('button')].map(b=>(b.innerText||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,8),links:[...document.querySelectorAll('a[href]')].map(a=>({text:(a.innerText||a.getAttribute('aria-label')||'').trim(),href:a.href})).filter(x=>/shui-fang-sweetfun-rui-fang-jiu-fen/i.test(x.href)||/水芳瑞芳-九份|Sweetfun/i.test(x.text)).slice(0,30),body:(document.body.innerText||'').slice(0,20000)})`,300000);
-            evidence.steps.follow = await js(`(()=>{const a=[...document.querySelectorAll('a[href]')].find(x=>/\/hotel\/tw\/shui-fang-sweetfun-rui-fang-jiu-fen/i.test(x.href));return a?(location.href=a.href,a.href):'missing'})()`);
             await cmd(['wait','--load','networkidle']);
             await cmd(['wait','8000']);
-            evidence.steps.property = await js(`JSON.stringify({url:location.href,title:document.title,dates:[...document.querySelectorAll('button')].map(b=>(b.innerText||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,8),table:document.querySelector('#hprt-table')?.innerText?.slice(0,60000)||'',rows:[...document.querySelectorAll('#hprt-table tr')].slice(0,120).map(tr=>({text:(tr.innerText||'').trim().slice(0,6000),html:tr.outerHTML.slice(0,18000)})),body:(document.body.innerText||'').slice(0,60000)})`,500000);
+            evidence.steps.after = await js(`JSON.stringify({
+              url:location.href,
+              title:document.title,
+              dates:[...document.querySelectorAll('button')].map(b=>(b.innerText||b.getAttribute('aria-label')||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,10),
+              hidden:[...document.querySelectorAll('input')].map(i=>({name:i.name,value:i.value})).filter(x=>/checkin|checkout/.test(x.name||'')),
+              table:document.querySelector('#hprt-table')?.innerText?.slice(0,70000)||'',
+              rows:[...document.querySelectorAll('#hprt-table tr')].slice(0,140).map(tr=>({text:(tr.innerText||'').trim().slice(0,7000),html:tr.outerHTML.slice(0,24000)})),
+              prices:[...document.querySelectorAll('#hprt-table [class*="price"],#hprt-table [data-testid*="price"]')].map(e=>(e.innerText||e.textContent||'').trim()).filter(Boolean).slice(0,100),
+              body:(document.body.innerText||'').slice(0,70000)
+            })`,600000);
             await cmd(['close']);
           } finally { await sandbox.stop(); }
           await writeFile('ota-probe.json', JSON.stringify(evidence,null,2));
-          console.log(JSON.stringify(Object.fromEntries(Object.entries(evidence.steps).map(([k,v])=>[k,{exitCode:v.exitCode,stdout:v.stdout.slice(0,40000),stderr:v.stderr.slice(0,500)}])),null,2));
+          console.log(JSON.stringify(Object.fromEntries(Object.entries(evidence.steps).map(([k,v])=>[k,{exitCode:v.exitCode,stdout:v.stdout.slice(0,100000),stderr:v.stderr.slice(0,500)}])),null,2));
           JS
           node probe.mjs
       - uses: actions/upload-artifact@v4
