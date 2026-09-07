@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Node CJS acceptance runner loads isolated test dependencies. */
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -6,13 +7,12 @@ const { chromium, webkit } = createRequire('/tmp/radar-browser/package.json')('p
 const base = process.env.RADAR_TEST_URL || 'http://localhost:3137';
 const out = process.env.RADAR_EVIDENCE_DIR || '/tmp/radar-evidence';
 fs.mkdirSync(out, { recursive: true });
-
+const browsers = [];
 async function run() {
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(); browsers.push(browser);
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const page = await context.newPage();
-  const errors = [];
-  page.on('pageerror', e => errors.push(e.message));
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto(base + '/radar-test');
   await page.getByRole('button', { name: '載入完整範例' }).click();
   await page.getByTestId('synthetic-notice').waitFor();
@@ -47,14 +47,18 @@ async function run() {
   assert.match(await page.getByRole('alert').first().innerText(), /JSON/);
   assert.equal(await page.locator('tbody tr').count(), 4);
   await page.getByRole('button', { name: '關閉', exact: true }).click();
+  const imported = { name: '範例河岸旅宿', address: '新北市瑞芳區範例路1號', url: 'https://www.booking.com/hotel/tw/radar-synthetic-example.html', check_in: '2026-09-28', check_out: '2026-09-29', adults: 2, children: 0, rooms: 1, currency: 'TWD', synthetic: true, availability: [{ room_id: '101', room_name: '101 河景雙人房', capacity: 2, total_price: 2468, rooms_left: 0, policies: ['We have 1 left'] }] };
+  await page.getByLabel('Booking JSON', { exact: true }).fill(JSON.stringify(imported));
+  await page.getByRole('button', { name: '解析匯入資料' }).click();
+  assert.equal(await page.locator('tbody tr').count(), 1);
+  assert.match(await page.locator('tbody tr').first().innerText(), /2,468/);
   await page.getByLabel('成人', { exact: true }).fill('3');
   await page.getByTestId('quarantine').waitFor();
   await page.getByLabel('成人', { exact: true }).fill('2');
   assert.equal(await page.getByTestId('quarantine').count(), 0);
-  assert.deepEqual(errors, []);
-  await context.close();
+  assert.deepEqual(errors, []); await context.close();
 
-  const mobileBrowser = await webkit.launch();
+  const mobileBrowser = await webkit.launch(); browsers.push(mobileBrowser);
   const mobile = await mobileBrowser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 });
   const phone = await mobile.newPage();
   const phoneErrors = []; phone.on('pageerror', e => phoneErrors.push(e.message));
@@ -65,12 +69,10 @@ async function run() {
   await phone.getByRole('button', { name: '新增房型', exact: true }).click();
   assert.equal(await phone.locator('input[aria-label^="房型名稱 "]').count(), 4);
   await phone.getByRole('button', { name: '儲存草稿', exact: true }).click();
-  await phone.reload();
-  await phone.getByTestId('booking-results').waitFor();
+  await phone.reload(); await phone.getByTestId('booking-results').waitFor();
   assert.equal(await phone.locator('input[aria-label^="房型名稱 "]').count(), 4);
   await phone.screenshot({ path: path.join(out, 'radar-mobile-webkit.png'), fullPage: true });
-  assert.deepEqual(phoneErrors, []);
-  await mobileBrowser.close();
+  assert.deepEqual(phoneErrors, []); await mobile.close();
 
   const live = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   const livePage = await live.newPage();
@@ -80,10 +82,16 @@ async function run() {
   await livePage.getByRole('button', { name: '分析官網', exact: true }).waitFor({ timeout: 45000 });
   await livePage.getByRole('button', { name: '儲存草稿', exact: true }).click();
   const saved = JSON.parse(await livePage.evaluate(() => localStorage.getItem('daili-radar-preview:v1')));
-  assert.equal(saved.mode, 'live_website');
-  assert.match(saved.analysis.property.websiteHost, /sweetfuntw\.com/);
+  assert.equal(saved.mode, 'live_website'); assert.match(saved.analysis.property.websiteHost, /sweetfuntw\.com/);
   assert.ok(saved.analysis.canonicalRooms.some(r => r.origin.startsWith('website_')));
-  const evidence = { base, websiteHost: saved.analysis.property.websiteHost, rooms: saved.analysis.canonicalRooms.map(r => ({ name: r.name, origin: r.origin })), registryStatus: saved.analysis.tourismRegistry?.status, registryCandidates: saved.analysis.tourismRegistry?.candidates.map(c => ({ name: c.name, hotelId: c.hotelId, status: c.status })) };
+  const candidates = saved.analysis.tourismRegistry?.candidates ?? [];
+  if (candidates.some(c => c.status === 'confirmed')) {
+    await livePage.getByRole('button', { name: '確認此候選', exact: true }).first().click();
+    await livePage.getByRole('button', { name: '儲存草稿', exact: true }).click();
+    const confirmed = JSON.parse(await livePage.evaluate(() => localStorage.getItem('daili-radar-preview:v1')));
+    assert.equal(confirmed.registryDecision.action, 'confirmed');
+  }
+  const evidence = { base, websiteHost: saved.analysis.property.websiteHost, rooms: saved.analysis.canonicalRooms.map(r => ({ name: r.name, origin: r.origin })), registryStatus: saved.analysis.tourismRegistry?.status, registryCandidates: candidates.map(c => ({ name: c.name, hotelId: c.hotelId, status: c.status })) };
   console.log('LIVE_WEBSITE_EVIDENCE', JSON.stringify(evidence));
   fs.writeFileSync(path.join(out, 'live-website-evidence.json'), JSON.stringify(evidence, null, 2));
   await livePage.screenshot({ path: path.join(out, 'radar-live-website.png'), fullPage: true });
@@ -92,8 +100,7 @@ async function run() {
   assert.equal(blocked.status(), 422);
   const cross = await livePage.request.post(base + '/api/radar-preview', { headers: { Origin: 'https://untrusted.example' }, data: { phase: 'website', url: 'https://example.com' } });
   assert.equal(cross.status(), 403);
-  await browser.close();
-  fs.writeFileSync(path.join(out, 'browser-result.json'), JSON.stringify({ passed: true, desktop: 'Chromium', mobile: 'WebKit 390x844', restoredDraft: true, invalidDateBlocked: true, mismatchedIdentityBlocked: true, invalidOccupancyBlocked: true, zeroSentinelUnknown: true, emptyArrayUnknown: true, liveWebsite: true, ssrfBlocked: true, crossOriginBlocked: true }, null, 2));
+  fs.writeFileSync(path.join(out, 'browser-result.json'), JSON.stringify({ passed: true, desktop: 'Chromium', mobile: 'WebKit 390x844', restoredDraft: true, invalidDateBlocked: true, mismatchedIdentityBlocked: true, invalidOccupancyBlocked: true, zeroSentinelUnknown: true, emptyArrayUnknown: true, successfulJsonImport: true, liveWebsite: true, ssrfBlocked: true, crossOriginBlocked: true }, null, 2));
   console.log('BROWSER_ACCEPTANCE_PASS');
 }
-run().catch(error => { console.error(error); process.exitCode = 1; });
+run().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => { for (const browser of browsers) await browser.close().catch(() => undefined); });
