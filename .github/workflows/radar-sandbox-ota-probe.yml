@@ -19,15 +19,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-
       - name: Install probe SDK
         run: |
           mkdir -p /tmp/radar-ota-probe
           cd /tmp/radar-ota-probe
           npm init -y >/dev/null
-          npm install --save-exact @vercel/sandbox agent-browser@0.36.0 >/dev/null
-
-      - name: Run isolated browser probes
+          npm install --save-exact @vercel/sandbox >/dev/null
+      - name: Select dates and inspect Booking room table
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         working-directory: /tmp/radar-ota-probe
@@ -35,94 +33,43 @@ jobs:
           cat > probe.mjs <<'JS'
           import { Sandbox } from '@vercel/sandbox';
           import { writeFile } from 'node:fs/promises';
-
-          const credentials = {
-            token: process.env.VERCEL_TOKEN,
-            teamId: process.env.VERCEL_TEAM_ID,
-            projectId: process.env.VERCEL_PROJECT_ID,
-          };
-          if (!credentials.token) throw new Error('VERCEL_TOKEN is not configured');
-
-          const targets = [
-            {
-              platform: 'booking',
-              url: 'https://www.booking.com/hotel/tw/shui-fang-sweetfun-rui-fang-jiu-fen.zh-tw.html?checkin=2026-09-28&checkout=2026-09-29&group_adults=2&group_children=0&no_rooms=1&selected_currency=TWD',
-            },
-            {
-              platform: 'agoda',
-              url: 'https://www.agoda.com/sweetfun/hotel/taipei-tw.html?checkIn=2026-09-28&los=1&rooms=1&adults=2&children=0&currencyCode=TWD',
-            },
-            {
-              platform: 'trip',
-              url: 'https://tw.trip.com/hotels/new-taipei-city-hotel-detail-133359377/sweet-fun/?checkIn=2026-09-28&checkOut=2026-09-29&adult=2&children=0&crn=1&curr=TWD',
-            },
-          ];
-
-          const deps = [
-            'nss','nspr','libxkbcommon','atk','at-spi2-atk','at-spi2-core',
-            'libXcomposite','libXdamage','libXrandr','libXfixes','libXcursor',
-            'libXi','libXtst','libXScrnSaver','libXext','mesa-libgbm','libdrm',
-            'mesa-libGL','mesa-libEGL','cups-libs','alsa-lib','pango','cairo','gtk3','dbus-libs',
-          ];
-
-          const sandbox = await Sandbox.create({
-            ...credentials,
-            runtime: 'node24',
-            timeout: 12 * 60 * 1000,
-            resources: { vcpus: 2 },
-            networkPolicy: 'allow-all',
-          });
-          const result = { sandboxId: sandbox.sandboxId, createdAt: new Date().toISOString(), targets: [] };
-          try {
-            let command = await sandbox.runCommand({ cmd: 'sh', args: ['-lc', `sudo dnf clean all >/dev/null 2>&1; sudo dnf install -y --skip-broken ${deps.join(' ')} >/tmp/dnf.log 2>&1; sudo ldconfig` ] });
-            if (command.exitCode !== 0) throw new Error(`system deps failed: ${await command.stderr()}`);
-            command = await sandbox.runCommand({ cmd: 'npm', args: ['install', '-g', 'agent-browser@0.36.0'] });
-            if (command.exitCode !== 0) throw new Error(`agent-browser install failed: ${await command.stderr()}`);
-            command = await sandbox.runCommand({ cmd: 'npx', args: ['agent-browser', 'install'] });
-            if (command.exitCode !== 0) throw new Error(`browser install failed: ${await command.stderr()}`);
-
-            for (const target of targets) {
-              const evidence = { platform: target.platform, requestedUrl: target.url };
-              try {
-                await sandbox.runCommand({ cmd: 'agent-browser', args: ['close'] });
-                const opened = await sandbox.runCommand({ cmd: 'agent-browser', args: ['open', target.url] });
-                evidence.openExit = opened.exitCode;
-                evidence.openStderr = (await opened.stderr()).slice(0, 2000);
-                await sandbox.runCommand({ cmd: 'agent-browser', args: ['wait', '15000'] });
-                const finalUrl = await sandbox.runCommand({ cmd: 'agent-browser', args: ['get', 'url'] });
-                const title = await sandbox.runCommand({ cmd: 'agent-browser', args: ['get', 'title'] });
-                const body = await sandbox.runCommand({ cmd: 'agent-browser', args: ['get', 'text', 'body'] });
-                const snapshot = await sandbox.runCommand({ cmd: 'agent-browser', args: ['snapshot', '-i', '-c'] });
-                const bodyText = (await body.stdout()).slice(0, 60000);
-                const snapText = (await snapshot.stdout()).slice(0, 60000);
-                evidence.finalUrl = (await finalUrl.stdout()).trim();
-                evidence.title = (await title.stdout()).trim();
-                evidence.bodyLength = bodyText.length;
-                evidence.bodyExcerpt = bodyText;
-                evidence.snapshotExcerpt = snapText;
-                evidence.flags = {
-                  challenge: /captcha|robot|verify you are human|request rejected|安全性因素|機器人|驗證您/i.test(`${evidence.title}\n${bodyText}`),
-                  sweetfun: /水芳|Sweetfun|Sweet fun/i.test(`${evidence.title}\n${bodyText}`),
-                  requestedDate: /2026[-年/. ]*09[-月/. ]*28|9月28|Sep(?:tember)?\s+28/i.test(bodyText),
-                  hasTwd: /TWD|NT\$|NTD|新台幣/i.test(bodyText),
-                  hasRoomLanguage: /房型|客房|房間|room|bed/i.test(bodyText),
-                };
-              } catch (error) {
-                evidence.error = error instanceof Error ? error.message : String(error);
-              }
-              result.targets.push(evidence);
-            }
-            await sandbox.runCommand({ cmd: 'agent-browser', args: ['close'] });
-          } finally {
-            await sandbox.stop();
+          const creds = { token: process.env.VERCEL_TOKEN, teamId: process.env.VERCEL_TEAM_ID, projectId: process.env.VERCEL_PROJECT_ID };
+          const deps = ['nss','nspr','libxkbcommon','atk','at-spi2-atk','at-spi2-core','libXcomposite','libXdamage','libXrandr','libXfixes','libXcursor','libXi','libXtst','libXScrnSaver','libXext','mesa-libgbm','libdrm','mesa-libGL','mesa-libEGL','cups-libs','alsa-lib','pango','cairo','gtk3','dbus-libs'];
+          const sandbox = await Sandbox.create({ ...creds, runtime: 'node24', timeout: 12 * 60 * 1000, resources: { vcpus: 2 }, networkPolicy: 'allow-all' });
+          const evidence = { createdAt: new Date().toISOString(), steps: {} };
+          async function cmd(args) {
+            const c = await sandbox.runCommand({ cmd: 'agent-browser', args });
+            return { exitCode: c.exitCode, stdout: (await c.stdout()).slice(0, 100000), stderr: (await c.stderr()).slice(0, 5000) };
           }
+          async function evalJs(source) { return cmd(['eval', source]); }
+          try {
+            let c = await sandbox.runCommand({ cmd: 'sh', args: ['-lc', `sudo dnf clean all >/dev/null 2>&1; sudo dnf install -y --skip-broken ${deps.join(' ')} >/tmp/dnf.log 2>&1; sudo ldconfig`] });
+            if (c.exitCode) throw new Error(await c.stderr());
+            c = await sandbox.runCommand({ cmd: 'npm', args: ['install', '-g', 'agent-browser@0.36.0'] });
+            if (c.exitCode) throw new Error(await c.stderr());
+            c = await sandbox.runCommand({ cmd: 'npx', args: ['agent-browser', 'install'] });
+            if (c.exitCode) throw new Error(await c.stderr());
 
-          await writeFile('ota-probe.json', JSON.stringify(result, null, 2));
-          console.log(JSON.stringify(result.targets.map(({ platform, finalUrl, title, bodyLength, flags, error }) => ({ platform, finalUrl, title, bodyLength, flags, error })), null, 2));
+            const url = 'https://www.booking.com/hotel/tw/shui-fang-sweetfun-rui-fang-jiu-fen.zh-tw.html';
+            evidence.steps.open = await cmd(['open', url]);
+            await cmd(['wait', '10000']);
+            evidence.steps.before = await evalJs(`JSON.stringify({url:location.href,title:document.title,dateButtons:[...document.querySelectorAll('button')].map(b=>({t:(b.innerText||b.textContent||'').trim(),a:b.getAttribute('aria-label')})).filter(x=>/入住日|退房日|選擇日期/.test((x.t||'')+(x.a||''))).slice(0,20),dataDates:[...document.querySelectorAll('[data-date]')].slice(0,20).map(e=>({tag:e.tagName,date:e.getAttribute('data-date'),text:(e.textContent||'').trim(),aria:e.getAttribute('aria-label')}))})`);
+            evidence.steps.openPicker = await evalJs(`(()=>{const b=[...document.querySelectorAll('button')].find(x=>/選擇日期|入住日/.test((x.innerText||'')+(x.getAttribute('aria-label')||'')));if(!b)return 'date-button-not-found';b.click();return 'clicked:'+((b.innerText||b.getAttribute('aria-label')||'').trim())})()`);
+            await cmd(['wait', '1000']);
+            evidence.steps.calendar = await evalJs(`JSON.stringify({dates:[...document.querySelectorAll('[data-date]')].map(e=>({tag:e.tagName,date:e.getAttribute('data-date'),text:(e.textContent||'').trim(),aria:e.getAttribute('aria-label'),disabled:e.hasAttribute('disabled')})).slice(0,200),buttons:[...document.querySelectorAll('button')].map(b=>({t:(b.innerText||'').trim(),a:b.getAttribute('aria-label')})).filter(x=>/2026|9 月|九月|September/.test((x.t||'')+(x.a||''))).slice(0,200)})`);
+            evidence.steps.select = await evalJs(`(()=>{const click=(date)=>{const all=[...document.querySelectorAll('[data-date="'+date+'"]')];const target=all.find(e=>!e.hasAttribute('disabled'));if(!target)return 'missing:'+date;target.click();return 'clicked:'+date};return [click('2026-09-28'),click('2026-09-29')]})()`);
+            await cmd(['wait', '1000']);
+            evidence.steps.afterDate = await evalJs(`JSON.stringify({url:location.href,inputs:[...document.querySelectorAll('input')].map(i=>({name:i.name,value:i.value,aria:i.getAttribute('aria-label')})).filter(x=>/check|date|入住|退房/i.test((x.name||'')+(x.aria||''))).slice(0,30)})`);
+            evidence.steps.search = await evalJs(`(()=>{const buttons=[...document.querySelectorAll('button')].filter(b=>(b.innerText||'').trim()==='搜尋');const b=buttons.at(-1);if(!b)return 'search-not-found';b.click();return 'clicked-search'})()`);
+            await cmd(['wait', '15000']);
+            evidence.steps.final = await evalJs(`JSON.stringify({url:location.href,title:document.title,body:(document.body.innerText||'').slice(0,30000),table:document.querySelector('#hprt-table')?.innerText?.slice(0,30000)||'',rows:[...document.querySelectorAll('#hprt-table tr')].slice(0,80).map((tr,i)=>({i,text:(tr.innerText||'').trim().slice(0,3000),html:tr.outerHTML.slice(0,10000)}))})`);
+            evidence.steps.finalSnapshot = await cmd(['snapshot', '-i', '-c']);
+            await cmd(['close']);
+          } finally { await sandbox.stop(); }
+          await writeFile('ota-probe.json', JSON.stringify(evidence, null, 2));
+          console.log(JSON.stringify(Object.fromEntries(Object.entries(evidence.steps).map(([k,v])=>[k,{exitCode:v.exitCode,stdout:v.stdout.slice(0,3000),stderr:v.stderr.slice(0,500)}])),null,2));
           JS
-
           node probe.mjs
-
       - uses: actions/upload-artifact@v4
         if: always()
         with:
