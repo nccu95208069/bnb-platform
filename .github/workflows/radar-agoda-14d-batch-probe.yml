@@ -1,5 +1,6 @@
 name: Radar Agoda 14d Batch Probe
 
+# UAT rerun: 2026-09-08
 on:
   push:
     branches: [feat/competitor-radar-testable-preview]
@@ -37,7 +38,7 @@ jobs:
             await c(['open','https://www.agoda.com/sweetfun-101/hotel/taipei-tw.html']); await c(['wait','3000']);
             const script=`(async()=>{
               const rooms=[['101','sweetfun-101'],['201','sweetfun'],['202','sweetfun-202'],['301','sweetfun-301'],['302','sweetfun-302']];
-              const start=new Date('2026-09-08T00:00:00Z');
+              const start=new Date('2026-09-09T00:00:00Z');
               const jobs=[];
               for(let i=0;i<14;i++){
                 const d=new Date(start);d.setUTCDate(d.getUTCDate()+i);const day=d.toISOString().slice(0,10);
