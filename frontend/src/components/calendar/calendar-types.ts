@@ -53,6 +53,7 @@ export type CalendarBooking = {
   room_id: string;
   room_number: string;
   guest_name: string;
+  guest_name_sources?: string[];
   guest_remarks?: import("@/lib/guest-remarks").GuestRemark[];
   // Only a server-authorized projection may mark a supplied source name as real.
   guest_name_kind?: "real" | "anonymous" | "missing";

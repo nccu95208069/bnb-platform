@@ -9,3 +9,9 @@ test('independent travel-card/subsidy and operational requests',()=>{
  assert.deepEqual(parseGuestRemarks('測試 不需要嬰兒床 不用加床 不要收據 加床取消'),[]);
  assert.deepEqual(parseGuestRemarks('測試旅客 安靜房 高樓層'),[]);
 });
+test('contact channel and invited influencer are distinct; supplies have searchable labels',()=>{
+ assert.deepEqual(parseGuestRemarks('測試旅客(IG)').map(r=>r.label),['IG聯繫']);
+ assert.deepEqual(parseGuestRemarks('測試帳號(IG網紅)').map(r=>r.label),['IG網紅邀請']);
+ assert.deepEqual(parseGuestRemarks('測試旅客(澡盆) 浴室的塑膠椅子 消毒鍋').map(r=>r.label),['嬰兒澡盆','浴室塑膠椅','消毒鍋']);
+ assert.deepEqual(parseGuestRemarks('BIG NAME'),[]);
+});

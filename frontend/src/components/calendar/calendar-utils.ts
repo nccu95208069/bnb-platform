@@ -1,3 +1,4 @@
+import { comparableGuestName, mergeGuestRemarks, parseGuestRemarks } from "@/lib/guest-remarks";
 import type {
   BabySupplyKey,
   CalendarBooking,
@@ -309,8 +310,10 @@ export function coalesceContiguousBookings(bookings: CalendarBooking[]) {
 
       current = {
         ...current,
-        guest_name: current.guest_name_kind === "real" && booking.guest_name_kind === "real" && current.guest_name !== booking.guest_name ? "連住姓名待核對" : current.guest_name,
-        guest_name_kind: current.guest_name_kind === "real" && (booking.guest_name_kind !== "real" || current.guest_name !== booking.guest_name) ? "missing" : current.guest_name_kind,
+        guest_name_sources: [...new Set([...(current.guest_name_sources ?? (current.guest_name_kind === "real" ? [current.guest_name] : [])), ...(booking.guest_name_sources ?? (booking.guest_name_kind === "real" ? [booking.guest_name] : []))])],
+        guest_remarks: mergeGuestRemarks([...(current.guest_remarks ?? (current.guest_name_kind === "real" ? parseGuestRemarks(current.guest_name) : [])), ...(booking.guest_remarks ?? (booking.guest_name_kind === "real" ? parseGuestRemarks(booking.guest_name) : []))]),
+        guest_name: current.guest_name_kind === "real" && booking.guest_name_kind === "real" && comparableGuestName(current.guest_name) !== comparableGuestName(booking.guest_name) ? "連住姓名待核對" : current.guest_name,
+        guest_name_kind: current.guest_name_kind === "real" && (booking.guest_name_kind !== "real" || comparableGuestName(current.guest_name) !== comparableGuestName(booking.guest_name)) ? "missing" : current.guest_name_kind,
         check_out: booking.check_out > current.check_out ? booking.check_out : current.check_out,
         room_rate: current.room_rate + booking.room_rate,
         nightly_amounts: current.nightly_amounts && booking.nightly_amounts

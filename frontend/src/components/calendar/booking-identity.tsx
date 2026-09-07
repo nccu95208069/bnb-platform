@@ -26,14 +26,14 @@ export function BookingIdentity({ booking }: { booking: CalendarBooking }) {
 }
 
 export function remarksFor(booking: CalendarBooking) {
-  return booking.guest_name_kind === "real" ? booking.guest_remarks ?? parseGuestRemarks(booking.guest_name) : [];
+  return (booking.guest_name_kind === "real" || booking.guest_name_sources?.length) ? booking.guest_remarks ?? parseGuestRemarks(booking.guest_name) : [];
 }
 export function GuestRemarks({booking, compact = false, limit = 1}: {booking:CalendarBooking;compact?:boolean;limit?:number}) {
  const remarks=remarksFor(booking);
  if(!remarks.length)return null;
  const visible=compact?remarks.slice(0,limit):remarks;
  return <span aria-label={`重點備註：${remarks.map(r=>r.label).join('、')}`} className={compact?'mt-0.5 flex min-w-0 items-center gap-0.5 text-[9px] leading-[12px]':'mt-1 flex flex-wrap gap-1 text-xs leading-5'}>
-  {visible.map(r=><span key={r.kind+r.label} className="rounded-sm border border-current/40 px-0.5 font-semibold">{r.label}</span>)}
+  {visible.map(r=><span key={r.kind+r.label} className="rounded-sm border border-current/40 px-0.5 font-semibold">{compact ? (({ig_contact:"IG聯繫",influencer:"IG邀請",baby_bath:"澡盆",bath_chair:"浴室椅"} as Record<string,string>)[r.kind] ?? r.label) : r.label}</span>)}
   {compact&&remarks.length>limit&&<span className="shrink-0 text-[9px]">+{remarks.length-limit}</span>}
  </span>;
 }

@@ -225,8 +225,8 @@ function SoldBookingCalendar() {
   const handledNavigationRequest = useRef(navigationRequest?.id ?? 0);
 
   const requestPeriod = useMemo(
-    () => fetchPeriod(anchorDate, view),
-    [anchorDate, view],
+    () => fetchPeriod(anchorDate, query.trim() ? "month" : view),
+    [anchorDate, view, query],
   );
   const displayPeriod = useMemo(() => {
     if (view === "month") {
@@ -429,6 +429,9 @@ function SoldBookingCalendar() {
     return propertyBookings.filter((booking) =>
       [
         booking.guest_name,
+        ...(booking.guest_name_sources ?? []),
+        ...(booking.guest_remarks ?? []).flatMap(r => [r.label, r.source]),
+        booking.notes,
         booking.room_number,
         booking.order_id,
         booking.external_order_no,
@@ -943,6 +946,17 @@ function SoldBookingCalendar() {
         </div>
       ))}
 
+      {query.trim() && <section className="m-2 rounded-xl border bg-card p-3 md:m-0" aria-label="搜尋結果">
+        <h2 className="text-sm font-semibold">搜尋結果 · {filteredBookings.length} 筆（2025–2027）</h2>
+        <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">
+          {filteredBookings.slice(0,50).map(booking=><button key={booking.id} className="block w-full rounded border p-2 text-left text-sm hover:bg-muted" onClick={()=>setSelectedId(booking.id)}>
+            <span className="block">{booking.check_in}–{booking.check_out} · {booking.room_number} · {booking.guest_name}</span>
+            <span className="text-xs">{booking.guest_remarks?.map(r=>r.label).join(" · ")}</span>
+          </button>)}
+          {!filteredBookings.length && <p className="text-sm text-muted-foreground">沒有符合的訂單。</p>}
+          {filteredBookings.length>50 && <p className="text-xs">先顯示 50 筆，請增加關鍵字縮小範圍。</p>}
+        </div>
+      </section>}
       {error && (
         <div className="m-2 flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive md:m-0">
           <div className="flex items-center gap-2">
