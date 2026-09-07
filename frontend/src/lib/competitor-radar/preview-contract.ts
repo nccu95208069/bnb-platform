@@ -31,6 +31,7 @@ export interface BookingOffer {
   nights?: number;
   roomsLeft?: number;
   badgeQuantity?: number;
+  quantityConflict?: boolean;
   soldOut: boolean;
 }
 export interface PreviewDraft {
@@ -49,6 +50,7 @@ export interface PreviewDraft {
 export const STORAGE_KEY = "daili-radar-preview:v1";
 export const MAX_IMPORT_BYTES = 1_000_000;
 export const SYNTHETIC_NOTICE = "合成測試資料，不是真實旅宿、即時價格或實際庫存。";
+const RESERVED_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 export function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -100,7 +102,8 @@ export function bookingSlug(value: string | undefined): string | undefined {
 export function validateDraft(draft: PreviewDraft): string | null {
   if (!draft.analysis.property.name.trim()) return "住宿名稱不可空白。";
   if (!safeLink(draft.analysis.requestedUrl)) return "請提供有效的 HTTP/HTTPS 住宿網址。";
-  if (stayNights(draft.checkIn, draft.checkOut) < 1 || stayNights(draft.checkIn, draft.checkOut) > 30) return "請選擇 1 至 30 晚的入住區間。";
+  const nights = stayNights(draft.checkIn, draft.checkOut);
+  if (nights < 1 || nights > 30) return "請選擇 1 至 30 晚的入住區間。";
   if (!Number.isInteger(draft.adults) || draft.adults < 1 || draft.adults > 30) return "成人數需為 1 至 30 的整數。";
   if (draft.analysis.canonicalRooms.length > 100) return "測試版最多保存 100 個房型。";
   const ids = new Set<string>();
@@ -119,7 +122,7 @@ export function validateDraft(draft: PreviewDraft): string | null {
   return null;
 }
 
-/** Import only observed fields. Input URLs and input.check_in are never returned-date evidence. */
+/** Input URLs and input.check_in are never treated as observed returned dates. */
 export function parseBookingImport(raw: string, source: BookingDocument["source"] = "user_import"): BookingDocument {
   if (new TextEncoder().encode(raw).length > MAX_IMPORT_BYTES) throw new Error("JSON 超過 1 MB 上限。");
   let value: unknown;
@@ -148,20 +151,23 @@ export function parseBookingImport(raw: string, source: BookingDocument["source"
     });
     const uniqueQuantities = [...new Set(quantities)];
     const roomKey = text(row.room_id ?? row.source_room_id, 120) ?? roomName.normalize("NFKC").toLowerCase();
+    if (RESERVED_KEYS.has(roomKey)) throw new Error("來源房型 ID 使用了保留字。");
+    const roomsLeft = integer(row.rooms_left);
+    const badgeQuantity = uniqueQuantities.length === 1 ? uniqueQuantities[0] : undefined;
     return {
       key: `offer-${index}`, roomKey, name: roomName,
-      plan: text(row.rate_plan, 1000) ?? policies.map(p => p.slice(0, 300)).join(" · ").slice(0, 1000) || "方案未提供",
+      plan: text(row.rate_plan, 1000) ?? (policies.map(p => p.slice(0, 300)).join(" · ").slice(0, 1000) || "方案未提供"),
       capacity: integer(row.capacity),
       price: number(row.total_price ?? price.total ?? price.value ?? row.price),
       currency: text(row.currency ?? price.currency, 12)?.toUpperCase() ?? currency,
-      nights: integer(row.nights ?? price.nights),
-      roomsLeft: integer(row.rooms_left),
-      badgeQuantity: uniqueQuantities.length === 1 ? uniqueQuantities[0] : undefined,
+      nights: integer(row.nights ?? price.nights), roomsLeft, badgeQuantity,
+      quantityConflict: uniqueQuantities.length > 1 || Boolean(badgeQuantity && roomsLeft && badgeQuantity !== roomsLeft),
       soldOut: row.sold_out === true || row.available === false,
     };
   });
   return {
-    source, name, address: text(root.address), registrationNumber: text(root.registration_number),
+    source: root.synthetic === true ? "synthetic" : source,
+    name, address: text(root.address), registrationNumber: text(root.registration_number),
     url: safeLink(root.url), checkIn: validDate(root.check_in) ? root.check_in : undefined,
     checkOut: validDate(root.check_out) ? root.check_out : undefined,
     nights: integer(root.nights ?? rootPrice.nights),
@@ -175,9 +181,7 @@ export function checkBooking(draft: PreviewDraft) {
   const unknown = { identity: "unknown" as Gate, dates: "unknown" as Gate, context: "unknown" as Gate };
   if (!doc) return { ...unknown, accepted: false, messages: ["尚未匯入 Booking 資料。"] };
   const messages: string[] = [];
-  const identityInput: PropertyIdentityInput = {
-    name: doc.name, address: doc.address, registrationNumber: doc.registrationNumber,
-  };
+  const identityInput: PropertyIdentityInput = { name: doc.name, address: doc.address, registrationNumber: doc.registrationNumber };
   const match = scorePropertyIdentity(draft.analysis.property, identityInput);
   let identity: Gate = match.status === "confirmed" ? "pass" : match.status === "rejected" ? "fail" : "unknown";
   const expectedSlug = bookingSlug(draft.bookingUrl);
@@ -186,8 +190,7 @@ export function checkBooking(draft: PreviewDraft) {
     identity = identity === "fail" ? "fail" : "unknown";
     messages.push("缺少可核對的 Booking 房源網址。");
   } else if (expectedSlug !== returnedSlug) {
-    identity = "fail";
-    messages.push("回傳 Booking 房源網址不是指定的住宿；不接受附近推薦住宿。");
+    identity = "fail"; messages.push("回傳 Booking 房源網址不是指定的住宿；不接受附近推薦住宿。");
   }
   if (identity !== "pass") messages.push(...match.conflicts, "住宿身分證據不足或有衝突，房價與參考數量不會採用。");
   const nights = stayNights(draft.checkIn, draft.checkOut);
@@ -203,6 +206,9 @@ export function checkBooking(draft: PreviewDraft) {
   if (doc.adults === undefined || doc.children === undefined || doc.rooms === undefined) context = "unknown";
   if ((doc.adults !== undefined && doc.adults !== draft.adults) || (doc.children !== undefined && doc.children !== 0) || (doc.rooms !== undefined && doc.rooms !== 1)) context = "fail";
   if (context !== "pass") messages.push("回傳成人數／兒童數／房數缺漏或不符；不能確認相同比價條件。");
+  if (doc.soldOut && doc.offers.some(o => !o.soldOut && (o.price || o.badgeQuantity || o.roomsLeft))) {
+    context = "fail"; messages.push("住宿層級無房旗標與可訂方案互相矛盾，隔離本筆資料。");
+  }
   if (!doc.offers.length) messages.push(doc.soldOut ? "來源明確標示無房；只記錄本次來源狀態，不推導成交。" : "回傳空陣列：售罄與未取得資料無法區分，維持未知。");
   return { identity, dates, context, accepted: identity === "pass" && dates === "pass" && context === "pass", messages };
 }
@@ -213,6 +219,7 @@ export function offerObservation(offer: BookingOffer, accepted: boolean) {
   const price = offer.price !== undefined && offer.price > 0 ? offer.price : undefined;
   const q = offer.badgeQuantity ?? (offer.roomsLeft && offer.roomsLeft > 0 ? offer.roomsLeft : undefined);
   if (offer.soldOut && (price !== undefined || q !== undefined)) return { status: "conflicting_evidence", label: "有價／房量與售罄矛盾", quantity: undefined, price: undefined };
+  if (offer.quantityConflict) return { status: "quantity_conflict", label: "數量證據矛盾，維持未知", quantity: undefined, price };
   if (offer.soldOut) return { status: "sold_out", label: "來源明確無房", quantity: 0, price: undefined };
   if (q !== undefined && q >= 9) return { status: "available_capped", label: "達介面上限，實際量未知", quantity: undefined, price };
   if (q !== undefined) return { status: "available_exact", label: "來源顯示參考數量", quantity: q, price };
@@ -230,8 +237,7 @@ export function roomCandidates(room: BookingOffer, rooms: CanonicalRoomDraft[]) 
 }
 
 export function syntheticDraft(): PreviewDraft {
-  const now = new Date().toISOString();
-  const start = "2026-09-28";
+  const now = new Date().toISOString(); const start = "2026-09-28";
   return {
     schemaVersion: 1, mode: "synthetic", bookingUrl: "https://www.booking.com/hotel/tw/radar-synthetic-example.html",
     checkIn: start, checkOut: addDays(start, 1), adults: 2, mappings: {},
@@ -263,22 +269,91 @@ export function scenarioJson(scenario: Scenario): string {
   }, null, 2);
 }
 
-/** Persisted data is still untrusted. Validate all collections before rendering. */
+function expect(ok: boolean): asserts ok { if (!ok) throw new Error("草稿格式無效，請重新匯出有效的 v1 草稿。"); }
+function strings(value: unknown, limit = 100): value is string[] {
+  return Array.isArray(value) && value.length <= limit && value.every(v => typeof v === "string" && v.length <= 5000);
+}
+function optionalStrings(value: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) expect(value[key] === undefined || (typeof value[key] === "string" && (value[key] as string).length <= 5000));
+}
+function optionalNumbers(value: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) expect(value[key] === undefined || (typeof value[key] === "number" && Number.isFinite(value[key])));
+}
+function evidence(value: unknown) {
+  expect(Array.isArray(value) && value.length <= 100);
+  for (const item of value as unknown[]) {
+    const e = record(item);
+    expect(Boolean(text(e.label)) && Boolean(text(e.detail)) && typeof e.field === "string" && typeof e.strength === "string" && typeof e.score === "number" && Number.isFinite(e.score));
+  }
+}
+
+/** Validate nested user-controlled values before they reach React or matching code. */
 export function parseDraft(raw: string): PreviewDraft {
   if (new TextEncoder().encode(raw).length > MAX_IMPORT_BYTES) throw new Error("草稿過大。");
   const d = record(JSON.parse(raw)); const a = record(d.analysis); const p = record(a.property);
-  if (d.schemaVersion !== 1 || !["live_website", "synthetic"].includes(String(d.mode)) || !text(p.name) || !safeLink(a.requestedUrl) || !safeLink(a.finalUrl) || !text(p.websiteHost)) throw new Error("草稿格式無效。");
-  for (const key of ["canonicalRooms", "warnings", "identityEvidence", "platformSources"]) if (!Array.isArray(a[key])) throw new Error("草稿缺少必要清單。");
-  if ((a.canonicalRooms as unknown[]).some(r => !text(record(r).id) || !text(record(r).name) || !Array.isArray(record(r).features))) throw new Error("房型資料無效。");
-  if ((a.warnings as unknown[]).some(v => typeof v !== "string")) throw new Error("警示格式無效。");
-  if (a.tourismRegistry !== undefined && !Array.isArray(record(a.tourismRegistry).candidates)) throw new Error("政府候選資料無效。");
+  expect(d.schemaVersion === 1 && (d.mode === "live_website" || d.mode === "synthetic"));
+  expect(Boolean(text(p.name)) && Boolean(safeLink(a.requestedUrl)) && Boolean(safeLink(a.finalUrl)) && Boolean(text(p.websiteHost)));
+  expect(typeof d.bookingUrl === "string" && d.bookingUrl.length <= 2048 && typeof d.adults === "number");
+  expect(validDate(d.checkIn) && validDate(d.checkOut));
+  optionalStrings(p, ["sourceUrl", "description", "address", "normalizedAddress", "phone", "registrationNumber"]);
+  optionalNumbers(p, ["latitude", "longitude", "confidence"]);
+  expect(["confirmed", "review", "rejected"].includes(String(p.identityStatus)));
+  expect(Boolean(text(a.analysisId)) && Boolean(text(a.analyzedAt)) && strings(a.warnings));
+  evidence(a.identityEvidence);
+  expect(Array.isArray(a.platformSources) && a.platformSources.length <= 30);
+  for (const source of a.platformSources as unknown[]) {
+    const s = record(source); optionalStrings(s, ["sourceUrl", "matchedName"]);
+    expect(["official", "booking", "agoda", "trip"].includes(String(s.platform)) && typeof s.label === "string" && typeof s.message === "string");
+    evidence(s.identityEvidence); expect(Array.isArray(s.rooms));
+  }
+  expect(Array.isArray(a.canonicalRooms) && a.canonicalRooms.length <= 100);
+  for (const item of a.canonicalRooms as unknown[]) {
+    const r = record(item);
+    expect(Boolean(text(r.id)) && Boolean(text(r.name)) && Boolean(text(r.sourceName)) && strings(r.features) && typeof r.bundle === "boolean");
+    expect(["website_jsonld", "website_listing", "website_detail", "golden_fixture", "manual"].includes(String(r.origin)));
+    optionalStrings(r, ["sourceUrl", "roomNumber"]); optionalNumbers(r, ["capacity"]);
+  }
+  const window = record(a.dateWindow);
+  expect(validDate(window.start) && validDate(window.end) && typeof window.days === "number" && Number.isInteger(window.days) && window.days > 0 && window.days <= 365);
+  if (a.tourismRegistry !== undefined) {
+    const g = record(a.tourismRegistry);
+    expect(typeof g.message === "string" && Array.isArray(g.candidates) && g.candidates.length <= 30);
+    expect(["matched", "review", "not_found", "unavailable"].includes(String(g.status)));
+    optionalStrings(g, ["sourceUrl", "selectedHotelId"]);
+    for (const item of g.candidates as unknown[]) {
+      const c = record(item);
+      expect(Boolean(text(c.hotelId)) && Boolean(text(c.name)) && typeof c.score === "number" && Number.isFinite(c.score) && strings(c.conflicts));
+      expect(["confirmed", "review", "rejected"].includes(String(c.status))); evidence(c.evidence);
+      optionalStrings(c, ["address", "registrationNumber", "phone", "websiteUrl", "matchedName", "updateTime"]);
+      optionalNumbers(c, ["totalRooms", "lowestPrice", "ceilingPrice", "latitude", "longitude"]);
+    }
+  }
+  if (d.registryDecision !== undefined) {
+    const decision = record(d.registryDecision);
+    expect(Boolean(text(decision.hotelId)) && ["confirmed", "rejected"].includes(String(decision.action)));
+  }
+  optionalStrings(d, ["savedAt"]);
   if (d.booking !== undefined) {
     const b = record(d.booking);
-    if (!text(b.name) || !["synthetic", "user_import"].includes(String(b.source)) || !Array.isArray(b.offers) || b.offers.length > 500) throw new Error("Booking 草稿無效。");
-    if (b.offers.some(o => !text(record(o).key) || !text(record(o).roomKey) || !text(record(o).name) || !text(record(o).plan))) throw new Error("Booking 方案無效。");
+    expect(Boolean(text(b.name)) && ["synthetic", "user_import"].includes(String(b.source)) && Array.isArray(b.offers) && b.offers.length <= 500 && typeof b.soldOut === "boolean");
+    optionalStrings(b, ["address", "registrationNumber", "url", "currency"]);
+    for (const key of ["checkIn", "checkOut"]) expect(b[key] === undefined || validDate(b[key]));
+    for (const key of ["nights", "adults", "children", "rooms"]) expect(b[key] === undefined || (typeof b[key] === "number" && integer(b[key]) !== undefined));
+    const keys = new Set<string>();
+    for (const item of b.offers as unknown[]) {
+      const o = record(item);
+      expect(Boolean(text(o.key)) && Boolean(text(o.roomKey)) && Boolean(text(o.name)) && Boolean(text(o.plan)) && typeof o.soldOut === "boolean");
+      expect(!keys.has(String(o.key)) && !RESERVED_KEYS.has(String(o.roomKey))); keys.add(String(o.key));
+      optionalStrings(o, ["currency"]);
+      for (const key of ["capacity", "nights", "roomsLeft", "badgeQuantity"]) expect(o[key] === undefined || (typeof o[key] === "number" && integer(o[key]) !== undefined));
+      expect(o.price === undefined || (typeof o.price === "number" && number(o.price) !== undefined));
+      expect(o.quantityConflict === undefined || typeof o.quantityConflict === "boolean");
+    }
   }
   const draft = d as unknown as PreviewDraft;
-  draft.mappings = Object.fromEntries(Object.entries(record(d.mappings)).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+  const sourceKeys = new Set(draft.booking?.offers.map(o => o.roomKey) ?? []);
+  const roomIds = new Set(draft.analysis.canonicalRooms.map(r => r.id));
+  draft.mappings = Object.fromEntries(Object.entries(record(d.mappings)).filter((entry): entry is [string, string] => !RESERVED_KEYS.has(entry[0]) && sourceKeys.has(entry[0]) && typeof entry[1] === "string" && roomIds.has(entry[1])));
   const error = validateDraft(draft); if (error) throw new Error(error);
   return draft;
 }
