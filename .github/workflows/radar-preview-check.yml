@@ -1,20 +1,29 @@
 name: Radar Preview Check
+
 on:
   push:
     branches: [feat/competitor-radar-testable-preview]
     paths:
       - 'frontend/src/**'
       - 'frontend/tests/**'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'scripts/prepare-radar-preview.mjs'
+      - 'scripts/deploy-radar-preview.mjs'
       - '.github/workflows/radar-preview-check.yml'
+      - '.github/workflows/radar-preview-deploy.yml'
+
 permissions:
   contents: read
+
 concurrency:
   group: radar-preview-check
   cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash
