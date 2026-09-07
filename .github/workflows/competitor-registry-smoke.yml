@@ -35,37 +35,46 @@ jobs:
           cat > /tmp/registry-smoke.ts <<'TS'
           import { findTourismRegistryCandidates } from "./src/lib/competitor-radar/taiwan-tourism-registry";
 
-          const expectedHotelId = "Hotel_A15010000H_035813";
-          const candidates = await findTourismRegistryCandidates({
-            name: "水芳 Sweetfun",
-            address: "新北市瑞芳區東和里中山路24-1號",
-            phone: "0973400562",
-            websiteUrl: "https://www.sweetfuntw.com/",
+          async function main() {
+            const expectedHotelId = "Hotel_A15010000H_035813";
+            const candidates = await findTourismRegistryCandidates({
+              name: "水芳 Sweetfun",
+              address: "新北市瑞芳區東和里中山路24-1號",
+              phone: "0973400562",
+              websiteUrl: "https://www.sweetfuntw.com/",
+            });
+
+            const summary = candidates.map((candidate) => ({
+              hotelId: candidate.record.hotelId,
+              name: candidate.record.name,
+              address: candidate.record.address,
+              status: candidate.match.status,
+              score: candidate.match.score,
+              conflicts: candidate.match.conflicts,
+            }));
+            console.log(JSON.stringify(summary, null, 2));
+
+            const sweetfun = candidates.find(
+              (candidate) => candidate.record.hotelId === expectedHotelId,
+            );
+            if (!sweetfun) {
+              throw new Error(`Missing expected government record ${expectedHotelId}`);
+            }
+            if (sweetfun.match.status !== "confirmed") {
+              throw new Error(`Expected confirmed match, got ${sweetfun.match.status}`);
+            }
+            if (sweetfun.match.conflicts.length) {
+              throw new Error(`Unexpected conflicts: ${sweetfun.match.conflicts.join("; ")}`);
+            }
+            if (!sweetfun.record.address?.includes("中山路24")) {
+              throw new Error(`Unexpected address: ${sweetfun.record.address ?? "missing"}`);
+            }
+          }
+
+          main().catch((error) => {
+            console.error(error);
+            process.exitCode = 1;
           });
-
-          const summary = candidates.map((candidate) => ({
-            hotelId: candidate.record.hotelId,
-            name: candidate.record.name,
-            address: candidate.record.address,
-            status: candidate.match.status,
-            score: candidate.match.score,
-            conflicts: candidate.match.conflicts,
-          }));
-          console.log(JSON.stringify(summary, null, 2));
-
-          const sweetfun = candidates.find(
-            (candidate) => candidate.record.hotelId === expectedHotelId,
-          );
-          if (!sweetfun) throw new Error(`Missing expected government record ${expectedHotelId}`);
-          if (sweetfun.match.status !== "confirmed") {
-            throw new Error(`Expected confirmed match, got ${sweetfun.match.status}`);
-          }
-          if (sweetfun.match.conflicts.length) {
-            throw new Error(`Unexpected conflicts: ${sweetfun.match.conflicts.join("; ")}`);
-          }
-          if (!sweetfun.record.address?.includes("中山路24")) {
-            throw new Error(`Unexpected address: ${sweetfun.record.address ?? "missing"}`);
-          }
           TS
 
           cp /tmp/registry-smoke.ts ./registry-smoke.ts
