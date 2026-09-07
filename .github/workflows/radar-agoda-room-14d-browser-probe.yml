@@ -1,0 +1,52 @@
+name: Radar Agoda Room 14d Browser Probe
+on:
+  push:
+    branches: [feat/competitor-radar-testable-preview]
+    paths: [.github/workflows/radar-agoda-room-14d-browser-probe.yml]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      VERCEL_TEAM_ID: team_rtARGegsahiZ6hOY7l2dUWGw
+      VERCEL_PROJECT_ID: prj_5a6ilBSvneWYIDTGoCFFZhAjWYeM
+    steps:
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+      - run: |
+          mkdir -p /tmp/agoda-room-14d && cd /tmp/agoda-room-14d
+          npm init -y >/dev/null
+          npm install --save-exact @vercel/sandbox >/dev/null
+      - name: Observe Sweetfun 101 for 14 dates
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        working-directory: /tmp/agoda-room-14d
+        run: |
+          cat > probe.mjs <<'JS'
+          import { Sandbox } from '@vercel/sandbox';
+          import { writeFile } from 'node:fs/promises';
+          const box=await Sandbox.create({token:process.env.VERCEL_TOKEN,teamId:process.env.VERCEL_TEAM_ID,projectId:process.env.VERCEL_PROJECT_ID,source:{type:'snapshot',snapshotId:'snap_c3rDmQdTPMoDHIu55bxS3MruQxZz'},timeout:6*60*1000,resources:{vcpus:2},networkPolicy:'allow-all'});
+          async function run(args,limit=300000){const r=await box.runCommand({cmd:'agent-browser',args});const out=(await r.stdout()).slice(0,limit);if(r.exitCode)throw new Error((await r.stderr()).slice(0,5000));return out}
+          const rows=[];
+          try{
+            for(let index=0;index<14;index++){
+              const d=new Date('2026-09-09T00:00:00Z');d.setUTCDate(d.getUTCDate()+index);const day=d.toISOString().slice(0,10);const out=new Date(d);out.setUTCDate(out.getUTCDate()+1);const checkout=out.toISOString().slice(0,10);
+              const url=`https://www.agoda.com/sweetfun-101/hotel/taipei-tw.html?checkIn=${day}&los=1&rooms=1&adults=2&children=0&currencyCode=TWD`;
+              await run(['open',url]);await run(['wait','--load','networkidle']);await run(['wait','3500']);
+              const raw=await run(['eval',`JSON.stringify((()=>{const body=(document.body.innerText||'').replace(/\\s+/g,' ');const priceNodes=[...document.querySelectorAll('[data-element-name*="price"],[data-selenium*="price"],[class*="Price"],[class*="price"]')].map(x=>(x.innerText||x.textContent||'').trim()).filter(Boolean);return{day:${JSON.stringify(day)},checkout:${JSON.stringify(checkout)},url:location.href,title:document.title,dateIn:body.includes(new Date(${JSON.stringify(day)}+'T00:00:00Z').toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'}).replaceAll(' ',' ')),soldOut:/Sold out!.*Our last room is already booked|Looks like we're sold out/i.test(body),priceNodes:priceNodes.slice(0,100),priceText:body.match(/(?:TWD|NT\\$|NTD|US\\$|USD)\\s*[0-9][0-9,.]*/g)?.slice(0,30)||[],blocked:/captcha|verify you are human|access denied|request rejected/i.test(body),excerpt:body.slice(0,12000)}})())`]);
+              rows.push(JSON.parse(JSON.parse(raw)));
+              console.log(day,rows.at(-1).soldOut,rows.at(-1).priceText.slice(0,3));
+            }
+          }finally{await box.runCommand({cmd:'agent-browser',args:['close']}).catch(()=>undefined);await box.stop().catch(()=>undefined)}
+          await writeFile('agoda-room-14d.json',JSON.stringify(rows,null,2));
+          console.log(JSON.stringify({days:rows.length,soldOut:rows.filter(x=>x.soldOut).length,priced:rows.filter(x=>x.priceText.length).length,blocked:rows.filter(x=>x.blocked).length},null,2));
+          JS
+          node probe.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: radar-agoda-room-14d-browser
+          path: /tmp/agoda-room-14d/agoda-room-14d.json
+          retention-days: 7
