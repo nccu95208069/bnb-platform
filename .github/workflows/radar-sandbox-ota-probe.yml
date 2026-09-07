@@ -11,7 +11,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     env:
       VERCEL_TEAM_ID: team_rtARGegsahiZ6hOY7l2dUWGw
       VERCEL_PROJECT_ID: prj_5a6ilBSvneWYIDTGoCFFZhAjWYeM
@@ -25,7 +25,7 @@ jobs:
           cd /tmp/radar-ota-probe
           npm init -y >/dev/null
           npm install --save-exact @vercel/sandbox >/dev/null
-      - name: Select dates and inspect Booking room table
+      - name: Follow exact dated property result
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         working-directory: /tmp/radar-ota-probe
@@ -33,48 +33,56 @@ jobs:
           cat > probe.mjs <<'JS'
           import { Sandbox } from '@vercel/sandbox';
           import { writeFile } from 'node:fs/promises';
-          const creds = { token: process.env.VERCEL_TOKEN, teamId: process.env.VERCEL_TEAM_ID, projectId: process.env.VERCEL_PROJECT_ID };
-          const deps = ['nss','nspr','libxkbcommon','atk','at-spi2-atk','at-spi2-core','libXcomposite','libXdamage','libXrandr','libXfixes','libXcursor','libXi','libXtst','libXScrnSaver','libXext','mesa-libgbm','libdrm','mesa-libGL','mesa-libEGL','cups-libs','alsa-lib','pango','cairo','gtk3','dbus-libs'];
-          const sandbox = await Sandbox.create({ ...creds, runtime: 'node24', timeout: 12 * 60 * 1000, resources: { vcpus: 2 }, networkPolicy: 'allow-all' });
+          const sandbox = await Sandbox.create({
+            token: process.env.VERCEL_TOKEN,
+            teamId: process.env.VERCEL_TEAM_ID,
+            projectId: process.env.VERCEL_PROJECT_ID,
+            source: { type: 'snapshot', snapshotId: 'snap_c3rDmQdTPMoDHIu55bxS3MruQxZz' },
+            timeout: 7 * 60 * 1000,
+            resources: { vcpus: 2 },
+            networkPolicy: 'allow-all',
+          });
           const evidence = { createdAt: new Date().toISOString(), steps: {} };
-          async function cmd(args, limit = 120000) {
+          async function cmd(args, limit = 150000) {
             const c = await sandbox.runCommand({ cmd: 'agent-browser', args });
             return { exitCode: c.exitCode, stdout: (await c.stdout()).slice(0, limit), stderr: (await c.stderr()).slice(0, 5000) };
           }
-          async function evalJs(source) { return cmd(['eval', source]); }
+          async function js(source, limit) { return cmd(['eval', source], limit); }
           async function clickDate(date) {
-            return evalJs(`(()=>{const e=[...document.querySelectorAll('[data-date="${date}"]')].find(x=>!x.closest('[aria-disabled="true"]')&&!x.hasAttribute('disabled'));if(!e)return 'missing:${date}';(e.closest('button')||e).click();return 'clicked:${date}'})()`);
+            return js(`(()=>{const e=[...document.querySelectorAll('[data-date="${date}"]')].find(x=>!x.closest('[aria-disabled="true"]')&&!x.hasAttribute('disabled'));if(!e)return 'missing:${date}';(e.closest('button')||e).click();return 'clicked:${date}'})()`);
           }
           try {
-            let c = await sandbox.runCommand({ cmd: 'sh', args: ['-lc', `sudo dnf clean all >/dev/null 2>&1; sudo dnf install -y --skip-broken ${deps.join(' ')} >/tmp/dnf.log 2>&1; sudo ldconfig`] });
-            if (c.exitCode) throw new Error(await c.stderr());
-            c = await sandbox.runCommand({ cmd: 'npm', args: ['install', '-g', 'agent-browser@0.36.0'] });
-            if (c.exitCode) throw new Error(await c.stderr());
-            c = await sandbox.runCommand({ cmd: 'npx', args: ['agent-browser', 'install'] });
-            if (c.exitCode) throw new Error(await c.stderr());
-
             evidence.steps.open = await cmd(['open', 'https://www.booking.com/hotel/tw/shui-fang-sweetfun-rui-fang-jiu-fen.zh-tw.html']);
-            await cmd(['wait', '10000']);
+            await cmd(['wait', '8000']);
             evidence.steps.harStart = await cmd(['network', 'har', 'start']);
-            evidence.steps.openPicker = await evalJs(`(()=>{const b=[...document.querySelectorAll('button')].find(x=>/選擇日期|入住日/.test((x.innerText||'')+(x.getAttribute('aria-label')||'')));if(!b)return 'date-button-not-found';b.click();return 'opened'})()`);
+            evidence.steps.currencyOpen = await js(`(()=>{const b=[...document.querySelectorAll('button')].find(x=>/價格為.*USD|\bUSD\b/.test((x.getAttribute('aria-label')||'')+' '+(x.innerText||'')));if(!b)return 'currency-button-not-found';b.click();return 'opened:'+((b.getAttribute('aria-label')||b.innerText||'').trim())})()`);
+            await cmd(['wait', '700']);
+            evidence.steps.currencyCandidates = await js(`JSON.stringify([...document.querySelectorAll('button,[role="option"],[role="menuitem"],li')].map(e=>({tag:e.tagName,text:(e.innerText||e.textContent||'').trim(),aria:e.getAttribute('aria-label'),role:e.getAttribute('role')})).filter(x=>/TWD|新台幣/.test((x.text||'')+' '+(x.aria||''))).slice(0,30))`);
+            evidence.steps.currencySelect = await js(`(()=>{const e=[...document.querySelectorAll('button,[role="option"],[role="menuitem"],li')].find(x=>/新台幣|TWD/.test((x.innerText||x.textContent||'')+' '+(x.getAttribute('aria-label')||'')));if(!e)return 'twd-not-found';e.click();return 'clicked:'+((e.innerText||e.textContent||'').trim())})()`);
+            await cmd(['wait', '1200']);
+            evidence.steps.openPicker = await js(`(()=>{const b=[...document.querySelectorAll('button')].find(x=>/選擇日期|入住日/.test((x.innerText||'')+(x.getAttribute('aria-label')||'')));if(!b)return 'date-button-not-found';b.click();return 'opened'})()`);
             await cmd(['wait', '500']);
             evidence.steps.checkin = await clickDate('2026-09-28');
-            await cmd(['wait', '750']);
+            await cmd(['wait', '850']);
             evidence.steps.checkout = await clickDate('2026-09-29');
-            await cmd(['wait', '1000']);
-            evidence.steps.selected = await evalJs(`JSON.stringify({dateButtons:[...document.querySelectorAll('button')].map(b=>(b.innerText||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,8),hidden:[...document.querySelectorAll('input')].map(i=>({name:i.name,value:i.value})).filter(x=>/checkin|checkout/.test(x.name||''))})`);
-            evidence.steps.search = await evalJs(`(()=>{const b=[...document.querySelectorAll('button')].filter(x=>(x.innerText||'').trim()==='搜尋')[0];if(!b)return 'search-not-found';b.click();return 'clicked-top-search'})()`);
+            await cmd(['wait', '800']);
+            evidence.steps.selected = await js(`JSON.stringify({currency:[...document.querySelectorAll('button')].map(b=>(b.getAttribute('aria-label')||b.innerText||'').trim()).filter(t=>/價格為|TWD|新台幣/.test(t)).slice(0,10),dates:[...document.querySelectorAll('button')].map(b=>(b.innerText||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,8)})`);
+            evidence.steps.search = await js(`(()=>{const b=[...document.querySelectorAll('button')].filter(x=>(x.innerText||'').trim()==='搜尋')[0];if(!b)return 'search-not-found';b.click();return 'clicked-top-search'})()`);
             await cmd(['wait', '--load', 'networkidle']);
-            await cmd(['wait', '10000']);
-            evidence.steps.final = await evalJs(`JSON.stringify({url:location.href,title:document.title,dates:[...document.querySelectorAll('button')].map(b=>(b.innerText||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,8),body:(document.body.innerText||'').slice(0,35000),table:document.querySelector('#hprt-table')?.innerText?.slice(0,35000)||'',rows:[...document.querySelectorAll('#hprt-table tr')].slice(0,80).map((tr,i)=>({i,text:(tr.innerText||'').trim().slice(0,4000),html:tr.outerHTML.slice(0,12000)}))})`);
+            await cmd(['wait', '7000']);
+            evidence.steps.cards = await js(`JSON.stringify({url:location.href,title:document.title,cards:[...document.querySelectorAll('[data-testid="property-card"]')].map((card,index)=>({index,text:(card.innerText||'').trim().slice(0,5000),links:[...card.querySelectorAll('a[href]')].map(a=>({text:(a.innerText||a.getAttribute('aria-label')||'').trim(),href:a.href})).slice(0,20)})).filter(x=>/水芳瑞芳-九份|Sweetfun/i.test(x.text))})`, 150000);
+            evidence.steps.follow = await js(`(()=>{const card=[...document.querySelectorAll('[data-testid="property-card"]')].find(x=>/水芳瑞芳-九份|Sweetfun/i.test(x.innerText||''));if(!card)return 'sweetfun-card-not-found';const links=[...card.querySelectorAll('a[href]')];const link=links.find(a=>/\/hotel\/tw\/shui-fang-sweetfun-rui-fang-jiu-fen/i.test(a.href))||links[0];if(!link)return 'sweetfun-link-not-found';const href=link.href;location.href=href;return href})()`);
+            await cmd(['wait', '--load', 'networkidle']);
+            await cmd(['wait', '9000']);
+            evidence.steps.property = await js(`JSON.stringify({url:location.href,title:document.title,dates:[...document.querySelectorAll('button')].map(b=>(b.innerText||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,10),currency:[...document.querySelectorAll('button')].map(b=>(b.getAttribute('aria-label')||b.innerText||'').trim()).filter(t=>/價格為|TWD|新台幣|USD/.test(t)).slice(0,10),body:(document.body.innerText||'').slice(0,45000),table:document.querySelector('#hprt-table')?.innerText?.slice(0,45000)||'',rows:[...document.querySelectorAll('#hprt-table tr')].slice(0,120).map((tr,i)=>({i,text:(tr.innerText||'').trim().slice(0,5000),html:tr.outerHTML.slice(0,15000)}))})`, 250000);
             evidence.steps.harStop = await cmd(['network', 'har', 'stop', '/tmp/booking.har']);
-            const har = await sandbox.runCommand({ cmd: 'node', args: ['-e', `const h=require('/tmp/booking.har');const es=h.log.entries.filter(e=>/json/i.test(e.response.content.mimeType||'')||/avail|room|hotel|search|block/i.test(e.request.url)).map(e=>({method:e.request.method,status:e.response.status,url:e.request.url,mime:e.response.content.mimeType,size:e.response.content.size,text:(e.response.content.text||'').slice(0,4000)}));console.log(JSON.stringify(es.slice(-120)))`] });
-            evidence.steps.har = { exitCode: har.exitCode, stdout: (await har.stdout()).slice(0,120000), stderr: (await har.stderr()).slice(0,5000) };
+            const har = await sandbox.runCommand({ cmd: 'node', args: ['-e', `const fs=require('node:fs');const h=JSON.parse(fs.readFileSync('/tmp/booking.har','utf8'));const es=h.log.entries.filter(e=>/json/i.test(e.response.content.mimeType||'')||/avail|room|hotel|search|block/i.test(e.request.url)).map(e=>({method:e.request.method,status:e.response.status,url:e.request.url,mime:e.response.content.mimeType,size:e.response.content.size,text:(e.response.content.text||'').slice(0,6000)}));console.log(JSON.stringify(es.slice(-160)))`] });
+            evidence.steps.har = { exitCode: har.exitCode, stdout: (await har.stdout()).slice(0,240000), stderr: (await har.stderr()).slice(0,5000) };
             await cmd(['close']);
           } finally { await sandbox.stop(); }
           await writeFile('ota-probe.json', JSON.stringify(evidence, null, 2));
           const concise = {};
-          for (const [key, value] of Object.entries(evidence.steps)) concise[key] = { exitCode: value.exitCode, stdout: value.stdout.slice(0,5000), stderr: value.stderr.slice(0,500) };
+          for (const [key, value] of Object.entries(evidence.steps)) concise[key] = { exitCode: value.exitCode, stdout: value.stdout.slice(0,10000), stderr: value.stderr.slice(0,500) };
           console.log(JSON.stringify(concise, null, 2));
           JS
           node probe.mjs
