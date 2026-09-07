@@ -24,7 +24,7 @@ jobs:
           mkdir -p /tmp/radar-ota-probe && cd /tmp/radar-ota-probe
           npm init -y >/dev/null
           npm install --save-exact @vercel/sandbox >/dev/null
-      - name: Inspect in-place dated room table
+      - name: Drive Booking availability form
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         working-directory: /tmp/radar-ota-probe
@@ -42,37 +42,39 @@ jobs:
             networkPolicy: 'allow-all',
           });
           const evidence = { createdAt: new Date().toISOString(), steps: {} };
-          async function cmd(args, limit = 500000) {
+          async function cmd(args, limit = 650000) {
             const c = await sandbox.runCommand({ cmd: 'agent-browser', args });
             return { exitCode: c.exitCode, stdout: (await c.stdout()).slice(0, limit), stderr: (await c.stderr()).slice(0, 5000) };
           }
           async function js(source, limit) { return cmd(['eval', source], limit); }
-          async function clickDate(date) { return js(`(()=>{const e=[...document.querySelectorAll('[data-date="${date}"]')].find(x=>!x.closest('[aria-disabled="true"]')&&!x.hasAttribute('disabled'));if(!e)return 'missing';(e.closest('button')||e).click();return 'clicked'})()`); }
+          async function clickDate(date) { return js(`(()=>{const e=[...document.querySelectorAll('[data-date="${date}"]')].find(x=>!x.closest('[aria-disabled="true"]')&&!x.hasAttribute('disabled'));if(!e)return 'missing:${date}';(e.closest('button')||e).click();return 'clicked:${date}'})()`); }
           try {
             evidence.steps.open = await cmd(['open','https://www.booking.com/hotel/tw/shui-fang-sweetfun-rui-fang-jiu-fen.zh-tw.html']);
             await cmd(['wait','7000']);
-            evidence.steps.before = await js(`JSON.stringify({url:location.href,table:document.querySelector('#hprt-table')?.innerText?.slice(0,30000)||'',dates:[...document.querySelectorAll('button')].map(b=>(b.innerText||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,8)})`);
-            evidence.steps.openPicker = await js(`(()=>{const b=[...document.querySelectorAll('button')].find(x=>/選擇日期|入住日/.test((x.innerText||'')+(x.getAttribute('aria-label')||'')));if(!b)return 'missing';b.click();return 'opened'})()`);
+            evidence.steps.forms = await js(`JSON.stringify({dateButtons:[...document.querySelectorAll('button')].map((b,i)=>({i,text:(b.innerText||'').trim(),aria:b.getAttribute('aria-label'),form:b.closest('form')?.getAttribute('action')||''})).filter(x=>/選擇日期|入住日/.test((x.text||'')+(x.aria||''))),searchButtons:[...document.querySelectorAll('button')].map((b,i)=>({i,text:(b.innerText||'').trim(),form:b.closest('form')?.getAttribute('action')||''})).filter(x=>x.text==='搜尋')})`);
+            evidence.steps.openPicker = await js(`(()=>{const all=[...document.querySelectorAll('button')].filter(x=>/選擇日期|入住日/.test((x.innerText||'')+(x.getAttribute('aria-label')||'')));const b=all.at(-1);if(!b)return 'missing';b.click();return 'opened:'+all.length})()`);
             await cmd(['wait','500']);
             evidence.steps.checkin = await clickDate('2026-09-28');
             await cmd(['wait','900']);
             evidence.steps.checkout = await clickDate('2026-09-29');
+            await cmd(['wait','800']);
+            evidence.steps.selected = await js(`JSON.stringify({dateButtons:[...document.querySelectorAll('button')].map((b,i)=>({i,text:(b.innerText||'').trim(),aria:b.getAttribute('aria-label')})).filter(x=>/選擇日期|入住日|9 月/.test((x.text||'')+(x.aria||''))),hidden:[...document.querySelectorAll('input')].map(i=>({name:i.name,value:i.value,form:i.closest('form')?.getAttribute('action')||''})).filter(x=>/checkin|checkout/.test(x.name||''))})`);
+            evidence.steps.submit = await js(`(()=>{const all=[...document.querySelectorAll('button')].filter(x=>(x.innerText||'').trim()==='搜尋');const b=all.at(-1);if(!b)return 'missing';b.click();return 'clicked:'+all.length})()`);
             await cmd(['wait','--load','networkidle']);
-            await cmd(['wait','8000']);
+            await cmd(['wait','9000']);
             evidence.steps.after = await js(`JSON.stringify({
               url:location.href,
               title:document.title,
-              dates:[...document.querySelectorAll('button')].map(b=>(b.innerText||b.getAttribute('aria-label')||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,10),
-              hidden:[...document.querySelectorAll('input')].map(i=>({name:i.name,value:i.value})).filter(x=>/checkin|checkout/.test(x.name||'')),
-              table:document.querySelector('#hprt-table')?.innerText?.slice(0,70000)||'',
-              rows:[...document.querySelectorAll('#hprt-table tr')].slice(0,140).map(tr=>({text:(tr.innerText||'').trim().slice(0,7000),html:tr.outerHTML.slice(0,24000)})),
-              prices:[...document.querySelectorAll('#hprt-table [class*="price"],#hprt-table [data-testid*="price"]')].map(e=>(e.innerText||e.textContent||'').trim()).filter(Boolean).slice(0,100),
-              body:(document.body.innerText||'').slice(0,70000)
-            })`,600000);
+              dates:[...document.querySelectorAll('button')].map(b=>(b.innerText||b.getAttribute('aria-label')||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,12),
+              table:document.querySelector('#hprt-table')?.innerText?.slice(0,90000)||'',
+              rows:[...document.querySelectorAll('#hprt-table tr')].slice(0,160).map(tr=>({text:(tr.innerText||'').trim().slice(0,9000),html:tr.outerHTML.slice(0,30000)})),
+              priceNodes:[...document.querySelectorAll('#hprt-table [class*="price"],#hprt-table [data-testid*="price"]')].map(e=>(e.innerText||e.textContent||'').trim()).filter(Boolean).slice(0,150),
+              body:(document.body.innerText||'').slice(0,90000)
+            })`,650000);
             await cmd(['close']);
           } finally { await sandbox.stop(); }
           await writeFile('ota-probe.json', JSON.stringify(evidence,null,2));
-          console.log(JSON.stringify(Object.fromEntries(Object.entries(evidence.steps).map(([k,v])=>[k,{exitCode:v.exitCode,stdout:v.stdout.slice(0,100000),stderr:v.stderr.slice(0,500)}])),null,2));
+          console.log(JSON.stringify(Object.fromEntries(Object.entries(evidence.steps).map(([k,v])=>[k,{exitCode:v.exitCode,stdout:v.stdout.slice(0,120000),stderr:v.stderr.slice(0,500)}])),null,2));
           JS
           node probe.mjs
       - uses: actions/upload-artifact@v4
