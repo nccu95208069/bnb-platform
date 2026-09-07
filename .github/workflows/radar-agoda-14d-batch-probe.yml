@@ -57,12 +57,12 @@ jobs:
                 }catch(error){return {...job,error:String(error)}}
               };
               const result=[];for(let i=0;i<jobs.length;i+=6){result.push(...await Promise.all(jobs.slice(i,i+6).map(one)))}
-              return result;
+              return JSON.stringify(result);
             })()`;
             const result=await c(['eval',script],1500000);
             if(result.exitCode) throw new Error(result.stderr);
-            await writeFile('agoda-14d.json',result.stdout);
-            const parsed=JSON.parse(JSON.parse(result.stdout));
+            let parsed=JSON.parse(result.stdout); if(typeof parsed==='string') parsed=JSON.parse(parsed);
+            await writeFile('agoda-14d.json',JSON.stringify(parsed,null,2));
             console.log(JSON.stringify({count:parsed.length,verified:parsed.filter(x=>x.dateVerified).length,soldOut:parsed.filter(x=>x.soldOut).length,priced:parsed.filter(x=>x.price).length,currencies:[...new Set(parsed.map(x=>x.currency).filter(Boolean))],sample:parsed.slice(0,10)},null,2));
             await c(['close']);
           }finally{await sandbox.stop()}
