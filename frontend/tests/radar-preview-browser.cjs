@@ -91,7 +91,8 @@ async function run() {
   await roomInput.fill('101 河景家庭四人房');
   await page.getByRole('button', { name: '完成編輯' }).click();
   await page.getByRole('button', { name: '總覽' }).click();
-  assert.equal(await page.getByText('101 河景家庭四人房').count(), 1);
+  assert.equal(await page.locator('table').first().locator('tbody tr').first().locator('td').first().locator('strong').innerText(), '101 河景家庭四人房');
+  assert.equal(await page.getByLabel('價格趨勢房型').locator('option').first().innerText(), '101 河景家庭四人房');
   await page.screenshot({ path: path.join(out, 'radar-desktop.png'), fullPage: true });
   assert.deepEqual(errors, []);
   await context.close();
