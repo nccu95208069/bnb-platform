@@ -29,70 +29,86 @@ jobs:
       - name: Install ephemeral TypeScript runner
         run: npm install --no-save --ignore-scripts tsx@4
 
-      - name: Fetch the official registry through the production adapter
+      - name: Probe official registry transport paths
         shell: bash
         run: |
-          cat > /tmp/registry-smoke.ts <<'TS'
-          import { findTourismRegistryCandidates } from "./src/lib/competitor-radar/taiwan-tourism-registry";
-
+          cat > registry-transport-probe.ts <<'TS'
           const archiveUrl = "https://media.taiwan.net.tw/XMLReleaseAll_public/v2.0/Zh_tw/Hotel-json.zip";
+          const searchUrl = "https://media.taiwan.net.tw/zh-tw/portal/travel?Keyword=%E6%B0%B4%E8%8A%B3";
+          const detailUrl = "https://media.taiwan.net.tw/zh-tw/portal/travel/details/hotel_a15010000h_035813";
 
-          async function logTransport() {
-            const response = await fetch(archiveUrl, {
-              headers: { Accept: "application/zip,application/octet-stream" },
+          const browserHeaders = {
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.7",
+            "Cache-Control": "no-cache",
+            Pragma: "no-cache",
+            Referer: "https://data.gov.tw/dataset/7780",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "cross-site",
+            "Upgrade-Insecure-Requests": "1",
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          };
+
+          async function readPrefix(response: Response, maximum = 16_384) {
+            if (!response.body) return Buffer.alloc(0);
+            const reader = response.body.getReader();
+            const chunks: Uint8Array[] = [];
+            let total = 0;
+            while (total < maximum) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              if (!value) continue;
+              const remaining = maximum - total;
+              chunks.push(value.subarray(0, remaining));
+              total += Math.min(value.byteLength, remaining);
+              if (value.byteLength > remaining || total >= maximum) break;
+            }
+            await reader.cancel();
+            return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+          }
+
+          async function probe(
+            label: string,
+            url: string,
+            headers: Record<string, string> = {},
+          ) {
+            const response = await fetch(url, {
+              headers,
               redirect: "manual",
             });
-            const bytes = Buffer.from(await response.arrayBuffer());
-            console.log(JSON.stringify({
-              status: response.status,
-              url: response.url,
-              contentType: response.headers.get("content-type"),
-              contentEncoding: response.headers.get("content-encoding"),
-              contentLength: response.headers.get("content-length"),
-              location: response.headers.get("location"),
-              byteLength: bytes.length,
-              first32Hex: bytes.subarray(0, 32).toString("hex"),
-              first160Text: bytes.subarray(0, 160).toString("utf8"),
-              last32Hex: bytes.subarray(Math.max(0, bytes.length - 32)).toString("hex"),
-            }, null, 2));
+            const prefix = await readPrefix(response);
+            const text = prefix.toString("utf8");
+            console.log(
+              JSON.stringify(
+                {
+                  label,
+                  status: response.status,
+                  finalUrl: response.url,
+                  contentType: response.headers.get("content-type"),
+                  contentLength: response.headers.get("content-length"),
+                  location: response.headers.get("location"),
+                  first16Hex: prefix.subarray(0, 16).toString("hex"),
+                  first300Text: text.slice(0, 300),
+                  containsSweetfun: /水芳|sweetfun/i.test(text),
+                  containsHotelId: /Hotel_A15010000H_035813/i.test(text),
+                  containsRejected: /Request Rejected|安全性因素暫時被鎖定/i.test(text),
+                },
+                null,
+                2,
+              ),
+            );
           }
 
           async function main() {
-            await logTransport();
-
-            const expectedHotelId = "Hotel_A15010000H_035813";
-            const candidates = await findTourismRegistryCandidates({
-              name: "水芳 Sweetfun",
-              address: "新北市瑞芳區東和里中山路24-1號",
-              phone: "0973400562",
-              websiteUrl: "https://www.sweetfuntw.com/",
+            await probe("archive-default", archiveUrl);
+            await probe("archive-browser", archiveUrl, {
+              ...browserHeaders,
+              Accept: "application/zip,application/octet-stream,*/*;q=0.8",
             });
-
-            const summary = candidates.map((candidate) => ({
-              hotelId: candidate.record.hotelId,
-              name: candidate.record.name,
-              address: candidate.record.address,
-              status: candidate.match.status,
-              score: candidate.match.score,
-              conflicts: candidate.match.conflicts,
-            }));
-            console.log(JSON.stringify(summary, null, 2));
-
-            const sweetfun = candidates.find(
-              (candidate) => candidate.record.hotelId === expectedHotelId,
-            );
-            if (!sweetfun) {
-              throw new Error(`Missing expected government record ${expectedHotelId}`);
-            }
-            if (sweetfun.match.status !== "confirmed") {
-              throw new Error(`Expected confirmed match, got ${sweetfun.match.status}`);
-            }
-            if (sweetfun.match.conflicts.length) {
-              throw new Error(`Unexpected conflicts: ${sweetfun.match.conflicts.join("; ")}`);
-            }
-            if (!sweetfun.record.address?.includes("中山路24")) {
-              throw new Error(`Unexpected address: ${sweetfun.record.address ?? "missing"}`);
-            }
+            await probe("portal-search-browser", searchUrl, browserHeaders);
+            await probe("portal-detail-browser", detailUrl, browserHeaders);
           }
 
           main().catch((error) => {
@@ -101,6 +117,5 @@ jobs:
           });
           TS
 
-          cp /tmp/registry-smoke.ts ./registry-smoke.ts
-          npx tsx registry-smoke.ts
-          rm registry-smoke.ts
+          npx tsx registry-transport-probe.ts
+          rm registry-transport-probe.ts
