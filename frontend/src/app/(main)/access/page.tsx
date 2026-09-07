@@ -97,6 +97,9 @@ export default function AccessManagementPage() {
   const [saving, setSaving] = useState(false);
   const [recoveryPassword,setRecoveryPassword] = useState("");
   const [recoveryFor,setRecoveryFor] = useState("");
+  const [recoveryDraft,setRecoveryDraft] = useState("");
+  const [recoveryConfirm,setRecoveryConfirm] = useState("");
+  const [recoveryRevision,setRecoveryRevision] = useState<string|null>(null);
   const [recoveryBusy,setRecoveryBusy] = useState(false);
   const [deviceAccount,setDeviceAccount] = useState<string|null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -242,6 +245,13 @@ export default function AccessManagementPage() {
       </div>}
       {LIVE_SHEET && <Card><CardHeader><CardTitle className="text-base">忘記密碼 · 管理員協助</CardTitle><CardDescription>所有帳號共用固定臨時密碼。先對指定成員按「啟用臨時密碼」，再把密碼交給對方；對方須設定新密碼後才能進入日曆。</CardDescription></CardHeader><CardContent className="space-y-3">
         <Button variant="outline" disabled={recoveryBusy} onClick={async()=>{try{const r=await fetch('/api/workspace-recovery',{cache:'no-store'});const d=await r.json();if(!r.ok)throw new Error(d.detail);setRecoveryPassword(d.password);setRecoveryFor('');}catch(e){toast.error(e instanceof Error?e.message:'無法讀取');}}}>查看固定臨時密碼</Button>
+        <Button variant="outline" disabled={recoveryBusy} onClick={async()=>{setRecoveryBusy(true);try{const r=await fetch('/api/workspace-recovery',{cache:'no-store'});const d=await r.json();if(!r.ok)throw new Error(d.detail);setRecoveryRevision(d.revision);setRecoveryDraft('');setRecoveryConfirm('');}catch(e){toast.error(e instanceof Error?e.message:'無法讀取');}finally{setRecoveryBusy(false);}}}>設定共用臨時密碼</Button>
+        {recoveryRevision && <form className="space-y-3 rounded-lg border p-3" onSubmit={async e=>{e.preventDefault();setRecoveryBusy(true);try{const r=await fetch('/api/workspace-recovery',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:recoveryDraft,confirmPassword:recoveryConfirm,revision:recoveryRevision})});const d=await r.json();if(!r.ok)throw new Error(d.detail);setRecoveryPassword(d.password);setRecoveryFor('');setRecoveryDraft('');setRecoveryConfirm('');setRecoveryRevision(null);await refreshMembers();toast.success(`共用臨時密碼已儲存${d.updatedCount?`，${d.updatedCount} 位待重設成員已改用新臨時密碼`:''}`);}catch(e){toast.error(e instanceof Error?e.message:'儲存失敗');}finally{setRecoveryBusy(false);}}}>
+          <p className="text-sm leading-6">自行設定一組 12～128 個字元的臨時密碼，儲存後會一直沿用。已啟用重設的成員也會改用這組，尚未完成重設的舊登入會失效；其他成員的個人密碼不變。</p>
+          <label className="block text-sm">共用臨時密碼<input aria-label="共用臨時密碼" type="password" autoComplete="new-password" minLength={12} maxLength={128} required value={recoveryDraft} onChange={e=>setRecoveryDraft(e.target.value)} className="mt-2 w-full rounded-lg border p-3" /></label>
+          <label className="block text-sm">再次輸入臨時密碼<input aria-label="再次輸入臨時密碼" type="password" autoComplete="new-password" required value={recoveryConfirm} onChange={e=>setRecoveryConfirm(e.target.value)} className="mt-2 w-full rounded-lg border p-3" /></label>
+          <div className="flex gap-2"><Button disabled={recoveryBusy} type="submit">{recoveryBusy?'儲存中…':'儲存臨時密碼'}</Button><Button type="button" variant="outline" disabled={recoveryBusy} onClick={()=>{setRecoveryRevision(null);setRecoveryDraft('');setRecoveryConfirm('');}}>取消</Button></div>
+        </form>}
         {recoveryPassword && <div className="space-y-2 rounded-lg border p-3"><p className="text-sm">{recoveryFor?`${recoveryFor} 已啟用重設，原密碼及舊登入已失效。`:'只有已啟用重設的帳號能使用此密碼。'}</p><code className="block break-all select-all text-base">{recoveryPassword}</code><Button variant="outline" size="sm" onClick={async()=>{try{await navigator.clipboard.writeText(recoveryPassword);toast.success('已複製');}catch{toast.error('請長按密碼複製');}}}>複製臨時密碼</Button></div>}
       </CardContent></Card>}
       {deviceAccount && <div><Button variant="ghost" onClick={()=>setDeviceAccount(null)}>關閉裝置紀錄</Button><LoginDevices key={deviceAccount} accountId={deviceAccount}/></div>}

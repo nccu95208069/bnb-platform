@@ -62,3 +62,21 @@ from July to September 7 and positions that row; attempting calendar while reset
 is required redirects to /reset-password, and completing it returns to calendar.
 Owner /access contains the fixed-password reveal and per-member recovery controls.
 No real passwords/member data or production cookie was used in browser QA.
+
+## Owner-selected shared temporary password
+
+Owner explicitly requested entering their own shared temporary password. /access
+now offers 設定共用臨時密碼 with new/confirm fields (existing 12–128-character
+password validation), Save and Cancel. The chosen value persists without automatic
+rotation. GET provides a revision; owner-only same-origin PUT checks it. One Redis
+Lua CAS atomically updates the encrypted shared secret and workspace members/audit.
+All mustResetPassword members get new credentials and revisions, revoking pending
+sessions; personal passwords and the owner credential remain untouched. Concurrent
+reset activation, password completion or settings edits cause a conflict instead of
+partially mixing old/new shared passwords. Readback verifies both writes.
+
+The recovery/device route test now also verifies owner authorization, mismatched
+confirmation, stale revisions, encrypted persistence, new temporary login and old
+password/session rejection after a manual change. Test, lint and production build
+pass. No production shared password or member credential was changed by the agent;
+the owner will enter the desired value in the private management UI.

@@ -24,7 +24,7 @@ test('30-day sessions, persistent device ID, admin recovery and forced reset wit
   if(c[0]==='HSET'){const h=hashes.get(c[1])??new Map();h.set(c[2],c[3]);hashes.set(c[1],h);result=1;}
   if(c[0]==='HGET')result=hashes.get(c[1])?.get(c[2])??null;
   if(c[0]==='HVALS')result=[...(hashes.get(c[1])?.values()??[])];
-  if(c[0]==='EVAL'){if(c[1].includes('local old')){result=(data.get(c[3])??'')===c[4]?1:0;if(result)data.set(c[3],c[5]);}else result=1;}
+  if(c[0]==='EVAL'){if(c[2]===2){result=(data.get(c[3])??'')===c[5]&&(data.get(c[4])??'')===c[6]?1:0;if(result){data.set(c[3],c[7]);data.set(c[4],c[8]);}}else if(c[1].includes('local old')){result=(data.get(c[3])??'')===c[4]?1:0;if(result)data.set(c[3],c[5]);}else result=1;}
   return Response.json({result});
  });
  const req=(path,method='GET',body,cookie)=>new NextRequest(`https://calendar.test/api/${path}`,{method,headers:{host:'calendar.test',origin:'https://calendar.test','user-agent':'Synthetic browser',...(cookie?{cookie}:{})},...(body?{body:JSON.stringify(body)}:{})});
@@ -55,5 +55,19 @@ test('30-day sessions, persistent device ID, admin recovery and forced reset wit
  assert.equal((await Devices.GET(req('account-devices?account=calendar-owner','GET',null,newCookie))).status,403);
  const current=JSON.parse(data.get(stateKey)).members[0];
  const again=await Recovery.POST(req('workspace-recovery','POST',{id:member.id,version:current.version},owner));assert.equal((await again.json()).password,temp);
+ const pendingLogin=await Session.POST(req('calendar-session','POST',{email:member.email,code:temp}));
+ const pendingCookie=`${MEMBER_COOKIE}=${pendingLogin.cookies.get(MEMBER_COOKIE).value}`;
+ const settings=await(await Recovery.GET(req('workspace-recovery','GET',null,owner))).json();
+ const custom='My chosen temporary phrase!';const body={password:custom,confirmPassword:custom,revision:settings.revision};
+ assert.equal((await Recovery.PUT(req('workspace-recovery','PUT',body,pendingCookie))).status,403);
+ assert.equal((await Recovery.PUT(req('workspace-recovery','PUT',{...body,confirmPassword:'different'},owner))).status,400);
+ const changed=await Recovery.PUT(req('workspace-recovery','PUT',body,owner));assert.equal(changed.status,200);assert.equal((await changed.json()).updatedCount,1);
+ assert.equal((await Recovery.PUT(req('workspace-recovery','PUT',body,owner))).status,409);
+ assert.equal((await(await Recovery.GET(req('workspace-recovery','GET',null,owner))).json()).password,custom);
+ assert.ok(!data.get('sweetfun-os:workspace-auth:v1:recovery-password').includes(custom));
+ assert.equal((await Session.GET(req('calendar-session','GET',null,pendingCookie))).status,200);
+ assert.equal((await(await Session.GET(req('calendar-session','GET',null,pendingCookie))).json()).authenticated,false);
+ assert.equal((await Session.POST(req('calendar-session','POST',{email:member.email,code:temp}))).status,401);
+ const customLogin=await Session.POST(req('calendar-session','POST',{email:member.email,code:custom}));assert.equal(customLogin.status,200);assert.equal((await customLogin.json()).requires_password_reset,true);
  assert.equal(data.get('sweetfun-os:owner-auth:v1:credential'),JSON.stringify(ownerCredential));
 });
