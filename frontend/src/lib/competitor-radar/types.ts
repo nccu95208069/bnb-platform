@@ -95,6 +95,34 @@ export interface PropertyIdentityMatch {
   conflicts: string[];
 }
 
+export interface RegistryCandidateSummary {
+  hotelId: string;
+  name: string;
+  matchedName: string;
+  address?: string;
+  phone?: string;
+  websiteUrl?: string;
+  latitude?: number;
+  longitude?: number;
+  totalRooms?: number;
+  lowestPrice?: number;
+  ceilingPrice?: number;
+  updateTime?: string;
+  score: number;
+  status: IdentityStatus;
+  evidence: IdentityEvidence[];
+  conflicts: string[];
+  platformUrls: Partial<Record<Exclude<PlatformKey, "official">, string>>;
+}
+
+export interface TourismRegistryMatch {
+  status: "matched" | "review" | "not_found" | "unavailable";
+  sourceUrl: string;
+  selectedHotelId?: string;
+  candidates: RegistryCandidateSummary[];
+  message: string;
+}
+
 export interface RoomFeatures {
   roomNumber?: string;
   capacity?: number;
@@ -177,6 +205,7 @@ export interface CompetitorRadarAnalysis {
   finalUrl: string;
   property: DiscoveredProperty;
   identityEvidence: IdentityEvidence[];
+  tourismRegistry?: TourismRegistryMatch;
   canonicalRooms: CanonicalRoomDraft[];
   platformSources: PlatformSourceDraft[];
   dateWindow: {
