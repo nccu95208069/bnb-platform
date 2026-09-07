@@ -217,6 +217,7 @@ export function AvailabilityCalendar() {
       .then((result) => {
         if (!active) return;
         setData(result);
+        if (!PAYMENT_SANDBOX && result.properties) setProperties(result.properties);
         if (PAYMENT_SANDBOX) setProperties([
           {
             id: result.property_id,
@@ -584,10 +585,10 @@ export function AvailabilityCalendar() {
           </Select>
         </div>
       )}
-      <p className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-950">
+      {PAYMENT_SANDBOX && <p className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-950">
         假資料預覽 · {channelLabels[channel]}{" "}
         示範售價，建議未發布。尚未接入正式房況與定價引擎。
-      </p>
+      </p>}
       {(error || focusedError) && (
         <div
           role="alert"

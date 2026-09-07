@@ -4,7 +4,7 @@ import { principalFor } from '@/lib/workspace-auth/session';
 import { allowedProperty } from '@/lib/workspace-auth/projection';
 import { redisCommand } from '@/lib/workspace-auth/store';
 import { readBookingSnapshot } from '@/lib/booking-sources/snapshot';
-import { SWEETFUN_SOURCE } from '@/lib/booking-sources/config';
+import { SWEETFUN_SOURCE, activeSources } from '@/lib/booking-sources/config';
 import { PRICING_KEY, PRICING_ROOMS, PRICING_CHANNELS, validatePricingSnapshot } from '@/lib/pricing-snapshot';
 import { liveAvailability } from '@/lib/live-availability';
 import type { Channel } from '@/lib/availability';
@@ -26,6 +26,8 @@ export async function GET(request: NextRequest) {
     const [bookings,raw]=await Promise.all([readBookingSnapshot(SWEETFUN_SOURCE),redisCommand(['GET',PRICING_KEY])]);
     if (!bookings) return reply({detail:'訂房來源暫時無法讀取。'},503);
     const prices=raw ? validatePricingSnapshot(JSON.parse(gunzipSync(Buffer.from(String(raw).slice(4),"base64"),{maxOutputLength:4*1024*1024}).toString("utf8"))) : null;
-    return reply(liveAvailability({start,end,channel,rooms,demo_cycle:1},bookings,prices));
+    const result = liveAvailability({start,end,channel,rooms,demo_cycle:1},bookings,prices);
+    result.properties = activeSources().filter(s => allowedProperty(principal,s.property.id)).map(s => ({id:s.property.id,name:s.property.name,short_name:s.property.name,location:s.property.id === "sweetfun" ? "瑞芳" : "宜蘭五結",room_count:s.property.rooms.length,color:s.property.id === "sweetfun" ? "emerald" : "violet"}));
+    return reply(result);
   } catch { return reply({detail:'房況或價格來源暫時無法讀取，請稍後重試。'},503); }
 }

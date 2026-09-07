@@ -77,6 +77,7 @@ export type AvailabilityQuery = {
   demo_cycle: 1 | 2;
 };
 export type AvailabilityResult = {
+  properties?: {id:string;name:string;short_name:string;location:string;room_count:number;color:"emerald"|"violet"|"amber"|"sky"}[];
   status: string;
   mode: string;
   snapshot_id: string;
