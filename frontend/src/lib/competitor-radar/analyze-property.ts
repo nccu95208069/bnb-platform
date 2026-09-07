@@ -102,6 +102,22 @@ async function findRegistryCandidatesWithTransportRetry(
   }
 }
 
+function registryUnavailable(
+  websiteAnalysis: CompetitorRadarAnalysis,
+  message: string,
+): CompetitorRadarAnalysis {
+  return {
+    ...websiteAnalysis,
+    tourismRegistry: {
+      status: "unavailable",
+      sourceUrl: tourismRegistryMetadata.sourceUrl,
+      candidates: [],
+      message,
+    },
+    warnings: [...websiteAnalysis.warnings, message],
+  };
+}
+
 /**
  * Builds the editable website draft first, then adds best-effort evidence from
  * the Taiwan Tourism Administration's official lodging dataset. Registry
@@ -128,10 +144,12 @@ export async function analyzeCompetitorProperty(
     const usableCandidates = registryCandidates.filter(
       (candidate) => candidate.match.status !== "rejected",
     );
-    const best = usableCandidates[0];
+    const confirmedCandidates = usableCandidates.filter(
+      (candidate) => candidate.match.status === "confirmed",
+    );
     const summaries = registryCandidates.map(summarizeRegistryCandidate);
 
-    if (!best) {
+    if (!usableCandidates.length) {
       return {
         ...websiteAnalysis,
         tourismRegistry: {
@@ -150,8 +168,25 @@ export async function analyzeCompetitorProperty(
       };
     }
 
-    const confirmed = best.match.status === "confirmed";
-    const secondary = usableCandidates.slice(1).filter((item) => item.match.score >= 0.55);
+    if (confirmedCandidates.length > 1) {
+      return {
+        ...websiteAnalysis,
+        tourismRegistry: {
+          status: "review",
+          sourceUrl: tourismRegistryMetadata.sourceUrl,
+          candidates: summaries,
+          message: `政府資料有 ${confirmedCandidates.length} 個候選同時達確認門檻，可能是同址多張旅宿執照；必須由使用者選擇，系統不會自行挑一筆。`,
+        },
+        warnings: [
+          ...websiteAnalysis.warnings,
+          `政府資料出現 ${confirmedCandidates.length} 個高信心候選；未寫入 HotelID、地址、電話或 OTA 網址。`,
+        ],
+      };
+    }
+
+    const best = confirmedCandidates[0] ?? usableCandidates[0]!;
+    const confirmed = confirmedCandidates.length === 1;
+    const secondary = usableCandidates.filter((item) => item !== best && item.match.score >= 0.55);
     const evidence = registryEvidence(best);
     const warnings = [...websiteAnalysis.warnings];
     if (!confirmed) {
@@ -182,14 +217,16 @@ export async function analyzeCompetitorProperty(
           }
         : websiteAnalysis.property,
       identityEvidence: [...websiteAnalysis.identityEvidence, ...evidence],
-      platformSources: enrichPlatformCandidates(websiteAnalysis.platformSources, best),
+      platformSources: confirmed
+        ? enrichPlatformCandidates(websiteAnalysis.platformSources, best)
+        : websiteAnalysis.platformSources,
       tourismRegistry: {
         status: confirmed ? "matched" : "review",
         sourceUrl: tourismRegistryMetadata.sourceUrl,
         selectedHotelId: confirmed ? best.record.hotelId : undefined,
         candidates: summaries,
         message: confirmed
-          ? `政府資料已找到高信心候選「${best.record.name}」；HotelID 是政府資料識別碼，不等同地方民宿登記證號。`
+          ? `政府資料已找到唯一高信心候選「${best.record.name}」；HotelID 是政府資料識別碼，不等同地方民宿登記證號。`
           : `政府資料最佳候選為「${best.record.name}」，但證據尚不足以自動確認，請人工複核。`,
       },
       warnings,
@@ -199,19 +236,9 @@ export async function analyzeCompetitorProperty(
       "competitor-radar registry enrichment unavailable",
       error instanceof Error ? error.message : "unknown_error",
     );
-    return {
-      ...websiteAnalysis,
-      tourismRegistry: {
-        status: "unavailable",
-        sourceUrl: tourismRegistryMetadata.sourceUrl,
-        candidates: [],
-        message:
-          "交通部觀光署旅宿資料目前無法取得；官網草稿仍保留，政府資料與 OTA 候選稍後可重新比對。",
-      },
-      warnings: [
-        ...websiteAnalysis.warnings,
-        "交通部觀光署旅宿資料目前無法取得；官網草稿仍保留，政府資料與 OTA 候選稍後可重新比對。",
-      ],
-    };
+    return registryUnavailable(
+      websiteAnalysis,
+      "交通部觀光署旅宿資料目前無法取得；官網草稿仍保留，政府資料與 OTA 候選稍後可重新比對。",
+    );
   }
 }
