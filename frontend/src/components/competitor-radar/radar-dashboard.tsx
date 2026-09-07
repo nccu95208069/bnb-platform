@@ -18,13 +18,11 @@ import { useMemo, useState } from "react";
 
 import type {
   OtaAvailability,
-  OtaDayObservation,
   OtaPlatform,
   OtaPlatformScan,
   OtaScanResponse,
 } from "@/lib/competitor-radar/ota-types";
 import type {
-  CanonicalRoomDraft,
   CompetitorRadarAnalysis,
   TourismRegistryMatch,
 } from "@/lib/competitor-radar/types";
@@ -54,24 +52,36 @@ function addDays(value: string, amount: number): string {
 }
 
 function taipeiToday(): string {
-  return new Intl.DateTimeFormat("en-CA", {
+  const parts = new Intl.DateTimeFormat("en", {
     timeZone: "Asia/Taipei",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date());
+  }).formatToParts(new Date());
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
 async function jsonRequest<T>(path: string, body: unknown, timeout: number): Promise<T> {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(timeout),
-  });
-  const payload = (await response.json()) as { detail?: string } & T;
-  if (!response.ok) throw new Error(payload.detail ?? "資料取得失敗。");
-  return payload;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeout);
+  try {
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const payload = (await response.json()) as { detail?: string } & T;
+    if (!response.ok) throw new Error(payload.detail ?? "資料取得失敗。");
+    return payload;
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("平台頁面處理逾時，沒有把未知狀態改成售完。");
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 function formatDate(value: string, includeYear = false): string {
@@ -262,7 +272,7 @@ function PlatformBadge({ platform }: { platform: OtaPlatform }) {
   );
 }
 
-function ProgressBadge({ platform, progress, scan }: { platform: OtaPlatform; progress?: ScanProgress[OtaPlatform]; scan?: OtaPlatformScan }) {
+function ProgressBadge({ progress, scan }: { progress?: ScanProgress[OtaPlatform]; scan?: OtaPlatformScan }) {
   if (progress === "running") {
     return <span className={styles.progressBadge}><Loader2 size={13} className={styles.spin} />抓取中</span>;
   }
@@ -293,7 +303,15 @@ export default function RadarDashboard() {
   async function scanPlatform(platform: OtaPlatform, current: CompetitorRadarAnalysis) {
     setProgress((state) => ({ ...state, [platform]: "running" }));
     try {
-      const sourceUrl = current.platformSources.find((source) => source.platform === platform)?.sourceUrl;
+      const sweetfun = /水芳|sweetfun|新北市民宿\s*402/i.test(
+        [current.property.name, current.property.registrationNumber, current.property.sourceUrl]
+          .filter(Boolean)
+          .join(" "),
+      );
+      const discoveredUrl = current.platformSources.find(
+        (source) => source.platform === platform,
+      )?.sourceUrl;
+      const sourceUrl = platform === "agoda" && sweetfun ? undefined : discoveredUrl;
       const result = await jsonRequest<OtaScanResponse>(
         "/api/radar-ota",
         {
@@ -360,7 +378,7 @@ export default function RadarDashboard() {
       setSelectedRoomId(complete.canonicalRooms[0]!.id);
       setMessage("住宿已辨識，正在讀取各 OTA 公開頁面；平台會依序完成。");
       await scanAll(complete);
-      setMessage("分析完成。未知代表平台沒有回傳足夠證據，不是沒有房。 ");
+      setMessage("分析完成。未知代表平台沒有回傳足夠證據，不是沒有房。");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "無法完成分析。");
     } finally {
@@ -396,7 +414,7 @@ export default function RadarDashboard() {
       <header className={styles.header}>
         <div className={styles.brand}>
           <span className={styles.logo}><Radar size={22} /></span>
-          <div><strong>Daili 競品雷達</strong><small>一個連結，掌握各平台價格與房量</small></div>
+          <div><strong>Daili 競品雷達</strong><small>一個連結，核對各平台公開價格與可售狀態</small></div>
         </div>
         <span className={styles.previewTag}>測試版 · 公開資料</span>
       </header>
@@ -406,10 +424,10 @@ export default function RadarDashboard() {
           <div className={styles.searchInput}>
             <Search size={19} />
             <input
-              aria-label="民宿官網或 OTA 網址"
+              aria-label="民宿官網網址"
               value={url}
               onChange={(event) => setUrl(event.target.value)}
-              placeholder="貼上民宿官網或 OTA 網址"
+              placeholder="貼上民宿官網網址"
               disabled={busy}
             />
           </div>
@@ -471,7 +489,7 @@ export default function RadarDashboard() {
               <button key={platform} className={activeTab === platform ? styles.activeTab : ""} onClick={() => setActiveTab(platform)}>
                 <PlatformBadge platform={platform} />
                 {PLATFORM_LABELS[platform]}
-                <ProgressBadge platform={platform} progress={progress[platform]} scan={scans[platform]} />
+                <ProgressBadge progress={progress[platform]} scan={scans[platform]} />
               </button>
             ))}
           </nav>

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type ReactNode } from "react";
 import { ArrowRight, Check, Download, ExternalLink, Globe2, Loader2, Plus, Radar, Save, ShieldCheck, Trash2, Upload } from "lucide-react";
 import type { CanonicalRoomDraft, CompetitorRadarAnalysis, TourismRegistryMatch } from "@/lib/competitor-radar/types";
-import { addDays, bookingSlug, checkBooking, MAX_IMPORT_BYTES, offerObservation, parseBookingImport, parseDraft, roomCandidates, safeLink, scenarioJson, STORAGE_KEY, SYNTHETIC_NOTICE, syntheticDraft, validateDraft, type Gate, type PreviewDraft, type Scenario } from "@/lib/competitor-radar/preview-contract";
+import { addDays, applySyntheticScenario, bookingSlug, checkBooking, MAX_IMPORT_BYTES, offerObservation, parseBookingImport, parseDraft, roomCandidates, safeLink, scenarioJson, STORAGE_KEY, SYNTHETIC_NOTICE, syntheticDraft, validateDraft, type Gate, type PreviewDraft, type Scenario } from "@/lib/competitor-radar/preview-contract";
 import styles from "./preview.module.css";
 
 function Section({ number, title, note, children }: { number: string; title: string; note: string; children: ReactNode }) {
@@ -104,8 +104,8 @@ export default function PreviewWorkbench() {
     setDraft(sample); setUrl("https://www.sweetfuntw.com/"); setRaw(""); setSelectedScenario("normal"); setProblem(""); setNotice(SYNTHETIC_NOTICE);
   }
   function scenario(value: Scenario) {
-    const sample = syntheticDraft(); sample.booking = parseBookingImport(scenarioJson(value), "synthetic");
-    setDraft(sample); setSelectedScenario(value); setRaw(""); setProblem(""); setNotice(SYNTHETIC_NOTICE);
+    setDraft(current => applySyntheticScenario(current, value));
+    setSelectedScenario(value); setRaw(""); setProblem(""); setNotice(SYNTHETIC_NOTICE);
   }
   async function request<T>(body: unknown, milliseconds: number, signal: AbortSignal): Promise<T> {
     const response = await fetch("/api/radar-preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.any([signal, AbortSignal.timeout(milliseconds)]) });
@@ -147,8 +147,8 @@ export default function PreviewWorkbench() {
   function decide(hotelId: string, action: "confirmed" | "rejected") {
     const candidate = registry?.candidates.find(c => c.hotelId === hotelId);
     if (!draft || !candidate) return;
-    setDraft({ ...draft, registryDecision: { hotelId, action }, analysis: { ...draft.analysis, property: action === "confirmed" ? { ...draft.analysis.property, registrationNumber: draft.analysis.property.registrationNumber || candidate.registrationNumber, address: draft.analysis.property.address || candidate.address, phone: draft.analysis.property.phone || candidate.phone } : draft.analysis.property } });
-    setNotice(action === "confirmed" ? "已記錄你的候選確認（僅本機）。房型數量與 OTA 身分不會因此自動改寫。" : "已記錄候選不採用（僅本機）。");
+    setDraft({ ...draft, registryDecision: { hotelId, action } });
+    setNotice(action === "confirmed" ? "已記錄你的候選確認（僅本機）。政府欄位只在核對時作為有來源的證據，不會寫回官網／手動欄位。" : "已記錄候選不採用（僅本機）；先前候選資料不會殘留在住宿欄位。");
   }
   function importBooking(input = raw) {
     if (!draft) return;

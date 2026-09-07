@@ -218,7 +218,6 @@ function roomIdForNumber(request: OtaScanRequest, roomNumber?: string): string |
 }
 
 function emptyObservation(
-  request: OtaScanRequest,
   stayDate: string,
   message: string,
   identityVerified: boolean,
@@ -291,7 +290,6 @@ async function scanBooking(request: OtaScanRequest): Promise<OtaPlatformScan> {
       const stayDate = addDays(request.startDate, index);
       return {
         ...emptyObservation(
-          request,
           stayDate,
           "Booking 已確認住宿與房型目錄，但這條公開頁面路徑沒有回傳可驗證的入住日期，因此不採用價格或房量。",
           identityVerified,
@@ -305,12 +303,12 @@ async function scanBooking(request: OtaScanRequest): Promise<OtaPlatformScan> {
       state: observed.blocked ? "blocked" : "partial",
       capturedAt: new Date().toISOString(),
       requestedDays: request.days,
-      completedDays: observed.blocked ? 0 : request.days,
+      completedDays: 0,
       identity,
       observations,
       warnings: [
         "Booking 房源頁會在轉址或送出日期時靜默遺失 query；日期未通過驗證前不顯示任何價格。",
-        "房型目錄為即時頁面觀察，並不是 14 天可售量。",
+        "房型目錄為即時頁面觀察，並不是未來日期的可售量。",
       ],
       durationMs: Date.now() - started,
     };
@@ -320,13 +318,120 @@ async function scanBooking(request: OtaScanRequest): Promise<OtaPlatformScan> {
 }
 
 function agodaSources(request: OtaScanRequest): Array<{ roomNumber?: string; url: string }> {
-  const overrides = (request.sourceOverrides ?? [])
-    .map((item) => ({ roomNumber: item.roomNumber, url: safePlatformUrl(item.url, "agoda") }))
-    .filter((item): item is { roomNumber?: string; url: string } => Boolean(item.url));
-  if (overrides.length) return overrides;
+  const overrides = (request.sourceOverrides ?? []).flatMap((item) => {
+    const url = safePlatformUrl(item.url, "agoda");
+    return url ? [{ roomNumber: item.roomNumber, url }] : [];
+  });
+  if (overrides.length) return overrides.slice(0, 5);
   const single = safePlatformUrl(request.sourceUrl, "agoda");
   if (single) return [{ url: single }];
   return isSweetfun(request) ? AGODA_SWEETFUN_ROOMS : [];
+}
+
+function agodaStayUrl(
+  source: { roomNumber?: string; url: string },
+  stayDate: string,
+  adults: number,
+): string {
+  const url = new URL(source.url);
+  url.searchParams.set("checkIn", stayDate);
+  url.searchParams.set("los", "1");
+  url.searchParams.set("rooms", "1");
+  url.searchParams.set("adults", String(adults));
+  url.searchParams.set("children", "0");
+  url.searchParams.set("currencyCode", "TWD");
+  return url.href;
+}
+
+async function scanAgodaSource(
+  source: { roomNumber?: string; url: string },
+  request: OtaScanRequest,
+): Promise<BrowserDayResult[]> {
+  const jobs = Array.from({ length: request.days }, (_, index) => {
+    const stayDate = addDays(request.startDate, index);
+    return {
+      roomNumber: source.roomNumber,
+      stayDate,
+      checkOut: addDays(stayDate, 1),
+      url: agodaStayUrl(source, stayDate, request.adults),
+    };
+  });
+
+  try {
+    return await withBrowser(async (sandbox) => {
+      const output: BrowserDayResult[] = [];
+      for (const job of jobs) {
+        try {
+          await command(sandbox, ["open", job.url]);
+          await command(sandbox, ["wait", "2500"]);
+          const observed = await evaluate<
+            Omit<BrowserDayResult, "roomNumber" | "stayDate" | "checkOut" | "url">
+          >(
+            sandbox,
+            `JSON.stringify((()=>{
+              const body=(document.body?.innerText||document.body?.textContent||'').replace(/\\s+/g,' ');
+              const month=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+              const labels=(raw)=>{
+                const d=new Date(raw+'T00:00:00Z');
+                const day=d.getUTCDate();
+                const padded=String(day).padStart(2,'0');
+                const mon=month[d.getUTCMonth()];
+                const year=d.getUTCFullYear();
+                return [day+' '+mon+' '+year,padded+' '+mon+' '+year,mon+' '+day+', '+year,raw];
+              };
+              const checkInLabels=labels(${JSON.stringify(job.stayDate)});
+              const checkOutLabels=labels(${JSON.stringify(job.checkOut)});
+              const title=document.title||'';
+              const blocked=/captcha|verify you are human|request rejected|access denied|unusual traffic/i.test(title+' '+body);
+              const dateVerified=!blocked&&checkInLabels.some(x=>body.includes(x))&&checkOutLabels.some(x=>body.includes(x));
+              const soldOut=dateVerified&&/Sold out!.*Our last room is already booked|Looks like we're sold out/i.test(body);
+              const sourceName=(document.querySelector('h1')?.textContent||title.split('(')[0]||'').trim();
+              const priceTexts=[...document.querySelectorAll('[data-element-name*="price"],[data-selenium*="price"],[class*="Price"],[class*="price"]')]
+                .filter(node=>{const style=getComputedStyle(node);return style.display!=='none'&&style.visibility!=='hidden'})
+                .map(node=>(node.textContent||'').trim())
+                .filter(text=>text&&text.length<160);
+              const priceBlob=priceTexts.join(' | ');
+              const currencyToken=(priceBlob.match(/\\b(TWD|USD|NTD)\\b|NT\\$|US\\$/i)||[])[0]||
+                (body.match(/Select your currency\\s+(TWD|USD|NTD)/i)||[])[1];
+              const currency=/^(?:TWD|NTD|NT\\$)$/i.test(currencyToken||'')?'TWD':/^(?:USD|US\\$)$/i.test(currencyToken||'')?'USD':undefined;
+              const values=[];
+              for(const text of priceTexts){
+                const anchored=[...text.matchAll(/(?:TWD|NT\\$|NTD|USD|US\\$|\\$)\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)/gi)];
+                const matches=anchored.length?anchored:[...text.matchAll(/\\b([0-9][0-9,]*(?:\\.[0-9]+)?)\\b/g)];
+                for(const match of matches){
+                  const value=Number(match[1].replaceAll(',',''));
+                  const minimum=currency==='TWD'?100:10;
+                  if(Number.isFinite(value)&&value>=minimum&&value<1000000)values.push(value);
+                }
+              }
+              const amount=dateVerified&&!soldOut&&currency&&values.length?Math.min(...values):undefined;
+              const available=dateVerified&&!soldOut&&(
+                amount!==undefined||/Book now|Reserve|Choose your room|Available room/i.test(body)
+              );
+              const sourceText=soldOut
+                ? 'Sold out! Our last room is already booked'
+                : available
+                  ? 'Agoda rendered a dated bookable room page'
+                  : 'No dated offer was exposed';
+              return {title,sourceName,dateVerified,blocked,soldOut,available,amount,currency,sourceText};
+            })())`,
+            300_000,
+          );
+          output.push({ ...job, ...observed });
+        } catch (error) {
+          output.push({
+            ...job,
+            dateVerified: false,
+            error: error instanceof Error ? error.message : "agoda_navigation_failed",
+          });
+        }
+      }
+      return output;
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "agoda_sandbox_failed";
+    return jobs.map((job) => ({ ...job, dateVerified: false, error: message }));
+  }
 }
 
 async function scanAgoda(request: OtaScanRequest): Promise<OtaPlatformScan> {
@@ -346,83 +451,48 @@ async function scanAgoda(request: OtaScanRequest): Promise<OtaPlatformScan> {
     };
   }
 
-  const jobs = Array.from({ length: request.days }, (_, index) => {
-    const stayDate = addDays(request.startDate, index);
-    return sources.map((source) => ({
-      roomNumber: source.roomNumber,
-      stayDate,
-      checkOut: addDays(stayDate, 1),
-      url: `${source.url}${source.url.includes("?") ? "&" : "?"}${new URLSearchParams({
-        checkIn: stayDate,
-        los: "1",
-        rooms: "1",
-        adults: String(request.adults),
-        children: "0",
-        currencyCode: "TWD",
-      })}`,
-    }));
-  }).flat();
+  const sourceResults = await Promise.all(
+    sources.map((source) => scanAgodaSource(source, request)),
+  );
+  const results = sourceResults.flat();
+  const trusted = isSweetfun(request) && !request.sourceUrl && !(request.sourceOverrides?.length);
+  const first = results.find((item) => !item.error && !item.blocked);
+  const identity = propertyIdentity(
+    "agoda",
+    request,
+    {
+      url: first?.url ?? sources[0]!.url,
+      title: first?.title,
+      name: first?.sourceName,
+      blocked: !first && results.some((item) => item.blocked),
+    },
+    trusted,
+  );
+  const identityVerified = identity.status === "confirmed";
+  const expectedRoomNumbers = new Set(
+    request.canonicalRooms
+      .filter((room) => !room.bundle && room.roomNumber)
+      .map((room) => normalizedText(room.roomNumber)),
+  );
+  const coveredRoomNumbers = new Set(
+    sources
+      .filter((source): source is { roomNumber: string; url: string } => Boolean(source.roomNumber))
+      .map((source) => normalizedText(source.roomNumber)),
+  );
+  const completeRoomCoverage =
+    expectedRoomNumbers.size > 0 &&
+    [...expectedRoomNumbers].every((roomNumber) => coveredRoomNumbers.has(roomNumber));
 
-  try {
-    const results = await withBrowser(async (sandbox) => {
-      await command(sandbox, ["open", sources[0]!.url]);
-      await command(sandbox, ["wait", "2500"]);
-      const serializedJobs = JSON.stringify(jobs).replace(/</g, "\\u003c");
-      return evaluate<BrowserDayResult[]>(
-        sandbox,
-        `(async()=>{
-          const jobs=${serializedJobs};
-          const parse=async(job)=>{
-            try{
-              const response=await fetch(job.url,{credentials:'include'});
-              const html=await response.text();
-              const doc=new DOMParser().parseFromString(html,'text/html');
-              const body=(doc.body?.innerText||doc.body?.textContent||'').replace(/\\s+/g,' ');
-              const scripts=[...doc.scripts].map(s=>s.textContent||'').join('\\n');
-              const dateVerified=scripts.includes('checkIn='+job.stayDate)&&scripts.includes('los=1')||
-                scripts.includes('\\"checkInDateStr\\":\\"'+job.stayDate+'\\"')||
-                body.includes(new Date(job.stayDate+'T00:00:00Z').toLocaleDateString('en-US',{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'}).replace(',',''));
-              const soldOut=/Sold out!.*Our last room is already booked/i.test(body)||/\\"isSoldOut\\"\\s*:\\s*true/i.test(scripts);
-              const blocked=/captcha|verify you are human|request rejected|access denied/i.test(body);
-              const currency=(scripts.match(/\\"currency\\"\\s*:\\s*\\{\\"code\\"\\s*:\\s*\\"([A-Z]{3})\\"/)||[])[1]||
-                (body.match(/\\b(TWD|USD|NTD)\\b/)||[])[1];
-              const structured=[];
-              for(const pattern of [/\\"displayPrice\\"\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)/g,/\\"sellingPrice\\"\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)/g,/\\"exclusivePrice\\"\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)/g]){
-                for(const match of scripts.matchAll(pattern)){const value=Number(match[1]);if(value>100&&value<1000000)structured.push(value)}
-              }
-              const amount=!soldOut&&structured.length?Math.min(...structured):undefined;
-              const available=dateVerified&&!soldOut&&(amount!==undefined||/Select your room|Choose your room/i.test(body));
-              return {...job,title:doc.title,sourceName:doc.title.split('(')[0].trim(),dateVerified,blocked,soldOut,available,amount,currency,sourceText:soldOut?'Sold out! Our last room is already booked':available?'Agoda page returned a dated room offer':'No dated offer was exposed'};
-            }catch(error){return {...job,dateVerified:false,error:String(error)}}
-          };
-          const output=[];
-          for(let index=0;index<jobs.length;index+=6){output.push(...await Promise.all(jobs.slice(index,index+6).map(parse)))}
-          return JSON.stringify(output);
-        })()`,
-        2_000_000,
-      );
-    });
-
-    const trusted = isSweetfun(request) && !request.sourceUrl && !(request.sourceOverrides?.length);
-    const first = results.find((item) => !item.error && !item.blocked);
-    const identity = propertyIdentity(
-      "agoda",
-      request,
-      {
-        url: first?.url ?? sources[0]!.url,
-        title: first?.title,
-        name: first?.sourceName,
-        blocked: !first && results.some((item) => item.blocked),
-      },
-      trusted,
-    );
-    const identityVerified = identity.status === "confirmed";
-    const observations: OtaDayObservation[] = Array.from({ length: request.days }, (_, index) => {
+  const observations: OtaDayObservation[] = Array.from(
+    { length: request.days },
+    (_, index) => {
       const stayDate = addDays(request.startDate, index);
       const day = results.filter((item) => item.stayDate === stayDate);
       const rooms: OtaRoomObservation[] = day.map((item, roomIndex) => ({
         sourceRoomId: item.roomNumber ? `agoda-${item.roomNumber}` : `agoda-${roomIndex}`,
-        sourceRoomName: item.sourceName ?? (item.roomNumber ? `Agoda ${item.roomNumber}` : "Agoda 房型"),
+        sourceRoomName:
+          item.sourceName ??
+          (item.roomNumber ? `Agoda ${item.roomNumber}` : "Agoda 房型"),
         canonicalRoomId: roomIdForNumber(request, item.roomNumber),
         availability:
           !identityVerified || !item.dateVerified || item.error || item.blocked
@@ -434,9 +504,13 @@ async function scanAgoda(request: OtaScanRequest): Promise<OtaPlatformScan> {
                 : "unknown",
         quantityState: "unknown",
         amount:
-          identityVerified && item.dateVerified && !item.soldOut ? item.amount : undefined,
+          identityVerified && item.dateVerified && !item.soldOut
+            ? item.amount
+            : undefined,
         currency:
-          identityVerified && item.dateVerified && !item.soldOut ? item.currency : undefined,
+          identityVerified && item.dateVerified && !item.soldOut
+            ? item.currency
+            : undefined,
         sourceText: item.error ?? item.sourceText,
       }));
       const usable = rooms.filter((room) => room.availability !== "unknown");
@@ -446,14 +520,19 @@ async function scanAgoda(request: OtaScanRequest): Promise<OtaPlatformScan> {
         .filter((amount): amount is number => amount !== undefined);
       const availability = rooms.some((room) => room.availability === "available")
         ? "available"
-        : usable.length === rooms.length && rooms.length > 0 && rooms.every((room) => room.availability === "sold_out")
+        : completeRoomCoverage &&
+            usable.length === rooms.length &&
+            rooms.length > 0 &&
+            rooms.every((room) => room.availability === "sold_out")
           ? "sold_out"
           : "unknown";
-      const dateVerified = day.length > 0 && day.every((item) => item.dateVerified);
+      const dateVerified =
+        day.length === sources.length &&
+        day.every((item) => item.dateVerified && !item.error && !item.blocked);
       return {
         stayDate,
         checkOut: addDays(stayDate, 1),
-        state: day.some((item) => item.error || item.blocked) ? "partial" : "ready",
+        state: day.some((item) => item.error || item.blocked) || !dateVerified ? "partial" : "ready",
         availability,
         minAmount: currencies.length === 1 && prices.length ? Math.min(...prices) : undefined,
         currency: currencies.length === 1 ? currencies[0] : undefined,
@@ -462,36 +541,40 @@ async function scanAgoda(request: OtaScanRequest): Promise<OtaPlatformScan> {
         dateVerified,
         rooms,
         message: dateVerified
-          ? "Agoda 的每個房間頁面分開觀察；平台沒有公開可靠待售數量。"
-          : "日期未能從回傳頁面確認，數值維持未知。",
-      };
-    });
-    const completedDays = observations.filter((item) => item.dateVerified).length;
-    const state: OtaPlatformScan["state"] = results.every((item) => item.blocked)
+          ? completeRoomCoverage
+            ? "Agoda 各房間頁面已逐日載入；平台沒有公開可靠待售數量。"
+            : "Agoda 已載入已知房間頁面；仍有官網房型沒有找到 Agoda 頁面，因此不推論整間住宿售罄。"
+          : "日期或頁面回應未能確認，數值維持未知。",
+      } satisfies OtaDayObservation;
+    },
+  );
+  const completedDays = observations.filter((item) => item.dateVerified).length;
+  const blockedCount = results.filter((item) => item.blocked).length;
+  const state: OtaPlatformScan["state"] =
+    results.length > 0 && blockedCount === results.length
       ? "blocked"
       : completedDays === request.days
         ? "ready"
         : completedDays
           ? "partial"
           : "failed";
-    return {
-      platform: "agoda",
-      state,
-      capturedAt: new Date().toISOString(),
-      requestedDays: request.days,
-      completedDays,
-      identity,
-      observations,
-      warnings: [
-        "水芳在 Agoda 以獨立房間頁面販售；102 尚未找到可驗證頁面，因此不會推論整間住宿售罄。",
-        "Agoda 頁面可能忽略要求的 TWD 並回傳其他幣別；系統保留來源幣別，不自行換算。",
-        "Agoda 未公開可靠待售間數，數量一律顯示未知。",
-      ],
-      durationMs: Date.now() - started,
-    };
-  } catch (error) {
-    return failedScan("agoda", request, started, error);
-  }
+  return {
+    platform: "agoda",
+    state,
+    capturedAt: new Date().toISOString(),
+    requestedDays: request.days,
+    completedDays,
+    identity,
+    observations,
+    warnings: [
+      completeRoomCoverage
+        ? "Agoda 已涵蓋這次草稿中的所有非包棟房號。"
+        : "水芳在 Agoda 以獨立房間頁面販售；102 尚未找到可驗證頁面，因此不會推論整間住宿售罄。",
+      "Agoda 頁面可能忽略要求的 TWD 並回傳其他幣別；系統保留來源幣別，不自行換算。",
+      "Agoda 未公開可靠待售間數，數量一律顯示未知。",
+    ],
+    durationMs: Date.now() - started,
+  };
 }
 
 async function scanTrip(request: OtaScanRequest): Promise<OtaPlatformScan> {
@@ -540,7 +623,8 @@ async function scanTrip(request: OtaScanRequest): Promise<OtaPlatformScan> {
               const doc=new DOMParser().parseFromString(html,'text/html');
               const body=(doc.body?.innerText||doc.body?.textContent||'').replace(/\\s+/g,' ');
               const scripts=[...doc.scripts].map(s=>s.textContent||'').join('\\n');
-              const blocked=/Sign in to Trip\\.com|登入 \\/ 註冊即視同|captcha|機器人驗證/i.test((doc.title||'')+' '+body);
+              const hasProperty=/水芳瑞芳|Sweetfun|新北市民宿\\s*402/i.test(body);
+              const blocked=/captcha|機器人驗證/i.test((doc.title||'')+' '+body)||/Sign in to Trip\\.com/i.test(doc.title||'')||(!hasProperty&&/(?:登入|sign in)/i.test(body));
               const compactIn=job.stayDate.replaceAll('-','');
               const compactOut=job.checkOut.replaceAll('-','');
               const dateVerified=!blocked&&(
@@ -637,21 +721,20 @@ export function normalizeSourceOverrides(
   value: unknown,
 ): OtaSourceOverride[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .slice(0, 20)
-    .map((item) => {
-      if (!item || typeof item !== "object") return null;
-      const candidate = item as Record<string, unknown>;
-      const url = safePlatformUrl(
-        typeof candidate.url === "string" ? candidate.url : undefined,
-        platform,
-      );
-      if (!url) return null;
-      const roomNumber =
-        typeof candidate.roomNumber === "string"
-          ? candidate.roomNumber.trim().slice(0, 30)
-          : undefined;
-      return { url, roomNumber };
-    })
-    .filter((item): item is OtaSourceOverride => Boolean(item));
+  const normalized: OtaSourceOverride[] = [];
+  for (const item of value.slice(0, 20)) {
+    if (!item || typeof item !== "object") continue;
+    const candidate = item as Record<string, unknown>;
+    const url = safePlatformUrl(
+      typeof candidate.url === "string" ? candidate.url : undefined,
+      platform,
+    );
+    if (!url) continue;
+    const roomNumber =
+      typeof candidate.roomNumber === "string"
+        ? candidate.roomNumber.trim().slice(0, 30)
+        : undefined;
+    normalized.push(roomNumber ? { url, roomNumber } : { url });
+  }
+  return normalized;
 }

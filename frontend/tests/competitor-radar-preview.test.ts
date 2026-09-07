@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addDays, checkBooking, offerObservation, parseBookingImport, parseDraft, roomCandidates, safeLink, scenarioJson, syntheticDraft, validateDraft, validDate, type Scenario } from "../src/lib/competitor-radar/preview-contract";
+import { addDays, applySyntheticScenario, checkBooking, offerObservation, parseBookingImport, parseDraft, propertyForVerification, roomCandidates, safeLink, scenarioJson, syntheticDraft, validateDraft, validDate, type Scenario } from "../src/lib/competitor-radar/preview-contract";
 import { compareTaiwanAddresses } from "../src/lib/competitor-radar/address";
 import { scorePropertyIdentity } from "../src/lib/competitor-radar/identity";
 
@@ -108,4 +108,44 @@ test("omitted village and hyphenated house number still match", () => {
 });
 test("name alone never confirms identity", () => {
   assert.notEqual(scorePropertyIdentity({ name: "範例民宿" }, { name: "範例民宿" }).status, "confirmed");
+});
+
+test("switching a synthetic provider scenario preserves owner edits and mappings", () => {
+  const d = fixture();
+  d.analysis.canonicalRooms[0].name = "101 屋主修改後房型";
+  d.mappings["101"] = "sample-101";
+  const switched = applySyntheticScenario(d, "date_mismatch");
+  assert.equal(switched.analysis.canonicalRooms[0].name, "101 屋主修改後房型");
+  assert.equal(switched.mappings["101"], "sample-101");
+  assert.equal(switched.booking?.checkIn, "2026-09-29");
+});
+
+test("confirmed registry evidence is derived without polluting website property fields", () => {
+  const d = fixture();
+  d.analysis.property.address = undefined;
+  d.analysis.property.registrationNumber = undefined;
+  d.analysis.tourismRegistry = {
+    status: "matched",
+    sourceUrl: "https://data.gov.tw/dataset/7780",
+    selectedHotelId: "registry-1",
+    message: "fixture",
+    candidates: [{
+      hotelId: "registry-1",
+      registrationNumber: "新北市民宿999號",
+      name: d.analysis.property.name,
+      matchedName: d.analysis.property.name,
+      address: "新北市瑞芳區範例路1號",
+      score: 0.95,
+      status: "confirmed",
+      evidence: [],
+      conflicts: [],
+      platformUrls: {},
+    }],
+  };
+  d.registryDecision = { hotelId: "registry-1", action: "confirmed" };
+  const verified = propertyForVerification(d);
+  assert.equal(verified.address, "新北市瑞芳區範例路1號");
+  assert.equal(d.analysis.property.address, undefined);
+  d.registryDecision = { hotelId: "registry-1", action: "rejected" };
+  assert.equal(propertyForVerification(d).address, undefined);
 });

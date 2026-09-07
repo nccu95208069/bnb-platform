@@ -16,7 +16,17 @@ function reply(body: unknown, status = 200) {
 }
 export async function GET() {
   if (process.env.RADAR_PREVIEW_MODE !== "true") return reply({ detail: "測試端點未開啟。" }, 404);
-  return reply({ version: "radar-preview-v0.3", build: process.env.RADAR_BUILD_SHA ?? "local", liveBooking: false, persistence: "browser-only" });
+  return reply({
+    version: "radar-preview-v0.4",
+    build: process.env.RADAR_BUILD_SHA ?? "local",
+    liveOtaEndpoint: true,
+    persistence: "none",
+    providerCapabilities: {
+      booking: "live_property_and_room_catalog_only",
+      agoda: "live_dated_room_status",
+      trip: "live_date_identity_only",
+    },
+  });
 }
 async function limitedJson(request: NextRequest): Promise<Record<string, unknown>> {
   if (!request.headers.get("content-type")?.includes("application/json")) throw new Error("請提供 JSON。");

@@ -54,13 +54,17 @@ for (const url of [deploymentUrl, publicUrl]) {
   const response = await fetch(`${url}/api/radar-preview`, { signal: AbortSignal.timeout(20000) });
   if (!response.ok) throw new Error(`Public health check failed: ${response.status}`);
   const health = await response.json();
-  if (health.build !== process.env.GITHUB_SHA || health.liveBooking !== false || health.persistence !== 'browser-only') throw new Error('Unexpected deployed build or runtime capability');
+  if (health.build !== process.env.GITHUB_SHA || health.liveOtaEndpoint !== true || health.persistence !== 'none') throw new Error('Unexpected deployed build or runtime capability');
+  const otaResponse = await fetch(`${url}/api/radar-ota`, { signal: AbortSignal.timeout(20000) });
+  if (!otaResponse.ok) throw new Error(`Public OTA health check failed: ${otaResponse.status}`);
+  const otaHealth = await otaResponse.json();
+  if (otaHealth.live !== true || otaHealth.physicalInventory !== false || otaHealth.confirmedBookings !== false) throw new Error('Unexpected OTA capability contract');
 }
 for (const path of ['/calendar', '/api/v1/bookings', '/api/v1/calendar']) {
   const response = await fetch(publicUrl + path, { redirect: 'manual', signal: AbortSignal.timeout(20000) });
   if (response.status !== 404) throw new Error(`Unrelated route unexpectedly present: ${path}`);
 }
 mkdirSync('/tmp/radar-deploy-evidence', { recursive: true });
-writeFileSync('/tmp/radar-deploy-evidence/deployment.json', JSON.stringify({ publicUrl, deploymentUrl, projectId: project.id, projectName, build: process.env.GITHUB_SHA, productionProjectModified: false, privateRoutesAbsent: true, liveBooking: false }, null, 2));
+writeFileSync('/tmp/radar-deploy-evidence/deployment.json', JSON.stringify({ publicUrl, deploymentUrl, projectId: project.id, projectName, build: process.env.GITHUB_SHA, productionProjectModified: false, privateRoutesAbsent: true, liveOtaEndpoint: true, persistence: 'none' }, null, 2));
 writeFileSync('/tmp/radar-public-url.txt', publicUrl);
 console.log('TEST_DEPLOYMENT_VERIFIED', JSON.stringify({ publicUrl, deploymentUrl, projectName, build: process.env.GITHUB_SHA }));

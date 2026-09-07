@@ -1,7 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 
 import { normalizeSourceOverrides, scanOtaPlatform } from "@/lib/competitor-radar/ota-sandbox";
-import type { OtaPlatform, OtaScanRequest, OtaScanResponse } from "@/lib/competitor-radar/ota-types";
+import type { OtaScanRequest, OtaScanResponse } from "@/lib/competitor-radar/ota-types";
 import { record, safeLink } from "@/lib/competitor-radar/preview-contract";
 import type { CanonicalRoomDraft } from "@/lib/competitor-radar/types";
 

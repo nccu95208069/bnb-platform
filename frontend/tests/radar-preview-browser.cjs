@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { createRequire } = require('node:module');
-const { chromium, webkit } = createRequire('/tmp/radar-browser/package.json')('playwright');
+const { chromium, request, webkit } = createRequire('/tmp/radar-browser/package.json')('playwright');
 
 const base = process.env.RADAR_TEST_URL || 'http://localhost:3137';
 const out = process.env.RADAR_EVIDENCE_DIR || '/tmp/radar-evidence';
@@ -47,7 +47,7 @@ function otaResponse(platform, body) {
     }
     return { stayDate, checkOut: addDays(stayDate, 1), state: 'partial', availability: 'unknown', sourceUrl: identity.sourceUrl, identityVerified: true, dateVerified: platform === 'trip', rooms: platform === 'booking' ? [{ sourceRoomId: 'booking-1', sourceRoomName: 'Executive Quadruple Room with River View', availability: 'unknown', quantityState: 'unknown' }] : [], message: platform === 'booking' ? '日期未能驗證' : '日期已核對，價格未公開' };
   });
-  const scan = { platform, state: platform === 'agoda' ? 'ready' : 'partial', capturedAt: new Date().toISOString(), requestedDays: 14, completedDays: platform === 'booking' ? 14 : 14, identity, observations, warnings: [platform === 'agoda' ? 'Agoda 未公開可靠待售間數。' : `${platform} 沒有可採用的逐日價格。`], durationMs: 1200 };
+  const scan = { platform, state: platform === 'agoda' ? 'ready' : 'partial', capturedAt: new Date().toISOString(), requestedDays: 14, completedDays: platform === 'booking' ? 0 : 14, identity, observations, warnings: [platform === 'agoda' ? 'Agoda 未公開可靠待售間數。' : `${platform} 沒有可採用的逐日價格。`], durationMs: 1200 };
   return { scan, capability: { source: 'isolated_browser', live: true, physicalInventory: false, confirmedBookings: false } };
 }
 async function installMocks(page) {
@@ -73,6 +73,8 @@ async function run() {
   assert.equal(await page.getByRole('button', { name: '載入完整範例' }).count(), 0);
   await page.getByRole('button', { name: '開始分析' }).click();
   await page.getByRole('heading', { name: '未來 14 天價格與可售狀態' }).waitFor();
+  await page.getByText('NT$2,400').first().waitFor();
+  await page.getByRole('button', { name: '開始分析' }).waitFor();
   assert.equal(await page.getByRole('heading', { name: '水芳 Sweetfun' }).count(), 1);
   assert.equal(await page.getByText('住宿已核對').count(), 1);
   assert.equal(await page.locator('table').first().locator('tbody tr').count(), 6);
@@ -102,6 +104,7 @@ async function run() {
   await phone.goto(base + '/radar-test');
   await phone.getByRole('button', { name: '開始分析' }).click();
   await phone.getByRole('heading', { name: '未來 14 天價格與可售狀態' }).waitFor();
+  await phone.getByRole('button', { name: '開始分析' }).waitFor();
   assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
   await phone.getByRole('button', { name: /Booking\.com/ }).click();
   await phone.getByRole('heading', { name: 'Booking.com' }).waitFor();
@@ -110,10 +113,12 @@ async function run() {
   await mobile.close();
 
   const origin = new URL(base).origin;
-  const blocked = await page.request.post(base + '/api/radar-preview', { headers: { Origin: origin }, data: { phase: 'website', url: 'http://127.0.0.1' } });
+  const api = await request.newContext();
+  const blocked = await api.post(base + '/api/radar-preview', { headers: { Origin: origin }, data: { phase: 'website', url: 'http://127.0.0.1' } });
   assert.equal(blocked.status(), 422);
-  const cross = await page.request.post(base + '/api/radar-ota', { headers: { Origin: 'https://untrusted.example' }, data: {} });
+  const cross = await api.post(base + '/api/radar-ota', { headers: { Origin: 'https://untrusted.example' }, data: {} });
   assert.equal(cross.status(), 403);
+  await api.dispose();
   fs.writeFileSync(path.join(out, 'browser-result.json'), JSON.stringify({ passed: true, layout: 'approved-minimal-wireframe', desktop: 'Chromium', mobile: 'WebKit 390x844', sixRooms: true, overviewTabs: true, fourteenDays: true, editableRooms: true, priceAndAvailabilityStates: true, noSyntheticMainFlow: true, ssrfBlocked: true, crossOriginBlocked: true }, null, 2));
   console.log('BROWSER_ACCEPTANCE_PASS');
 }

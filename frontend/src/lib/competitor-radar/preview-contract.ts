@@ -176,13 +176,30 @@ export function parseBookingImport(raw: string, source: BookingDocument["source"
   };
 }
 
+/** Keep government data as attributed evidence instead of copying it into website/manual fields. */
+export function propertyForVerification(draft: PreviewDraft): PropertyIdentityInput {
+  const property = draft.analysis.property;
+  const decision = draft.registryDecision;
+  if (!decision || decision.action !== "confirmed") return property;
+  const candidate = draft.analysis.tourismRegistry?.candidates.find(
+    item => item.hotelId === decision.hotelId && item.status !== "rejected",
+  );
+  if (!candidate) return property;
+  return {
+    ...property,
+    address: property.address || candidate.address,
+    registrationNumber: property.registrationNumber || candidate.registrationNumber,
+    phone: property.phone || candidate.phone,
+  };
+}
+
 export function checkBooking(draft: PreviewDraft) {
   const doc = draft.booking;
   const unknown = { identity: "unknown" as Gate, dates: "unknown" as Gate, context: "unknown" as Gate };
   if (!doc) return { ...unknown, accepted: false, messages: ["尚未匯入 Booking 資料。"] };
   const messages: string[] = [];
   const identityInput: PropertyIdentityInput = { name: doc.name, address: doc.address, registrationNumber: doc.registrationNumber };
-  const match = scorePropertyIdentity(draft.analysis.property, identityInput);
+  const match = scorePropertyIdentity(propertyForVerification(draft), identityInput);
   let identity: Gate = match.status === "confirmed" ? "pass" : match.status === "rejected" ? "fail" : "unknown";
   const expectedSlug = bookingSlug(draft.bookingUrl);
   const returnedSlug = bookingSlug(doc.url);
@@ -267,6 +284,16 @@ export function scenarioJson(scenario: Scenario): string {
       { room_id: "301", room_name: "301 河景四人房", capacity: 4, total_price: 3900, rooms_left: 9, policies: [] },
     ],
   }, null, 2);
+}
+
+/** Replace only scenario-dependent provider data; preserve owner edits and mappings. */
+export function applySyntheticScenario(draft: PreviewDraft | null, scenario: Scenario): PreviewDraft {
+  const current = draft ?? syntheticDraft();
+  return {
+    ...current,
+    mode: "synthetic",
+    booking: parseBookingImport(scenarioJson(scenario), "synthetic"),
+  };
 }
 
 function expect(ok: boolean): asserts ok { if (!ok) throw new Error("草稿格式無效，請重新匯出有效的 v1 草稿。"); }
