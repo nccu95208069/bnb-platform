@@ -26,71 +26,60 @@ jobs:
       - name: Install project dependencies
         run: npm ci
 
-      - name: Install ephemeral TypeScript runner
-        run: npm install --no-save --ignore-scripts tsx@4
-
-      - name: Match Sweetfun through the production registry adapter
+      - name: Inspect official search and detail HTML
         shell: bash
         run: |
-          cat > registry-smoke.ts <<'TS'
-          import { findTourismRegistryCandidates } from "./src/lib/competitor-radar/taiwan-tourism-registry";
+          cat > registry-portal-probe.mjs <<'JS'
+          const searchUrl = "https://media.taiwan.net.tw/zh-tw/portal/travel?Keyword=%E6%B0%B4%E8%8A%B3";
+          const detailUrl = "https://media.taiwan.net.tw/zh-tw/portal/travel/details/hotel_a15010000h_035813";
+          const headers = {
+            Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.7",
+            "User-Agent":
+              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
+          };
 
-          async function findWithOneTransportRetry() {
-            const seed = {
-              name: "水芳 Sweetfun",
-              address: "新北市瑞芳區東和里中山路24-1號",
-              phone: "0973400562",
-              websiteUrl: "https://www.sweetfuntw.com/",
-            };
-            try {
-              return await findTourismRegistryCandidates(seed);
-            } catch (error) {
-              const message = error instanceof Error ? error.message : "unknown_error";
-              if (!message.includes("registry_zip_eocd_not_found")) throw error;
-              return findTourismRegistryCandidates(seed);
-            }
+          function excerpt(html, needle, radius = 1200) {
+            const index = html.toLowerCase().indexOf(needle.toLowerCase());
+            if (index < 0) return `MISSING: ${needle}`;
+            return html.slice(Math.max(0, index - radius), Math.min(html.length, index + radius));
           }
 
-          async function main() {
-            const expectedHotelId = "Hotel_A15010000H_035813";
-            const candidates = await findWithOneTransportRetry();
-            const summary = candidates.map((candidate) => ({
-              hotelId: candidate.record.hotelId,
-              name: candidate.record.name,
-              address: candidate.record.address,
-              phone: candidate.record.phone,
-              status: candidate.match.status,
-              score: candidate.match.score,
-              conflicts: candidate.match.conflicts,
-              platformUrls: candidate.platformUrls,
-            }));
-            console.log(JSON.stringify(summary, null, 2));
-
-            const sweetfun = candidates.find(
-              (candidate) => candidate.record.hotelId === expectedHotelId,
-            );
-            if (!sweetfun) {
-              throw new Error(`Missing expected government record ${expectedHotelId}`);
+          async function fetchHtml(url) {
+            const response = await fetch(url, { headers, redirect: "error" });
+            const html = await response.text();
+            console.log(JSON.stringify({
+              url,
+              status: response.status,
+              contentType: response.headers.get("content-type"),
+              length: html.length,
+              rejected: /Request Rejected|安全性因素暫時被鎖定/i.test(html),
+            }, null, 2));
+            if (!response.ok || /Request Rejected|安全性因素暫時被鎖定/i.test(html)) {
+              throw new Error(`portal transport rejected for ${url}`);
             }
-            if (sweetfun.match.status !== "confirmed") {
-              throw new Error(`Expected confirmed match, got ${sweetfun.match.status}`);
-            }
-            if (sweetfun.match.conflicts.length) {
-              throw new Error(`Unexpected conflicts: ${sweetfun.match.conflicts.join("; ")}`);
-            }
-            if (!sweetfun.record.address?.includes("中山路24")) {
-              throw new Error(`Unexpected address: ${sweetfun.record.address ?? "missing"}`);
-            }
-            if (sweetfun.record.phone?.replace(/\D/g, "") !== "0973400562") {
-              throw new Error(`Unexpected phone: ${sweetfun.record.phone ?? "missing"}`);
-            }
+            return html;
           }
 
-          main().catch((error) => {
-            console.error(error);
-            process.exitCode = 1;
-          });
-          TS
+          const searchHtml = await fetchHtml(searchUrl);
+          console.log("--- SEARCH RESULT EXCERPT ---");
+          console.log(excerpt(searchHtml, "Hotel_A15010000H_035813", 1800));
 
-          npx tsx registry-smoke.ts
-          rm registry-smoke.ts
+          const detailHtml = await fetchHtml(detailUrl);
+          for (const needle of [
+            "Hotel_A15010000H_035813",
+            "中山路24",
+            "0973400562",
+            "WebsiteURL",
+            "SameAs",
+            "Reservation",
+            "經度",
+            "緯度",
+          ]) {
+            console.log(`--- DETAIL EXCERPT: ${needle} ---`);
+            console.log(excerpt(detailHtml, needle, 900));
+          }
+          JS
+
+          node registry-portal-probe.mjs
+          rm registry-portal-probe.mjs
