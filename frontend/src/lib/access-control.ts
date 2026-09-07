@@ -6,6 +6,7 @@ import { persist } from "zustand/middleware";
 import { supabase } from "@/lib/supabase/client";
 
 export type WorkspaceRole =
+  | "god"
   | "owner"
   | "admin"
   | "housekeeper"
@@ -57,7 +58,7 @@ export type SaveWorkspaceMemberInput = {
   displayName: string;
   email: string;
   phone: string;
-  role: Exclude<WorkspaceRole, "owner">;
+  role: Exclude<WorkspaceRole, "owner" | "god">;
   allProperties: boolean;
   propertyIds: string[];
 };
@@ -66,6 +67,11 @@ export const ROLE_DEFINITIONS: Record<
   WorkspaceRole,
   { label: string; description: string; permissions: RolePermissions }
 > = {
+  god: {
+    label: "系統商 God",
+    description: "系統商最高權限，可管理工作區內所有旅宿；不由一般成員管理介面異動。",
+    permissions: { manageMembers: true, editBookings: true, recordPayments: true, cancelBookings: true, viewPrices: true },
+  },
   owner: {
     label: "擁有者",
     description: "管理所有旅宿、訂單、款項與成員權限。",
@@ -78,10 +84,10 @@ export const ROLE_DEFINITIONS: Record<
     },
   },
   admin: {
-    label: "Admin",
-    description: "可管理訂單、款項與取消，但不能變更成員權限。",
+    label: "管理者（Admin）",
+    description: "管理營運、成員、密碼與寄信設定；不能移除擁有者或停用 Admin。",
     permissions: {
-      manageMembers: false,
+      manageMembers: true,
       editBookings: true,
       recordPayments: true,
       cancelBookings: true,
@@ -289,7 +295,7 @@ export const useAccessControl = create<AccessControlState>()(
 
       refreshMembers: async () => {
         if (LIVE_SHEET) {
-          if (get().membership?.role !== "owner") return;
+          if (!["owner", "admin", "god"].includes(get().membership?.role ?? "")) return;
           set({ loading: true });
           try {
             const response = await fetch("/api/workspace-members", { cache: "no-store" });

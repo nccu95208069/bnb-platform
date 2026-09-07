@@ -7,9 +7,10 @@ import * as Session from '../src/app/api/calendar-session/route.ts';
 import * as Members from '../src/app/api/workspace-members/route.ts';
 import * as Mail from '../src/app/api/workspace-mail/route.ts';
 import * as Invitation from '../src/app/api/workspace-invitation/route.ts';
+import * as Recovery from '../src/app/api/workspace-recovery/route.ts';
 import * as Appearance from '../src/app/api/calendar-appearance/route.ts';
 import {OWNER_COOKIE} from '../src/lib/calendar-owner-session.ts';
-import {MEMBER_COOKIE} from '../src/lib/workspace-auth/session.ts';
+import {MEMBER_COOKIE,createMemberSession} from '../src/lib/workspace-auth/session.ts';
 import {createPasswordCredential} from '../src/lib/owner-password.ts';
 
 test('complete API flow preserves owner password, sends invitation, activates, logs in and enforces separation',async t=>{
@@ -64,4 +65,23 @@ test('complete API flow preserves owner password, sends invitation, activates, l
  assert.equal(data.get('sweetfun-os:owner-auth:v1:credential'),ownerRaw);
  assert.equal((await Members.POST(request('workspace-members','POST',{...memberInput,email:'other@example.test'},ownerCookie,'https://evil.test'))).status,403);
  assert.equal(mails.length,2);
+ const key='sweetfun-os:workspace-auth:v1:members';
+ const base=JSON.parse(data.get(key));
+ const manager={...base.members[0],id:'d'.repeat(32),email:'manager@example.test',role:'admin',status:'active',credential:await createPasswordCredential(memberPassword),version:1};
+ const god={...manager,id:'e'.repeat(32),email:'operator@example.test',role:'god',allProperties:true,propertyIds:['sweetfun','offland']};
+ data.set(key,JSON.stringify({...base,members:[...base.members,manager,god]}));
+ const managerCookie=`${MEMBER_COOKIE}=${createMemberSession(manager)}`;
+ const godCookie=`${MEMBER_COOKIE}=${createMemberSession(god)}`;
+ assert.equal((await Members.GET(request('workspace-members','GET',null,managerCookie))).status,200);
+ assert.equal((await Mail.GET(request('workspace-mail','GET',null,managerCookie))).status,200);
+ assert.equal((await Recovery.GET(request('workspace-recovery','GET',null,managerCookie))).status,200);
+ assert.equal((await Members.PATCH(request('workspace-members','PATCH',{id:manager.id,version:1,status:'suspended'},managerCookie))).status,403);
+ assert.equal((await Members.PATCH(request('workspace-members','PATCH',{id:god.id,version:1,status:'suspended'},ownerCookie))).status,403);
+ assert.equal((await Recovery.POST(request('workspace-recovery','POST',{id:god.id,version:1},managerCookie))).status,403);
+ assert.equal((await Members.POST(request('workspace-members','POST',{...memberInput,email:'scope@example.test',propertyIds:['sweetfun']},managerCookie))).status,403);
+ assert.equal((await Members.POST(request('workspace-members','POST',{...memberInput,email:'staff2@example.test'},managerCookie))).status,200);
+ assert.equal((await Members.PATCH(request('workspace-members','PATCH',{id:manager.id,version:1,status:'suspended'},godCookie))).status,200);
+ assert.equal((await Mail.GET(request('workspace-mail','GET',null,managerCookie))).status,403);
+ assert.equal(data.get('sweetfun-os:owner-auth:v1:credential'),ownerRaw);
+
 });

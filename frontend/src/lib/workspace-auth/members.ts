@@ -1,3 +1,5 @@
+import {checkManagement} from './management.ts';
+import {ownerPrincipal,type Principal} from './types.ts';
 import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
 import {createPasswordCredential,passwordProblem} from '../owner-password.ts';
 import {ADMIN_EMAIL,PROPERTY_IDS,nextWorkspace,normalizedEmail,validEmail,type Member,type MemberRole} from './types.ts';
@@ -13,7 +15,7 @@ export function memberInput(input:Record<string,unknown>) {
   if(!allProperties&&(!Array.isArray(input.propertyIds)||input.propertyIds.length!==propertyIds.length))throw new Error('INVALID_INPUT');
   return {email,displayName,role,allProperties,propertyIds,phone:typeof input.phone==='string'?input.phone.trim().slice(0,30)||null:null};
 }
-export async function inviteMember(store:WorkspaceStore,input:Record<string,unknown>,send:InviteSender,now=Date.now()) {
+export async function inviteMember(store:WorkspaceStore,input:Record<string,unknown>,send:InviteSender,now=Date.now(),actor:Principal=ownerPrincipal()) {
   const state=await store.read();
   const id=typeof input.id==='string'?input.id:null;
   let member:Member;
@@ -21,10 +23,12 @@ export async function inviteMember(store:WorkspaceStore,input:Record<string,unkn
   if(id) {
     const existing=state.value.members.find(m=>m.id===id);
     if(!existing)throw new Error('NOT_FOUND');
+    checkManagement(actor,input,existing);
     if(existing.status==='suspended')throw new Error('INVITE_INVALID');
     if(input.version!==existing.version)throw new Error('VERSION_CONFLICT');
     member={...existing,version:existing.version+1};
   } else {
+    checkManagement(actor,input);
     const values=memberInput(input);
     if(state.value.members.some(m=>m.email===values.email))throw new Error('EMAIL_EXISTS');
     if(state.value.members.length>=100)throw new Error('INVALID_INPUT');
@@ -33,7 +37,7 @@ export async function inviteMember(store:WorkspaceStore,input:Record<string,unkn
   member.invitation={hash:hashToken(token),expires:now+86400000,sent:'pending'};
   member.invitedAt=new Date(now).toISOString();
   const members=id?state.value.members.map(m=>m.id===id?member:m):[...state.value.members,member];
-  await store.replace(state.raw,nextWorkspace(state.value,members,'invite_prepared',member.id));
+  await store.replace(state.raw,nextWorkspace(state.value,members,'invite_prepared',member.id,actor.id));
   // A delivery failure keeps a recoverable pending member, never a fake "sent" success.
   let sent=false;
   try {await send(member.email,`${member.id}.${token}`);sent=true;}catch{/* Only safe status is returned. */}
@@ -41,7 +45,7 @@ export async function inviteMember(store:WorkspaceStore,input:Record<string,unkn
   const current=latest.value.members.find(m=>m.id===member.id);
   if(!current||current.invitation?.hash!==member.invitation.hash)throw new Error('VERSION_CONFLICT');
   const updated={...current,version:current.version+1,invitation:{...current.invitation,sent:sent?'sent' as const:'failed' as const}};
-  await store.replace(latest.raw,nextWorkspace(latest.value,latest.value.members.map(m=>m.id===updated.id?updated:m),sent?'invite_sent':'invite_delivery_failed',member.id));
+  await store.replace(latest.raw,nextWorkspace(latest.value,latest.value.members.map(m=>m.id===updated.id?updated:m),sent?'invite_sent':'invite_delivery_failed',member.id,actor.id));
   return {member:updated,delivery:sent?'sent' as const:'failed' as const};
 }
 export function invitedMember(token:unknown,members:Member[],now=Date.now()) {
@@ -58,9 +62,10 @@ export async function activateMember(store:WorkspaceStore,input:Record<string,un
   await store.replace(state.raw,nextWorkspace(state.value,state.value.members.map(m=>m.id===member.id?updated:m),'password_activated',member.id,member.id));
   return updated;
 }
-export async function updateMember(store:WorkspaceStore,input:Record<string,unknown>) {
+export async function updateMember(store:WorkspaceStore,input:Record<string,unknown>,actor:Principal=ownerPrincipal()) {
   const state=await store.read(),member=state.value.members.find(m=>m.id===input.id);
   if(!member)throw new Error('NOT_FOUND');
+  checkManagement(actor,input,member);
   if(input.version!==member.version)throw new Error('VERSION_CONFLICT');
   let updated:Member;
   if(input.status!==undefined) {
@@ -73,6 +78,6 @@ export async function updateMember(store:WorkspaceStore,input:Record<string,unkn
     if(values.email!==member.email)throw new Error('INVALID_INPUT');
     updated={...member,...values,version:member.version+1};
   }
-  await store.replace(state.raw,nextWorkspace(state.value,state.value.members.map(m=>m.id===member.id?updated:m),input.status?'status_updated':'permissions_updated',member.id));
+  await store.replace(state.raw,nextWorkspace(state.value,state.value.members.map(m=>m.id===member.id?updated:m),input.status?'status_updated':'permissions_updated',member.id,actor.id));
   return updated;
 }

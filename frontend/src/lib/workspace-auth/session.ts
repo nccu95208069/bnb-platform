@@ -45,3 +45,9 @@ export async function requireOwner(request:CookieRequest) {
   if(principal?.role!=='owner')throw new Error('FORBIDDEN');
   return principal;
 }
+
+export async function requireManager(request:CookieRequest) {
+  const principal=await principalFor(request);
+  if(principal?.role!=='owner'&&principal?.role!=='admin'&&principal?.role!=='god')throw new Error('FORBIDDEN');
+  return principal;
+}

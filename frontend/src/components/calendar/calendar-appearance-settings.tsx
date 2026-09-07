@@ -44,7 +44,7 @@ export function CalendarAppearanceSettings() {
   const [draft, setDraft] = useState<PaletteId | null>(null);
   const [saved, setSaved] = useState(false);
   const [isOwner, setIsOwner] = useState(false);
-  useEffect(() => { fetch("/api/calendar-session", { cache: "no-store" }).then(r => r.json()).then(d => setIsOwner(d.membership?.role === "owner")).catch(() => {}); }, []);
+  useEffect(() => { fetch("/api/calendar-session", { cache: "no-store" }).then(r => r.json()).then(d => setIsOwner(["owner", "admin", "god"].includes(d.membership?.role))).catch(() => {}); }, []);
   const selected = draft ?? palette;
   return <section className="mx-auto max-w-4xl space-y-5 pb-8">
     <div>

@@ -45,7 +45,7 @@ import {
 } from "@/lib/access-control";
 import { cn } from "@/lib/utils";
 
-const ASSIGNABLE_ROLES: Exclude<WorkspaceRole, "owner">[] = [
+const ASSIGNABLE_ROLES: Exclude<WorkspaceRole, "owner" | "god">[] = [
   "admin",
   "housekeeper",
   "viewer",
@@ -110,7 +110,7 @@ export default function AccessManagementPage() {
     void initialize();
   }, [initialize]);
   useEffect(() => {
-    if (membership?.role === "owner") void refreshMembers();
+    if (membership?.role === "owner" || membership?.role === "admin" || membership?.role === "god") void refreshMembers();
   }, [membership?.id, membership?.role, refreshMembers]);
 
   const sortedMembers = useMemo(
@@ -140,7 +140,7 @@ export default function AccessManagementPage() {
   }
 
   function beginEdit(member: WorkspaceMember) {
-    if (member.role === "owner") return;
+    if (member.role === "owner" || member.role === "god") return;
     setEditingId(member.id);
     setForm({
       id: member.id,
@@ -238,7 +238,7 @@ export default function AccessManagementPage() {
       </div>
 
       {LIVE_SHEET && <div className="rounded-xl border bg-card p-4 text-sm leading-6">
-        <p>初始管理者：sweetfuntw@gmail.com · 沿用你設定的私人密碼。</p>
+        <p>擁有者：sweetfuntw@gmail.com · 沿用你設定的私人密碼。</p>
         <p>目前訂房表為唯讀，所有角色都不能修改正式訂單或收款。</p>
         <p>{mailConfigured ? "Gmail 已連接，新增成員會寄送邀請信。" : "尚未完成 Gmail 寄信授權，完成後才能新增成員。"} <a href="/settings/email" className="underline">寄信設定</a></p>
         <p className="text-muted-foreground">舊的測試成員已從此瀏覽器清除。下方只列正式帳號。</p>
@@ -255,7 +255,7 @@ export default function AccessManagementPage() {
         {recoveryPassword && <div className="space-y-2 rounded-lg border p-3"><p className="text-sm">{recoveryFor?`${recoveryFor} 已啟用重設，原密碼及舊登入已失效。`:'只有已啟用重設的帳號能使用此密碼。'}</p><code className="block break-all select-all text-base">{recoveryPassword}</code><Button variant="outline" size="sm" onClick={async()=>{try{await navigator.clipboard.writeText(recoveryPassword);toast.success('已複製');}catch{toast.error('請長按密碼複製');}}}>複製臨時密碼</Button></div>}
       </CardContent></Card>}
       {deviceAccount && <div><Button variant="ghost" onClick={()=>setDeviceAccount(null)}>關閉裝置紀錄</Button><LoginDevices key={deviceAccount} accountId={deviceAccount}/></div>}
-      <Card>
+      {membership?.role === "owner" && <Card>
         <CardHeader>
           <CardTitle className="text-base">權限預覽</CardTitle>
           <CardDescription>
@@ -284,7 +284,7 @@ export default function AccessManagementPage() {
             目前以「{ROLE_DEFINITIONS[effectiveRole].label}」檢視日曆。
           </p>
         </CardContent>
-      </Card>
+      </Card>}
 
       <div className="grid gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
         <Card id="member-form-card" ref={formCardRef} className="scroll-mt-16 md:scroll-mt-6">
@@ -497,7 +497,7 @@ export default function AccessManagementPage() {
                     </p>
                   </div>
 
-                  {member.role !== "owner" && (
+                  {member.role !== "owner" && member.role !== "god" && (
                     <div className="flex flex-wrap gap-2">
                       {LIVE_SHEET && member.status !== "suspended" && <Button size="sm" variant="outline" disabled={recoveryBusy} onClick={async()=>{
                         setRecoveryBusy(true);try{const r=await fetch('/api/workspace-recovery',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:member.id,version:member.version})});const d=await r.json();if(!r.ok)throw new Error(d.detail);setRecoveryPassword(d.password);setRecoveryFor(member.displayName);await refreshMembers();toast.success('已啟用臨時密碼，請到上方複製並交給成員');}catch(e){toast.error(e instanceof Error?e.message:'無法重設');}finally{setRecoveryBusy(false);}
@@ -510,6 +510,7 @@ export default function AccessManagementPage() {
                       <Button
                         size="sm"
                         variant={member.status === "suspended" ? "outline" : "ghost"}
+                        disabled={membership?.role !== "owner" && membership?.role !== "god" && member.role === "admin"}
                         onClick={() => toggleStatus(member)}
                       >
                         {member.status === "suspended" ? (
