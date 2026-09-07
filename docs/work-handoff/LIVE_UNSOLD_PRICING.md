@@ -35,3 +35,7 @@ Tests cover checkout, source outage, conflicts, channel-specific prices, missing
 Month/week/day use red for p_sell ≥0.60, green for 0.40≤p_sell<0.60, blue below 0.40. Missing predictions stay gray, never inferred from rates. Percentage and model as-of date appear in the detail; percentages also appear in cells. Existing conflicts/unknown/blocked states retain their operational warnings. Hidden-price accounts still cannot read this endpoint.
 
 Export with optional `--probability-plan /path/to/t39_plan_YYYYMMDD.csv`. The current integration reads the explicit September 7 plan p_sell keyed by exact room/date, validates finite 0..1 and duplicate keys, records the file hash and as-of date, and never executes the plan. No matching plan row means no prediction, including excluded dates; this is not evidence of zero probability. The values are the engine's model scores, not guaranteed future sales or proof a proposed price was applied.
+
+## Continuous unsold month scrolling
+
+Owner requested the same vertical month browsing as sold. Unsold now renders a stable 2025–2027 month sequence, loading individual month queries only near the viewport. Each query remains within the 93-day API bound. Scrolling updates the active month without recentering or unmounting the scroller; arrows/Today explicitly position the view. Background refresh retains layout, individual source failures show retry controls, room/channel changes cannot display previous-filter cells. Shared PricePair and probability styles remain identical across views. Offland gating is unchanged.

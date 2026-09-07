@@ -1,7 +1,9 @@
 "use client";
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { probabilityBand, probabilityStyles, probabilityText } from "@/lib/sales-probability";
+import { probabilityText } from "@/lib/sales-probability";
+import { PricePair, roomNightStyle } from "./availability-presentation";
+import { UnsoldMonthScroller } from "./unsold-month-scroller";
 import { availabilityFeatures } from "@/lib/availability-features";
 import {
   ArrowRight,
@@ -52,7 +54,6 @@ import {
   formatMonthLabel,
   localTodayIso,
   startOfMonth,
-  WEEKDAY_LABELS,
 } from "./calendar-utils";
 import {
   availabilityApi,
@@ -72,59 +73,6 @@ import {
   useEffectiveRole,
 } from "@/lib/access-control";
 import { cn } from "@/lib/utils";
-
-const stateStyles: Record<string, string> = {
-  available: "border-emerald-200 bg-emerald-50/70 text-emerald-950",
-  held: "border-amber-200 bg-amber-50 text-amber-950",
-  maintenance: "border-slate-200 bg-slate-100 text-slate-600",
-  blocked: "border-slate-200 bg-slate-100 text-slate-600",
-  unknown: "border-amber-300 bg-amber-50 text-amber-900",
-  conflict: "border-red-200 bg-red-50 text-red-900",
-  sold: "border-border bg-muted/40 text-muted-foreground",
-  past: "border-transparent bg-muted/30 text-muted-foreground",
-};
-function roomNightStyle(cell: RoomNight) {
-  return cell.state === "available" ? probabilityStyles[probabilityBand(cell.sales_probability)] : stateStyles[cell.state];
-}
-function PricePair({
-  cell,
-  compact = false,
-  hidePrice = false,
-}: {
-  cell: RoomNight;
-  compact?: boolean;
-  hidePrice?: boolean;
-}) {
-  const p = cell.pricing;
-  if (cell.state !== "available")
-    return <span className="text-xs">{inventoryLabels[cell.state]}</span>;
-  if (hidePrice || !p) return <span className="text-xs">可售</span>;
-  const delta =
-    p.current_price != null && p.suggested_price != null
-      ? p.suggested_price - p.current_price
-      : null;
-  return (
-    <div className={compact ? "space-y-0.5" : "space-y-1"}>
-      <p
-        className={
-          compact
-            ? "text-[11px] font-semibold tabular-nums sm:text-sm"
-            : "text-xl font-semibold tabular-nums"
-        }
-      >
-        {priceText(p.current_price)}
-      </p>
-      <p className={compact ? "text-[9px] leading-tight opacity-80" : "text-xs"}>{probabilityText(cell.sales_probability)}</p>
-      {!compact && (
-        <p className="text-xs text-muted-foreground">
-          {p.suggested_price != null
-            ? `建議 ${priceText(p.suggested_price)}${delta ? `（${delta > 0 ? "+" : ""}${delta}）` : ""}`
-            : p.source === "bnb-pricing / OwlNest readback" ? `牌價 ${priceText(p.base_price)}${p.policy === "stale_snapshot" ? " · 價格待更新" : ""}` : (policyLabels[p.exclusion ?? p.policy] ?? "尚無建議")}
-        </p>
-      )}
-    </div>
-  );
-}
 
 export function AvailabilityCalendar() {
   const view = useCalendarPreferences((s) => s.view),
@@ -153,8 +101,9 @@ export function AvailabilityCalendar() {
   const setCycle = useCalendarPreferences((s) => s.setAvailabilityCycle);
   const onlyAvailable = useCalendarPreferences((s) => s.availabilityOnly);
   const setOnlyAvailable = useCalendarPreferences((s) => s.setAvailabilityOnly);
-  const expandedWeeks = useCalendarPreferences((s) => s.expandedWeeks);
-  const setExpandedWeeks = useCalendarPreferences((s) => s.setExpandedWeeks);
+  const [monthJump, setMonthJump] = useState(0);
+  const [monthSelected, setMonthSelected] = useState<RoomNight | null>(null);
+  const onVisibleMonth = useCallback((month: string) => setAnchor(month), [setAnchor]);
   const [data, setData] = useState<AvailabilityResult | null>(null),
     [error, setError] = useState("");
   const [loading, setLoading] = useState(true),
@@ -201,6 +150,7 @@ export function AvailabilityCalendar() {
   useEffect(() => {
     if (!navigation || navigation.id <= handledNavigation.current) return;
     handledNavigation.current = navigation.id;
+    setMonthJump(v => v + 1);
     if (navigation.action === "today") setAnchor(localTodayIso());
     else {
       const direction = navigation.action === "previous" ? -1 : 1;
@@ -251,7 +201,7 @@ export function AvailabilityCalendar() {
     [cells],
   );
   const selectedCell = selected
-    ? byKey.get(`${selected.date}|${selected.room}`)
+    ? byKey.get(`${selected.date}|${selected.room}`) ?? (monthSelected?.date === selected.date && monthSelected.room === selected.room ? monthSelected : undefined)
     : undefined;
   const hidePrice = !canPrice || !!data?.price_hidden;
   const days = useMemo(() => {
@@ -260,14 +210,6 @@ export function AvailabilityCalendar() {
       result.push(d);
     return result;
   }, [period]);
-  const monthDays = useMemo(() => {
-    const weekday = (new Date(period.start + "T12:00:00Z").getUTCDay() + 6) % 7;
-    const first = addDays(period.start, -weekday);
-    return Array.from(
-      { length: Math.ceil((weekday + days.length) / 7) * 7 },
-      (_, i) => addDays(first, i),
-    );
-  }, [period.start, days.length]);
   function matches(c: RoomNight) {
     return (
       (!onlyAvailable || c.state === "available") &&
@@ -278,6 +220,7 @@ export function AvailabilityCalendar() {
     );
   }
   function openCell(c: RoomNight) {
+    setMonthSelected(c);
     setSelected({ room: c.room, date: c.date });
     setQuote(null);
     setNights("1");
@@ -288,6 +231,7 @@ export function AvailabilityCalendar() {
     setView("day");
   }
   function move(direction: number) {
+    setMonthJump(v => v + 1);
     setAnchor((a) =>
       view === "month"
         ? addMonths(a, direction)
@@ -432,7 +376,7 @@ export function AvailabilityCalendar() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setAnchor(localTodayIso())}
+            onClick={() => { setAnchor(localTodayIso()); setMonthJump(v => v + 1); }}
           >
             今天
           </Button>
@@ -615,7 +559,9 @@ export function AvailabilityCalendar() {
           </Button>
         </div>
       )}
-      {loading ? (
+      {view === "month" ? (
+        <UnsoldMonthScroller anchor={anchor} jump={monthJump} property={property} room={room} channel={channel} cycle={cycle} refresh={refresh} search={search} onlyAvailable={onlyAvailable} onVisibleMonth={onVisibleMonth} onSelect={openCell} onSelectDay={selectDay} />
+      ) : loading ? (
         <div className="flex min-h-72 items-center justify-center gap-2 text-muted-foreground">
           <LoaderCircle className="size-4 animate-spin" />
           查核房況與價格中
@@ -624,148 +570,6 @@ export function AvailabilityCalendar() {
         !error &&
         data && (
           <>
-            {view === "month" && (
-              <div className="overflow-hidden rounded-xl border bg-card">
-                <div className="grid grid-cols-7 border-b bg-muted/30">
-                  {WEEKDAY_LABELS.map((d) => (
-                    <div
-                      key={d}
-                      className="p-2 text-center text-xs text-muted-foreground"
-                    >
-                      {d}
-                    </div>
-                  ))}
-                </div>
-                <div className="grid grid-cols-7">
-                  {monthDays.map((day, index) => {
-                    const weekKey = monthDays[Math.floor(index / 7) * 7];
-                    const expanded = expandedWeeks.includes(weekKey);
-                    const inMonth = day >= period.start && day < period.end;
-                    const dayCells = cells.filter((c) => c.date === day);
-                    const shown = dayCells.filter(
-                      (c) =>
-                        c.state !== "sold" && c.state !== "past" && matches(c),
-                    );
-                    const count = dayCells.filter(
-                      (c) => c.state === "available",
-                    ).length;
-                    return (
-                      <Fragment key={day}>
-                        <div
-                          data-unsold-date={day}
-                          className={cn(
-                            "min-h-28 border-b border-r p-1 sm:min-h-44 sm:p-2",
-                            !inMonth && "bg-muted/25",
-                          )}
-                        >
-                          <button
-                            className="flex w-full items-center justify-between pb-1 text-left text-xs"
-                            aria-label={`${day} 查看日曆`}
-                            onClick={() => selectDay(day)}
-                          >
-                            <span
-                              className={cn(
-                                "flex size-6 items-center justify-center rounded-full",
-                                day === localTodayIso()
-                                  ? "bg-primary text-primary-foreground"
-                                  : "",
-                              )}
-                            >
-                              {Number(day.slice(-2))}
-                            </span>
-                            {inMonth && (
-                              <span className="hidden text-[10px] text-muted-foreground sm:inline">
-                                未售 {count}
-                              </span>
-                            )}
-                          </button>
-                          {shown
-                            .slice(0, expanded ? shown.length : 3)
-                            .map((c, i) => (
-                              <button
-                                key={c.room}
-                                title={`${c.date} ${c.room} 房 ${inventoryLabels[c.state]}`}
-                                aria-label={`${c.date} ${c.room} 房 ${inventoryLabels[c.state]} ${hidePrice ? "" : priceText(c.pricing?.current_price)}`}
-                                onClick={() => openCell(c)}
-                                className={cn(
-                                  "mb-1 w-full rounded-md border px-1 py-1 text-left sm:flex sm:items-center sm:justify-between",
-                                  roomNightStyle(c),
-                                  !expanded && i === 2 && "hidden sm:flex",
-                                )}
-                              >
-                                <span className="flex items-center gap-0.5 text-[10px] font-medium sm:text-xs">
-                                  {c.room}
-                                  {availabilityFeatures.pricingReview && c.pricing &&
-                                    !c.pricing.eligible &&
-                                    c.state === "available" && (
-                                      <ShieldCheck className="hidden size-3 sm:inline" />
-                                    )}
-                                </span>
-                                <PricePair
-                                  cell={c}
-                                  compact
-                                  hidePrice={hidePrice}
-                                />
-                              </button>
-                            ))}
-                          {!expanded && shown.length > 2 && (
-                            <button
-                              className="w-full text-left text-[9px] text-muted-foreground sm:hidden"
-                              aria-expanded={false}
-                              aria-label={`${day} 展開其餘房間`}
-                              onClick={() =>
-                                setExpandedWeeks((v) => [...v, weekKey])
-                              }
-                            >
-                              另 {shown.length - 2} 房
-                            </button>
-                          )}
-                          {!expanded && shown.length > 3 && (
-                            <button
-                              className="hidden w-full text-left text-[10px] text-muted-foreground sm:block"
-                              aria-expanded={false}
-                              aria-label={`${day} 展開其餘房間`}
-                              onClick={() =>
-                                setExpandedWeeks((v) => [...v, weekKey])
-                              }
-                            >
-                              另 {shown.length - 3} 房
-                            </button>
-                          )}
-                          {inMonth && shown.length === 0 && (
-                            <p className="pt-2 text-[10px] text-muted-foreground">
-                              {day < data.asof
-                                ? "已過期"
-                                : search.trim()
-                                  ? "無符合條件"
-                                  : onlyAvailable
-                                    ? "無可售"
-                                    : "無未售"}
-                            </p>
-                          )}
-                        </div>
-                        {expanded && index % 7 === 6 && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="col-span-7 h-8 w-full rounded-none border-b bg-muted/20 text-xs"
-                            aria-label={`${weekKey} 收合這一列`}
-                            aria-expanded={true}
-                            onClick={() =>
-                              setExpandedWeeks((v) =>
-                                v.filter((w) => w !== weekKey),
-                              )
-                            }
-                          >
-                            收合這一列
-                          </Button>
-                        )}
-                      </Fragment>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
             {view === "week" && (
               <div
                 className="overflow-auto rounded-xl border bg-card"
