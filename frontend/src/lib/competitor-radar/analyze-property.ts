@@ -9,9 +9,16 @@ import type {
   CompetitorRadarAnalysis,
   IdentityEvidence,
   PlatformSourceDraft,
+  PropertyIdentityInput,
   RegistryCandidateSummary,
 } from "./types";
 import { analyzeOfficialWebsite } from "./website";
+
+const RETRYABLE_REGISTRY_TRANSPORT_ERRORS = [
+  "registry_zip_eocd_not_found",
+  "registry_archive_empty",
+  "registry_transport_rejected",
+];
 
 function summarizeRegistryCandidate(
   candidate: TourismRegistryCandidate,
@@ -75,6 +82,26 @@ function enrichPlatformCandidates(
   });
 }
 
+async function findRegistryCandidatesWithTransportRetry(
+  seed: PropertyIdentityInput,
+): Promise<TourismRegistryCandidate[]> {
+  try {
+    return await findTourismRegistryCandidates(seed);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown_error";
+    const retryable = RETRYABLE_REGISTRY_TRANSPORT_ERRORS.some((code) =>
+      message.includes(code),
+    );
+    if (!retryable) throw error;
+
+    // The official host has been observed returning a short HTTP 200 WAF page
+    // in one cloud region and a valid ZIP moments later elsewhere. Retry only
+    // that transport shape once; do not retry timeouts or parser failures.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    return findTourismRegistryCandidates(seed);
+  }
+}
+
 /**
  * Builds the editable website draft first, then adds best-effort evidence from
  * the Taiwan Tourism Administration's official lodging dataset. Registry
@@ -87,15 +114,17 @@ export async function analyzeCompetitorProperty(
     await analyzeOfficialWebsite(inputUrl),
   );
 
+  const identitySeed: PropertyIdentityInput = {
+    name: websiteAnalysis.property.name,
+    address: websiteAnalysis.property.address,
+    phone: websiteAnalysis.property.phone,
+    websiteUrl: websiteAnalysis.property.sourceUrl,
+    latitude: websiteAnalysis.property.latitude,
+    longitude: websiteAnalysis.property.longitude,
+  };
+
   try {
-    const registryCandidates = await findTourismRegistryCandidates({
-      name: websiteAnalysis.property.name,
-      address: websiteAnalysis.property.address,
-      phone: websiteAnalysis.property.phone,
-      websiteUrl: websiteAnalysis.property.sourceUrl,
-      latitude: websiteAnalysis.property.latitude,
-      longitude: websiteAnalysis.property.longitude,
-    });
+    const registryCandidates = await findRegistryCandidatesWithTransportRetry(identitySeed);
     const usableCandidates = registryCandidates.filter(
       (candidate) => candidate.match.status !== "rejected",
     );
