@@ -916,7 +916,7 @@ function SoldBookingCalendar() {
         </span>}
       </div>
 
-      {permissions.viewPrices && <p className="payment-review-legend px-2 text-[10px] text-muted-foreground">灰底：已付清 · 訂：已付訂金 · 未：未付款 · ?：待確認</p>}
+      {permissions.viewPrices && <p className="payment-review-legend px-2 text-[10px] text-muted-foreground">灰底：已付清 · 訂：已付訂金 · 未：未付款</p>}
 
       {DEMO_MODE && !PAYMENT_SANDBOX && !data?.source && (
         <div className="hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 md:block">
