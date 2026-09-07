@@ -40,7 +40,7 @@ function otaResponse(platform, body) {
   const observations = dates.map((stayDate, index) => {
     if (platform === 'agoda') {
       const roomRows = rooms.filter(room => room.id !== '102').map((room, roomIndex) => {
-        const sold = (index + roomIndex) % 4 === 0;
+        const sold = (index + roomIndex) % 4 === 3;
         return { sourceRoomId: `agoda-${room.id}`, sourceRoomName: `水芳 Sweetfun ${room.id}`, canonicalRoomId: room.id, availability: sold ? 'sold_out' : 'available', quantityState: 'unknown', amount: sold ? undefined : 2400 + roomIndex * 420 + index * 50, currency: 'TWD', sourceText: sold ? 'Sold out' : 'dated offer' };
       });
       return { stayDate, checkOut: addDays(stayDate, 1), state: 'ready', availability: roomRows.some(room => room.availability === 'available') ? 'available' : 'sold_out', minAmount: Math.min(...roomRows.map(room => room.amount).filter(Boolean)), currency: 'TWD', sourceUrl: identity.sourceUrl, identityVerified: true, dateVerified: true, rooms: roomRows, message: 'Agoda 日期已核對' };

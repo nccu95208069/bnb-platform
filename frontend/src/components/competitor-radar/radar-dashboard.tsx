@@ -101,11 +101,17 @@ function weekday(value: string): string {
 }
 
 function formatMoney(amount: number, currency = "TWD"): string {
+  if (currency === "TWD") {
+    return `NT$${new Intl.NumberFormat("zh-TW", {
+      maximumFractionDigits: 0,
+    }).format(amount)}`;
+  }
   try {
     return new Intl.NumberFormat("zh-TW", {
       style: "currency",
       currency,
-      maximumFractionDigits: currency === "TWD" ? 0 : 2,
+      currencyDisplay: "code",
+      maximumFractionDigits: 2,
     }).format(amount);
   } catch {
     return `${currency} ${amount.toLocaleString("en-US")}`;
