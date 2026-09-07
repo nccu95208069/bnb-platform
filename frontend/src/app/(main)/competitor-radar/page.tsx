@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -41,6 +41,7 @@ import type {
 import { cn } from "@/lib/utils";
 
 const PLATFORM_ORDER: PlatformKey[] = ["official", "booking", "agoda", "trip"];
+const LAST_DRAFT_KEY = "competitor-radar:last-draft";
 
 const PLATFORM_SHORT_LABELS: Record<PlatformKey, string> = {
   official: "官網",
@@ -56,6 +57,36 @@ const ORIGIN_LABELS: Record<CanonicalRoomDraft["origin"], string> = {
   golden_fixture: "Golden fixture",
   manual: "使用者新增",
 };
+
+interface SavedCompetitorDraft {
+  analysis: CompetitorRadarAnalysis;
+  canonicalRooms: CanonicalRoomDraft[];
+  savedAt: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseSavedDraft(raw: string): SavedCompetitorDraft | null {
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!isRecord(value) || !isRecord(value.analysis)) return null;
+    if (!isRecord(value.analysis.property)) return null;
+    if (typeof value.analysis.property.websiteHost !== "string") return null;
+    if (!Array.isArray(value.canonicalRooms) || typeof value.savedAt !== "string") return null;
+    if (
+      value.canonicalRooms.some(
+        (room) => !isRecord(room) || typeof room.id !== "string" || typeof room.name !== "string",
+      )
+    ) {
+      return null;
+    }
+    return value as unknown as SavedCompetitorDraft;
+  } catch {
+    return null;
+  }
+}
 
 function scoreLabel(score: number) {
   return `${Math.round(score * 100)}%`;
@@ -128,6 +159,21 @@ export default function CompetitorRadarPage() {
   const [activePlatform, setActivePlatform] = useState<PlatformKey>("official");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [restoredAt, setRestoredAt] = useState<string | null>(null);
+
+  useEffect(() => {
+    const raw = localStorage.getItem(LAST_DRAFT_KEY);
+    if (!raw) return;
+    const saved = parseSavedDraft(raw);
+    if (!saved) {
+      localStorage.removeItem(LAST_DRAFT_KEY);
+      return;
+    }
+    setAnalysis(saved.analysis);
+    setRooms(saved.canonicalRooms);
+    setUrl(saved.analysis.requestedUrl);
+    setRestoredAt(saved.savedAt);
+  }, []);
 
   const sourceByPlatform = useMemo(
     () =>
@@ -149,6 +195,7 @@ export default function CompetitorRadarPage() {
     event.preventDefault();
     setLoading(true);
     setError(null);
+    setRestoredAt(null);
     try {
       const result = await apiClient.post<CompetitorRadarAnalysis>(
         "/competitor-radar/analyze",
@@ -214,12 +261,22 @@ export default function CompetitorRadarPage() {
 
   function saveDraft() {
     if (!analysis) return;
+    const savedAt = new Date().toISOString();
+    const updatedAnalysis = { ...analysis, canonicalRooms: rooms };
+    const draft: SavedCompetitorDraft = {
+      analysis: updatedAnalysis,
+      canonicalRooms: rooms,
+      savedAt,
+    };
     localStorage.setItem(
       `competitor-radar:${analysis.property.websiteHost}`,
-      JSON.stringify({ analysis, canonicalRooms: rooms, savedAt: new Date().toISOString() }),
+      JSON.stringify(draft),
     );
+    localStorage.setItem(LAST_DRAFT_KEY, JSON.stringify(draft));
+    setAnalysis(updatedAnalysis);
+    setRestoredAt(savedAt);
     toast.success("房型草稿已儲存在此瀏覽器", {
-      description: "目前尚未寫入正式資料庫；後續 PR 會加入持久化與使用者確認紀錄。",
+      description: "重新開啟此頁會自動載入上次草稿；目前尚未寫入正式資料庫。",
     });
   }
 
@@ -240,9 +297,16 @@ export default function CompetitorRadarPage() {
           </p>
         </div>
         {analysis && (
-          <Badge variant="outline" className="w-fit px-3 py-1.5">
-            分析時間 {new Date(analysis.analyzedAt).toLocaleString("zh-TW")}
-          </Badge>
+          <div className="flex flex-wrap items-center gap-2">
+            {restoredAt && (
+              <Badge variant="secondary" className="w-fit px-3 py-1.5">
+                草稿已保存 {new Date(restoredAt).toLocaleString("zh-TW")}
+              </Badge>
+            )}
+            <Badge variant="outline" className="w-fit px-3 py-1.5">
+              分析時間 {new Date(analysis.analyzedAt).toLocaleString("zh-TW")}
+            </Badge>
+          </div>
         )}
       </header>
 
