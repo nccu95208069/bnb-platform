@@ -26,65 +26,71 @@ jobs:
       - name: Install project dependencies
         run: npm ci
 
-      - name: Inspect official per-property JSON
+      - name: Install ephemeral TypeScript runner
+        run: npm install --no-save --ignore-scripts tsx@4
+
+      - name: Match Sweetfun through the production registry adapter
         shell: bash
         run: |
-          cat > registry-json-probe.mjs <<'JS'
-          const jsonUrl = "https://media.taiwan.net.tw/zh-tw/portal/travel/json/hotel_a15010000h_035813";
-          const headers = {
-            Accept: "application/json,text/plain,*/*",
-            "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.7",
-            Referer: "https://media.taiwan.net.tw/zh-tw/portal/travel/details/hotel_a15010000h_035813",
-            "User-Agent":
-              "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36",
-          };
+          cat > registry-smoke.ts <<'TS'
+          import { findTourismRegistryCandidates } from "./src/lib/competitor-radar/taiwan-tourism-registry";
 
-          const response = await fetch(jsonUrl, { headers, redirect: "error" });
-          const body = Buffer.from(await response.arrayBuffer());
-          const text = body.toString("utf8");
-          console.log(JSON.stringify({
-            status: response.status,
-            contentType: response.headers.get("content-type"),
-            contentDisposition: response.headers.get("content-disposition"),
-            contentLength: response.headers.get("content-length"),
-            byteLength: body.length,
-            first32Hex: body.subarray(0, 32).toString("hex"),
-            first500Text: text.slice(0, 500),
-            rejected: /Request Rejected|安全性因素暫時被鎖定/i.test(text),
-          }, null, 2));
+          async function main() {
+            const expectedHotelId = "Hotel_A15010000H_035813";
+            const candidates = await findTourismRegistryCandidates({
+              name: "水芳 Sweetfun",
+              address: "新北市瑞芳區東和里中山路24-1號",
+              phone: "0973400562",
+              websiteUrl: "https://www.sweetfuntw.com/",
+            });
 
-          if (!response.ok) throw new Error(`HTTP ${response.status}`);
-          if (/Request Rejected|安全性因素暫時被鎖定/i.test(text)) {
-            throw new Error("official per-property JSON transport rejected");
+            console.log(
+              JSON.stringify(
+                candidates.map((candidate) => ({
+                  hotelId: candidate.record.hotelId,
+                  registrationNumber: candidate.record.registrationNumber,
+                  name: candidate.record.name,
+                  address: candidate.record.address,
+                  phone: candidate.record.phone,
+                  totalRooms: candidate.record.totalRooms,
+                  status: candidate.match.status,
+                  score: candidate.match.score,
+                  conflicts: candidate.match.conflicts,
+                  platformUrls: candidate.platformUrls,
+                })),
+                null,
+                2,
+              ),
+            );
+
+            const sweetfun = candidates.find(
+              (candidate) => candidate.record.hotelId === expectedHotelId,
+            );
+            if (!sweetfun) throw new Error(`Missing expected record ${expectedHotelId}`);
+            if (sweetfun.match.status !== "confirmed") {
+              throw new Error(`Expected confirmed match, got ${sweetfun.match.status}`);
+            }
+            if (sweetfun.record.registrationNumber !== "新北市民宿402號") {
+              throw new Error(
+                `Unexpected license: ${sweetfun.record.registrationNumber ?? "missing"}`,
+              );
+            }
+            if (sweetfun.record.phone?.replace(/\D/g, "") !== "0973400562") {
+              throw new Error(`Unexpected phone: ${sweetfun.record.phone ?? "missing"}`);
+            }
+            if (!sweetfun.record.address?.includes("中山路24之1號")) {
+              throw new Error(`Unexpected address: ${sweetfun.record.address ?? "missing"}`);
+            }
+            if (sweetfun.match.conflicts.length) {
+              throw new Error(`Unexpected conflicts: ${sweetfun.match.conflicts.join("; ")}`);
+            }
           }
 
-          const parsed = JSON.parse(text.replace(/^\uFEFF/, ""));
-          const root = Array.isArray(parsed) ? parsed[0] : parsed;
-          console.log("TOP_LEVEL_KEYS", Object.keys(root ?? {}));
-          console.log("PARSED_RECORD", JSON.stringify({
-            HotelID: root?.HotelID,
-            HotelName: root?.HotelName,
-            PostalAddress: root?.PostalAddress,
-            Telephones: root?.Telephones,
-            RegistrationNumber: root?.RegistrationNumber,
-            WebsiteURL: root?.WebsiteURL,
-            ReservationURLs: root?.ReservationURLs,
-            SameAsURLs: root?.SameAsURLs,
-            PositionLat: root?.PositionLat,
-            PositionLon: root?.PositionLon,
-            TotalRooms: root?.TotalRooms,
-          }, null, 2));
+          main().catch((error) => {
+            console.error(error);
+            process.exitCode = 1;
+          });
+          TS
 
-          const serialized = JSON.stringify(parsed);
-          for (const expected of [
-            "Hotel_A15010000H_035813",
-            "水芳",
-            "中山路24",
-            "0973400562",
-          ]) {
-            if (!serialized.includes(expected)) throw new Error(`Missing ${expected}`);
-          }
-          JS
-
-          node registry-json-probe.mjs
-          rm registry-json-probe.mjs
+          npx tsx registry-smoke.ts
+          rm registry-smoke.ts
