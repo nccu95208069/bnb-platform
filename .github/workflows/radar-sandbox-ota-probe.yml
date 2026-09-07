@@ -1,6 +1,6 @@
 name: Radar Sandbox OTA Probe
 
-# UAT rerun: 2026-09-08
+# UAT probe: apply selected dates before expanding room prices
 on:
   push:
     branches: [feat/competitor-radar-testable-preview]
@@ -12,7 +12,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 7
+    timeout-minutes: 8
     env:
       VERCEL_TEAM_ID: team_rtARGegsahiZ6hOY7l2dUWGw
       VERCEL_PROJECT_ID: prj_5a6ilBSvneWYIDTGoCFFZhAjWYeM
@@ -24,7 +24,7 @@ jobs:
           mkdir -p /tmp/radar-ota-probe && cd /tmp/radar-ota-probe
           npm init -y >/dev/null
           npm install --save-exact @vercel/sandbox >/dev/null
-      - name: Activate dated room price controls
+      - name: Apply dates and inspect Booking room-price response
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         working-directory: /tmp/radar-ota-probe
@@ -32,28 +32,37 @@ jobs:
           cat > probe.mjs <<'JS'
           import { Sandbox } from '@vercel/sandbox';
           import { writeFile } from 'node:fs/promises';
-          const sandbox=await Sandbox.create({token:process.env.VERCEL_TOKEN,teamId:process.env.VERCEL_TEAM_ID,projectId:process.env.VERCEL_PROJECT_ID,source:{type:'snapshot',snapshotId:'snap_c3rDmQdTPMoDHIu55bxS3MruQxZz'},timeout:5*60*1000,resources:{vcpus:2},networkPolicy:'allow-all'});
+          const sandbox=await Sandbox.create({token:process.env.VERCEL_TOKEN,teamId:process.env.VERCEL_TEAM_ID,projectId:process.env.VERCEL_PROJECT_ID,source:{type:'snapshot',snapshotId:'snap_c3rDmQdTPMoDHIu55bxS3MruQxZz'},timeout:6*60*1000,resources:{vcpus:2},networkPolicy:'allow-all'});
           const e={};
-          async function c(args,limit=700000){const r=await sandbox.runCommand({cmd:'agent-browser',args});return{exitCode:r.exitCode,stdout:(await r.stdout()).slice(0,limit),stderr:(await r.stderr()).slice(0,5000)}}
+          async function c(args,limit=900000){const r=await sandbox.runCommand({cmd:'agent-browser',args});return{exitCode:r.exitCode,stdout:(await r.stdout()).slice(0,limit),stderr:(await r.stderr()).slice(0,5000)}}
           async function j(src,limit){return c(['eval',src],limit)}
           async function date(d){return j(`(()=>{const e=[...document.querySelectorAll('[data-date="${d}"]')].find(x=>!x.closest('[aria-disabled="true"]')&&!x.hasAttribute('disabled'));if(!e)return 'missing';(e.closest('button')||e).click();return 'clicked'})()`)}
+          const inspect=`JSON.stringify((()=>{const body=(document.body?.innerText||'');const table=document.querySelector('#hprt-table');const dialogs=[...document.querySelectorAll('[role="dialog"],dialog')].map(x=>(x.innerText||'').slice(0,50000));return{url:location.href,title:document.title,body:body.slice(0,150000),table:table?.innerText?.slice(0,150000)||'',tableHtml:table?.outerHTML?.slice(0,250000)||'',dialogs,prices:[...document.querySelectorAll('[class*="price"],[data-testid*="price"]')].map(x=>(x.innerText||x.textContent||'').trim()).filter(Boolean).slice(0,300),resources:performance.getEntriesByType('resource').map(x=>x.name).filter(x=>/avail|room|hotel|price|block|search/i.test(x)).slice(-250)}})())`;
           try{
             e.open=await c(['open','https://www.booking.com/hotel/tw/shui-fang-sweetfun-rui-fang-jiu-fen.zh-tw.html']);await c(['wait','7000']);
             e.openPicker=await j(`(()=>{const a=[...document.querySelectorAll('button')].filter(x=>/選擇日期|入住日/.test((x.innerText||'')+(x.getAttribute('aria-label')||'')));a.at(-1)?.click();return a.length})()`);await c(['wait','500']);
-            e.checkin=await date('2026-09-15');await c(['wait','900']);e.checkout=await date('2026-09-16');await c(['wait','1000']);
-            e.controls=await j(`JSON.stringify([...document.querySelectorAll('button,a,[role="button"]')].map((x,i)=>({i,text:(x.innerText||x.textContent||'').trim(),aria:x.getAttribute('aria-label'),href:x.href||''})).filter(x=>/顯示價格|查看客房供應情況/.test((x.text||'')+(x.aria||''))).slice(0,60))`);
-            e.click=await j(`(()=>{const all=[...document.querySelectorAll('button,a,[role="button"]')].filter(x=>/顯示價格/.test((x.innerText||x.textContent||'').trim()));const results=[];for(const x of all){x.click();results.push((x.innerText||x.textContent||'').trim())}return {count:all.length,results}})()`);
-            await c(['wait','--load','networkidle']);await c(['wait','10000']);
-            e.after=await j(`JSON.stringify({url:location.href,title:document.title,dates:[...document.querySelectorAll('button')].map(b=>(b.innerText||'').trim()).filter(t=>/9 月|入住日|退房日/.test(t)).slice(0,10),table:document.querySelector('#hprt-table')?.innerText?.slice(0,100000)||'',rows:[...document.querySelectorAll('#hprt-table tr')].slice(0,180).map(tr=>({text:(tr.innerText||'').trim().slice(0,10000),html:tr.outerHTML.slice(0,30000)})),prices:[...document.querySelectorAll('#hprt-table [class*="price"],#hprt-table [data-testid*="price"]')].map(x=>(x.innerText||x.textContent||'').trim()).filter(Boolean).slice(0,200),body:(document.body.innerText||'').slice(0,100000)})`,700000);
+            e.checkin=await date('2026-09-15');await c(['wait','700']);e.checkout=await date('2026-09-16');await c(['wait','700']);
+            e.updateButtons=await j(`JSON.stringify([...document.querySelectorAll('button,a,[role="button"]')].map((x,i)=>({i,text:(x.innerText||x.textContent||'').trim(),aria:x.getAttribute('aria-label'),tag:x.tagName,html:x.outerHTML.slice(0,1500)})).filter(x=>/更新變更|搜尋|顯示價格/.test((x.text||'')+(x.aria||''))).slice(0,100))`);
+            e.update=await j(`(()=>{const all=[...document.querySelectorAll('button,a,[role="button"]')];const x=all.find(x=>/更新變更/.test((x.innerText||x.textContent||'').trim()));if(!x)return 'missing';x.click();return 'clicked'})()`);
+            await c(['wait','--load','networkidle']);await c(['wait','9000']);
+            e.afterUpdate=await j(inspect,900000);
+            e.showPriceButtons=await j(`JSON.stringify([...document.querySelectorAll('button,a,[role="button"]')].map((x,i)=>({i,text:(x.innerText||x.textContent||'').trim(),aria:x.getAttribute('aria-label'),tag:x.tagName,html:x.outerHTML.slice(0,2500)})).filter(x=>/顯示價格/.test((x.text||'')+(x.aria||''))).slice(0,30))`);
+            e.showOne=await j(`(()=>{const x=[...document.querySelectorAll('button,a,[role="button"]')].find(x=>/顯示價格/.test((x.innerText||x.textContent||'').trim()));if(!x)return 'missing';x.scrollIntoView({block:'center'});x.click();return 'clicked'})()`);
+            await c(['wait','3000']);
+            e.afterOne=await j(inspect,900000);
+            await c(['screenshot','/tmp/booking-dated.png','--full']);
+            const dl=await sandbox.downloadFile({path:'/tmp/booking-dated.png'});await writeFile('booking-dated.png',Buffer.from(await dl.arrayBuffer()));
             await c(['close']);
           }finally{await sandbox.stop()}
           await writeFile('ota-probe.json',JSON.stringify(e,null,2));
-          console.log(JSON.stringify(Object.fromEntries(Object.entries(e).map(([k,v])=>[k,{exitCode:v.exitCode,stdout:v.stdout.slice(0,150000),stderr:v.stderr.slice(0,500)}])),null,2));
+          console.log(JSON.stringify(Object.fromEntries(Object.entries(e).map(([k,v])=>[k,{exitCode:v.exitCode,stdout:v.stdout.slice(0,180000),stderr:v.stderr.slice(0,500)}])),null,2));
           JS
           node probe.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: radar-sandbox-ota-probe
-          path: /tmp/radar-ota-probe/ota-probe.json
+          path: |
+            /tmp/radar-ota-probe/ota-probe.json
+            /tmp/radar-ota-probe/booking-dated.png
           retention-days: 7
