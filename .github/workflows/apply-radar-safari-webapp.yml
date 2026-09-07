@@ -47,12 +47,13 @@ jobs:
           base64 --decode /tmp/radar-safari.patch.gz.b64 | gzip --decompress > /tmp/radar-safari.patch
           echo '4a6c1eacb047b181922ec42fdf3306325d9be188dd47daf837b07f6ac116d774  /tmp/radar-safari.patch' | sha256sum --check --strict
           git apply --check /tmp/radar-safari.patch
-      - name: Apply, commit, and remove one-time workflow
+      - name: Apply and commit application code
         run: |
           git apply /tmp/radar-safari.patch
-          rm .github/workflows/apply-radar-safari-webapp.yml
-          git add --all
+          git restore --source=HEAD -- .github/workflows/radar-preview-check.yml .github/workflows/radar-preview-deploy.yml
+          git add frontend scripts
           git diff --cached --check
+          test -z "$(git diff --cached --name-only | grep '^.github/workflows/' || true)"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git commit -m 'feat: deliver Safari competitor radar web app'
