@@ -1,5 +1,6 @@
 "use client";
 
+import { GuestRemarks } from "./booking-identity";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Baby,
@@ -859,6 +860,12 @@ export function BookingDetailsPanel({
 
           {booking && (
             <div className="space-y-5 px-5 py-5">
+              {booking.guest_name_kind === "real" && <section className="rounded-xl border p-3" aria-label="重點備註與來源原文">
+                <h3 className="font-semibold">重點備註</h3>
+                <GuestRemarks booking={booking} />
+                <p className="mt-2 text-xs text-muted-foreground">姓名欄原文（需求不代表已安排完成）</p>
+                <p className="mt-1 whitespace-pre-wrap break-words text-sm">{booking.guest_name}</p>
+              </section>}
               <div
                 className={cn(
                   "rounded-xl border px-3 py-2.5 text-sm font-semibold",

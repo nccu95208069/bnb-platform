@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
-import { BookingIdentity, bookingIdentityText, realGuestName } from "./booking-identity";
+import { GuestRemarks, remarksFor, BookingIdentity, bookingIdentityText, realGuestName } from "./booking-identity";
 import { layoutMonthWeek } from "./month-layout";
 import { useCalendarPreferences } from "./calendar-preferences";
 import { cn } from "@/lib/utils";
@@ -90,7 +90,7 @@ function BookingChip({
       className={cn(
         "group flex w-full min-w-0 items-center gap-1.5 border text-left shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         compact
-          ? "h-7 px-1.5 text-[10px] sm:text-[11px]"
+          ? "min-h-7 py-1 px-1.5 text-[10px] sm:text-[11px]"
           : "min-h-9 rounded-md px-2.5 py-1.5 text-xs",
         compact && !continuesBefore && "rounded-l-md",
         compact && continuesBefore && "rounded-l-none border-l-4",
@@ -228,7 +228,7 @@ function MonthPanel({
         return (
           <div key={weekKey} className="border-b last:border-b-0" data-week={weekKey}>
             <div className={cn("relative grid min-h-[116px] grid-cols-7 py-0.5 md:min-h-32 md:py-1", hasGuestNames ? "[--month-lane-height:30px] md:[--month-lane-height:32px]" : "[--month-lane-height:18px] md:[--month-lane-height:22px]")}
-              style={{ gridTemplateRows: `24px repeat(${visibleLanes}, var(--month-lane-height))${hidden.some(Boolean) ? " 24px" : ""}`, rowGap: 2 }}>
+              style={{ gridTemplateRows: `24px ${Array.from({length:visibleLanes},(_,lane)=>segments.some(s=>s.lane===lane&&remarksFor(s.booking).length)?"48px":"var(--month-lane-height)").join(" ")}${hidden.some(Boolean) ? " 24px" : ""}`, rowGap: 2 }}>
               <div className="pointer-events-none absolute inset-0 grid grid-cols-7" aria-hidden="true">
                 {week.map(date => <div key={date} className={cn("border-r last:border-r-0",
                   [0, 6].includes(parseIso(date).getUTCDay()) && "bg-muted/15",
@@ -272,6 +272,7 @@ function MonthPanel({
                       {nights > 1 && <span className="ml-1">{nights}晚</span>}
                     </span>
                     {guestName && <span className="block truncate leading-[12px]">{guestName}</span>}
+                    <GuestRemarks booking={booking} compact limit={segment.end-segment.start>1?2:1} />
                   </span>
                   {segment.continuesAfter && <span aria-hidden="true">›</span>}
                 </button>;

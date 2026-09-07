@@ -309,7 +309,7 @@ function DesktopWeekTimeline({
                       type="button"
                       onClick={() => onSelectBooking(booking)}
                       className={cn(
-                        "z-20 mx-1 my-2 flex h-10 min-w-0 self-center overflow-hidden rounded-lg border px-2.5 text-left text-xs shadow-sm transition hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "z-20 mx-1 my-2 flex min-h-10 py-2 min-w-0 self-center rounded-lg border px-2.5 text-left text-xs shadow-sm transition hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
                       )}
                       style={{
