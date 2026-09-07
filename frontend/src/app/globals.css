@@ -163,3 +163,15 @@
 @media (hover: hover) {
   button.calendar-platform:hover { filter: brightness(0.96); }
 }
+
+/* Payment review is optional; platform identity stays visible in normal use. */
+.payment-badge, .payment-review-legend { display: none; }
+.payment-review .payment-badge { display: inline-flex; }
+.payment-review .payment-review-legend { display: flex; }
+.payment-review [data-payment-state="paid"] {
+  background: #e5e7eb !important;
+  color: #4b5563 !important;
+  border-color: #cbd5e1 !important;
+  box-shadow: none !important;
+}
+.payment-review [data-payment-state="paid"] .payment-badge { display: none; }

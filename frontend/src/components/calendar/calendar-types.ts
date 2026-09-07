@@ -2,7 +2,7 @@ export type CalendarView = "month" | "week" | "day";
 export type PaymentStatus = "paid" | "deposit" | "unpaid" | "unknown";
 export type ReservationStatus = "confirmed" | "cancelled";
 export type PaymentMethod = "cash" | "bank_transfer" | "credit_card" | "ota" | "other";
-export type PaymentType = "deposit" | "balance" | "other";
+export type PaymentType = "deposit" | "balance" | "other" | "full";
 export type BabySupplyKey =
   | "baby_bath"
   | "sterilizer"

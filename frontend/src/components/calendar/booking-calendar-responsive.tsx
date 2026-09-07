@@ -901,7 +901,7 @@ function SoldBookingCalendar() {
             {label}
           </span>
         ))}
-        {permissions.viewPrices && <span className="ml-auto flex flex-wrap items-center gap-3">
+        {permissions.viewPrices && <span className="payment-review-legend ml-auto flex flex-wrap items-center gap-3">
           {(Object.keys(PAYMENT_LABELS) as PaymentStatus[]).map((status) => (
             <span key={status} className="flex items-center gap-1.5">
               <span
@@ -916,7 +916,7 @@ function SoldBookingCalendar() {
         </span>}
       </div>
 
-      {permissions.viewPrices && <p className="px-2 text-[10px] text-muted-foreground lg:hidden">✓ 已付清 · 訂 已付訂金 · 未 未付款 · ? 待確認</p>}
+      {permissions.viewPrices && <p className="payment-review-legend px-2 text-[10px] text-muted-foreground">灰底：已付清 · 訂：已付訂金 · 未：未付款 · ?：待確認</p>}
 
       {DEMO_MODE && !PAYMENT_SANDBOX && !data?.source && (
         <div className="hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 md:block">
@@ -1076,6 +1076,7 @@ function SoldBookingCalendar() {
 }
 
 export function BookingCalendarResponsive() {
+  const [paymentReview, setPaymentReview] = useState(false);
   const mode = useCalendarPreferences((state) => state.mode);
   const setMode = useCalendarPreferences((state) => state.setMode);
   const ready = useCalendarHistory();
@@ -1088,10 +1089,11 @@ export function BookingCalendarResponsive() {
   if (!ready)
     return <p className="p-4 text-sm text-muted-foreground">讀取日曆…</p>;
   return (
-    <div>
-      {showUnsold && (
+    <div className={paymentReview && viewPrices && mode === "sold" ? "payment-review" : ""}>
+      {(showUnsold || (viewPrices && mode === "sold")) && (
         <div className="sticky top-14 z-40 mb-1 flex justify-end bg-background/95 py-1 backdrop-blur md:top-0">
-          <div
+          {viewPrices && mode === "sold" && <Button size="sm" variant={paymentReview ? "default" : "outline"} aria-pressed={paymentReview} onClick={() => setPaymentReview(v=>!v)} className="mr-auto">檢視付款狀態</Button>}
+          {showUnsold && <div
             className="inline-flex gap-1 rounded-xl border bg-muted/40 p-1"
             role="group"
             aria-label="切換已售與未售"
@@ -1109,7 +1111,7 @@ export function BookingCalendarResponsive() {
                 {value === "sold" ? "已售訂單" : "未售房況"}
               </Button>
             ))}
-          </div>
+          </div>}
         </div>
       )}
       {mode === "unsold" && showUnsold ? (

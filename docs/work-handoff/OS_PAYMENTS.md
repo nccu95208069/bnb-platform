@@ -29,3 +29,19 @@ Rollback: redeploy previous UI/API; retain payment keys and Missions (never dele
 ## Verification
 
 Unit/adapter tests cover authorization, property scope, validation, expected versions, source changes, idempotency, CAS contention, persistent receipt readback, OTA IDs on matching rows, no public ID leakage, and Sheet reader range. Private live-storage test uses a synthetic verification-only property and cleans only its own keys. No real guest payment is written by tests.
+
+## 2026-09-08 payment review simplification
+
+Payment review defaults off. The sold toolbar has an authorized price-visible toggle. Normal mode hides payment badges/legend and preserves platform colors; review mode renders paid booking cards gray in month/week/day and retains unresolved status badges. Full payment is a distinct receipt type `full`, prefills the room fee less OS-recorded room payments, requires explicit settlement confirmation, and preserves all existing validation/version/idempotency rules.
+
+## Main Sheet writer investigation (local source inspection, not deployed-revision verification)
+
+Inspected `gmail-check-order` local worktrees and `card-charge-app`:
+- `src/processors/splitter.py:get_payment_status`: Agoda defaults to done, other platforms not_yet on ingestion. `src/sheets/updater.py:_order_to_row` puts this in H.
+- `src/main.py` modification flow deletes existing records then splits/inserts; therefore initial payment defaults are also a rewrite risk on modification.
+- `scripts/sync_credit_card_status.py:build_batch_updates` writes O:Q, plus H=done only when q_value equals done and amount_status equals amount_ok. Its header comment about never touching H is outdated; executable implementation and tests specify H writes.
+- `src/cc_sync_service.py` wraps that script as a separate service; do not assume the main checkout is the deployed ingestion revision. Local documentation explicitly records different deployed branches.
+- LINE registration has an initial not_yet default; OFFLAND registration has blank payment status. Manual Sheet editing is another source per owner.
+- Card UI updates its credit-card sheet status/date; a separate synchronizer propagates eligible successful charges to the main sheet.
+
+OS does not write back to Sheet in this revision. Before enabling: identify deployed writer revisions, route writers through a shared payment-status change contract with actor/source/old/new/time/expected revision and stable row identity; preserve append-only audit. Cross-source attempts after an earlier edit should become review-required rather than silently overwriting, including same-value writes. Manual Sheet edits need an attributable change capture path; value polling alone cannot reconstruct editor identity or an intervening edit that returns to the same value. Unknown source must remain explicitly unknown. Main H is only a full-payment flag; deposits/other receipts stay in OS ledger. Do not invent historical actor attribution.

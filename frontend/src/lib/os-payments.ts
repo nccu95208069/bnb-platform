@@ -31,10 +31,10 @@ export function prepareReceipt(input: Record<string, unknown>, check: OrderCheck
   if(!canRecord(actor,check.property_id)) throw new Error('FORBIDDEN');
   const {amount,payment_type,payment_method,received_at,note,request_id,settles_room} = input;
   if(typeof amount!=='number'||!Number.isFinite(amount)||amount<=0||amount>10000000||Math.abs(amount*100-Math.round(amount*100))>0.00001 ||
-    !['deposit','balance','other'].includes(String(payment_type)) || !['cash','bank_transfer','credit_card','ota','other'].includes(String(payment_method)) ||
+    !['deposit','balance','other','full'].includes(String(payment_type)) || !['cash','bank_transfer','credit_card','ota','other'].includes(String(payment_method)) ||
     typeof received_at!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(received_at)||!Number.isFinite(Date.parse(received_at))||Date.parse(received_at)>Date.parse(now)+60000 ||
-    typeof request_id!=='string'||! /^[a-f0-9-]{36}$/.test(request_id)||typeof note!=='string'||note.length>500||typeof settles_room!=='boolean'||(settles_room&&payment_type!=='balance')) throw new Error('INVALID_INPUT');
-  if(payment_type==='balance' && !settles_room) throw new Error('INVALID_INPUT');
+    typeof request_id!=='string'||! /^[a-f0-9-]{36}$/.test(request_id)||typeof note!=='string'||note.length>500||typeof settles_room!=='boolean'||(settles_room&&!['balance','full'].includes(String(payment_type)))) throw new Error('INVALID_INPUT');
+  if(['balance','full'].includes(String(payment_type)) && !settles_room) throw new Error('INVALID_INPUT');
   const request_hash=digest([actor.id,amount,payment_type,payment_method,received_at,note,settles_room]);
   const existing=check.ledger.receipts.find(r=>r.request_id===request_id);
   if(existing) { if(existing.request_hash!==request_hash)throw new Error('IDEMPOTENCY_CONFLICT');return existing; }

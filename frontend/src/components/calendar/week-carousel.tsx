@@ -61,6 +61,7 @@ function MobileBookingChip({
   return (
     <button
       type="button"
+      data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
       onClick={() => onSelect(booking)}
       className={cn(
         "flex min-h-10 w-full min-w-0 items-center gap-1.5 rounded-md border px-2 py-1.5 text-left text-xs shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -299,7 +300,8 @@ function DesktopWeekTimeline({
                     <button
                       key={booking.id}
                       type="button"
-                      onClick={() => onSelectBooking(booking)}
+                      data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
+                  onClick={() => onSelectBooking(booking)}
                       className={cn(
                         "z-20 mx-1 my-2 flex min-h-10 py-2 min-w-0 self-center rounded-lg border px-2.5 text-left text-xs shadow-sm transition hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,

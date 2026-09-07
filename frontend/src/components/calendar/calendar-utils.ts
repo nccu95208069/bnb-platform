@@ -70,6 +70,7 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
 export const PAYMENT_TYPE_LABELS: Record<PaymentType, string> = {
   deposit: "訂金",
   balance: "尾款",
+  full: "全額付清",
   other: "其他款項",
 };
 
