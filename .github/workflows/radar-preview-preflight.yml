@@ -1,0 +1,54 @@
+name: Radar Preview Preflight
+on:
+  push:
+    branches: [feat/competitor-radar-testable-preview]
+    paths: [.github/workflows/radar-preview-preflight.yml]
+permissions:
+  contents: read
+jobs:
+  preflight:
+    if: github.repository == 'nccu95208069/bnb-platform'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check deployment account metadata without exposing secrets
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          node --input-type=module <<'JS'
+          const token = process.env.VERCEL_TOKEN;
+          if (!token) throw new Error('VERCEL_TOKEN secret is not configured');
+          async function get(path) {
+            const response = await fetch('https://api.vercel.com' + path, {
+              headers: { Authorization: `Bearer ${token}` },
+              signal: AbortSignal.timeout(20000),
+            });
+            if (!response.ok) throw new Error(`Vercel ${path.split('?')[0]} HTTP ${response.status}`);
+            return response.json();
+          }
+          const teams = (await get('/v2/teams?limit=50')).teams ?? [];
+          console.log('TEAMS', JSON.stringify(teams.map(({id,slug}) => ({id,slug}))));
+          const team = teams.find(t => t.slug === 'sweetfuns-projects');
+          if (!team) throw new Error('Expected Sweetfun deployment team not found');
+          const projects = (await get(`/v9/projects?teamId=${team.id}&limit=100`)).projects ?? [];
+          console.log('PROJECTS', JSON.stringify(projects.map(({id,name,framework,rootDirectory}) => ({id,name,framework,rootDirectory}))));
+          const target = projects.find(p => p.name === 'sweetfun-os');
+          if (target) {
+            const envs = (await get(`/v9/projects/${target.id}/env?teamId=${team.id}`)).envs ?? [];
+            console.log('OS_ENV_NAMES', JSON.stringify(envs.map(({key,target,type}) => ({key,target,type}))));
+          }
+          console.log('PREFLIGHT_OK: read only; no project, environment, database or production deployment changed');
+          JS
+      - name: Archive public-safe source for local verification
+        run: git archive --format=tar.gz --output=/tmp/radar-source.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: radar-source
+          path: /tmp/radar-source.tar.gz
+          retention-days: 2
