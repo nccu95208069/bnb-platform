@@ -36,14 +36,24 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          git merge-base --is-ancestor 219f1ef96ad7426cf64aa66b27884017fce94a33 HEAD
-          git diff --exit-code 219f1ef96ad7426cf64aa66b27884017fce94a33 HEAD -- frontend
+          git merge-base --is-ancestor d8819f8efc61bcfba1b6b8b7d844ae1dc650bfa3 HEAD
+          git diff --exit-code d8819f8efc61bcfba1b6b8b7d844ae1dc650bfa3 HEAD -- frontend
           node --input-type=module <<'JS'
-          const r = await fetch('https://api.github.com/repos/nccu95208069/bnb-platform/actions/runs/34129338609', { headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(15000) });
-          if (!r.ok) throw new Error('Unable to verify previous acceptance run');
-          const run = await r.json();
-          if (run.head_sha !== '219f1ef96ad7426cf64aa66b27884017fce94a33' || run.conclusion !== 'success') throw new Error('Acceptance gate not satisfied');
-          console.log('Verified identical frontend passed unit, lint, build and Chromium/WebKit acceptance');
+          import { setTimeout } from 'node:timers/promises';
+          let accepted = false;
+          for (let attempt = 0; attempt < 20; attempt++) {
+            const r = await fetch('https://api.github.com/repos/nccu95208069/bnb-platform/actions/runs/34130000597', { headers: { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: 'application/vnd.github+json' }, signal: AbortSignal.timeout(15000) });
+            if (!r.ok) throw new Error('Unable to verify acceptance run');
+            const run = await r.json();
+            if (run.head_sha !== 'd8819f8efc61bcfba1b6b8b7d844ae1dc650bfa3') throw new Error('Wrong acceptance revision');
+            if (run.status === 'completed') {
+              if (run.conclusion !== 'success') throw new Error('Acceptance gate failed');
+              accepted = true; break;
+            }
+            await setTimeout(10000);
+          }
+          if (!accepted) throw new Error('Acceptance gate still pending');
+          console.log('Verified identical frontend passed 35 unit tests, lint, build and browser acceptance');
           JS
       - uses: actions/setup-node@v4
         with:
