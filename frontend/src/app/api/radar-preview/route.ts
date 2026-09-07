@@ -3,6 +3,7 @@ import { analyzeOfficialWebsite, PublicUrlError } from "@/lib/competitor-radar/w
 import { sanitizeCompetitorAnalysis } from "@/lib/competitor-radar/sanitize";
 import { findTourismRegistryCandidates, tourismRegistryMetadata } from "@/lib/competitor-radar/taiwan-tourism-registry";
 import { record, safeLink } from "@/lib/competitor-radar/preview-contract";
+import { prioritizeRoomTitleCapacity } from "@/lib/competitor-radar/preview-room-draft";
 import type { PropertyIdentityInput, TourismRegistryMatch } from "@/lib/competitor-radar/types";
 
 export const runtime = "nodejs";
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
     const body = await limitedJson(request);
     if (body.phase === "website") {
       if (typeof body.url !== "string" || !safeLink(body.url)) return reply({ detail: "請提供有效的公開 HTTP/HTTPS 官網網址。" }, 422);
-      const result = sanitizeCompetitorAnalysis(await analyzeOfficialWebsite(body.url));
+      const result = prioritizeRoomTitleCapacity(sanitizeCompetitorAnalysis(await analyzeOfficialWebsite(body.url)));
       return reply(result);
     }
     if (body.phase !== "registry") return reply({ detail: "未知分析階段。" }, 422);
