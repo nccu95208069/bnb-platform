@@ -22,7 +22,7 @@ Property identity remains dual-track:
 - **Registration track:** local lodging registration information when a source actually publishes a registration-shaped value.
 - **Address track:** structured Taiwan address matching, used even when registration information is absent.
 
-The government dataset `HotelID` is a stable dataset identifier. It is **not** silently relabeled as a local B&B/hotel registration number.
+The government dataset `HotelID` is a stable dataset identifier. It is stored separately from `HotelLicenseNumber`, the local lodging registration / license number.
 
 Supporting evidence:
 
@@ -41,7 +41,7 @@ A strong address requires at least:
 - road / street;
 - house number.
 
-Normalisation already handles:
+Normalisation handles:
 
 - `台` / `臺`;
 - full-width and half-width characters;
@@ -51,32 +51,81 @@ Normalisation already handles:
 
 Missing village / 里 / 鄰 is not a conflict. Conflicting district or house number is a hard negative signal.
 
-## Government dataset adapter
+## Government registry adapter
 
-The adapter uses the official daily Hotel JSON archive and reads these fields when available:
+### Primary route: portal search plus per-property JSON
+
+The production adapter first performs a bounded official-portal lookup:
+
+1. build at most three exact search terms from phone, Chinese property name, and structured road/house number;
+2. fetch the official search result HTML;
+3. extract at most five official `HotelID` values;
+4. fetch the official per-property JSON for those IDs;
+5. score each record against the website seed.
+
+This route is preferred because one property JSON is about 1 KB rather than downloading the complete national archive for every cold runtime.
+
+### Fallback route: complete daily Hotel JSON archive
+
+If portal search or per-property JSON is unavailable, the adapter may read the official daily Hotel JSON ZIP and filter the complete registry locally. The ZIP remains a fallback because cloud testing found that the official host sometimes returns a short WAF rejection page with HTTP 200 and `text/html` instead of a ZIP.
+
+The adapter therefore does not trust HTTP 200 alone. It validates:
+
+- response byte ceiling;
+- expected content type;
+- ZIP magic bytes before decompression;
+- JSON prefix and parseability for individual records;
+- known WAF rejection text;
+- exact returned `HotelID` for the requested JSON record.
+
+### Normalized fields
+
+The adapter reads these fields when available:
 
 - `HotelID`;
+- `HotelLicenseNumber`;
 - `HotelName` and `AlternateNames`;
 - `PositionLat` / `PositionLon`;
 - `PostalAddress`;
 - `Telephones`;
 - `WebsiteURL`;
 - `ReservationURLs`;
-- `SameAsURLs`;
+- `SameAsURLs` / `SocialMediaURLs`;
 - `TotalRooms`;
 - `LowestPrice` / `CeilingPrice`;
 - `UpdateTime`.
 
 Operational controls:
 
-- fixed official archive URL, never user-controlled;
-- eight-second fetch deadline;
-- 32 MB compressed-size ceiling;
+- fixed official host and paths, never user-controlled;
+- eight-second deadline per official resource;
+- at most three searches and five property records;
+- 512 KB ceiling for search HTML and individual JSON;
+- 32 MB compressed ZIP ceiling;
 - 96 MB decompressed JSON ceiling;
 - encrypted and unsupported ZIP entries rejected;
-- one-day in-memory cache per runtime instance;
-- concurrent loads share one in-flight request;
+- one-day in-memory search, record, and archive caches per runtime instance;
+- concurrent full-archive loads share one in-flight request;
 - registry failure degrades to the website draft rather than failing the whole analysis.
+
+## Live Sweetfun validation
+
+A GitHub Actions live smoke test ran the production adapter against the official portal and returned:
+
+```text
+HotelID: Hotel_A15010000H_035813
+HotelLicenseNumber: 新北市民宿402號
+HotelName: 水芳
+Address: 新北市瑞芳區中山路24之1號
+Phone: 0973400562
+Identity status: confirmed
+Identity score: 0.8461538462
+Conflicts: none
+```
+
+The input address was `新北市瑞芳區東和里中山路24-1號`, confirming that omitted `東和里` and `24-1` versus `24之1` are treated as the same structured address.
+
+The government record reports `TotalRooms = 5`, while the official website / operator-confirmed canonical inventory contains six rooms. Therefore government room count is evidence only and never overwrites the canonical room model. This is a concrete example of why one source cannot be treated as unquestioned truth for every field.
 
 ## Candidate semantics
 
@@ -86,13 +135,19 @@ Each government candidate returns:
 - explainable evidence;
 - explicit conflicts;
 - matched alternate name;
-- government HotelID;
+- government `HotelID`;
+- local lodging license number;
 - government address, phone, coordinates, room count, and price range when present;
 - Booking / Agoda / Trip.com URLs found in `ReservationURLs` or `SameAsURLs`.
 
 A government-provided OTA URL is still a **candidate**. It remains `identity_review` until the OTA page itself is fetched and its property identity is independently checked.
 
-Rejected candidates may be shown to explain the negative evidence, but they must not enrich the canonical property, supply OTA links, or enter room/price collection.
+Rules for using a candidate:
+
+- exactly one `confirmed` candidate: canonical identity may be enriched and candidate OTA URLs may enter identity review;
+- more than one `confirmed` candidate: no automatic selection, because one address may contain multiple lodging licenses;
+- `review`: show evidence but do not mutate canonical identity or add OTA sources;
+- `rejected`: show negative evidence only; never enrich property data or enter collection.
 
 ## Persistence model
 
@@ -118,6 +173,8 @@ The model supports:
 
 Composite foreign keys prevent a source room belonging to competitor A from being mapped to a canonical room belonging to competitor B, even when both belong to the same tenant.
 
+Verification-event triggers derive the actual competitor property from the referenced subject, reject nonexistent or cross-tenant subjects, and force the actor to `auth.uid()` so clients cannot spoof audit attribution.
+
 ## Authorization
 
 All identity-graph tables have RLS enabled and explicit grants.
@@ -128,7 +185,7 @@ All identity-graph tables have RLS enabled and explicit grants.
 - `viewer_no_price` receives no competitor-radar rows.
 - `anon` receives no table access.
 
-The schema migration is source-controlled but is not applied to the production Supabase project by this PR.
+The migrations were executed inside a real Supabase Postgres 17 transaction and rolled back after verification. A follow-up query confirmed that the production project still contains zero `competitor_%` tables. The schema is source-controlled but is **not applied to production** by this PR.
 
 ## Still intentionally missing
 
