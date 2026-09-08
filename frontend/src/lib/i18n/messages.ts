@@ -1031,7 +1031,7 @@ export const messages:Record<string,{en:string;th:string;vi:string}>= {
   },
   "加床": {
     "en": "Extra bed",
-    "th": "เสริมเตียง",
+    "th": "เตียงเสริม",
     "vi": "Giường phụ"
   },
   "寵物": {
@@ -4073,5 +4073,120 @@ export const messages:Record<string,{en:string;th:string;vi:string}>= {
     "en": "Official website",
     "th": "เว็บไซต์ที่พัก",
     "vi": "Website cơ sở"
+  },
+  "已依來源訂單編號串接連住；私人檢視顯示來源姓名。": {
+    "en": "Consecutive nights are linked by the source booking number. Private view shows the original guest name.",
+    "th": "เชื่อมคืนที่พักต่อเนื่องตามเลขการจองต้นทาง มุมมองส่วนตัวแสดงชื่อผู้เข้าพักจากต้นทาง",
+    "vi": "Các đêm liên tiếp được liên kết theo mã đặt phòng nguồn. Chế độ riêng tư hiển thị tên khách gốc."
+  },
+  "已依來源訂單編號串接連住；公開畫面顯示匿名編號。": {
+    "en": "Consecutive nights are linked by the source booking number. Public view shows an anonymous identifier.",
+    "th": "เชื่อมคืนที่พักต่อเนื่องตามเลขการจองต้นทาง มุมมองสาธารณะแสดงรหัสที่ไม่ระบุตัวตน",
+    "vi": "Các đêm liên tiếp được liên kết theo mã đặt phòng nguồn. Chế độ công khai hiển thị mã ẩn danh."
+  },
+  "依唯一 ID 識別此房晚。訂單編號可空白；跨列連住需共同編號才能合併。": {
+    "en": "This room-night is identified by its unique ID. Booking numbers may be blank; consecutive nights across rows require a shared booking number to merge.",
+    "th": "ระบุห้องพักต่อคืนนี้ด้วย ID เฉพาะ เลขการจองเว้นว่างได้ แต่การรวมคืนต่อเนื่องข้ามแถวต้องมีเลขการจองร่วมกัน",
+    "vi": "Đêm phòng này được xác định bằng ID duy nhất. Mã đặt phòng có thể để trống; các đêm liên tiếp ở nhiều dòng cần mã chung để gộp."
+  },
+  "客人已付清；OTA 收款與旅宿入帳尚未記錄": {
+    "en": "Guest payment complete; OTA collection and property receipt have not been recorded.",
+    "th": "ผู้เข้าพักชำระครบแล้ว ยังไม่ได้บันทึกการรับเงินของ OTA และเงินเข้าที่พัก",
+    "vi": "Khách đã thanh toán đủ; chưa ghi nhận OTA thu tiền và cơ sở nhận tiền."
+  },
+  "來源標記尚未完成付款": {
+    "en": "Source marks payment as incomplete.",
+    "th": "ต้นทางระบุว่ายังชำระไม่ครบ",
+    "vi": "Nguồn đánh dấu chưa thanh toán đủ."
+  },
+  "來源未提供明確付款狀態": {
+    "en": "The source does not provide a clear payment status.",
+    "th": "ต้นทางไม่ได้ระบุสถานะการชำระเงินที่ชัดเจน",
+    "vi": "Nguồn chưa cung cấp trạng thái thanh toán rõ ràng."
+  },
+  "擁有者已決定暫不追查此筆既有來源問題。保留歷史房況，不計入已核定房費，也不推定可售。": {
+    "en": "The owner has deferred review of this existing source issue. Historical occupancy is retained, excluded from verified room charges, and not assumed available.",
+    "th": "เจ้าของพักการตรวจสอบปัญหาต้นทางเดิมนี้ไว้ คงประวัติห้องพักไว้ แต่ไม่นับเป็นค่าห้องที่ยืนยันแล้วและไม่ถือว่าว่าง",
+    "vi": "Chủ sở hữu tạm hoãn kiểm tra vấn đề nguồn cũ này. Giữ lịch sử phòng, không tính vào tiền phòng đã xác minh và không coi là phòng trống."
+  },
+  "來源有新的或已變動的重複、重疊、未核對或房間對應問題。此格不代表空房，也不計入房費；需先核對 Sheet。": {
+    "en": "The source has a new or changed duplicate, overlap, unverified record or room mapping issue. This cell is not available inventory and is excluded from room charges; check the Sheet first.",
+    "th": "ต้นทางมีปัญหาใหม่หรือเปลี่ยนแปลง เช่น ข้อมูลซ้ำ ทับซ้อน ยังไม่ตรวจสอบ หรือจับคู่ห้องผิด ช่องนี้ไม่ใช่ห้องว่างและไม่นับค่าห้อง โปรดตรวจสอบชีตก่อน",
+    "vi": "Nguồn có vấn đề mới hoặc thay đổi: trùng lặp, chồng chéo, chưa xác minh hoặc ánh xạ phòng. Ô này không phải phòng trống và không tính tiền phòng; cần kiểm tra Sheet trước."
+  },
+  "{0} 晚": {
+    "en": "{0} nights",
+    "th": "{0} คืน",
+    "vi": "{0} đêm"
+  },
+  "{0} 人": {
+    "en": "{0} guests",
+    "th": "{0} คน",
+    "vi": "{0} khách"
+  },
+  "+{0}人": {
+    "en": "+{0} guests",
+    "th": "เพิ่ม {0} คน",
+    "vi": "Thêm {0} khách"
+  },
+  "國旅卡": {
+    "en": "National Travel Card",
+    "th": "บัตรท่องเที่ยวแห่งชาติไต้หวัน",
+    "vi": "Thẻ du lịch quốc gia Đài Loan"
+  },
+  "國旅補": {
+    "en": "Domestic travel subsidy",
+    "th": "เงินอุดหนุนท่องเที่ยวในประเทศไต้หวัน",
+    "vi": "Trợ cấp du lịch nội địa Đài Loan"
+  },
+  "收據": {
+    "en": "Receipt",
+    "th": "ใบเสร็จ",
+    "vi": "Biên nhận"
+  },
+  "嬰兒床": {
+    "en": "Baby cot",
+    "th": "เตียงเด็ก",
+    "vi": "Nôi em bé"
+  },
+  "IG聯繫": {
+    "en": "Contact via IG",
+    "th": "ติดต่อทาง IG",
+    "vi": "Liên hệ qua IG"
+  },
+  "IG網紅邀請": {
+    "en": "Invited IG creator",
+    "th": "ครีเอเตอร์ IG ที่ได้รับเชิญ",
+    "vi": "Khách sáng tạo IG được mời"
+  },
+  "IG邀請": {
+    "en": "IG invitation",
+    "th": "เชิญผ่าน IG",
+    "vi": "Lời mời IG"
+  },
+  "嬰兒澡盆": {
+    "en": "Baby bath",
+    "th": "อ่างอาบน้ำเด็ก",
+    "vi": "Chậu tắm em bé"
+  },
+  "澡盆": {
+    "en": "Baby bath",
+    "th": "อ่างอาบน้ำเด็ก",
+    "vi": "Chậu tắm bé"
+  },
+  "浴室塑膠椅": {
+    "en": "Plastic bathroom chair",
+    "th": "เก้าอี้พลาสติกในห้องน้ำ",
+    "vi": "Ghế nhựa phòng tắm"
+  },
+  "浴室椅": {
+    "en": "Bathroom chair",
+    "th": "เก้าอี้ห้องน้ำ",
+    "vi": "Ghế phòng tắm"
+  },
+  "消毒鍋": {
+    "en": "Sterilizer",
+    "th": "เครื่องนึ่งฆ่าเชื้อ",
+    "vi": "Máy tiệt trùng"
   }
 };

@@ -923,17 +923,17 @@ const uiLocale = useIntlLocale();
                   />
                   <DetailRow
                     label={uiText("住宿晚數")}
-                    value={`${stayNightCount(booking)} 晚`}
+                    value={uiText("{0} 晚", [stayNightCount(booking)])}
                   />
                   {permissions.viewPrices && (
                     <>
                       <DetailRow
                         label={uiText("本筆房費")}
-                        value={booking.source_conflict ? (booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : formatMoney(booking.room_rate, uiLocale)}
+                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : formatMoney(booking.room_rate, uiLocale)}
                       />
                       <DetailRow
                         label={booking.source_read_only ? uiText("已串接紀錄合計") : uiText("訂單總額")}
-                        value={booking.source_conflict ? (booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : formatMoney(orderTotal, uiLocale)}
+                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : formatMoney(orderTotal, uiLocale)}
                       />
                     </>
                   )}
@@ -941,16 +941,16 @@ const uiLocale = useIntlLocale();
                     label={uiText("預訂日")}
                     value={formatDate(booking.booked_at, uiLocale)}
                   />
-                  <DetailRow label={uiText("OTA 訂單編號")} value={booking.external_order_no || "來源未提供"} />
-                  <DetailRow label={uiText("OwlNest 訂單編號")} value={booking.owlnest_order_no || "來源未提供"} />
+                  <DetailRow label={uiText("OTA 訂單編號")} value={booking.external_order_no || uiText("來源未提供")} />
+                  <DetailRow label={uiText("OwlNest 訂單編號")} value={booking.owlnest_order_no || uiText("來源未提供")} />
                   <DetailRow
                     label={uiText("系統內部 ID")}
                     value={booking.order_id}
                   />
-                  <DetailRow label={booking.source_read_only ? uiText("資料說明") : uiText("原始備註")} value={booking.notes ?? "—"} />
-                  {booking.source_payment_label && <DetailRow label={uiText("付款標記")} value={booking.source_payment_label} />}
-                  {booking.source_read_only && <DetailRow label={uiText("入住人數")} value={booking.source_guest_count ? `${booking.source_guest_count} 人` : "來源未提供"} />}
-                  {booking.source_read_only && <DetailRow label={uiText("入住需求")} value="來源未提供結構化資料，尚未確認" /> }
+                  <DetailRow label={booking.source_read_only ? uiText("資料說明") : uiText("原始備註")} value={booking.source_read_only ? uiText(booking.notes ?? "—") : booking.notes ?? "—"} />
+                  {booking.source_payment_label && <DetailRow label={uiText("付款標記")} value={uiText(booking.source_payment_label)} />}
+                  {booking.source_read_only && <DetailRow label={uiText("入住人數")} value={booking.source_guest_count ? uiText("{0} 人", [booking.source_guest_count]) : uiText("來源未提供")} />}
+                  {booking.source_read_only && <DetailRow label={uiText("入住需求")} value={uiText("來源未提供結構化資料，尚未確認")} /> }
                 </dl>
               </section>
 
