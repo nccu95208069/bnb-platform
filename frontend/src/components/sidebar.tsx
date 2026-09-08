@@ -5,15 +5,12 @@ import { useState } from "react";
 import { usePathname } from "next/navigation";
 import {
   LogOut,
-  CalendarDays,
-  ClipboardList,
   Check,
   ChevronLeft,
   ChevronRight,
   Menu,
   Search,
-  ShieldCheck,
-  Settings,
+  House,
   X,
 } from "lucide-react";
 
@@ -25,8 +22,10 @@ import type {
 import { VIEW_LABELS } from "@/components/calendar/calendar-utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { useAccessControl, useActorPermissions } from "@/lib/access-control";
+import { useAccessControl } from "@/lib/access-control";
 import { PAYMENT_SANDBOX } from "@/lib/payment-workflow";
+import { WORKSPACE_MODULES, maySeeFinance } from "@/lib/workspace-navigation";
+import { MODULE_ICONS } from "@/components/workspace-home";
 import { cn } from "@/lib/utils";
 
 const SHEET_SNAPSHOT = process.env.NEXT_PUBLIC_CALENDAR_SOURCE === "sheet_snapshot";
@@ -184,7 +183,7 @@ function SidebarAccount() {
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
-  const actorPermissions = useActorPermissions();
+  const membership = useAccessControl(state => state.membership);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
@@ -201,8 +200,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-      <CalendarViewFilters />
-      <PropertyFilters />
+      {pathname.startsWith("/calendar") && <><CalendarViewFilters /><PropertyFilters /></>}
 
       {DEMO_MODE && !PAYMENT_SANDBOX && (
         <div className="mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-950">
@@ -215,57 +213,10 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         </div>
       )}
 
-      <nav className="flex-1 space-y-1 p-3">
-        <Link
-          href="/calendar"
-          onClick={onNavigate}
-          className={cn(
-            "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-            pathname === "/calendar" || pathname.startsWith("/calendar/")
-              ? "bg-primary text-primary-foreground shadow-sm"
-              : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-          )}
-        >
-          <CalendarDays className="size-4" />
-          訂單日曆
-        </Link>
-
-        {PAYMENT_SANDBOX && (
-          <Link
-            href="/missions"
-            onClick={onNavigate}
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",
-              pathname === "/missions"
-                ? "bg-primary text-primary-foreground"
-                : "text-muted-foreground hover:bg-accent",
-            )}
-          >
-            <ClipboardList className="size-4" />
-            任務中心
-          </Link>
-        )}
-        {actorPermissions.manageMembers && !PAYMENT_SANDBOX && (
-          <Link
-            href="/access"
-            onClick={onNavigate}
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-              pathname === "/access" || pathname.startsWith("/access/")
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-            )}
-          >
-            <ShieldCheck className="size-4" />
-            權限管理
-          </Link>
-        )}
-        <Link href="/settings" onClick={onNavigate} className={cn(
-          "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-          pathname.startsWith("/settings") ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-        )}>
-          <Settings className="size-4" />設定
-        </Link>
+      <nav className="flex-1 space-y-1 p-3" aria-label="工作台導覽">
+        <Link href="/home" onClick={onNavigate} className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",pathname==="/home"?"bg-primary text-primary-foreground":"text-muted-foreground hover:bg-accent")}><House className="size-4"/>首頁</Link>
+        {WORKSPACE_MODULES.map(module=>{const Icon=MODULE_ICONS[module.id];if(module.id==='finance'&&!maySeeFinance(membership?.role))return null;const active=pathname===module.href||pathname.startsWith(module.href+'/')||(module.id==='settings'&&pathname==='/access');return module.enabled?<Link key={module.id} href={module.href} onClick={onNavigate} className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",active?"bg-primary text-primary-foreground":"text-muted-foreground hover:bg-accent")}><Icon className="size-4"/>{module.label}</Link>:<div key={module.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground/60"><Icon className="size-4"/>{module.label}<span className="ml-auto text-[10px]">規劃中</span></div>;})}
+        {pathname.startsWith('/finance')&&<div className="ml-7 border-l pl-3 text-xs"><Link href="/finance" onClick={onNavigate} className="block py-2">財務首頁</Link><Link href="/finance/bookkeeping" onClick={onNavigate} className="block py-2">記帳</Link></div>}
       </nav>
 
       </div>
@@ -325,15 +276,15 @@ export function Sidebar() {
 
         <button
           type="button"
-          onClick={() => requestCalendarNavigation("today")}
+          onClick={() => isCalendar && requestCalendarNavigation("today")}
           className="min-w-0 px-1 text-center"
-          aria-label="回到今天"
+          aria-label={isCalendar ? "回到今天" : "目前工作區"}
         >
           <p className="truncate text-sm font-semibold">
-            {isCalendar ? mobilePeriodLabel : pathname.startsWith("/settings") ? "設定" : pathname === "/access" ? "權限管理" : "任務中心"}
+            {isCalendar ? mobilePeriodLabel : pathname.startsWith("/settings/access") || pathname === "/access" ? "權限管理" : pathname.startsWith("/settings") ? "設定" : pathname.startsWith("/finance/bookkeeping") ? "記帳" : pathname.startsWith("/finance") ? "財務" : pathname === "/home" ? "首頁" : "工作台"}
           </p>
           <p className="truncate text-[10px] text-muted-foreground">
-            {selectedNames.length ? selectedNames.join("、") : "選擇旅宿"}
+            {isCalendar ? (selectedNames.length ? selectedNames.join("、") : "選擇旅宿") : "Sweetfun OS"}
           </p>
         </button>
 
@@ -371,7 +322,7 @@ export function Sidebar() {
             </>
           ) : (
             <Button asChild variant="ghost" size="sm">
-              <Link href="/calendar">日曆</Link>
+              <Link href="/home">首頁</Link>
             </Button>
           )}
         </div>

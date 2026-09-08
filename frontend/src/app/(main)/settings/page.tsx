@@ -1,5 +1,8 @@
 "use client";
 
+import Link from "next/link";
+import { useAccessControl } from "@/lib/access-control";
+import { maySeeFinance } from "@/lib/workspace-navigation";
 import { useState, useEffect } from "react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
@@ -30,7 +33,9 @@ import { toast } from "sonner";
 import { CalendarAppearanceSettings } from "@/components/calendar/calendar-appearance-settings";
 
 export default function SettingsPage() {
+  const member = useAccessControl(s=>s.membership);
   return <>
+    {maySeeFinance(member?.role)&&<section className="mb-6 rounded-2xl border bg-white p-5"><h2 className="font-semibold">帳號與管理</h2><p className="mt-1 text-sm text-muted-foreground">管理成員、角色與可存取的旅宿。</p><Link href="/settings/access" className="mt-4 inline-flex rounded-lg border px-4 py-2 text-sm font-medium">權限管理 →</Link></section>}
     <CalendarAppearanceSettings />
     {process.env.NEXT_PUBLIC_CALENDAR_SOURCE !== "sheet_snapshot" && <LegacySettingsPage />}
   </>;
