@@ -1,3 +1,5 @@
+"use client";
+import {useT} from "@/components/i18n/language-provider";
 import { probabilityBand, probabilityStyles, probabilityText } from "@/lib/sales-probability";
 import { inventoryLabels, policyLabels, priceText, type RoomNight } from "@/lib/availability";
 const stateStyles: Record<string, string> = {
@@ -22,10 +24,11 @@ export function PricePair({
   compact?: boolean;
   hidePrice?: boolean;
 }) {
+  const uiText=useT();
   const p = cell.pricing;
   if (cell.state !== "available")
-    return <span className="text-xs">{inventoryLabels[cell.state]}</span>;
-  if (hidePrice || !p) return <span className="text-xs">可售</span>;
+    return <span className="text-xs">{uiText(inventoryLabels[cell.state])}</span>;
+  if (hidePrice || !p) return <span className="text-xs">{uiText("可售")}</span>;
   const delta =
     p.current_price != null && p.suggested_price != null
       ? p.suggested_price - p.current_price
@@ -41,12 +44,12 @@ export function PricePair({
       >
         {priceText(p.current_price)}
       </p>
-      <p className={compact ? "text-[9px] leading-tight opacity-80" : "text-xs"}>{probabilityText(cell.sales_probability)}</p>
+      <p className={compact ? "text-[9px] leading-tight opacity-80" : "text-xs"}>{uiText(probabilityText(cell.sales_probability))}</p>
       {!compact && (
         <p className="text-xs text-muted-foreground">
           {p.suggested_price != null
-            ? `建議 ${priceText(p.suggested_price)}${delta ? `（${delta > 0 ? "+" : ""}${delta}）` : ""}`
-            : p.source === "bnb-pricing / OwlNest readback" ? `牌價 ${priceText(p.base_price)}${p.policy === "stale_snapshot" ? " · 價格待更新" : ""}` : (policyLabels[p.exclusion ?? p.policy] ?? "尚無建議")}
+            ? `${uiText("建議")} ${priceText(p.suggested_price)}${delta ? `（${delta > 0 ? "+" : ""}${delta}）` : ""}`
+            : p.source === "bnb-pricing / OwlNest readback" ? `${uiText("牌價")} ${priceText(p.base_price)}${p.policy === "stale_snapshot" ? ` · ${uiText("價格待更新")}` : ""}` : uiText(policyLabels[p.exclusion ?? p.policy] ?? "尚無建議")}
         </p>
       )}
     </div>

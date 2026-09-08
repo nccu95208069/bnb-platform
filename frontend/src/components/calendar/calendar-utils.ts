@@ -158,12 +158,12 @@ export function monthCalendarPeriod(monthStart: string): CalendarPeriod {
   };
 }
 
-export function currentPeriod(anchorDate: string, view: CalendarView): CalendarPeriod {
+export function currentPeriod(anchorDate: string, view: CalendarView, locale="zh-TW"): CalendarPeriod {
   if (view === "day") {
     return {
       start: anchorDate,
       end: addDays(anchorDate, 1),
-      label: `${formatDate(anchorDate)} ${formatWeekday(anchorDate, true)}`,
+      label: `${formatDate(anchorDate, locale)} ${formatWeekday(anchorDate, true, locale)}`,
     };
   }
 
@@ -201,9 +201,9 @@ export function fetchPeriod(anchorDate: string, view: CalendarView): CalendarPer
   };
 }
 
-export function formatDate(value: string | null) {
+export function formatDate(value: string | null, locale="zh-TW") {
   if (!value) return "—";
-  return new Intl.DateTimeFormat("zh-TW", {
+  return new Intl.DateTimeFormat(locale, {
     year: "numeric",
     month: "numeric",
     day: "numeric",
@@ -219,20 +219,20 @@ export function formatShortDate(value: string) {
   }).format(parseIso(value));
 }
 
-export function formatWeekday(value: string, long = false) {
-  return new Intl.DateTimeFormat("zh-TW", {
+export function formatWeekday(value: string, long = false, locale="zh-TW") {
+  return new Intl.DateTimeFormat(locale, {
     weekday: long ? "long" : "short",
     timeZone: "UTC",
   }).format(parseIso(value));
 }
 
-export function formatMonthLabel(value: string) {
+export function formatMonthLabel(value: string, locale="zh-TW") {
   const date = parseIso(value);
-  return `${date.getUTCFullYear()} 年 ${date.getUTCMonth() + 1} 月`;
+  return new Intl.DateTimeFormat(locale,{year:"numeric",month:"long",timeZone:"UTC"}).format(date);
 }
 
-export function formatMoney(value: number) {
-  return new Intl.NumberFormat("zh-TW", {
+export function formatMoney(value: number, locale="zh-TW") {
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: "TWD",
     maximumFractionDigits: 0,

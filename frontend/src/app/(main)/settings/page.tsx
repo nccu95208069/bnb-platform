@@ -1,9 +1,11 @@
 "use client";
+import {useT} from "@/components/i18n/language-provider";
+import {LanguageSettings} from "@/components/i18n/language-settings";
 
 import Link from "next/link";
 import { useAccessControl } from "@/lib/access-control";
 import { maySeeFinance } from "@/lib/workspace-navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,15 +35,20 @@ import { toast } from "sonner";
 import { CalendarAppearanceSettings } from "@/components/calendar/calendar-appearance-settings";
 
 export default function SettingsPage() {
+  const uiText = useT();
+
   const member = useAccessControl(s=>s.membership);
   return <>
-    {maySeeFinance(member?.role)&&<section className="mb-6 rounded-2xl border bg-white p-5"><h2 className="font-semibold">帳號與管理</h2><p className="mt-1 text-sm text-muted-foreground">管理成員、角色與可存取的旅宿。</p><Link href="/settings/access" className="mt-4 inline-flex rounded-lg border px-4 py-2 text-sm font-medium">權限管理 →</Link></section>}
+    <LanguageSettings/>
+    {maySeeFinance(member?.role)&&<section className="mb-6 rounded-2xl border bg-white p-5"><h2 className="font-semibold">{uiText("帳號與管理")}</h2><p className="mt-1 text-sm text-muted-foreground">{uiText("管理成員、角色與可存取的旅宿。")}</p><Link href="/settings/access" className="mt-4 inline-flex rounded-lg border px-4 py-2 text-sm font-medium">{uiText("權限管理 →")}</Link></section>}
     <CalendarAppearanceSettings />
     {process.env.NEXT_PUBLIC_CALENDAR_SOURCE !== "sheet_snapshot" && <LegacySettingsPage />}
   </>;
 }
 
 function LegacySettingsPage() {
+  const uiText = useT();
+
   const [loaded, setLoaded] = useState<SettingsResponse | null>(null);
   const [formValues, setFormValues] = useState<SettingsUpdate>({
     llm_provider: "claude",
@@ -59,11 +66,7 @@ function LegacySettingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    loadSettings();
-  }, []);
-
-  async function loadSettings() {
+  const loadSettings = useCallback(async () => {
     try {
       const [settingsData, promptData] = await Promise.all([
         apiClient.get<SettingsResponse>("/settings"),
@@ -81,12 +84,14 @@ function LegacySettingsPage() {
       if (err instanceof ApiError && err.status === 404) {
         // No settings yet, use defaults
       } else {
-        toast.error("載入設定失敗");
+        toast.error(uiText("載入設定失敗"));
       }
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [uiText]);
+
+  useEffect(() => { void loadSettings(); }, [loadSettings]);
 
   async function handleSave() {
     setIsSaving(true);
@@ -108,7 +113,7 @@ function LegacySettingsPage() {
           system_prompt: systemPrompt,
         }),
       ]);
-      toast.success("設定已儲存");
+      toast.success(uiText("設定已儲存"));
       setSecretInputs({
         llm_api_key: "",
         line_channel_secret: "",
@@ -116,7 +121,7 @@ function LegacySettingsPage() {
       });
       await loadSettings();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "儲存失敗");
+      toast.error(uiText(err instanceof Error ? err.message : "儲存失敗"));
     } finally {
       setIsSaving(false);
     }
@@ -137,8 +142,8 @@ function LegacySettingsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="設定"
-        description="管理 LLM、渠道與 Google 服務串接設定"
+        title={uiText("設定")}
+        description={uiText("管理 LLM、渠道與 Google 服務串接設定")}
         actions={
           <Button onClick={handleSave} disabled={isSaving}>
             {isSaving ? (
@@ -146,17 +151,16 @@ function LegacySettingsPage() {
             ) : (
               <Save className="mr-2 h-4 w-4" />
             )}
-            儲存設定
-          </Button>
+            {uiText("儲存設定")}</Button>
         }
       />
 
       <Tabs defaultValue="llm">
         <TabsList>
-          <TabsTrigger value="llm">LLM 設定</TabsTrigger>
-          <TabsTrigger value="channels">渠道設定</TabsTrigger>
-          <TabsTrigger value="google">Google 串接</TabsTrigger>
-          <TabsTrigger value="prompt">系統提示詞</TabsTrigger>
+          <TabsTrigger value="llm">{uiText("LLM 設定")}</TabsTrigger>
+          <TabsTrigger value="channels">{uiText("渠道設定")}</TabsTrigger>
+          <TabsTrigger value="google">{uiText("Google 串接")}</TabsTrigger>
+          <TabsTrigger value="prompt">{uiText("系統提示詞")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="llm" className="space-y-4">
@@ -164,8 +168,7 @@ function LegacySettingsPage() {
             <CardHeader>
               <CardTitle>LLM Provider</CardTitle>
               <CardDescription>
-                選擇語言模型提供者及設定 API 金鑰
-              </CardDescription>
+                {uiText("選擇語言模型提供者及設定 API 金鑰")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
@@ -213,8 +216,7 @@ function LegacySettingsPage() {
             <CardHeader>
               <CardTitle>LINE Messaging API</CardTitle>
               <CardDescription>
-                設定 LINE Official Account 的 Messaging API 憑證
-              </CardDescription>
+                {uiText("設定 LINE Official Account 的 Messaging API 憑證")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
@@ -266,18 +268,16 @@ function LegacySettingsPage() {
         <TabsContent value="google" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>Google 服務串接</CardTitle>
+              <CardTitle>{uiText("Google 服務串接")}</CardTitle>
               <CardDescription>
-                啟用 Google Calendar 和 Sheets 整合
-              </CardDescription>
+                {uiText("啟用 Google Calendar 和 Sheets 整合")}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
                   <Label>Google Calendar</Label>
                   <p className="text-sm text-muted-foreground">
-                    自動同步訂房資訊到 Google 日曆
-                  </p>
+                    {uiText("自動同步訂房資訊到 Google 日曆")}</p>
                 </div>
                 <Switch
                   checked={formValues.google_calendar_enabled ?? false}
@@ -294,8 +294,7 @@ function LegacySettingsPage() {
                 <div className="space-y-0.5">
                   <Label>Google Sheets</Label>
                   <p className="text-sm text-muted-foreground">
-                    記錄對話資料到 Google 試算表
-                  </p>
+                    {uiText("記錄對話資料到 Google 試算表")}</p>
                 </div>
                 <Switch
                   checked={formValues.google_sheets_enabled ?? false}
@@ -314,21 +313,19 @@ function LegacySettingsPage() {
         <TabsContent value="prompt" className="space-y-4">
           <Card>
             <CardHeader>
-              <CardTitle>系統提示詞</CardTitle>
+              <CardTitle>{uiText("系統提示詞")}</CardTitle>
               <CardDescription>
-                自訂 LLM 的 system prompt，定義 AI 助手的行為和回覆風格
-              </CardDescription>
+                {uiText("自訂 LLM 的 system prompt，定義 AI 助手的行為和回覆風格")}</CardDescription>
             </CardHeader>
             <CardContent>
               <Textarea
                 value={systemPrompt}
                 onChange={(e) => setSystemPrompt(e.target.value)}
-                placeholder="你是一個民宿的 AI 客服助手，請用友善、專業的語氣回覆客人的問題..."
+                placeholder={uiText("你是一個民宿的 AI 客服助手，請用友善、專業的語氣回覆客人的問題...")}
                 className="min-h-[300px] font-mono text-sm"
               />
               <p className="mt-2 text-xs text-muted-foreground">
-                此提示詞會作為 AI 回覆的前置指令
-              </p>
+                {uiText("此提示詞會作為 AI 回覆的前置指令")}</p>
             </CardContent>
           </Card>
         </TabsContent>
@@ -356,15 +353,16 @@ function SecretField({
   onChange: (v: string) => void;
   placeholder?: string;
 }) {
+  const uiText = useT();
+
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2">
-        <Label htmlFor={id}>{label}</Label>
+        <Label htmlFor={id}>{uiText(label)}</Label>
         {isSet && !value && (
           <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
             <Check className="h-3 w-3 text-green-600" />
-            已設定
-          </span>
+            {uiText("已設定")}</span>
         )}
       </div>
       <div className="relative">
@@ -373,7 +371,7 @@ function SecretField({
           type={show ? "text" : "password"}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder={isSet ? "留空保持不變" : placeholder}
+          placeholder={isSet ? uiText("留空保持不變") : placeholder}
         />
         <Button
           type="button"

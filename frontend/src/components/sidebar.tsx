@@ -1,4 +1,5 @@
 "use client";
+import {useT} from "@/components/i18n/language-provider";
 
 import Link from "next/link";
 import { useState } from "react";
@@ -39,6 +40,8 @@ const PROPERTY_COLORS: Record<CalendarProperty["color"], string> = {
 };
 
 function CalendarViewFilters() {
+  const uiText = useT();
+
   const view = useCalendarPreferences((state) => state.view);
   const mode = useCalendarPreferences((state) => state.mode);
   const setView = useCalendarPreferences((state) => state.setView);
@@ -46,8 +49,7 @@ function CalendarViewFilters() {
   return (
     <section className={cn("px-3 pt-4", mode !== "unsold" && "md:hidden")}>
       <p className="px-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-        日曆檢視
-      </p>
+        {uiText("日曆檢視")}</p>
       <div className="mt-2 grid grid-cols-3 rounded-xl border bg-muted/35 p-1">
         {(Object.keys(VIEW_LABELS) as CalendarView[]).map((option) => (
           <button
@@ -62,7 +64,7 @@ function CalendarViewFilters() {
             )}
             aria-pressed={view === option}
           >
-            {VIEW_LABELS[option]}
+            {uiText(VIEW_LABELS[option])}
           </button>
         ))}
       </div>
@@ -71,6 +73,8 @@ function CalendarViewFilters() {
 }
 
 function PropertyFilters() {
+  const uiText = useT();
+
   const properties = useCalendarPreferences((state) => state.properties);
   const selectedPropertyIds = useCalendarPreferences(
     (state) => state.selectedPropertyIds,
@@ -88,24 +92,21 @@ function PropertyFilters() {
     <section className="px-3 pt-4">
       <div className="flex items-center justify-between px-1">
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          我的旅宿
-        </p>
+          {uiText("我的旅宿")}</p>
         {properties.length > 1 && !allSelected && (
           <button
             type="button"
             onClick={selectAllProperties}
             className="text-[11px] font-medium text-primary hover:underline"
           >
-            全部顯示
-          </button>
+            {uiText("全部顯示")}</button>
         )}
       </div>
 
       <div className="mt-2 space-y-1">
         {properties.length === 0 && (
           <div className="rounded-xl border border-dashed px-3 py-4 text-xs text-muted-foreground">
-            正在載入旅宿資料
-          </div>
+            {uiText("正在載入旅宿資料")}</div>
         )}
 
         {properties.map((property) => {
@@ -145,7 +146,7 @@ function PropertyFilters() {
                 </span>
                 <span className="block truncate text-[11px] text-muted-foreground">
                   {property.location} · {property.room_count}{" "}
-                  {property.room_count === 1 ? "棟" : "間房"}
+                  {property.room_count === 1 ? uiText("棟") : uiText("間房")}
                 </span>
               </span>
             </button>
@@ -157,6 +158,8 @@ function PropertyFilters() {
 }
 
 function SidebarAccount() {
+  const uiText = useT();
+
   const membership = useAccessControl(state => state.membership);
   const initialized = useAccessControl(state => state.initialized);
   const [busy, setBusy] = useState(false);
@@ -169,19 +172,21 @@ function SidebarAccount() {
       window.location.replace("/calendar-access");
     } catch { setBusy(false); setError("登出未完成，請再試一次。"); }
   }
-  if (!initialized) return <p className="text-xs text-muted-foreground">正在確認帳號…</p>;
-  if (!membership) return <Link href="/calendar-access" className="flex min-h-11 items-center justify-center rounded-lg border text-sm font-medium">登入帳號</Link>;
+  if (!initialized) return <p className="text-xs text-muted-foreground">{uiText("正在確認帳號…")}</p>;
+  if (!membership) return <Link href="/calendar-access" className="flex min-h-11 items-center justify-center rounded-lg border text-sm font-medium">{uiText("登入帳號")}</Link>;
   return <div className="space-y-3">
-    <div className="min-w-0"><p className="text-[11px] text-muted-foreground">目前登入帳號</p><p className="mt-1 truncate text-sm font-semibold">{membership.displayName}</p><p className="break-all text-xs text-muted-foreground">{membership.email}</p></div>
+    <div className="min-w-0"><p className="text-[11px] text-muted-foreground">{uiText("目前登入帳號")}</p><p className="mt-1 truncate text-sm font-semibold">{membership.displayName}</p><p className="break-all text-xs text-muted-foreground">{membership.email}</p></div>
     <div className="grid grid-cols-2 gap-2">
-      <Link href="/calendar-password" className="flex min-h-11 items-center justify-center rounded-lg border text-sm font-medium">變更密碼</Link>
-      <button type="button" disabled={busy} onClick={logout} className="flex min-h-11 items-center justify-center gap-2 rounded-lg border text-sm font-medium disabled:opacity-50"><LogOut className="size-4" />{busy ? "登出中…" : "登出"}</button>
+      <Link href="/calendar-password" className="flex min-h-11 items-center justify-center rounded-lg border text-sm font-medium">{uiText("變更密碼")}</Link>
+      <button type="button" disabled={busy} onClick={logout} className="flex min-h-11 items-center justify-center gap-2 rounded-lg border text-sm font-medium disabled:opacity-50"><LogOut className="size-4" />{busy ? uiText("登出中…") : uiText("登出")}</button>
     </div>
-    {error && <p role="alert" className="text-xs text-red-700">{error}</p>}
+    {error && <p role="alert" className="text-xs text-red-700">{uiText(error)}</p>}
   </div>;
 }
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+  const uiText = useT();
+
   const pathname = usePathname();
   const membership = useAccessControl(state => state.membership);
 
@@ -194,8 +199,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-sm font-semibold">Sweetfun OS</h1>
           <p className="truncate text-[11px] text-muted-foreground">
-            旅宿營運工作台
-          </p>
+            {uiText("旅宿營運工作台")}</p>
         </div>
       </div>
 
@@ -205,29 +209,31 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       {pathname.startsWith("/calendar") && DEMO_MODE && !PAYMENT_SANDBOX && (
         <div className="mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-950">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em]">
-            {SHEET_SNAPSHOT ? "訂單自動同步" : "Demo Site"}
+            {SHEET_SNAPSHOT ? uiText("訂單自動同步") : "Demo Site"}
           </p>
           <p className="mt-1 text-xs font-medium">
-            {SHEET_SNAPSHOT ? "資料來自訂房表，目前可查看；修改訂單請到原訂房表操作。" : "匿名資料 · 編輯僅儲存在此瀏覽器"}
+            {SHEET_SNAPSHOT ? uiText("資料來自訂房表，目前可查看；修改訂單請到原訂房表操作。") : uiText("匿名資料 · 編輯僅儲存在此瀏覽器")}
           </p>
         </div>
       )}
 
-      <nav className="flex-1 space-y-1 p-3" aria-label="工作台導覽">
-        <Link href="/home" onClick={onNavigate} className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",pathname==="/home"?"bg-primary text-primary-foreground":"text-muted-foreground hover:bg-accent")}><House className="size-4"/>首頁</Link>
-        {WORKSPACE_MODULES.map(module=>{const Icon=MODULE_ICONS[module.id];if(module.id==='finance'&&!maySeeFinance(membership?.role))return null;const active=pathname===module.href||pathname.startsWith(module.href+'/')||(module.id==='settings'&&pathname==='/access');return module.enabled?<div key={module.id}><Link href={module.href} onClick={onNavigate} className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",active?"bg-primary text-primary-foreground":"text-muted-foreground hover:bg-accent")}><Icon className="size-4"/>{module.label}</Link>{module.id==='finance'&&active&&<div className="ml-7 border-l pl-3 text-xs"><Link href="/finance" onClick={onNavigate} className="block py-2">財務首頁</Link><Link href="/finance/bookkeeping" onClick={onNavigate} className="block py-2">記帳</Link></div>}</div>:<div key={module.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground/60"><Icon className="size-4"/>{module.label}<span className="ml-auto text-[10px]">規劃中</span></div>;})}
+      <nav className="flex-1 space-y-1 p-3" aria-label={uiText("工作台導覽")}>
+        <Link href="/home" onClick={onNavigate} className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",pathname==="/home"?"bg-primary text-primary-foreground":"text-muted-foreground hover:bg-accent")}><House className="size-4"/>{uiText("首頁")}</Link>
+        {WORKSPACE_MODULES.map(module=>{const Icon=MODULE_ICONS[module.id];if(module.id==='finance'&&!maySeeFinance(membership?.role))return null;const active=pathname===module.href||pathname.startsWith(module.href+'/')||(module.id==='settings'&&pathname==='/access');return module.enabled?<div key={module.id}><Link href={module.href} onClick={onNavigate} className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",active?"bg-primary text-primary-foreground":"text-muted-foreground hover:bg-accent")}><Icon className="size-4"/>{uiText(module.label)}</Link>{module.id==='finance'&&active&&<div className="ml-7 border-l pl-3 text-xs"><Link href="/finance" onClick={onNavigate} className="block py-2">{uiText("財務首頁")}</Link><Link href="/finance/bookkeeping" onClick={onNavigate} className="block py-2">{uiText("記帳")}</Link></div>}</div>:<div key={module.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground/60"><Icon className="size-4"/>{uiText(module.label)}<span className="ml-auto text-[10px]">{uiText("規劃中")}</span></div>;})}
 
       </nav>
 
       </div>
       <div className="shrink-0 border-t p-4">
-        {SHEET_SNAPSHOT ? <SidebarAccount /> : <p className="text-xs text-muted-foreground">{PAYMENT_SANDBOX ? "隔離測試 · 固定管理者身分" : DEMO_MODE ? "匿名化示範模式" : "Sweetfun OS"}</p>}
+        {SHEET_SNAPSHOT ? <SidebarAccount /> : <p className="text-xs text-muted-foreground">{PAYMENT_SANDBOX ? uiText("隔離測試 · 固定管理者身分") : DEMO_MODE ? uiText("匿名化示範模式") : "Sweetfun OS"}</p>}
       </div>
     </div>
   );
 }
 
 export function Sidebar() {
+  const uiText = useT();
+
   const pathname = usePathname();
   const isCalendar = pathname.startsWith("/calendar");
   const properties = useCalendarPreferences((state) => state.properties);
@@ -263,13 +269,13 @@ export function Sidebar() {
         <SidebarContent />
       </aside>
 
-      <header className="fixed inset-x-0 top-0 z-50 grid h-14 grid-cols-[40px_minmax(0,1fr)_152px] items-center gap-1 border-b bg-background/95 px-2 backdrop-blur md:hidden">
+      <header className="fixed inset-x-0 top-0 z-50 grid h-14 grid-cols-[40px_minmax(0,1fr)_auto] items-center gap-1 border-b bg-background/95 px-2 backdrop-blur md:hidden">
         <Button
           variant="ghost"
           size="icon"
           className="size-9"
           onClick={() => setMobileMenuOpen(true)}
-          aria-label="開啟工作台選單"
+          aria-label={uiText("開啟工作台選單")}
         >
           <Menu className="size-5" />
         </Button>
@@ -278,10 +284,10 @@ export function Sidebar() {
           type="button"
           onClick={() => isCalendar && requestCalendarNavigation("today")}
           className="min-w-0 px-1 text-center"
-          aria-label={isCalendar ? "回到今天" : "目前工作區"}
+          aria-label={isCalendar ? uiText("回到今天") : uiText("目前工作區")}
         >
           <p className="truncate text-sm font-semibold">
-            {isCalendar ? mobilePeriodLabel : pathname.startsWith("/settings/access") || pathname === "/access" ? "權限管理" : pathname.startsWith("/settings") ? "設定" : pathname.startsWith("/finance/bookkeeping") ? "記帳" : pathname.startsWith("/finance") ? "財務" : pathname === "/home" ? "首頁" : "工作台"}
+            {isCalendar ? mobilePeriodLabel : pathname.startsWith("/settings/access") || pathname === "/access" ? uiText("權限管理") : pathname.startsWith("/settings") ? uiText("設定") : pathname.startsWith("/finance/bookkeeping") ? uiText("記帳") : pathname.startsWith("/finance") ? uiText("財務") : pathname === "/home" ? uiText("首頁") : uiText("工作台")}
           </p>
           <p className="truncate text-[10px] text-muted-foreground">
             {isCalendar ? (selectedNames.length ? selectedNames.join("、") : "選擇旅宿") : "Sweetfun OS"}
@@ -291,13 +297,13 @@ export function Sidebar() {
         <div className="flex items-center justify-end gap-0.5">
           {isCalendar ? (
             <>
-              <Button variant="ghost" size="sm" className="px-1.5" onClick={() => requestCalendarNavigation("today")}>今天</Button>
+              <Button variant="ghost" size="sm" className="px-1.5" onClick={() => requestCalendarNavigation("today")}>{uiText("今天")}</Button>
               <Button
                 variant="ghost"
                 size="icon"
                 className="size-9"
                 onClick={() => requestCalendarNavigation("previous")}
-                aria-label="上一個日期區間"
+                aria-label={uiText("上一個日期區間")}
               >
                 <ChevronLeft className="size-4" />
               </Button>
@@ -306,7 +312,7 @@ export function Sidebar() {
                 size="icon"
                 className="size-9"
                 onClick={() => requestCalendarNavigation("next")}
-                aria-label="下一個日期區間"
+                aria-label={uiText("下一個日期區間")}
               >
                 <ChevronRight className="size-4" />
               </Button>
@@ -315,14 +321,14 @@ export function Sidebar() {
                 size="icon"
                 className="size-9"
                 onClick={() => setMobileSearchOpen(true)}
-                aria-label="搜尋訂單"
+                aria-label={uiText("搜尋訂單")}
               >
                 <Search className="size-4" />
               </Button>
             </>
           ) : (
             <Button asChild variant="ghost" size="sm">
-              <Link href="/home">首頁</Link>
+              <Link href="/home">{uiText("首頁")}</Link>
             </Button>
           )}
         </div>
@@ -334,14 +340,13 @@ export function Sidebar() {
           className="w-[88vw] max-w-sm p-0 pb-[env(safe-area-inset-bottom)] [&>button]:hidden"
         >
           <SheetTitle className="sr-only">
-            Sweetfun OS 工作台導覽
-          </SheetTitle>
+            {uiText("Sweetfun OS 工作台導覽")}</SheetTitle>
           <div className="absolute right-3 top-3 z-10">
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setMobileMenuOpen(false)}
-              aria-label="關閉選單"
+              aria-label={uiText("關閉選單")}
             >
               <X className="size-5" />
             </Button>

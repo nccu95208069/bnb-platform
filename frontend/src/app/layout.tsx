@@ -1,3 +1,6 @@
+import {cookies} from "next/headers";
+import {LanguageProvider} from "@/components/i18n/language-provider";
+import {isLocale} from "@/lib/i18n/core";
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { Toaster } from "@/components/ui/sonner";
@@ -19,18 +22,20 @@ export const metadata: Metadata = {
   description: "水芳 Sweetfun 的月、週、日訂單與房況營運工作台",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const saved=(await cookies()).get("sweetfun-language")?.value;
+  const locale=isLocale(saved)?saved:"zh-TW";
   return (
-    <html lang="zh-TW">
+    <html lang={locale}>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <CalendarAppearanceProvider>{children}</CalendarAppearanceProvider>
-        <Toaster />
+        <LanguageProvider initialLocale={locale}><CalendarAppearanceProvider>{children}</CalendarAppearanceProvider>
+        <Toaster /></LanguageProvider>
       </body>
     </html>
   );

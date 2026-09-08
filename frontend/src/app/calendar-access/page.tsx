@@ -1,8 +1,12 @@
 "use client";
+import {useT} from "@/components/i18n/language-provider";
+import {LanguageSettings} from "@/components/i18n/language-settings";
 
 import { useEffect, useState } from "react";
 
 export default function CalendarAccessPage() {
+  const uiText = useT();
+
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -25,13 +29,13 @@ export default function CalendarAccessPage() {
   }
   return <main className="flex min-h-dvh items-center justify-center bg-slate-50 px-5">
     <form onSubmit={enter} className="w-full max-w-sm space-y-5 rounded-2xl border bg-white p-6 shadow-sm">
-      <div><p className="text-sm text-slate-500">Sweetfun OS</p><h1 className="mt-2 text-xl font-semibold">登入 Sweetfun OS</h1><p className="mt-2 text-sm text-slate-600">請用自己的 Email 或手機號碼與密碼登入，查看獲授權的旅宿。</p></div>
-      <label className="block text-sm font-medium">Email 或手機號碼<input aria-label="Email 或手機號碼" type="text" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} className="mt-2 block w-full rounded-lg border px-3 py-2.5" /></label>
-      <label className="block text-sm font-medium">密碼<input aria-label="密碼" type="password" autoComplete="current-password" required value={code} onChange={e => setCode(e.target.value)} className="mt-2 block w-full rounded-lg border px-3 py-2.5" /></label>
-      {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-      <button disabled={busy} className="w-full rounded-lg bg-slate-900 px-4 py-3 font-medium text-white disabled:opacity-50">{busy ? "登入中…" : "登入"}</button>
-      <p className="text-xs text-slate-500">管理員已設定帳號密碼者可直接登入；收到邀請信者請先開啟連結設定密碼。登入會在此瀏覽器保留 30 天。</p>
-      <a href="/forgot-password" className="block text-center text-sm underline">忘記密碼？請管理員協助</a>
+      <LanguageSettings compact/><div><p className="text-sm text-slate-500">Sweetfun OS</p><h1 className="mt-2 text-xl font-semibold">{uiText("登入 Sweetfun OS")}</h1><p className="mt-2 text-sm text-slate-600">{uiText("請用自己的 Email 或手機號碼與密碼登入，查看獲授權的旅宿。")}</p></div>
+      <label className="block text-sm font-medium">{uiText("Email 或手機號碼")}<input aria-label={uiText("Email 或手機號碼")} type="text" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} className="mt-2 block w-full rounded-lg border px-3 py-2.5" /></label>
+      <label className="block text-sm font-medium">{uiText("密碼")}<input aria-label={uiText("密碼")} type="password" autoComplete="current-password" required value={code} onChange={e => setCode(e.target.value)} className="mt-2 block w-full rounded-lg border px-3 py-2.5" /></label>
+      {error && <p role="alert" className="text-sm text-red-700">{uiText(error)}</p>}
+      <button disabled={busy} className="w-full rounded-lg bg-slate-900 px-4 py-3 font-medium text-white disabled:opacity-50">{busy ? uiText("登入中…") : uiText("登入")}</button>
+      <p className="text-xs text-slate-500">{uiText("管理員已設定帳號密碼者可直接登入；收到邀請信者請先開啟連結設定密碼。登入會在此瀏覽器保留 30 天。")}</p>
+      <a href="/forgot-password" className="block text-center text-sm underline">{uiText("忘記密碼？請管理員協助")}</a>
     </form>
   </main>;
 }

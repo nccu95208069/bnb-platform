@@ -1,4 +1,5 @@
 "use client";
+import {useT} from "@/components/i18n/language-provider";
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,8 @@ import {
   type PricingPreview,
 } from "@/lib/availability";
 export function PricingMission({ missionId }: { missionId: string }) {
+  const uiText = useT();
+
   const [mission, setMission] = useState<Mission | null>(null),
     [error, setError] = useState("");
   useEffect(() => {
@@ -27,24 +30,22 @@ export function PricingMission({ missionId }: { missionId: string }) {
       active = false;
     };
   }, [missionId]);
-  if (error) return <p role="alert">{error}</p>;
-  if (!mission) return <p>讀取調價交辦中…</p>;
+  if (error) return <p role="alert">{uiText(error)}</p>;
+  if (!mission) return <p>{uiText("讀取調價交辦中…")}</p>;
   const preview = mission.result as unknown as PricingPreview;
   return (
-    <section className="space-y-4" aria-label="調價交辦詳情">
-      <Badge variant="secondary">等待定價引擎接手</Badge>
+    <section className="space-y-4" aria-label={uiText("調價交辦詳情")}>
+      <Badge variant="secondary">{uiText("等待定價引擎接手")}</Badge>
       <h2 className="font-semibold">{mission.goal}</h2>
       <p className="text-sm">
-        本機示範交辦已保存；尚未串接定價
-        Agent，也未發布價格。正式計畫、業主核准與通路讀回仍由原定價流程完成。
-      </p>
+        {uiText("本機示範交辦已保存；尚未串接定價 Agent，也未發布價格。正式計畫、業主核准與通路讀回仍由原定價流程完成。")}</p>
       <p className="text-sm text-muted-foreground">
-        {preview.query.start} 至 {preview.query.end}（不含末日）·{" "}
+        {preview.query.start} {uiText("至")}{preview.query.end}{uiText("（不含末日）·")}{" "}
         {channelLabels[preview.query.channel]}
       </p>
       <div className="flex gap-2">
-        <Badge variant="outline">可提案 {preview.proposed.length} 房晚</Badge>
-        <Badge variant="outline">排除 {preview.excluded.length} 房晚</Badge>
+        <Badge variant="outline">{uiText("可提案")}{preview.proposed.length} {uiText("房晚")}</Badge>
+        <Badge variant="outline">{uiText("排除")}{preview.excluded.length} {uiText("房晚")}</Badge>
       </div>
       <div className="max-h-80 overflow-auto rounded-lg border text-xs">
         {preview.proposed.map((c) => (
@@ -63,7 +64,7 @@ export function PricingMission({ missionId }: { missionId: string }) {
         ))}
       </div>
       <details className="text-xs">
-        <summary>排除清單與交接契約</summary>
+        <summary>{uiText("排除清單與交接契約")}</summary>
         <ul className="my-3 space-y-1">
           {preview.excluded.map((c) => (
             <li key={`${c.room}|${c.date}`}>
@@ -81,7 +82,7 @@ export function PricingMission({ missionId }: { missionId: string }) {
         </pre>
       </details>
       <Button asChild variant="outline">
-        <Link href="/calendar?mode=unsold">返回未售房況</Link>
+        <Link href="/calendar?mode=unsold">{uiText("返回未售房況")}</Link>
       </Button>
     </section>
   );

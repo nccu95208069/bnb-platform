@@ -1,4 +1,6 @@
 "use client";
+import {useIntlLocale} from "@/components/i18n/language-provider";
+import {useT} from "@/components/i18n/language-provider";
 
 import { PaymentBadge } from "./payment-badge";
 import { useEffect, useMemo, useRef } from "react";
@@ -63,6 +65,8 @@ function BookingChip({
   date?: string;
   compact?: boolean;
 }) {
+  const uiText = useT();
+
   const nights = stayNightCount(booking);
   const progress = date ? stayProgressLabel(booking, date) : null;
   const continuesBefore = Boolean(date && booking.check_in < date);
@@ -90,7 +94,7 @@ function BookingChip({
         compact && continuesAfter && "rounded-r-none border-r-4",
         PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
       )}
-      title={`${bookingIdentityText(booking)}｜${booking.property_name}｜${booking.check_in}–${booking.check_out}${nights > 1 ? `｜連住 ${nights} 晚` : ""}`}
+      title={uiText("{0}｜{1}｜{2}–{3}{4}", [bookingIdentityText(booking),booking.property_name,booking.check_in,booking.check_out,nights > 1 ? `｜連住 ${nights} 晚` : ""])}
     >
       {property ? (
         <span
@@ -105,14 +109,14 @@ function BookingChip({
       <BookingIdentity booking={booking} />
       {compact && compactSuffix && (
         <span className="min-w-0 truncate font-semibold opacity-75">
-          {compactSuffix}
+          {uiText(compactSuffix)}
         </span>
       )}
       {!compact && (
         <>
           {nights > 1 && (
             <span className="shrink-0 rounded-full bg-white/20 text-inherit px-1.5 py-0.5 text-[10px] font-semibold">
-              {progress ?? `連住 ${nights} 晚`}
+              {uiText(progress ?? `連住 ${nights} 晚`)}
             </span>
           )}
         </>
@@ -149,6 +153,10 @@ function MonthPanel({
   monthStart: string;
   sectionRef: (node: HTMLElement | null) => void;
 }) {
+const uiLocale = useIntlLocale();
+
+  const uiText = useT();
+
   const today = localTodayIso();
   const period = monthCalendarPeriod(monthStart);
   const weeks = chunkWeeks(dateRange(period.start, period.end));
@@ -185,15 +193,14 @@ function MonthPanel({
     >
       <div className="sticky top-0 z-20 flex items-center justify-between border-y bg-background/95 px-3 py-2.5 backdrop-blur md:px-4">
         <h2 className="text-base font-semibold">
-          {formatMonthLabel(monthStart)}
+          {formatMonthLabel(monthStart, uiLocale)}
         </h2>
         <span className="text-xs text-muted-foreground">
-          {activeRoomNights} 房晚
-        </span>
+          {activeRoomNights} {uiText("房晚")}</span>
       </div>
 
       <div className="grid grid-cols-7 border-b bg-muted/35">
-        {WEEKDAY_LABELS.map((weekday, index) => (
+        {uiText(WEEKDAY_LABELS.map((weekday, index) => (
           <div
             key={weekday}
             className={cn(
@@ -201,9 +208,9 @@ function MonthPanel({
               index >= 5 && "bg-muted/45",
             )}
           >
-            週{weekday}
+            {uiText(`週${weekday}`)}
           </div>
-        ))}
+        )))}
       </div>
 
       {weeks.map((week) => {
@@ -238,8 +245,8 @@ function MonthPanel({
                     {parseIso(date).getUTCDate()}
                   </button>
                   <div className="hidden gap-1 text-[9px] text-muted-foreground sm:flex md:text-[10px]">
-                    {arrivals > 0 && <span>入 {arrivals}</span>}
-                    {departures > 0 && <span>退 {departures}</span>}
+                    {arrivals > 0 && <span>{uiText("入")}{arrivals}</span>}
+                    {departures > 0 && <span>{uiText("退")}{departures}</span>}
                   </div>
                 </div>;
               })}
@@ -248,7 +255,7 @@ function MonthPanel({
                 const nights = stayNightCount(booking);
                 const guestName = realGuestName(booking);
                 const label = `${PLATFORM_LABELS[booking.platform] ?? "其他"}｜${guestName || "姓名尚未開放"}｜${booking.property_name}｜${booking.room_number}｜${booking.check_in}–${booking.check_out}${nights > 1 ? `｜連住 ${nights} 晚` : ""}`;
-                return <button key={booking.id} type="button" title={label} aria-label={label}
+                return <button key={booking.id} type="button" title={uiText(label)} aria-label={uiText(label)}
                   data-stay-id={booking.id} data-stay-start={segment.start} data-stay-end={segment.end}
                   data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
                   onClick={() => onSelectBooking(booking)}
@@ -260,9 +267,9 @@ function MonthPanel({
                   {segment.continuesBefore && <span aria-hidden="true">‹</span>}
                   <span className="min-w-0 flex-1">
                     <span className="block truncate leading-[12px]">
-                      <span className="font-semibold">{booking.source_conflict ? "待核對" : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
+                      <span className="font-semibold">{booking.source_conflict ? uiText("待核對") : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
                       <span className="ml-1 opacity-85">{booking.room_number}</span>
-                      {nights > 1 && <span className="ml-1">{nights}晚</span>}
+                      {nights > 1 && <span className="ml-1">{nights}{uiText("晚")}</span>}
                     </span>
                     {guestName && <span className="block truncate pr-3 leading-[12px]">{guestName}</span>}
                     <GuestRemarks booking={booking} compact limit={segment.end-segment.start>1?2:1} />
@@ -275,8 +282,7 @@ function MonthPanel({
                 style={{gridColumn: index + 1, gridRow: visibleLanes + 2}}
                 onClick={() => setExpandedWeeks(current => current.includes(weekKey) ? current : [...current, weekKey])}
                 className="relative mx-1 min-w-0 rounded px-1 text-left text-[10px] font-semibold text-muted-foreground hover:bg-accent md:text-[11px]">
-                還有 {count} 筆
-              </button>)}
+                {uiText("還有")}{count} {uiText("筆")}</button>)}
             </div>
 
             {expanded && weekHasOverflow && (
@@ -290,8 +296,7 @@ function MonthPanel({
                 className="flex w-full items-center justify-center gap-1 border-t bg-muted/20 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground"
               >
                 <ChevronUp className="size-3" />
-                收合這一列
-              </button>
+                {uiText("收合這一列")}</button>
             )}
           </div>
         );
@@ -398,6 +403,8 @@ function DayColumn({
   date: string;
   onSelectBooking: (booking: CalendarBooking) => void;
 }) {
+  const uiText = useT();
+
   const propertyMap = useMemo(() => propertyById(properties), [properties]);
 
   return (
@@ -405,7 +412,7 @@ function DayColumn({
       <div className="flex items-center justify-between border-b px-4 py-3">
         <h3 className="flex items-center gap-2 text-sm font-semibold">
           <Icon className="size-4" />
-          {title}
+          {uiText(title)}
         </h3>
         <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-semibold">
           {bookings.length}
@@ -423,7 +430,7 @@ function DayColumn({
         ))}
         {bookings.length === 0 && (
           <div className="flex min-h-32 items-center justify-center text-center text-sm text-muted-foreground">
-            {emptyText}
+            {uiText(emptyText)}
           </div>
         )}
       </div>
@@ -438,6 +445,8 @@ export function DayView({
   properties,
   onSelectBooking,
 }: CalendarViewProps & { date: string }) {
+  const uiText = useT();
+
   const arrivals = bookings.filter((booking) => booking.check_in === date);
   const departures = bookings.filter((booking) => booking.check_out === date);
   const staying = bookings.filter(
@@ -457,7 +466,7 @@ export function DayView({
     <div className="space-y-4">
       <div className="grid gap-3 lg:grid-cols-3">
         <DayColumn
-          title="今日入住"
+          title={uiText("今日入住")}
           icon={LogIn}
           bookings={arrivals}
           emptyText="今天沒有入住"
@@ -466,7 +475,7 @@ export function DayView({
           onSelectBooking={onSelectBooking}
         />
         <DayColumn
-          title="住宿中"
+          title={uiText("住宿中")}
           icon={Moon}
           bookings={staying}
           emptyText="沒有續住中的客人"
@@ -475,7 +484,7 @@ export function DayView({
           onSelectBooking={onSelectBooking}
         />
         <DayColumn
-          title="今日退房"
+          title={uiText("今日退房")}
           icon={LogOut}
           bookings={departures}
           emptyText="今天沒有退房"
@@ -488,10 +497,9 @@ export function DayView({
       <section className="overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div>
-            <h3 className="text-sm font-semibold">房間狀態</h3>
+            <h3 className="text-sm font-semibold">{uiText("房間狀態")}</h3>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              {formatShortDate(date)} 的入住與續住狀態
-            </p>
+              {formatShortDate(date)} {uiText("的入住與續住狀態")}</p>
           </div>
           <BedDouble className="size-4 text-muted-foreground" />
         </div>
@@ -529,13 +537,13 @@ export function DayView({
                   <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-semibold">
                     {current
                       ? arriving
-                        ? "今日入住"
-                        : (progress ?? "住宿中")
-                      : "空房"}
+                        ? uiText("今日入住")
+                        : uiText(progress ?? "住宿中")
+                      : uiText("空房")}
                   </span>
                 </div>
                 <p className="mt-3 truncate text-sm text-muted-foreground">
-                  {current ? bookingIdentityText(current) : "尚無入住安排"}
+                  {current ? bookingIdentityText(current) : uiText("尚無入住安排")}
                 </p>
               </button>
             );

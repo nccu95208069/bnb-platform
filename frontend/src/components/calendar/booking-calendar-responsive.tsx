@@ -1,4 +1,6 @@
 "use client";
+import {useIntlLocale} from "@/components/i18n/language-provider";
+import {useT} from "@/components/i18n/language-provider";
 import { OsPaymentPanel } from "@/components/payments/os-payment-panel";
 
 import { CalendarPrivacy } from "./calendar-privacy";
@@ -127,11 +129,13 @@ function MetricCard({
   label: string;
   value: string | number;
 }) {
+  const uiText = useT();
+
   return (
     <div className="rounded-xl border bg-card px-4 py-3 shadow-xs">
       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <Icon className="size-3.5" />
-        {label}
+        {uiText(label)}
       </div>
       <p className="mt-1 text-xl font-semibold tracking-tight text-foreground">
         {value}
@@ -169,6 +173,10 @@ function overlayEdits(
 }
 
 function SoldBookingCalendar() {
+const uiLocale = useIntlLocale();
+
+  const uiText = useT();
+
   const view = useCalendarPreferences((state) => state.view);
   const setView = useCalendarPreferences((state) => state.setView);
   const query = useCalendarPreferences((state) => state.searchQuery);
@@ -234,11 +242,11 @@ function SoldBookingCalendar() {
       return {
         start: visibleMonth,
         end: addMonths(visibleMonth, 1),
-        label: formatMonthLabel(visibleMonth),
+        label: formatMonthLabel(visibleMonth, uiLocale),
       };
     }
-    return currentPeriod(anchorDate, view);
-  }, [anchorDate, view, visibleMonth]);
+    return currentPeriod(anchorDate, view, uiLocale);
+  }, [anchorDate, view, visibleMonth, uiLocale]);
 
   useEffect(() => {
     void initializeAccess();
@@ -596,7 +604,7 @@ function SoldBookingCalendar() {
           : input.paymentType === "balance"
             ? "尾款"
             : "款項"
-      } ${formatMoney(input.amount)}，收款日 ${input.receivedAt}`,
+      } ${formatMoney(input.amount, uiLocale)}，收款日 ${input.receivedAt}`,
       occurred_at: new Date().toISOString(),
     };
 
@@ -612,8 +620,8 @@ function SoldBookingCalendar() {
         },
       },
     }));
-    toast.success("付款已登記", {
-      description: `${formatMoney(input.amount)} · ${input.receivedAt}`,
+    toast.success(uiText("付款已登記"), {
+      description: `${formatMoney(input.amount, uiLocale)} · ${input.receivedAt}`,
     });
   }
 
@@ -630,7 +638,7 @@ function SoldBookingCalendar() {
     );
 
     if (conflict) {
-      toast.error("無法修改：新日期已有訂單", {
+      toast.error(uiText("無法修改：新日期已有訂單"), {
         description: `${input.roomNumber} 房與 ${conflict.guest_name} 的住宿區間重疊。`,
       });
       return;
@@ -640,7 +648,7 @@ function SoldBookingCalendar() {
       id: uniqueId("audit"),
       action: "update_booking",
       summary: `更新為 ${input.roomNumber} 房，${input.checkIn}–${input.checkOut}${
-        permissions.viewPrices ? `，房費 ${formatMoney(input.roomRate)}` : ""
+        permissions.viewPrices ? `，房費 ${formatMoney(input.roomRate, uiLocale)}` : ""
       }`,
       occurred_at: new Date().toISOString(),
     };
@@ -684,7 +692,7 @@ function SoldBookingCalendar() {
         segments,
       };
     });
-    toast.success("訂單資料已修改");
+    toast.success(uiText("訂單資料已修改"));
   }
 
   function cancelBooking(reason: string) {
@@ -710,7 +718,7 @@ function SoldBookingCalendar() {
         },
       },
     }));
-    toast.success("預訂已取消", {
+    toast.success(uiText("預訂已取消"), {
       description: "房況已在示範資料中釋出。",
     });
   }
@@ -725,13 +733,12 @@ function SoldBookingCalendar() {
       {PAYMENT_SANDBOX && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card p-3 text-sm">
           <div>
-            <p className="font-semibold">日曆與付款任務已連接</p>
+            <p className="font-semibold">{uiText("日曆與付款任務已連接")}</p>
             <p className="mt-1 text-xs text-muted-foreground">
-              隔離測試 · 點選 301 房測試訂單，登記付款後會保存並更新日曆。
-            </p>
+              {uiText("隔離測試 · 點選 301 房測試訂單，登記付款後會保存並更新日曆。")}</p>
           </div>
           <Button asChild variant="outline" size="sm">
-            <Link href="/missions">交辦與查看任務</Link>
+            <Link href="/missions">{uiText("交辦與查看任務")}</Link>
           </Button>
         </div>
       )}
@@ -744,14 +751,14 @@ function SoldBookingCalendar() {
             onChange={(event: ChangeEvent<HTMLInputElement>) =>
               setQuery(event.target.value)
             }
-            placeholder="搜尋客人、房號、需求或訂單編號"
+            placeholder={uiText("搜尋客人、房號、需求或訂單編號")}
             className="h-10 flex-1 border-0 bg-transparent px-1 text-base shadow-none focus-visible:ring-0"
           />
           <Button
             variant="ghost"
             size="icon"
             onClick={closeMobileSearch}
-            aria-label="清除並關閉搜尋"
+            aria-label={uiText("清除並關閉搜尋")}
           >
             <X className="size-5" />
           </Button>
@@ -769,12 +776,10 @@ function SoldBookingCalendar() {
             </div>
             <div className="mt-2 flex items-center gap-3">
               <h1 className="text-2xl font-semibold tracking-tight">
-                訂單與房況日曆
-              </h1>
+                {uiText("訂單與房況日曆")}</h1>
               {effectiveRole !== "owner" && (
                 <span className="rounded-full border bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                  權限預覽
-                </span>
+                  {uiText("權限預覽")}</span>
               )}
             </div>
           </div>
@@ -793,7 +798,7 @@ function SoldBookingCalendar() {
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {VIEW_LABELS[option]}
+                  {uiText(VIEW_LABELS[option])}
                 </button>
               ))}
             </div>
@@ -802,7 +807,7 @@ function SoldBookingCalendar() {
               size="icon"
               onClick={() => setReloadKey((value) => value + 1)}
               disabled={loading || refreshing}
-              aria-label="重新整理"
+              aria-label={uiText("重新整理")}
             >
               <RefreshCw
                 className={cn(
@@ -820,18 +825,17 @@ function SoldBookingCalendar() {
               variant="outline"
               size="icon"
               onClick={() => navigate(-1)}
-              aria-label="上一個區間"
+              aria-label={uiText("上一個區間")}
             >
               <ChevronLeft className="size-4" />
             </Button>
             <Button variant="outline" onClick={goToToday}>
-              今天
-            </Button>
+              {uiText("今天")}</Button>
             <Button
               variant="outline"
               size="icon"
               onClick={() => navigate(1)}
-              aria-label="下一個區間"
+              aria-label={uiText("下一個區間")}
             >
               <ChevronRight className="size-4" />
             </Button>
@@ -848,17 +852,17 @@ function SoldBookingCalendar() {
                 onChange={(event: ChangeEvent<HTMLInputElement>) =>
                   setQuery(event.target.value)
                 }
-                placeholder="搜尋客人、房號、需求或訂單編號"
+                placeholder={uiText("搜尋客人、房號、需求或訂單編號")}
                 className="bg-background pl-9"
               />
             </div>
             <span className="whitespace-nowrap text-[11px] text-muted-foreground">
               {lastLoadedAt
-                ? `${lastLoadedAt.toLocaleTimeString("zh-TW", {
+                ? uiText("{0} {1}", [lastLoadedAt.toLocaleTimeString(uiLocale, {
                     hour: "2-digit",
                     minute: "2-digit",
-                  })} ${data?.source ? "載入" : "更新"}`
-                : "等待載入"}
+                  }),data?.source ? "載入" : "更新"])
+                : uiText("等待載入")}
             </span>
           </div>
         </div>
@@ -866,30 +870,29 @@ function SoldBookingCalendar() {
 
       {data?.source_errors?.filter(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id))).map(item => (
         <div key={item.property_id} role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-          {item.label}暫時無法載入，相關房況與統計尚無法確認。其他民宿仍可正常查看。
-        </div>
+          {item.label}{uiText("暫時無法載入，相關房況與統計尚無法確認。其他民宿仍可正常查看。")}</div>
       ))}
 
       <div className="hidden gap-3 sm:grid-cols-2 md:grid xl:grid-cols-5">
         <MetricCard
           icon={CalendarDays}
-          label={data?.source ? "訂單紀錄" : "訂單"}
+          label={data?.source ? uiText("訂單紀錄") : uiText("訂單")}
           value={unavailableSelectedSource ? "—" : metrics.orderCount}
         />
-        <MetricCard icon={LogIn} label="入住" value={unavailableSelectedSource ? "—" : metrics.arrivals} />
-        <MetricCard icon={LogOut} label="退房" value={unavailableSelectedSource ? "—" : metrics.departures} />
-        <MetricCard icon={DoorOpen} label="房晚" value={unavailableSelectedSource ? "—" : metrics.roomNights} />
+        <MetricCard icon={LogIn} label={uiText("入住")} value={unavailableSelectedSource ? "—" : metrics.arrivals} />
+        <MetricCard icon={LogOut} label={uiText("退房")} value={unavailableSelectedSource ? "—" : metrics.departures} />
+        <MetricCard icon={DoorOpen} label={uiText("房晚")} value={unavailableSelectedSource ? "—" : metrics.roomNights} />
         <MetricCard
           icon={CircleDollarSign}
-          label="房費"
+          label={uiText("房費")}
           value={
-            unavailableSelectedSource ? "—" : permissions.viewPrices ? formatMoney(metrics.amount) : "已隱藏"
+            unavailableSelectedSource ? "—" : permissions.viewPrices ? formatMoney(metrics.amount, uiLocale) : "已隱藏"
           }
         />
       </div>
 
       <div className="hidden flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border bg-card px-4 py-2.5 text-xs text-muted-foreground shadow-xs lg:flex">
-        <span className="font-semibold text-foreground">圖例</span>
+        <span className="font-semibold text-foreground">{uiText("圖例")}</span>
         {Object.entries(PLATFORM_LABELS).map(([platform, label]) => (
           <span key={platform} className="flex items-center gap-1.5">
             <span
@@ -898,7 +901,7 @@ function SoldBookingCalendar() {
                 PLATFORM_STYLES[platform] ?? PLATFORM_STYLES.other,
               )}
             />
-            {label}
+            {uiText(label)}
           </span>
         ))}
         {permissions.viewPrices && <span className="payment-review-legend ml-auto flex flex-wrap items-center gap-3">
@@ -910,18 +913,17 @@ function SoldBookingCalendar() {
                   PAYMENT_DOT_STYLES[status],
                 )}
               />
-              {PAYMENT_LABELS[status]}
+              {uiText(PAYMENT_LABELS[status])}
             </span>
           ))}
         </span>}
       </div>
 
-      {permissions.viewPrices && <p className="payment-review-legend px-2 text-[10px] text-muted-foreground">灰底：已付清 · 訂：已付訂金 · 未：未付款</p>}
+      {permissions.viewPrices && <p className="payment-review-legend px-2 text-[10px] text-muted-foreground">{uiText("灰底：已付清 · 訂：已付訂金 · 未：未付款")}</p>}
 
       {DEMO_MODE && !PAYMENT_SANDBOX && !data?.source && (
         <div className="hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 md:block">
-          示範模式：可測試權限、付款、改期與取消；變更只保存在這台裝置。
-        </div>
+          {uiText("示範模式：可測試權限、付款、改期與取消；變更只保存在這台裝置。")}</div>
       )}
 
       {data?.guest_access?.available && <CalendarPrivacy authenticated={data.guest_access.authenticated} />}
@@ -932,59 +934,56 @@ function SoldBookingCalendar() {
         <div key={property_id} className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-[11px] text-sky-950" role="status">
           <details>
             <summary className="cursor-pointer py-0.5">
-              <span className="font-medium">{source.label}</span> · 唯讀 · {source.automatic_sync && source.sync ? ({ healthy: "同步正常", confirming: "確認變更中", waiting: "等待首次檢查", error: "檢查失敗，保留上次資料", stale: "資料可能過期" })[source.sync.status] : "尚未自動同步"}
-              {source.sync?.last_checked_at && <span className="ml-1 text-sky-800">{new Date(source.sync.last_checked_at).toLocaleTimeString("zh-TW", {timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false})}</span>}
+              <span className="font-medium">{source.label}</span> {uiText("· 唯讀 ·")}{source.automatic_sync && source.sync ? uiText(({ healthy: "同步正常", confirming: "確認變更中", waiting: "等待首次檢查", error: "檢查失敗，保留上次資料", stale: "資料可能過期" })[source.sync.status]) : uiText("尚未自動同步")}
+              {source.sync?.last_checked_at && <span className="ml-1 text-sky-800">{new Date(source.sync.last_checked_at).toLocaleTimeString(uiLocale, {timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false})}</span>}
             </summary>
             <div className="mt-1 space-y-1 border-t border-sky-200 pt-1.5">
-          <p className="font-medium">{source.label} · {data?.guest_access?.authenticated ? "私人唯讀檢視" : "匿名唯讀快照"} · {new Date(source.observed_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}</p>
+          <p className="font-medium">{source.label} · {data?.guest_access?.authenticated ? uiText("私人唯讀檢視") : uiText("匿名唯讀快照")} · {new Date(source.observed_at).toLocaleString(uiLocale, { timeZone: "Asia/Taipei" })}</p>
           {source.automatic_sync && source.sync ? <div aria-live="polite">
             <p>{({ waiting: "監控已設定，等待首次檢查。", healthy: "每分鐘自動檢查訂房表。", confirming: "發現資料變更，等待下一次檢查確認；目前保留上次資料。", error: "訂房表檢查失敗，目前保留上次資料，系統會自動重試。", stale: "已超過 5 分鐘未完成檢查，目前顯示上次資料。" })[source.sync.status]}</p>
-            <p>最後檢查：{source.sync.last_checked_at ? new Date(source.sync.last_checked_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" }) : "尚未完成"} · 比對 {source.sync.cutoff} 起的入住紀錄與所有未來訂單。</p>
-          </div> : <p>尚未啟用自動同步。</p>}
-          <p>已付清指客人已付清，OTA 收款與旅宿入帳尚未記錄。</p>
-          <p>訂單編號可空白，使用唯一 ID 識別每列；跨列連住需共同編號。</p>
+            <p>{uiText("最後檢查：")}{source.sync.last_checked_at ? new Date(source.sync.last_checked_at).toLocaleString(uiLocale, { timeZone: "Asia/Taipei" }) : uiText("尚未完成")} {uiText("· 比對")}{source.sync.cutoff} {uiText("起的入住紀錄與所有未來訂單。")}</p>
+          </div> : <p>{uiText("尚未啟用自動同步。")}</p>}
+          <p>{uiText("已付清指客人已付清，OTA 收款與旅宿入帳尚未記錄。")}</p>
+          <p>{uiText("訂單編號可空白，使用唯一 ID 識別每列；跨列連住需共同編號。")}</p>
             </div>
           </details>
-          {(summary?.new_issue_rows ?? 0) > 0 && <p className="mt-1">新增或變更的問題涉及 {summary?.new_issue_rows} 列，相關房況待核對。</p>}
+          {(summary?.new_issue_rows ?? 0) > 0 && <p className="mt-1">{uiText("新增或變更的問題涉及")}{summary?.new_issue_rows} {uiText("列，相關房況待核對。")}</p>}
         </div>
       ))}
 
-      {query.trim() && <section className="m-2 rounded-xl border bg-card p-3 md:m-0" aria-label="搜尋結果">
-        <h2 className="text-sm font-semibold">搜尋結果 · {filteredBookings.length} 筆（2025–2027）</h2>
+      {query.trim() && <section className="m-2 rounded-xl border bg-card p-3 md:m-0" aria-label={uiText("搜尋結果")}>
+        <h2 className="text-sm font-semibold">{uiText("搜尋結果 ·")}{filteredBookings.length} {uiText("筆（2025–2027）")}</h2>
         <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">
           {filteredBookings.slice(0,50).map(booking=><button key={booking.id} className="block w-full rounded border p-2 text-left text-sm hover:bg-muted" onClick={()=>setSelectedId(booking.id)}>
             <span className="block">{booking.check_in}–{booking.check_out} · {booking.room_number} · {booking.guest_name}</span>
             <span className="text-xs">{booking.guest_remarks?.map(r=>r.label).join(" · ")}</span>
           </button>)}
-          {!filteredBookings.length && <p className="text-sm text-muted-foreground">沒有符合的訂單。</p>}
-          {filteredBookings.length>50 && <p className="text-xs">先顯示 50 筆，請增加關鍵字縮小範圍。</p>}
+          {!filteredBookings.length && <p className="text-sm text-muted-foreground">{uiText("沒有符合的訂單。")}</p>}
+          {filteredBookings.length>50 && <p className="text-xs">{uiText("先顯示 50 筆，請增加關鍵字縮小範圍。")}</p>}
         </div>
       </section>}
       {error && (
         <div className="m-2 flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive md:m-0">
           <div className="flex items-center gap-2">
             <AlertCircle className="size-4 shrink-0" />
-            <span>{error}</span>
+            <span>{uiText(error)}</span>
           </div>
           <Button
             variant="outline"
             size="sm"
             onClick={() => setReloadKey((value) => value + 1)}
           >
-            重試
-          </Button>
+            {uiText("重試")}</Button>
         </div>
       )}
 
       {loading ? (
         <div className="flex min-h-[calc(100dvh-7rem)] items-center justify-center gap-2 bg-card text-sm text-muted-foreground md:min-h-96 md:rounded-xl md:border md:shadow-sm">
           <LoaderCircle className="size-4 animate-spin" />
-          讀取訂單與房況中
-        </div>
+          {uiText("讀取訂單與房況中")}</div>
       ) : selectedProperties.length === 0 ? (
         <div className="m-2 rounded-xl border border-dashed bg-card px-4 py-16 text-center text-sm text-muted-foreground md:m-0">
-          請從左上角選單選擇至少一間旅宿。
-        </div>
+          {uiText("請從左上角選單選擇至少一間旅宿。")}</div>
       ) : (
         <>
           {view === "month" && (
@@ -1039,8 +1038,7 @@ function SoldBookingCalendar() {
         filteredBookings.length === 0 &&
         view !== "month" && (
           <div className="m-2 rounded-xl border border-dashed bg-card px-4 py-10 text-center text-sm text-muted-foreground md:m-0">
-            這個區間沒有符合條件的訂單。
-          </div>
+            {uiText("這個區間沒有符合條件的訂單。")}</div>
         )}
 
       <BookingDetailsPanel
@@ -1076,6 +1074,8 @@ function SoldBookingCalendar() {
 }
 
 export function BookingCalendarResponsive() {
+  const uiText = useT();
+
   const [paymentReview, setPaymentReview] = useState(false);
   const mode = useCalendarPreferences((state) => state.mode);
   const setMode = useCalendarPreferences((state) => state.setMode);
@@ -1087,16 +1087,16 @@ export function BookingCalendarResponsive() {
   const showUnsold = viewPrices && sweetfunAllowed && (selectedPropertyIds.length === 0 || selectedPropertyIds.includes("sweetfun"));
   useEffect(() => { if (ready && !showUnsold && mode === "unsold") setMode("sold"); }, [ready, showUnsold, mode, setMode]);
   if (!ready)
-    return <p className="p-4 text-sm text-muted-foreground">讀取日曆…</p>;
+    return <p className="p-4 text-sm text-muted-foreground">{uiText("讀取日曆…")}</p>;
   return (
     <div className={paymentReview && viewPrices && mode === "sold" ? "payment-review" : ""}>
       {(showUnsold || (viewPrices && mode === "sold")) && (
-        <div className="sticky top-14 z-40 mb-1 flex justify-end bg-background/95 py-1 backdrop-blur md:top-0">
-          {viewPrices && mode === "sold" && <Button size="sm" variant={paymentReview ? "default" : "outline"} aria-pressed={paymentReview} onClick={() => setPaymentReview(v=>!v)} className="mr-auto">檢視付款狀態</Button>}
+        <div className="sticky top-14 z-40 mb-1 flex flex-wrap items-center justify-end gap-1 bg-background/95 py-1 backdrop-blur md:top-0">
+          {viewPrices && mode === "sold" && <Button size="sm" variant={paymentReview ? "default" : "outline"} aria-pressed={paymentReview} onClick={() => setPaymentReview(v=>!v)} className="mr-auto">{uiText("檢視付款狀態")}</Button>}
           {showUnsold && <div
             className="inline-flex gap-1 rounded-xl border bg-muted/40 p-1"
             role="group"
-            aria-label="切換已售與未售"
+            aria-label={uiText("切換已售與未售")}
           >
             {(["sold", "unsold"] as const).map((value) => (
               <Button
@@ -1108,7 +1108,7 @@ export function BookingCalendarResponsive() {
                   setMode(value);
                 }}
               >
-                {value === "sold" ? "已售訂單" : "未售房況"}
+                {value === "sold" ? uiText("已售訂單") : uiText("未售房況")}
               </Button>
             ))}
           </div>}

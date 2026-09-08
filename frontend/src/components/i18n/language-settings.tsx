@@ -1,0 +1,4 @@
+"use client";
+import {LOCALES,LOCALE_NAMES,type Locale} from '@/lib/i18n/core';
+import {useLanguage,useT} from './language-provider';
+export function LanguageSettings({compact=false}:{compact?:boolean}){const {locale,scope,saving,error,save}=useLanguage(),t=useT();return <section className={compact?'space-y-2':'mb-6 space-y-3 rounded-2xl border bg-white p-5'}><label className="block text-sm font-medium">{t('介面語言')}<select aria-label="Language / 語言" value={locale} disabled={saving||scope==='loading'} onChange={e=>void save(e.target.value as Locale)} className="mt-2 block w-full rounded-lg border bg-white p-2.5">{LOCALES.map(l=><option key={l} value={l} lang={l}>{LOCALE_NAMES[l]}</option>)}</select></label>{!compact&&<p className="text-xs text-muted-foreground">{t('語言依帳號保存；姓名、備註與自行輸入的內容保留原文。')}</p>}{saving&&<p role="status" className="text-xs">{t('儲存中…')}</p>}{error&&<p role="alert" className="text-xs text-red-700">{t('語言尚未儲存，請重新選擇或重新整理後重試。')}</p>}</section>;}

@@ -1,4 +1,6 @@
 "use client";
+import {useIntlLocale} from "@/components/i18n/language-provider";
+import {useT} from "@/components/i18n/language-provider";
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,6 +19,10 @@ type Props = {
  onSelect:(cell:RoomNight)=>void; onSelectDay:(day:string)=>void;
 };
 function MonthPanel({month,root,props}: {month:string;root:RefObject<HTMLDivElement|null>;props:Props}) {
+const uiLocale = useIntlLocale();
+
+  const uiText = useT();
+
  const ref=useRef<HTMLElement>(null);
  const [near,setNear]=useState(false),[data,setData]=useState<AvailabilityResult|null>(null),[error,setError]=useState(false),[retry,setRetry]=useState(0);
  const {property,room,channel,cycle,refresh,search,onlyAvailable}=props;
@@ -49,19 +55,19 @@ function MonthPanel({month,root,props}: {month:string;root:RefObject<HTMLDivElem
  const matches=(c:RoomNight)=>(!onlyAvailable||c.state==="available")&&(!search.trim()||`${c.room} ${inventoryLabels[c.state]} ${c.reason}`.toLowerCase().includes(search.trim().toLowerCase()));
  const openCell=props.onSelect, selectDay=props.onSelectDay;
  return <section ref={ref} data-unsold-month={month} className="border-b bg-card">
-  <h2 className="flex h-12 items-center justify-between border-b px-3 text-base font-semibold">{formatMonthLabel(month)}<span className="text-xs font-normal text-muted-foreground">{correct && !error ? `${cells.filter(c=>c.state==="available").length} 未售房晚`:""}</span></h2>
-  {error && <button className="w-full bg-amber-50 p-2 text-sm" onClick={()=>setRetry(v=>v+1)}>此月份暫時無法讀取，點此重試</button>}
+  <h2 className="flex h-12 items-center justify-between border-b px-3 text-base font-semibold">{formatMonthLabel(month, uiLocale)}<span className="text-xs font-normal text-muted-foreground">{correct && !error ? uiText("{0} 未售房晚", [cells.filter(c=>c.state==="available").length]):""}</span></h2>
+  {error && <button className="w-full bg-amber-50 p-2 text-sm" onClick={()=>setRetry(v=>v+1)}>{uiText("此月份暫時無法讀取，點此重試")}</button>}
 
               <div className="overflow-hidden rounded-xl border bg-card">
                 <div className="grid grid-cols-7 border-b bg-muted/30">
-                  {WEEKDAY_LABELS.map((d) => (
+                  {uiText(WEEKDAY_LABELS.map((d) => (
                     <div
-                      key={d}
-                      className="p-2 text-center text-xs text-muted-foreground"
+                      key={uiText(`週${d}`)}
+                      className="truncate px-0.5 py-2 text-center text-[10px] text-muted-foreground"
                     >
-                      {d}
+                      {uiText(`週${d}`)}
                     </div>
-                  ))}
+                  )))}
                 </div>
                 <div className="grid grid-cols-7">
                   {monthDays.map((day, index) => {
@@ -87,7 +93,7 @@ function MonthPanel({month,root,props}: {month:string;root:RefObject<HTMLDivElem
                         >
                           <button
                             className="flex w-full items-center justify-between pb-1 text-left text-xs"
-                            aria-label={`${day} 查看日曆`}
+                            aria-label={uiText("{0} 查看日曆", [day])}
                             onClick={() => selectDay(day)}
                           >
                             <span
@@ -102,7 +108,7 @@ function MonthPanel({month,root,props}: {month:string;root:RefObject<HTMLDivElem
                             </span>
                             {inMonth && (
                               <span className="hidden text-[10px] text-muted-foreground sm:inline">
-                                未售 {count}
+                                {uiText("未售")}{count}
                               </span>
                             )}
                           </button>
@@ -111,8 +117,8 @@ function MonthPanel({month,root,props}: {month:string;root:RefObject<HTMLDivElem
                             .map((c, i) => (
                               <button
                                 key={c.room}
-                                title={`${c.date} ${c.room} 房 ${inventoryLabels[c.state]}`}
-                                aria-label={`${c.date} ${c.room} 房 ${inventoryLabels[c.state]} ${hidePrice ? "" : priceText(c.pricing?.current_price)}`}
+                                title={uiText("{0} {1} 房 {2}", [c.date,c.room,inventoryLabels[c.state]])}
+                                aria-label={uiText("{0} {1} 房 {2} {3}", [c.date,c.room,inventoryLabels[c.state],hidePrice ? "" : priceText(c.pricing?.current_price)])}
                                 onClick={() => openCell(c)}
                                 className={cn(
                                   "mb-1 w-full rounded-md border px-1 py-1 text-left sm:flex sm:items-center sm:justify-between",
@@ -139,35 +145,33 @@ function MonthPanel({month,root,props}: {month:string;root:RefObject<HTMLDivElem
                             <button
                               className="w-full text-left text-[9px] text-muted-foreground sm:hidden"
                               aria-expanded={false}
-                              aria-label={`${day} 展開其餘房間`}
+                              aria-label={uiText("{0} 展開其餘房間", [day])}
                               onClick={() =>
                                 setExpandedWeeks((v) => [...v, weekKey])
                               }
                             >
-                              另 {shown.length - 2} 房
-                            </button>
+                              {uiText("另")}{shown.length - 2} {uiText("房")}</button>
                           )}
                           {!expanded && shown.length > 3 && (
                             <button
                               className="hidden w-full text-left text-[10px] text-muted-foreground sm:block"
                               aria-expanded={false}
-                              aria-label={`${day} 展開其餘房間`}
+                              aria-label={uiText("{0} 展開其餘房間", [day])}
                               onClick={() =>
                                 setExpandedWeeks((v) => [...v, weekKey])
                               }
                             >
-                              另 {shown.length - 3} 房
-                            </button>
+                              {uiText("另")}{shown.length - 3} {uiText("房")}</button>
                           )}
                           {inMonth && shown.length === 0 && (
                             <p className="pt-2 text-[10px] text-muted-foreground">
                               {!correct || error ? (error ? "待重試" : "載入中") : day < (data?.asof ?? localTodayIso())
-                                ? "已過期"
+                                ? uiText("已過期")
                                 : search.trim()
-                                  ? "無符合條件"
+                                  ? uiText("無符合條件")
                                   : onlyAvailable
-                                    ? "無可售"
-                                    : "無未售"}
+                                    ? uiText("無可售")
+                                    : uiText("無未售")}
                             </p>
                           )}
                         </div>
@@ -176,7 +180,7 @@ function MonthPanel({month,root,props}: {month:string;root:RefObject<HTMLDivElem
                             variant="ghost"
                             size="sm"
                             className="col-span-7 h-8 w-full rounded-none border-b bg-muted/20 text-xs"
-                            aria-label={`${weekKey} 收合這一列`}
+                            aria-label={uiText("{0} 收合這一列", [weekKey])}
                             aria-expanded={true}
                             onClick={() =>
                               setExpandedWeeks((v) =>
@@ -184,8 +188,7 @@ function MonthPanel({month,root,props}: {month:string;root:RefObject<HTMLDivElem
                               )
                             }
                           >
-                            收合這一列
-                          </Button>
+                            {uiText("收合這一列")}</Button>
                         )}
                       </Fragment>
                     );
@@ -196,6 +199,8 @@ function MonthPanel({month,root,props}: {month:string;root:RefObject<HTMLDivElem
  </section>;
 }
 export function UnsoldMonthScroller(props:Props) {
+  const uiText = useT();
+
  const root=useRef<HTMLDivElement>(null);
  useLayoutEffect(()=>{
   const container=root.current;if(!container)return;
@@ -240,7 +245,7 @@ export function UnsoldMonthScroller(props:Props) {
   container.addEventListener("scroll",scroll,{passive:true});
   return ()=>{container.removeEventListener("scroll",scroll);cancelAnimationFrame(frame);};
  },[]);
- return <div ref={root} role="region" aria-label="未售月曆，可上下捲動月份" tabIndex={0} className="h-[calc(100dvh-280px)] min-h-[280px] overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm">
+ return <div ref={root} role="region" aria-label={uiText("未售月曆，可上下捲動月份")} tabIndex={0} className="h-[calc(100dvh-280px)] min-h-[280px] overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm">
   {MONTHS.map(month=><MonthPanel key={month} month={month} root={root} props={props}/>)}
  </div>;
 }
