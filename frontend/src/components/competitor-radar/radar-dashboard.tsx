@@ -639,6 +639,7 @@ export default function RadarDashboard() {
                 <span className={displayTabScan?.identity.status === "confirmed" ? styles.verified : styles.review}>{displayTabScan?.identity.status === "confirmed" ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}{displayTabScan?.identity.status === "confirmed" ? "住宿身分相符" : "住宿身分待確認"}</span>
                 <span>{displayTabScan?.state === "blocked" ? "平台目前限制存取，無法確認價格與可售狀態。" : "尚未通過核對的價格與房量保持未知。"}</span>
               </div>
+              <p className={styles.chartNote}>參考房量：數量未公開</p>
               <div className={styles.dayTableScroll}>
                 <table className={styles.dayTable}>
                   <thead><tr><th>房型</th>{dates.map((date) => <th key={date}>{formatDate(date)}<small>{weekday(date)}</small></th>)}</tr></thead>
