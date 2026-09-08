@@ -202,7 +202,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
       <div className="min-h-0 flex-1 overflow-y-auto">
       {pathname.startsWith("/calendar") && <><CalendarViewFilters /><PropertyFilters /></>}
 
-      {DEMO_MODE && !PAYMENT_SANDBOX && (
+      {pathname.startsWith("/calendar") && DEMO_MODE && !PAYMENT_SANDBOX && (
         <div className="mx-3 mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-950">
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em]">
             {SHEET_SNAPSHOT ? "訂單自動同步" : "Demo Site"}
@@ -215,8 +215,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       <nav className="flex-1 space-y-1 p-3" aria-label="工作台導覽">
         <Link href="/home" onClick={onNavigate} className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",pathname==="/home"?"bg-primary text-primary-foreground":"text-muted-foreground hover:bg-accent")}><House className="size-4"/>首頁</Link>
-        {WORKSPACE_MODULES.map(module=>{const Icon=MODULE_ICONS[module.id];if(module.id==='finance'&&!maySeeFinance(membership?.role))return null;const active=pathname===module.href||pathname.startsWith(module.href+'/')||(module.id==='settings'&&pathname==='/access');return module.enabled?<Link key={module.id} href={module.href} onClick={onNavigate} className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",active?"bg-primary text-primary-foreground":"text-muted-foreground hover:bg-accent")}><Icon className="size-4"/>{module.label}</Link>:<div key={module.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground/60"><Icon className="size-4"/>{module.label}<span className="ml-auto text-[10px]">規劃中</span></div>;})}
-        {pathname.startsWith('/finance')&&<div className="ml-7 border-l pl-3 text-xs"><Link href="/finance" onClick={onNavigate} className="block py-2">財務首頁</Link><Link href="/finance/bookkeeping" onClick={onNavigate} className="block py-2">記帳</Link></div>}
+        {WORKSPACE_MODULES.map(module=>{const Icon=MODULE_ICONS[module.id];if(module.id==='finance'&&!maySeeFinance(membership?.role))return null;const active=pathname===module.href||pathname.startsWith(module.href+'/')||(module.id==='settings'&&pathname==='/access');return module.enabled?<div key={module.id}><Link href={module.href} onClick={onNavigate} className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",active?"bg-primary text-primary-foreground":"text-muted-foreground hover:bg-accent")}><Icon className="size-4"/>{module.label}</Link>{module.id==='finance'&&active&&<div className="ml-7 border-l pl-3 text-xs"><Link href="/finance" onClick={onNavigate} className="block py-2">財務首頁</Link><Link href="/finance/bookkeeping" onClick={onNavigate} className="block py-2">記帳</Link></div>}</div>:<div key={module.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground/60"><Icon className="size-4"/>{module.label}<span className="ml-auto text-[10px]">規劃中</span></div>;})}
+
       </nav>
 
       </div>
@@ -269,7 +269,7 @@ export function Sidebar() {
           size="icon"
           className="size-9"
           onClick={() => setMobileMenuOpen(true)}
-          aria-label="開啟日曆與旅宿選單"
+          aria-label="開啟工作台選單"
         >
           <Menu className="size-5" />
         </Button>
@@ -334,7 +334,7 @@ export function Sidebar() {
           className="w-[88vw] max-w-sm p-0 pb-[env(safe-area-inset-bottom)] [&>button]:hidden"
         >
           <SheetTitle className="sr-only">
-            Sweetfun OS 日曆顯示與旅宿篩選
+            Sweetfun OS 工作台導覽
           </SheetTitle>
           <div className="absolute right-3 top-3 z-10">
             <Button
