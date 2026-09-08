@@ -168,10 +168,14 @@ async function withBrowser<T>(fn: (sandbox: SandboxInstance) => Promise<T>): Pro
     resources: { vcpus: 2 },
     networkPolicy: {
       allow: ["*.booking.com", "*.bstatic.com", "*.agoda.com", "*.agoda.net", "*.agoda.io", "*.trip.com", "*.ctrip.com", "*.tripcdn.com"],
-      subnets: { deny: ["0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "::1/128", "fc00::/7", "fe80::/10"] },
+      subnets: { deny: ["0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4"] },
     },
   });
   try {
+    // The egress API accepts IPv4 CIDRs only. Disable IPv6 inside this isolated
+    // VM before opening any untrusted page, while preserving IPv4 deny rules.
+    const ipv6 = await sandbox.runCommand({ cmd: "sh", args: ["-c", "if test -e /proc/sys/net/ipv6/conf/all/disable_ipv6; then sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1 net.ipv6.conf.default.disable_ipv6=1; fi"] });
+    if (ipv6.exitCode !== 0) throw new Error("ota_ipv6_isolation_failed");
     return await fn(sandbox);
   } finally {
     await sandbox.runCommand({ cmd: "agent-browser", args: ["close"] }).catch(() => undefined);
@@ -197,7 +201,7 @@ function propertyIdentity(
   }
   const status = observed.blocked
     ? "not_found"
-    : trustedSource && !match.conflicts.length
+    : trustedSource && Boolean(observed.name) && /sweetfun|水芳/i.test(observed.name ?? "") && !match.conflicts.length
       ? "confirmed"
       : match.status;
   return {
