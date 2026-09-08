@@ -176,7 +176,7 @@ export async function GET(request: NextRequest) {
   return reply({
     version: "radar-live-ota-v0.5",
     source: "isolated_browser",
-    live: true,
+    live: (["booking", "agoda", "trip"] as const).some((platform) => !collectionPaused(platform)),
     maxDays: 14,
     physicalInventory: false,
     confirmedBookings: false,

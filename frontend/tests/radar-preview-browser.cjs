@@ -160,6 +160,10 @@ async function run() {
 
   const origin = new URL(base).origin;
   const api = await request.newContext();
+  const capability = await (await api.get(base + '/api/radar-ota')).json();
+  assert.equal(capability.live, false, 'Paused collectors must not advertise live collection');
+  const health = await (await api.get(base + '/api/radar-preview')).json();
+  assert.equal(health.liveOtaEndpoint, false);
   const blocked = await api.post(base + '/api/radar-preview', { headers: { Origin: origin }, data: { phase: 'website', url: 'http://127.0.0.1' } });
   assert.equal(blocked.status(), 422);
   const cross = await api.post(base + '/api/radar-ota', { headers: { Origin: 'https://untrusted.example' }, data: {} });

@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { collectionPaused } from "@/lib/competitor-radar/ota-sandbox";
 import { analyzeOfficialWebsite, PublicUrlError } from "@/lib/competitor-radar/website";
 import { sanitizeCompetitorAnalysis } from "@/lib/competitor-radar/sanitize";
 import { findTourismRegistryCandidates, tourismRegistryMetadata } from "@/lib/competitor-radar/taiwan-tourism-registry";
@@ -19,11 +20,11 @@ export async function GET() {
   return reply({
     version: "radar-preview-v0.5",
     build: process.env.RADAR_BUILD_SHA ?? "local",
-    liveOtaEndpoint: true,
+    liveOtaEndpoint: (["booking", "agoda", "trip"] as const).some((platform) => !collectionPaused(platform)),
     persistence: "browser-local",
     providerCapabilities: {
       booking: "paused_after_waf_challenge",
-      agoda: "legacy_results_withdrawn_property_source_pending",
+      agoda: "legacy_results_withdrawn_candidate_search_failed",
       trip: "paused_after_restricted_response",
     },
   });
