@@ -1,4 +1,9 @@
 export const messages:Record<string,{en:string;th:string;vi:string}>= {
+  "代墊人（選填）": {"en": "Paid on behalf by (optional)", "th": "ผู้สำรองจ่าย (ไม่บังคับ)", "vi": "Người ứng tiền (không bắt buộc)"},
+  "代墊人：": {"en": "Paid on behalf by: ", "th": "ผู้สำรองจ่าย: ", "vi": "Người ứng tiền: "},
+  "登記者本人": {"en": "Me (the recorder)", "th": "ฉัน (ผู้บันทึก)", "vi": "Tôi (người ghi)"},
+  "其他人": {"en": "Someone else", "th": "บุคคลอื่น", "vi": "Người khác"},
+  "代墊人姓名": {"en": "Name of person who paid", "th": "ชื่อผู้สำรองจ่าย", "vi": "Tên người ứng tiền"},
   "整筆訂單房費": {"en":"Total booking room charges","th":"ค่าห้องรวมทั้งการจอง","vi":"Tổng tiền phòng của đơn"},
   "已登記收款": {"en":"Recorded receipts","th":"เงินรับที่บันทึกแล้ว","vi":"Khoản thu đã ghi nhận"},
   "依訂房表房費帶入，已扣除 OS 登記收款；可按實際收到的金額修改。": {"en":"Prefilled from booking-sheet room charges less OS receipts. Adjust to the amount actually received.","th":"ใส่ค่าห้องจากชีตโดยหักเงินรับที่บันทึกใน OS แล้ว ปรับตามยอดที่ได้รับจริงได้","vi":"Điền từ tiền phòng trên bảng, trừ khoản thu đã ghi trong OS. Có thể sửa theo số tiền thực nhận."},

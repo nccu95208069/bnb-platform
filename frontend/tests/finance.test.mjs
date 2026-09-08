@@ -15,3 +15,20 @@ test('month totals and annual expense trend do not mix income or void records',(
 test('income stages stay separate from categories',()=>{const result=apply({...base,kind:'income',category:'lodging',stage:'deposit'});assert.equal(result.state.entries[0].category,'lodging');assert.equal(result.state.entries[0].stage,'deposit');});
 test('CAS detects concurrent writes and verifies persisted operation',async()=>{const original=global.fetch;process.env.KV_REST_API_URL='https://test.invalid';process.env.KV_REST_API_TOKEN='test';const db=new Map();global.fetch=async(_,options)=>{const c=JSON.parse(options.body);let result=null;if(c[0]==='GET')result=db.get(c[1])??null;else if(c[0]==='EVAL'){if((db.get(c[3])??'')===c[4]){db.set(c[3],c[5]);result=1;}else result=0;}return Response.json({result});};try{const created=apply();await writeFinance('sweetfun',2026,null,created.state,base.request_id);assert.equal((await readFinance('sweetfun',2026)).state.entries.length,1);await assert.rejects(()=>writeFinance('sweetfun',2026,null,created.state,base.request_id),/VERSION_CONFLICT/);}finally{global.fetch=original;}});
 test('calendar receipts read once, Taipei date crosses month, excludes mission keys',async()=>{const original=global.fetch;const key='sweetfun-os:payments:v1:sweetfun:'+'a'.repeat(64);const receipt={id:'r',amount:1000,payment_type:'deposit',payment_method:'ota',received_at:'2026-08-31T17:00:00Z',created_at:now,actor_name:'測試',note:''};global.fetch=async(_,options)=>{const c=JSON.parse(options.body);if(c[0]==='SCAN'){assert.equal(c[3],'sweetfun-os:payments:v1:sweetfun:*');return Response.json({result:['0',[key,key,key+':mission:id']]});}assert.equal(c[0],'MGET');assert.equal(c.length,2);return Response.json({result:[JSON.stringify({version:1,receipts:[receipt,receipt]})]});};try{const entries=await calendarIncome('sweetfun',2026);assert.equal(entries.length,1);assert.equal(entries[0].date,'2026-09-01');assert.equal(entries[0].category,'lodging');assert.equal(entries[0].source,'calendar');assert.equal(entries[0].amount_cents,100000);}finally{global.fetch=original;}});
+test('optional advance payer is separate from recorder and included in idempotency',()=>{
+ assert.equal(apply().state.entries[0].advanced_by,undefined);
+ const input={...base,advanced_by:{type:'self',name:'forged'}};
+ const first=apply(input);assert.deepEqual(first.state.entries[0].advanced_by,{type:'self',name:actor.displayName,account_id:actor.id});
+ assert.equal(apply(input,first.state).entry_id,first.entry_id);
+ assert.throws(()=>apply({...input,advanced_by:{type:'other',name:'Someone'}},first.state),/IDEMPOTENCY_CONFLICT/);
+ assert.equal(apply({...base,advanced_by:{type:'other',name:'  Supplier  '}}).state.entries[0].advanced_by.name,'Supplier');
+ for(const advanced_by of [{type:'other',name:' '},{type:'other',name:'x'.repeat(101)},{type:'account',account_id:'unknown'},'bad'])assert.throws(()=>apply({...base,advanced_by}),/INVALID_INPUT/);
+ assert.throws(()=>apply({...base,kind:'income',category:'other',advanced_by:{type:'self'}}),/INVALID_INPUT/);
+});
+test('account payer must be active and in property scope; name is server-resolved',()=>{
+ const m={id:'member-1',displayName:'Team member',status:'active',allProperties:false,propertyIds:['sweetfun']};
+ const input={...base,advanced_by:{type:'account',account_id:m.id,name:'forged'}};
+ const run=member=>applyFinance(empty(),input,actor,'sweetfun',2026,now,[member]);
+ assert.deepEqual(run(m).state.entries[0].advanced_by,{type:'account',account_id:m.id,name:m.displayName});
+ for(const member of [{...m,status:'suspended'},{...m,propertyIds:['offland']}])assert.throws(()=>run(member),/INVALID_INPUT/);
+});
