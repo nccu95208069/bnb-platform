@@ -51,3 +51,9 @@ test('finance room allocation participates in calendar status and overpayment ch
  const receipts=[{id:'deposit',payment_type:'deposit',payment_method:'bank_transfer',amount:1000}];const check={property_id:'sweetfun',order_id:'order-1',total:3000,source_paid:false,source_version:'v',ledger:{version:0,receipts},finance_received:2000};assert.equal(paymentStatus(check),'paid');assert.equal(paymentStatus({...check,finance_received:500}),'deposit');
  const input={...request,amount:1,payment_type:'deposit',payment_method:'bank_transfer',received_at:'2026-09-08T00:00:00Z',note:'',settles_room:false,source_version:'v'};assert.throws(()=>prepareReceipt(input,check,actor,'2026-09-08T00:01:00Z'),/AMOUNT_EXCEEDS_TOTAL/);assert.equal(financeAllocated([{allocations:[{order_id:'order-1',amount_cents:200000}]}],'order-1'),2000);
 });
+
+test('whole booking across two rooms and two nights totals all four rows; deposit reduces suggested collection once',()=>{
+ const rows=['101','102'].flatMap(room=>['2026-09-20','2026-09-21'].map((date,i)=>({...row,id:`${room}-${date}`,room_number:room,room_id:room,check_in:date,check_out:i?'2026-09-22':'2026-09-21',room_rate:1000})));
+ const full=projectOrders(rows,[],[]).orders[0];assert.equal(full.total,400000);assert.equal(full.receivable,400000);assert.equal(full.check_out,'2026-09-22');assert.deepEqual(full.rooms,['101','102']);
+ const partial=projectOrders(rows,[entry],[]).orders[0];assert.equal(partial.received,100000);assert.equal(partial.receivable,300000);
+});
