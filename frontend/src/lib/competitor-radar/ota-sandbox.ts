@@ -2,7 +2,7 @@ import "server-only";
 
 import { Sandbox } from "@vercel/sandbox";
 
-import { verifyAgodaEvidence, type AgodaRenderedEvidence } from "./ota-evidence";
+import { AGODA_EVIDENCE_VERSION } from "./ota-evidence";
 import { scorePropertyIdentity } from "./identity";
 import type {
   OtaDayObservation,
@@ -20,13 +20,6 @@ const BOOKING_SWEETFUN_URL =
   "https://www.booking.com/hotel/tw/shui-fang-sweetfun-rui-fang-jiu-fen.zh-tw.html";
 const TRIP_SWEETFUN_URL =
   "https://tw.trip.com/hotels/new-taipei-city-hotel-detail-133359377/sweet-fun/";
-const AGODA_SWEETFUN_ROOMS: Array<{ roomNumber: string; url: string }> = [
-  { roomNumber: "101", url: "https://www.agoda.com/sweetfun-101/hotel/taipei-tw.html" },
-  { roomNumber: "201", url: "https://www.agoda.com/sweetfun/hotel/taipei-tw.html" },
-  { roomNumber: "202", url: "https://www.agoda.com/sweetfun-202/hotel/taipei-tw.html" },
-  { roomNumber: "301", url: "https://www.agoda.com/sweetfun-301/hotel/taipei-tw.html" },
-  { roomNumber: "302", url: "https://www.agoda.com/sweetfun-302/hotel/taipei-tw.html" },
-];
 
 const PLATFORM_HOSTS: Record<OtaPlatform, RegExp> = {
   booking: /(^|\.)booking\.com$/i,
@@ -52,25 +45,6 @@ interface BrowserIdentity {
   blocked?: boolean;
 }
 
-interface BrowserDayResult {
-  roomNumber?: string;
-  stayDate: string;
-  checkOut: string;
-  url: string;
-  title?: string;
-  sourceName?: string;
-  dateVerified: boolean;
-  contextVerified?: boolean;
-  returnedContext?: { checkIn?: string; checkOut?: string; adults?: number; children?: number; rooms?: number; currency?: string };
-  finalUrl?: string;
-  blocked?: boolean;
-  soldOut?: boolean;
-  available?: boolean;
-  amount?: number;
-  currency?: string;
-  sourceText?: string;
-  error?: string;
-}
 
 function addDays(value: string, amount: number): string {
   const date = new Date(`${value}T00:00:00Z`);
@@ -78,13 +52,6 @@ function addDays(value: string, amount: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-function normalizedText(value: string | null | undefined): string {
-  return (value ?? "")
-    .normalize("NFKC")
-    .replace(/\s+/g, "")
-    .replace(/[()（）\-_/|·,，.。]/g, "")
-    .toLowerCase();
-}
 
 function isSweetfun(request: OtaScanRequest): boolean {
   const match = scorePropertyIdentity(request.property, {
@@ -187,7 +154,6 @@ function propertyIdentity(
   platform: OtaPlatform,
   request: OtaScanRequest,
   observed: BrowserIdentity,
-  trustedSource = false,
 ): OtaPropertyIdentity {
   const match = scorePropertyIdentity(request.property, {
     name: observed.name ?? observed.title,
@@ -196,32 +162,19 @@ function propertyIdentity(
     websiteUrl: observed.url,
   });
   const evidence = match.evidence.map((item) => `${item.label}：${item.detail}`);
-  if (trustedSource) {
-    evidence.unshift("此測試版使用已人工核對的水芳 OTA 房源網址與房號關係。");
-  }
-  const status = observed.blocked
-    ? "not_found"
-    : trustedSource && Boolean(observed.name) && /sweetfun|水芳/i.test(observed.name ?? "") && !match.conflicts.length
-      ? "confirmed"
-      : match.status;
+  const status = observed.blocked ? "not_found" : match.status;
   return {
     platform,
     sourceUrl: observed.url,
     sourceName: observed.name ?? observed.title,
     sourceAddress: observed.address,
     sourceRegistrationNumber: observed.registrationNumber,
-    score: trustedSource ? Math.max(match.score, 0.9) : match.score,
+    score: match.score,
     status,
     evidence,
   };
 }
 
-function roomIdForNumber(request: OtaScanRequest, roomNumber?: string): string | undefined {
-  if (!roomNumber) return undefined;
-  return request.canonicalRooms.find(
-    (room) => normalizedText(room.roomNumber) === normalizedText(roomNumber),
-  )?.id;
-}
 
 function emptyObservation(
   stayDate: string,
@@ -280,7 +233,7 @@ async function scanBooking(request: OtaScanRequest): Promise<OtaPlatformScan> {
           });
           const roomNames=[...new Set(candidates)].slice(0,40);
           const h2=[...document.querySelectorAll('h1,h2')].map(x=>(x.innerText||'').trim()).find(x=>/水芳|Sweetfun/i.test(x))||document.title.split('|')[0].trim();
-          return {url:location.href,title:document.title,name:h2,address,registrationNumber:license,roomNames,blocked:/captcha|verify you are human|機器人驗證|request rejected/i.test(body)};
+          return {url:location.href,title:document.title,name:h2,address,registrationNumber:license,roomNames,blocked:Boolean(document.querySelector('script[src*="awswaf.com"],#challenge-container'))||/captcha|verify you are human|機器人驗證|request rejected/i.test(body)};
         })())`,
       );
     });
@@ -323,239 +276,16 @@ async function scanBooking(request: OtaScanRequest): Promise<OtaPlatformScan> {
   }
 }
 
-function agodaSources(request: OtaScanRequest): Array<{ roomNumber?: string; url: string }> {
-  const overrides = (request.sourceOverrides ?? []).flatMap((item) => {
-    const url = safePlatformUrl(item.url, "agoda");
-    return url ? [{ roomNumber: item.roomNumber, url }] : [];
-  });
-  if (overrides.length) return overrides.slice(0, 5);
-  const single = safePlatformUrl(request.sourceUrl, "agoda");
-  if (single) return [{ url: single }];
-  return isSweetfun(request) ? AGODA_SWEETFUN_ROOMS : [];
-}
-
-function agodaStayUrl(
-  source: { roomNumber?: string; url: string },
-  stayDate: string,
-  adults: number,
-): string {
-  const url = new URL(source.url);
-  url.searchParams.set("checkIn", stayDate);
-  url.searchParams.set("los", "1");
-  url.searchParams.set("rooms", "1");
-  url.searchParams.set("adults", String(adults));
-  url.searchParams.set("children", "0");
-  url.searchParams.set("currencyCode", "USD");
-  return url.href;
-}
-
-async function scanAgodaSource(
-  source: { roomNumber?: string; url: string },
-  request: OtaScanRequest,
-): Promise<BrowserDayResult[]> {
-  const jobs = Array.from({ length: request.days }, (_, index) => {
-    const stayDate = addDays(request.startDate, index);
-    return {
-      roomNumber: source.roomNumber,
-      stayDate,
-      checkOut: addDays(stayDate, 1),
-      url: agodaStayUrl(source, stayDate, request.adults),
-    };
-  });
-
-  try {
-    return await withBrowser(async (sandbox) => {
-      const output: BrowserDayResult[] = [];
-      for (const job of jobs) {
-        try {
-          await command(sandbox, ["open", job.url]);
-          await command(sandbox, ["wait", "2500"]);
-          const observed = await evaluate<AgodaRenderedEvidence & { title: string }>(
-            sandbox,
-            `JSON.stringify((()=>{
-              const body=(document.body?.innerText||'').replace(/\\s+/g,' ');
-              const title=document.title||'';
-              const blocked=/captcha|verify you are human|request rejected|access denied|unusual traffic/i.test(title+' '+body);
-              const visible=(node)=>Boolean(node && node.getClientRects().length && getComputedStyle(node).visibility!=='hidden');
-              const offer=[...document.querySelectorAll('[role="region"][aria-label="Offer"]')].find(visible);
-              const field=(selector,attribute)=>{
-                const node=[...document.querySelectorAll(selector)].find(visible);
-                return node?.getAttribute(attribute)||undefined;
-              };
-              const status=offer?.querySelector('[data-testid="urgency-text"]');
-              const link=offer?.querySelector('a[data-element-name="bottomnav-back-to-search"]');
-              const hasBookableOffer=Boolean(offer && [...offer.querySelectorAll('button,a')].some(node=>visible(node)&&/^(?:book now|reserve|select room)/i.test((node.textContent||'').trim())));
-              return {title,sourceName:document.querySelector('h1')?.textContent?.trim(),finalUrl:location.href,blocked,
-                checkIn:field('[data-selenium="checkInBox"]','data-date'),
-                checkOut:field('[data-selenium="checkOutBox"]','data-date'),
-                currency:field('[data-selenium="currency-container-selected-currency"]','data-value'),
-                offerContextUrl:link?.getAttribute('href'),
-                offerStatusText:visible(status)?status.textContent?.trim():undefined,hasBookableOffer};
-            })())`,
-            100_000,
-          );
-          const verified = verifyAgodaEvidence({sourceUrl:source.url,roomNumber:source.roomNumber,checkIn:job.stayDate,checkOut:job.checkOut,adults:request.adults,children:0,rooms:1,currency:"USD"}, observed);
-          output.push({ ...job, ...observed, ...verified, available: false, sourceText: observed.offerStatusText ?? "No dated offer was exposed" });
-          if (observed.blocked) break;
-        } catch (error) {
-          output.push({
-            ...job,
-            dateVerified: false,
-            error: error instanceof Error ? error.message : "agoda_navigation_failed",
-          });
-        }
-      }
-      return output;
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "agoda_sandbox_failed";
-    return jobs.map((job) => ({ ...job, dateVerified: false, error: message }));
-  }
-}
-
 async function scanAgoda(request: OtaScanRequest): Promise<OtaPlatformScan> {
-  const started = Date.now();
-  const sources = agodaSources(request);
-  if (!sources.length) {
-    return {
-      platform: "agoda",
-      state: "not_found",
-      capturedAt: new Date().toISOString(),
-      requestedDays: request.days,
-      completedDays: 0,
-      identity: { platform: "agoda", status: "not_found", evidence: [] },
-      observations: [],
-      warnings: ["沒有找到 Agoda 房源網址。水芳在 Agoda 是逐房間獨立頁面，其他住宿可能採不同結構。"],
-      durationMs: Date.now() - started,
-    };
-  }
-
-  const sourceResults = await Promise.all(
-    sources.map((source) => scanAgodaSource(source, request)),
-  );
-  const results = sourceResults.flat();
-  const trusted = isSweetfun(request) && !request.sourceUrl && !(request.sourceOverrides?.length);
-  const first = results.find((item) => !item.error && !item.blocked);
-  const identity = propertyIdentity(
-    "agoda",
-    request,
-    {
-      url: first?.url ?? sources[0]!.url,
-      title: first?.title,
-      name: first?.sourceName,
-      blocked: !first && results.some((item) => item.blocked),
-    },
-    trusted,
-  );
-  const identityVerified = identity.status === "confirmed";
-  const expectedRoomNumbers = new Set(
-    request.canonicalRooms
-      .filter((room) => !room.bundle && room.roomNumber)
-      .map((room) => normalizedText(room.roomNumber)),
-  );
-  const coveredRoomNumbers = new Set(
-    sources
-      .filter((source): source is { roomNumber: string; url: string } => Boolean(source.roomNumber))
-      .map((source) => normalizedText(source.roomNumber)),
-  );
-  const completeRoomCoverage =
-    expectedRoomNumbers.size > 0 &&
-    [...expectedRoomNumbers].every((roomNumber) => coveredRoomNumbers.has(roomNumber));
-
-  const observations: OtaDayObservation[] = Array.from(
-    { length: request.days },
-    (_, index) => {
-      const stayDate = addDays(request.startDate, index);
-      const day = results.filter((item) => item.stayDate === stayDate);
-      const rooms: OtaRoomObservation[] = day.map((item, roomIndex) => ({
-        sourceRoomId: item.roomNumber ? `agoda-${item.roomNumber}` : `agoda-${roomIndex}`,
-        sourceRoomName:
-          item.sourceName ??
-          (item.roomNumber ? `Agoda ${item.roomNumber}` : "Agoda 房型"),
-        canonicalRoomId: roomIdForNumber(request, item.roomNumber),
-        availability:
-          !identityVerified || !item.contextVerified || !item.dateVerified || item.error || item.blocked
-            ? "unknown"
-            : item.soldOut
-              ? "sold_out"
-              : item.available
-                ? "available"
-                : "unknown",
-        quantityState: "unknown",
-        amount:
-          identityVerified && item.contextVerified && item.dateVerified && !item.soldOut
-            ? item.amount
-            : undefined,
-        currency:
-          identityVerified && item.contextVerified && item.dateVerified && !item.soldOut
-            ? item.currency
-            : undefined,
-        sourceText: item.error ?? item.sourceText,
-        sourceUrl: item.finalUrl ?? item.url,
-        returnedContext: item.returnedContext,
-        contextVerified: Boolean(identityVerified && item.contextVerified),
-      }));
-      const usable = rooms.filter((room) => room.availability !== "unknown");
-      const currencies = [...new Set(rooms.map((room) => room.currency).filter(Boolean))];
-      const prices = rooms
-        .map((room) => room.amount)
-        .filter((amount): amount is number => amount !== undefined);
-      const availability = rooms.some((room) => room.availability === "available")
-        ? "available"
-        : completeRoomCoverage &&
-            usable.length === rooms.length &&
-            rooms.length > 0 &&
-            rooms.every((room) => room.availability === "sold_out")
-          ? "sold_out"
-          : "unknown";
-      const dateVerified =
-        day.length === sources.length &&
-        day.every((item) => item.contextVerified && item.dateVerified && !item.error && !item.blocked);
-      return {
-        stayDate,
-        checkOut: addDays(stayDate, 1),
-        state: day.some((item) => item.error || item.blocked) || !dateVerified ? "partial" : "ready",
-        availability,
-        minAmount: currencies.length === 1 && prices.length ? Math.min(...prices) : undefined,
-        currency: currencies.length === 1 ? currencies[0] : undefined,
-        sourceUrl: day[0]?.url,
-        identityVerified,
-        dateVerified,
-        rooms,
-        message: dateVerified
-          ? completeRoomCoverage
-            ? "Agoda 各房間頁面已逐日載入；平台沒有公開可靠待售數量。"
-            : "Agoda 已載入已知房間頁面；仍有官網房型沒有找到 Agoda 頁面，因此不推論整間住宿售罄。"
-          : "日期或頁面回應未能確認，數值維持未知。",
-      } satisfies OtaDayObservation;
-    },
-  );
-  const completedDays = observations.filter((item) => item.dateVerified).length;
-  const blockedCount = results.filter((item) => item.blocked).length;
-  const state: OtaPlatformScan["state"] =
-    results.length > 0 && blockedCount === results.length
-      ? "blocked"
-      : completedDays === request.days && completeRoomCoverage
-        ? "ready"
-        : results.some(item => !item.error && !item.blocked)
-          ? "partial"
-          : "failed";
+  // The owner supplied contrary dated evidence from a multi-room property page.
+  // Legacy individual-room URLs are withdrawn, not silently used as fallbacks.
   return {
-    platform: "agoda",
-    state,
-    capturedAt: new Date().toISOString(),
-    requestedDays: request.days,
-    completedDays,
-    identity,
-    observations,
-    warnings: [
-      completeRoomCoverage
-        ? "Agoda 已涵蓋這次草稿中的所有非包棟房號。"
-        : "水芳在 Agoda 以獨立房間頁面販售；102 尚未找到可驗證頁面，因此不會推論整間住宿售罄。",
-      "Agoda 以 USD 查詢並核對頁面幣別；保留來源幣別，不自行換算。",
-      "Agoda 未公開可靠待售間數，數量一律顯示未知。",
-    ],
-    durationMs: Date.now() - started,
+    platform: "agoda", state: "partial", collectionState: "withdrawn",
+    evidenceVersion: AGODA_EVIDENCE_VERSION,
+    capturedAt: new Date().toISOString(), requestedDays: request.days, completedDays: 0,
+    identity: { platform: "agoda", status: "review", evidence: [] },
+    observations: [], durationMs: 0,
+    warnings: ["舊版逐房頁面結果已撤回；正在核對包含六個房型的住宿頁，暫不採用價格或售完狀態。"],
   };
 }
 
@@ -690,6 +420,13 @@ function failedScan(
 export async function scanOtaPlatform(request: OtaScanRequest): Promise<OtaPlatformScan> {
   switch (request.platform) {
     case "booking":
+      if (process.env.RADAR_BOOKING_COLLECTION_ENABLED !== "true") return {
+        platform: "booking", state: "blocked", collectionState: "paused",
+        capturedAt: "2026-09-08T05:05:38.115Z", requestedDays: request.days, completedDays: 0,
+        identity: { platform: "booking", status: "not_found", sourceUrl: isSweetfun(request) ? BOOKING_SWEETFUN_URL : undefined, evidence: [] },
+        observations: [], durationMs: 0,
+        warnings: ["Booking 回傳防護驗證頁，這條雲端採集路線已暫停；沒有取得房型或報價。"],
+      };
       return scanBooking(request);
     case "agoda":
       return scanAgoda(request);
@@ -727,4 +464,10 @@ export function normalizeSourceOverrides(
     normalized.push(roomNumber ? { url, roomNumber } : { url });
   }
   return normalized;
+}
+
+
+export function collectionPaused(platform: OtaPlatform): boolean {
+  if (platform === "agoda") return true;
+  return platform === "booking" ? process.env.RADAR_BOOKING_COLLECTION_ENABLED !== "true" : process.env.RADAR_TRIP_COLLECTION_ENABLED !== "true";
 }

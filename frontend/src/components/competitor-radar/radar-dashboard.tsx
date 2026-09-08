@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { parseDraft, record, validDate } from "@/lib/competitor-radar/preview-contract";
+import { currentScan } from "@/lib/competitor-radar/ota-evidence";
 import type { ScanJob, JobResult } from "@/lib/competitor-radar/scan-jobs";
 
 import type {
@@ -324,7 +325,7 @@ export default function RadarDashboard() {
             if (!validDate(day.stayDate) || !Array.isArray(day.rooms)) throw new Error("invalid_day");
           }
         }
-        setScans(restoredScans);
+        setScans(Object.fromEntries(Object.entries(restoredScans).map(([key, scan]) => [key, currentScan(scan!)])));
         setMessage("已恢復此裝置的結果；保存的資料不是即時報價。");
         const pending = record(saved.jobs);
         for (const platform of PLATFORMS) {
@@ -360,7 +361,7 @@ export default function RadarDashboard() {
         if (run !== generation.current) return;
         if (result.state === "done") {
           terminal = true;
-          setScans(state => ({ ...state, [platform]: result.scan }));
+          setScans(state => ({ ...state, [platform]: currentScan(result.scan) }));
           setProgress(state => ({ ...state, [platform]: "done" }));
           return;
         }
@@ -417,7 +418,7 @@ export default function RadarDashboard() {
         await pollJob(platform, result.job, generation.current);
         return;
       }
-      setScans((state) => ({ ...state, [platform]: result.scan }));
+      setScans((state) => ({ ...state, [platform]: currentScan(result.scan) }));
       setProgress((state) => ({ ...state, [platform]: "done" }));
     } catch (reason) {
       setProgress((state) => ({ ...state, [platform]: "failed" }));
@@ -658,7 +659,7 @@ export default function RadarDashboard() {
           <details className={styles.notes}><summary>查看辨識與資料細節</summary>
             <p>政府登記房間數：{registryCandidate?.totalRooms ?? "未取得"}；官網房型：{analysis.canonicalRooms.length}。兩者差異保留，不會刪除官網房型。</p>
             <p>{analysis.tourismRegistry?.message}</p>
-            {PLATFORMS.map(platform => <p key={platform}>{PLATFORM_LABELS[platform]} · {scans[platform] ? `${scans[platform]!.collectionState === "paused" ? "最近受限" : "擷取於"} ${new Date(scans[platform]!.capturedAt).toLocaleString("zh-TW")}` : "尚未取得"}<br />{scans[platform]?.warnings.join("；")}</p>)}
+            {PLATFORMS.map(platform => <p key={platform}>{PLATFORM_LABELS[platform]} · {scans[platform] ? `${scans[platform]!.collectionState === "withdrawn" ? "結果撤回" : scans[platform]!.collectionState === "paused" ? "最近受限" : "擷取於"} ${new Date(scans[platform]!.capturedAt).toLocaleString("zh-TW")}` : "尚未取得"}<br />{scans[platform]?.warnings.join("；")}</p>)}
             <p>房量為公開參考值，可能受配額與關房設定影響。結果保存在此裝置；背景掃描可在 15 分鐘內恢復。</p>
             <p>版本：{build}</p>
           </details>

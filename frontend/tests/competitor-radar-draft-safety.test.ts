@@ -104,21 +104,25 @@ test("omitted licensing jurisdiction does not invent a registration conflict", a
   assert.equal(scorePropertyIdentity({ registrationNumber: "宜蘭縣民宿402號" }, b).status, "rejected");
 });
 
-test("Agoda adopts only an explicit property Offer status with matching rendered controls", async () => {
-  const { verifyAgodaEvidence } = await import("../src/lib/competitor-radar/ota-evidence");
-  // Structure observed on the public 101 page on 2026-09-08; no prices are invented.
-  const sourceUrl = "https://www.agoda.com/sweetfun-101/hotel/taipei-tw.html";
-  const expected = { sourceUrl, roomNumber: "101", checkIn: "2026-09-09", checkOut: "2026-09-10", adults: 2, children: 0, rooms: 1, currency: "USD" };
-  const observed = { finalUrl: sourceUrl, sourceName: "水芳 Sweetfun 101", checkIn: "2026-09-09", checkOut: "2026-09-10", currency: "USD", offerContextUrl: "/search?selectedproperty=59713878&checkIn=2026-09-09T00%3A00%3A00&checkOut=2026-09-10T00%3A00%3A00&adults=2&children=0&rooms=1", offerStatusText: "Looks like we're sold out. Try changing your dates. Don't miss out on this great property!" };
-  assert.equal(verifyAgodaEvidence(expected, observed).soldOut, true);
-  for (const changed of [
-    { blocked: true }, { hasBookableOffer: true }, { currency: "TWD" },
-    { checkIn: "2026-09-10" }, { offerContextUrl: undefined },
-    { offerContextUrl: observed.offerContextUrl.replace("&children=0", "") },
-    { offerContextUrl: observed.offerContextUrl.replace("&adults=2", "&adults=4") },
-    { offerContextUrl: observed.offerContextUrl.replace("2026-09-10", "2026-09-11") },
-    { offerContextUrl: sourceUrl + "?checkIn=2026-09-09&checkOut=2026-09-10&adults=2&children=0&rooms=1" },
-    { sourceName: "水芳 Sweetfun 201" }, { finalUrl: "https://www.agoda.com/nearby/hotel/taipei-tw.html" },
-    { offerStatusText: undefined }, { offerStatusText: "Our last room is already booked at a nearby hotel" },
-  ]) assert.equal(verifyAgodaEvidence(expected, { ...observed, ...changed }).soldOut, false, JSON.stringify(changed));
+test("disputed legacy Agoda observations are quarantined without mutating stored evidence", async () => {
+  const { currentScan, AGODA_EVIDENCE_VERSION } = await import("../src/lib/competitor-radar/ota-evidence");
+  const old = { platform: "agoda" as const, state: "ready" as const, capturedAt: "2026-09-08T04:34:03.708Z", requestedDays: 14, completedDays: 14, identity: { platform: "agoda" as const, status: "confirmed" as const, evidence: [] }, observations: [{ stayDate: "2026-09-09", checkOut: "2026-09-10", state: "ready" as const, availability: "sold_out" as const, identityVerified: true, dateVerified: true, rooms: [] }], warnings: [], durationMs: 1 };
+  assert.deepEqual(currentScan(old).observations, []);
+  assert.equal(old.observations.length, 1);
+  assert.equal(currentScan(old).capturedAt, old.capturedAt);
+  assert.equal(currentScan({ ...old, evidenceVersion: AGODA_EVIDENCE_VERSION }).observations.length, 1);
+});
+
+test("Agoda final total keeps taxes and ignores sold-out display prices", async () => {
+  const { acceptedQuote } = await import("../src/lib/competitor-radar/quote-evidence");
+  const context = { checkIn: "2026-09-09", checkOut: "2026-09-10", adults: 2, children: 0, rooms: 1, currency: "TWD" };
+  const expected = { propertyId: "reference-property", roomId: "201", ratePlanId: "pay-now", context };
+  // Owner screenshot reference, not a live response or a production data fallback.
+  const q = { ...expected, availability: "available" as const, preTaxAmount: 1815.10, taxesAndFees: 281.34, totalAmount: 2096.44, includesTaxesAndFees: true, priceBasis: "stay_total" as const, discountLabels: ["折扣碼減價"], source: "checkout_summary" as const };
+  assert.equal(acceptedQuote(expected, q).amount, 2096.44);
+  assert.equal(acceptedQuote(expected, { ...q, includesTaxesAndFees: false }).amount, undefined);
+  assert.equal(acceptedQuote(expected, { ...q, totalAmount: 1815.10 }).amount, undefined);
+  assert.equal(acceptedQuote(expected, { ...q, availability: "sold_out" }).amount, undefined);
+  assert.equal(acceptedQuote(expected, { ...q, ratePlanId: "pay-at-property" }).availability, "unknown");
+  assert.equal(acceptedQuote(expected, { ...q, context: { ...context, adults: 4 } }).amount, undefined);
 });

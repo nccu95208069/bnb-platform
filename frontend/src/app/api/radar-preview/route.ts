@@ -22,8 +22,8 @@ export async function GET() {
     liveOtaEndpoint: true,
     persistence: "browser-local",
     providerCapabilities: {
-      booking: "property_catalog_attempt_no_dated_offers",
-      agoda: "sweetfun_five_room_offer_status_only_quantity_unknown",
+      booking: "paused_after_waf_challenge",
+      agoda: "legacy_results_withdrawn_property_source_pending",
       trip: "paused_after_restricted_response",
     },
   });

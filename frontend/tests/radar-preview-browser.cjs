@@ -47,7 +47,7 @@ function otaResponse(platform, body) {
     }
     return { stayDate, checkOut: addDays(stayDate, 1), state: 'partial', availability: 'unknown', sourceUrl: identity.sourceUrl, identityVerified: true, dateVerified: platform === 'trip', rooms: platform === 'booking' ? [{ sourceRoomId: 'booking-1', sourceRoomName: 'Executive Quadruple Room with River View', availability: 'unknown', quantityState: 'unknown' }] : [], message: platform === 'booking' ? '日期未能驗證' : '日期已核對，價格未公開' };
   });
-  const scan = { platform, state: platform === 'agoda' ? 'ready' : 'partial', capturedAt: new Date().toISOString(), requestedDays: 14, completedDays: platform === 'booking' ? 0 : 14, identity, observations, warnings: [platform === 'agoda' ? 'Agoda 未公開可靠待售間數。' : `${platform} 沒有可採用的逐日價格。`], durationMs: 1200 };
+  const scan = { platform, evidenceVersion: "property-offers-v2", state: platform === 'agoda' ? 'ready' : 'partial', capturedAt: new Date().toISOString(), requestedDays: 14, completedDays: platform === 'booking' ? 0 : 14, identity, observations, warnings: [platform === 'agoda' ? 'Agoda 未公開可靠待售間數。' : `${platform} 沒有可採用的逐日價格。`], durationMs: 1200 };
   return { scan, capability: { source: 'isolated_browser', live: true, physicalInventory: false, confirmedBookings: false } };
 }
 async function installMocks(page) {
@@ -98,6 +98,20 @@ async function run() {
   assert.match(await page.locator('table').first().innerText(), /NT\$2,400/);
   await page.screenshot({ path: path.join(out, 'radar-desktop.png'), fullPage: true });
   assert.deepEqual(errors, []);
+  // Upgrade an existing device snapshot without retaining the withdrawn Agoda data.
+  await page.evaluate(() => {
+    const key = 'daili-radar-mobile:v5';
+    const saved = JSON.parse(localStorage.getItem(key));
+    delete saved.scans.agoda.evidenceVersion;
+    localStorage.setItem(key, JSON.stringify(saved));
+  });
+  await page.reload();
+  await page.getByText('101 河景家庭四人房', { exact: true }).first().waitFor();
+  assert.equal(await page.getByText('NT$2,400', { exact: true }).count(), 0);
+  const upgraded = await page.evaluate(() => JSON.parse(localStorage.getItem('daili-radar-mobile:v5')));
+  assert.equal(upgraded.scans.agoda.observations.length, 0);
+  assert.equal(upgraded.scans.agoda.collectionState, 'withdrawn');
+  assert.ok(upgraded.scans.booking);
   await context.close();
 
   const mobileBrowser = await webkit.launch(); browsers.push(mobileBrowser);

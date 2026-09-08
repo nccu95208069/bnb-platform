@@ -1,3 +1,7 @@
+# Superseded data acceptance — see correction
+
+The former Agoda 14-day availability acceptance is **withdrawn** following contradictory owner screenshots. Those tests established parser behavior, not market-data accuracy. See [price correction](PRICE_CORRECTION_2026_09_08.md) for current capability. Historical evidence below must not be used to claim working OTA availability.
+
 # Safari UAT work, 2026-09-08
 
 Release evidence: the current exact commit, CI, public health and real WebKit results are recorded in [PR #16](https://github.com/nccu95208069/bnb-platform/pull/16). This document describes implementation and limits; it does not substitute for those checks.

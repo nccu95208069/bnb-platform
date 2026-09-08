@@ -1,3 +1,5 @@
+import type { OtaPlatformScan } from "./ota-types";
+
 export interface ReturnedStayContext {
   checkIn?: string;
   checkOut?: string;
@@ -18,44 +20,13 @@ export function sameListing(expected: string, returned: string | undefined): boo
 }
 
 
-/** Raw fields read from the active property Offer region and visible search controls. */
-export interface AgodaRenderedEvidence {
-  finalUrl?: string;
-  sourceName?: string;
-  checkIn?: string;
-  checkOut?: string;
-  currency?: string;
-  offerContextUrl?: string;
-  offerStatusText?: string;
-  blocked?: boolean;
-  hasBookableOffer?: boolean;
-}
+export const AGODA_EVIDENCE_VERSION = "property-offers-v2";
 
-export function verifyAgodaEvidence(
-  expected: Required<ReturnedStayContext> & { sourceUrl: string; roomNumber?: string },
-  observed: AgodaRenderedEvidence,
-) {
-  const returned: ReturnedStayContext = { checkIn: observed.checkIn, checkOut: observed.checkOut, currency: observed.currency };
-  let offerDatesMatch = false;
-  try {
-    // This link is read from the returned Offer region, never location.search or the input URL.
-    const offer = new URL(observed.offerContextUrl ?? "", observed.finalUrl);
-    const source = new URL(expected.sourceUrl);
-    const integer = (key: string) => {
-      const raw = offer.searchParams.get(key);
-      return raw !== null && /^\d+$/.test(raw) ? Number(raw) : undefined;
-    };
-    if (offer.protocol === "https:" && offer.hostname === source.hostname && offer.pathname === "/search" && /^\d+$/.test(offer.searchParams.get("selectedproperty") ?? "")) {
-      returned.adults = integer("adults"); returned.children = integer("children"); returned.rooms = integer("rooms");
-      offerDatesMatch = offer.searchParams.get("checkIn")?.slice(0, 10) === observed.checkIn &&
-        offer.searchParams.get("checkOut")?.slice(0, 10) === observed.checkOut;
-    }
-  } catch { /* Incomplete returned context remains unknown. */ }
-  const listingMatches = sameListing(expected.sourceUrl, observed.finalUrl) && /sweetfun|水芳/i.test(observed.sourceName ?? "") &&
-    (!expected.roomNumber || new RegExp(`(?:^|[^0-9])${expected.roomNumber.replace(/[^0-9]/g, "")}(?:[^0-9]|$)`).test(observed.sourceName ?? ""));
-  const stay = { checkIn: expected.checkIn, checkOut: expected.checkOut, adults: expected.adults, children: expected.children, rooms: expected.rooms, currency: expected.currency };
-  const contextVerified = !observed.blocked && listingMatches && offerDatesMatch && contextMatches(stay, returned);
-  const soldOut = contextVerified && !observed.hasBookableOffer &&
-    /Looks like we.re sold out\. Try changing your dates\./i.test(observed.offerStatusText ?? "");
-  return { contextVerified, dateVerified: contextVerified, soldOut, returnedContext: returned };
+/** Retain the draft and other platforms, but never reuse the disputed legacy room-page results. */
+export function currentScan(scan: OtaPlatformScan): OtaPlatformScan {
+  if (scan.platform !== "agoda" || scan.evidenceVersion === AGODA_EVIDENCE_VERSION) return scan;
+  return { ...scan, state: "partial", collectionState: "withdrawn", completedDays: 0, observations: [],
+    identity: { ...scan.identity, status: "review", evidence: [] },
+    warnings: ["先前逐房頁面的 Agoda 結果已撤回，需改由正確住宿頁重新核對。"],
+  };
 }

@@ -1,7 +1,7 @@
 import { after, type NextRequest, NextResponse } from "next/server";
 
 import { createScanJob, readScanJob } from "@/lib/competitor-radar/scan-jobs";
-import { normalizeSourceOverrides, scanOtaPlatform } from "@/lib/competitor-radar/ota-sandbox";
+import { collectionPaused, normalizeSourceOverrides, scanOtaPlatform } from "@/lib/competitor-radar/ota-sandbox";
 import type { OtaScanRequest, OtaScanResponse } from "@/lib/competitor-radar/ota-types";
 import { record, safeLink } from "@/lib/competitor-radar/preview-contract";
 import type { CanonicalRoomDraft } from "@/lib/competitor-radar/types";
@@ -220,7 +220,7 @@ export async function POST(request: NextRequest) {
     if (cached && cached.expiresAt > now) {
       return reply({ ...cached.response, cached: true });
     }
-    if (body.async === true) {
+    if (body.async === true && !collectionPaused(scanRequest.platform)) {
       const { job, write } = await createScanJob();
       background = true;
       after(async () => {
@@ -235,7 +235,7 @@ export async function POST(request: NextRequest) {
       scan,
       capability: {
         source: "isolated_browser",
-        live: scan.collectionState !== "paused",
+        live: scan.collectionState !== "paused" && scan.collectionState !== "withdrawn",
         physicalInventory: false,
         confirmedBookings: false,
       },

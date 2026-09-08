@@ -51,7 +51,8 @@ export interface OtaPlatformScan {
   platform: OtaPlatform;
   state: OtaScanState;
   capturedAt: string;
-  collectionState?: "attempted" | "paused";
+  collectionState?: "attempted" | "paused" | "withdrawn";
+  evidenceVersion?: string;
   requestedDays: number;
   completedDays: number;
   identity: OtaPropertyIdentity;
