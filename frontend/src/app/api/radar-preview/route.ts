@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { radarSameOrigin } from "@/lib/competitor-radar/request-origin";
 import { collectionPaused } from "@/lib/competitor-radar/ota-sandbox";
 import { analyzeOfficialWebsite, PublicUrlError } from "@/lib/competitor-radar/website";
 import { sanitizeCompetitorAnalysis } from "@/lib/competitor-radar/sanitize";
@@ -52,7 +53,7 @@ function boundedString(value: unknown, max: number): string | undefined {
 export async function POST(request: NextRequest) {
   if (process.env.RADAR_PREVIEW_MODE !== "true") return reply({ detail: "測試端點未開啟。" }, 404);
   const origin = request.headers.get("origin");
-  if (!origin || origin !== request.nextUrl.origin) return reply({ detail: "只接受測試頁面發出的同來源請求。" }, 403);
+  if (!radarSameOrigin(origin, request.nextUrl.origin, request.headers.get("host"))) return reply({ detail: "只接受測試頁面發出的同來源請求。" }, 403);
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
   const now = Date.now();
   for (const [key, item] of buckets) if (now - item.started > WINDOW && !item.active) buckets.delete(key);

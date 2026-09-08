@@ -106,7 +106,7 @@ function weekday(value: string): string {
 function formatMoney(amount: number, currency = "TWD"): string {
   if (currency === "TWD") {
     return `NT$${new Intl.NumberFormat("zh-TW", {
-      maximumFractionDigits: 0,
+      maximumFractionDigits: 2,
     }).format(amount)}`;
   }
   try {
@@ -140,7 +140,7 @@ function statusLabel(state: OtaPlatformScan["state"] | undefined): string {
 
 function availabilityLabel(value: OtaAvailability): string {
   if (value === "available") return "目前可訂";
-  if (value === "sold_out") return "目前無可訂方案";
+  if (value === "sold_out") return "平台標示已售完";
   return "無法確認";
 }
 
@@ -192,8 +192,8 @@ function roomSummary(scan: OtaPlatformScan | undefined, roomId: string) {
   }
   if (knownDays) {
     return {
-      primary,
-      secondary: `可訂 ${availableDays} 天 · 無可訂方案 ${soldOutDays} 天`,
+      primary: !availableDays && soldOutDays ? "已售完" : primary,
+      secondary: `可訂 ${availableDays} 天 · 已售完 ${soldOutDays} 天`,
       tone: availableDays ? ("good" as const) : ("danger" as const),
     };
   }
@@ -283,6 +283,7 @@ function PlatformBadge({ platform }: { platform: OtaPlatform }) {
 }
 
 function ProgressBadge({ progress, scan }: { progress?: ScanProgress[OtaPlatform]; scan?: OtaPlatformScan }) {
+  if (progress === "waiting") return <span className={styles.progressBadge}>排隊中</span>;
   if (progress === "running") {
     return <span className={styles.progressBadge}><Loader2 size={13} className={styles.spin} />抓取中</span>;
   }
@@ -305,6 +306,8 @@ export default function RadarDashboard() {
   const [hydrated, setHydrated] = useState(false);
   const [build, setBuild] = useState("");
   const [saveError, setSaveError] = useState("");
+  const [desktop, setDesktop] = useState(false);
+  const [scanDays, setScanDays] = useState(14);
   const generation = useRef(0);
   const storageKey = "daili-radar-mobile:v5";
 
@@ -339,6 +342,7 @@ export default function RadarDashboard() {
     } catch { setSaveError("無法還原保存內容，原資料仍保留。請重新分析。"); }
     setHydrated(true);
     fetch("/api/radar-preview").then(r => r.json()).then(r => setBuild(typeof r.build === "string" ? r.build : "")).catch(() => undefined);
+    fetch("/api/radar-ota").then(r => r.json()).then(r => { if (r.desktop === true) { setDesktop(true); setScanDays(1); } }).catch(() => undefined);
     return () => { generation.current = run + 1; };
   }, []);
 
@@ -363,9 +367,12 @@ export default function RadarDashboard() {
           terminal = true;
           setScans(state => ({ ...state, [platform]: currentScan(result.scan) }));
           setProgress(state => ({ ...state, [platform]: "done" }));
+          setMessage(`${PLATFORM_LABELS[platform]} 已回填：${result.scan.completedDays}/${result.scan.requestedDays} 天完成核對。`);
           return;
         }
         if (result.state === "failed") { terminal = true; throw new Error(result.detail); }
+        setProgress(state => ({ ...state, [platform]: result.state === "queued" ? "waiting" : "running" }));
+        if (result.detail) setMessage(`${PLATFORM_LABELS[platform]}：${result.detail}`);
         await new Promise(resolve => setTimeout(resolve, 5000));
       }
       if (run === generation.current) throw new Error("掃描已逾時，已完成的資料仍保留。");
@@ -388,6 +395,7 @@ export default function RadarDashboard() {
     analysis?.canonicalRooms[0];
 
   async function scanPlatform(platform: OtaPlatform, current: CompetitorRadarAnalysis, scanStart = startDate) {
+    if (jobs[platform]) { setMessage("此平台已有待辦工作，請等待完成。"); return; }
     setProgress((state) => ({ ...state, [platform]: "running" }));
     try {
       const sweetfun = /水芳|sweetfun|新北市民宿\s*402/i.test(
@@ -405,7 +413,7 @@ export default function RadarDashboard() {
           async: true,
           platform,
           startDate: scanStart,
-          days: 14,
+          days: scanDays,
           adults: 2,
           property: current.property,
           canonicalRooms: current.canonicalRooms,
@@ -472,8 +480,11 @@ export default function RadarDashboard() {
 
       setSelectedRoomId(complete.canonicalRooms[0]!.id);
       setMessage("住宿已辨識，各平台會各自完成；可先查看或編輯房型。");
-      await scanAll(complete, addDays(taipeiToday(), 1));
-      setMessage("已完成本次查詢；各平台的結果與擷取時間如下。");
+      if (desktop) setMessage("住宿已辨識。請選擇入住日，再按「收集資料」。");
+      else {
+        await scanAll(complete, addDays(taipeiToday(), 1));
+        setMessage("已完成本次查詢；各平台的結果與擷取時間如下。");
+      }
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "無法完成分析。");
     } finally {
@@ -502,7 +513,8 @@ export default function RadarDashboard() {
     (candidate) => candidate.hotelId === analysis.tourismRegistry?.selectedHotelId,
   );
   const verified = analysis?.tourismRegistry?.status === "matched" || analysis?.property.identityStatus === "confirmed";
-  const displayTabScan = activeTab === "overview" ? undefined : scans[activeTab];
+  const visibleScans: ScanMap = Object.fromEntries(Object.entries(scans).map(([platform, scan]) => [platform, scan ? { ...scan, observations: scan.observations.filter(day => day.stayDate >= startDate && day.stayDate < addDays(startDate, 14)) } : undefined]));
+  const displayTabScan = activeTab === "overview" ? undefined : visibleScans[activeTab];
 
   return (
     <main className={styles.page}>
@@ -540,6 +552,12 @@ export default function RadarDashboard() {
 
       {analysis && (
         <>
+          {desktop && <section className={styles.propertyCard} aria-label="桌面收集">
+            <div className={styles.propertyInfo}><strong>電腦收集</strong><p>使用這台電腦的 Chrome。請保持電腦及 Codex 開啟；每兩分鐘檢查待辦，完成後回填此頁。</p><p>目前開放 Agoda；Booking 與 Trip 尚未開放桌面收集。</p></div>
+            <label>入住日<input aria-label="收集入住日" type="date" value={startDate} onChange={event => { if (validDate(event.target.value)) setStartDate(event.target.value); }} disabled={Object.values(progress).some(value => value === "running" || value === "waiting")} /></label>
+            <label>天數<select aria-label="收集天數" value={scanDays} onChange={event => setScanDays(Number(event.target.value))} disabled={Object.values(progress).some(value => value === "running" || value === "waiting")}><option value={1}>1 天</option><option value={3}>3 天</option><option value={7}>7 天</option><option value={14}>14 天</option></select></label>
+            <button className={styles.secondaryButton} onClick={() => void scanPlatform("agoda", analysis)} disabled={Object.values(progress).some(value => value === "running" || value === "waiting")}><RefreshCw size={15} />收集資料</button>
+          </section>}
           <section className={styles.propertyCard}>
             <div className={styles.propertyAvatar}>{analysis.property.name.slice(0, 1)}</div>
             <div className={styles.propertyInfo}>
@@ -604,7 +622,7 @@ export default function RadarDashboard() {
                       <tr key={room.id}>
                         <td><strong>{room.name}</strong><small>{room.capacity ? `${room.capacity} 人` : "人數待確認"}{room.roomNumber ? ` · ${room.roomNumber}` : ""}</small></td>
                         {PLATFORMS.map((platform) => {
-                          const summary = roomSummary(scans[platform], room.id);
+                          const summary = roomSummary(visibleScans[platform], room.id);
                           return <td key={platform}><div className={styles.summaryCell}><strong>{summary.primary}</strong><small className={styles[summary.tone]}>{summary.secondary}</small><ChevronRight size={15} /></div></td>;
                         })}
                       </tr>
@@ -617,7 +635,7 @@ export default function RadarDashboard() {
                 <section className={styles.visualCard}>
                   <div className={styles.visualHeading}><div><h3>價格趨勢</h3><p>只畫通過住宿、日期與幣別核對的數字</p></div><select aria-label="價格趨勢房型" value={selectedRoom?.id ?? ""} onChange={(event) => setSelectedRoomId(event.target.value)}>{analysis.canonicalRooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></div>
                   <div className={styles.chartTabs}>{PLATFORMS.map((platform) => <button key={platform} onClick={() => setActiveTab(platform)}><PlatformBadge platform={platform} />{PLATFORM_LABELS[platform]}</button>)}</div>
-                  <PriceChart scan={scans.agoda} roomId={selectedRoom?.id ?? ""} />
+                  <PriceChart scan={visibleScans.agoda} roomId={selectedRoom?.id ?? ""} />
                   <small className={styles.chartNote}>目前優先顯示 Agoda；其他平台沒有足夠日期證據時維持空白。</small>
                 </section>
                 <section className={styles.visualCard}>
@@ -641,6 +659,7 @@ export default function RadarDashboard() {
                 <span>{displayTabScan?.state === "blocked" ? "平台目前限制存取，無法確認價格與可售狀態。" : "尚未通過核對的價格與房量保持未知。"}</span>
               </div>
               <p className={styles.chartNote}>參考房量：數量未公開</p>
+              {displayTabScan?.collector === "desktop_computer_use" && <p className={styles.chartNote}>電腦實際核對 · 2 成人、0 兒童、1 房、每次 1 晚 · 顯示已核對方案含稅總額 · {new Date(displayTabScan.capturedAt).toLocaleString("zh-TW")}</p>}
               <div className={styles.dayTableScroll}>
                 <table className={styles.dayTable}>
                   <thead><tr><th>房型</th>{dates.map((date) => <th key={date}>{formatDate(date)}<small>{weekday(date)}</small></th>)}</tr></thead>
@@ -653,6 +672,7 @@ export default function RadarDashboard() {
                 </table>
               </div>
               {displayTabScan?.warnings.length ? <details className={styles.notes}><summary>資料限制與判讀方式</summary>{displayTabScan.warnings.map((warning) => <p key={warning}>{warning}</p>)}</details> : null}
+              {displayTabScan?.collector === "desktop_computer_use" && <details className={styles.notes}><summary>查看已核對方案與稅費</summary>{displayTabScan.observations.flatMap(day => day.rooms.filter(room => room.amount !== undefined).map(room => <p key={`${day.stayDate}-${room.sourceRoomId}-${room.ratePlan}`}><strong>{day.stayDate} · {room.sourceRoomName}</strong><br />{room.ratePlan} · 含稅總額 {formatMoney(room.amount!, room.currency)}{room.priceDetails?.preTaxAmount !== undefined && ` · 房價 ${formatMoney(room.priceDetails.preTaxAmount)}`}{room.priceDetails?.taxesAndFees !== undefined && ` · 稅費 ${formatMoney(room.priceDetails.taxesAndFees)}`}<br />{room.sourceText}</p>))}</details>}
             </section>
           )}
 
@@ -660,7 +680,7 @@ export default function RadarDashboard() {
             <p>政府登記房間數：{registryCandidate?.totalRooms ?? "未取得"}；官網房型：{analysis.canonicalRooms.length}。兩者差異保留，不會刪除官網房型。</p>
             <p>{analysis.tourismRegistry?.message}</p>
             {PLATFORMS.map(platform => <p key={platform}>{PLATFORM_LABELS[platform]} · {scans[platform] ? `${scans[platform]!.collectionState === "withdrawn" ? "結果撤回" : scans[platform]!.collectionState === "paused" ? "最近受限" : "擷取於"} ${new Date(scans[platform]!.capturedAt).toLocaleString("zh-TW")}` : "尚未取得"}<br />{scans[platform]?.warnings.join("；")}</p>)}
-            <p>房量為公開參考值，可能受配額與關房設定影響。結果保存在此裝置；背景掃描可在 15 分鐘內恢復。</p>
+            <p>房量為公開參考值，可能受配額與關房設定影響。{desktop ? "結果保存在此瀏覽器，本機待辦可在 4 小時內恢復；此頁僅限這台電腦。" : "結果保存在此裝置；背景掃描可在 15 分鐘內恢復。"}</p>
             <p>版本：{build}</p>
           </details>
         </>

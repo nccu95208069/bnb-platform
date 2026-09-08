@@ -20,6 +20,7 @@ export interface OtaRoomObservation {
   sourceUrl?: string;
   returnedContext?: import("./ota-evidence").ReturnedStayContext;
   contextVerified?: boolean;
+  priceDetails?: { preTaxAmount?: number; taxesAndFees?: number; discounts: string[]; source: "property_offer" | "checkout_summary" };
 }
 
 export interface OtaDayObservation {
@@ -60,6 +61,7 @@ export interface OtaPlatformScan {
   observations: OtaDayObservation[];
   warnings: string[];
   durationMs: number;
+  collector?: "desktop_computer_use";
 }
 
 export interface OtaSourceOverride {

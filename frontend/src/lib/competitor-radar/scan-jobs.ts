@@ -7,7 +7,7 @@ import type { OtaPlatformScan } from "./ota-types";
 // It survives Function instance changes for 15 minutes; completed results are
 // immediately saved on the device. This is not cross-device persistence.
 export interface ScanJob { id: string; token: string; expiresAt: number }
-export type JobResult = { state: "running" } | { state: "done"; scan: OtaPlatformScan } | { state: "failed"; detail: string };
+export type JobResult = { state: "queued" | "running"; detail?: string } | { state: "done"; scan: OtaPlatformScan } | { state: "failed"; detail: string };
 export async function createScanJob(): Promise<{ job: ScanJob; write: (result: JobResult) => Promise<void> }> {
   const box = await Sandbox.create({ name: `radar-job-${randomBytes(16).toString("hex")}`, persistent: false, runtime: "node24", timeout: 900_000, resources: { vcpus: 1 }, networkPolicy: "deny-all" });
   const token = randomBytes(32).toString("hex");

@@ -85,7 +85,7 @@ async function run() {
   await page.getByRole('heading', { name: 'Agoda' }).waitFor();
   assert.equal(await page.locator('table').last().locator('thead th').count(), 15);
   assert.ok(await page.locator('[aria-label="目前可訂"]').count() > 0);
-  assert.ok(await page.locator('[aria-label="目前無可訂方案"]').count() > 0);
+  assert.ok(await page.locator('[aria-label="平台標示已售完"]').count() > 0);
   await page.getByRole('button', { name: '編輯房型' }).click();
   const roomInput = page.getByLabel('101 河景四人房 房型名稱');
   await roomInput.fill('101 河景家庭四人房');

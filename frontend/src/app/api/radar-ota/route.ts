@@ -1,6 +1,8 @@
 import { after, type NextRequest, NextResponse } from "next/server";
+import { radarSameOrigin } from "@/lib/competitor-radar/request-origin";
 
 import { createScanJob, readScanJob } from "@/lib/competitor-radar/scan-jobs";
+import { desktopDirectory, enqueueDesktop, readDesktop } from "@/lib/competitor-radar/desktop-queue";
 import { collectionPaused, normalizeSourceOverrides, scanOtaPlatform } from "@/lib/competitor-radar/ota-sandbox";
 import type { OtaScanRequest, OtaScanResponse } from "@/lib/competitor-radar/ota-types";
 import { record, safeLink } from "@/lib/competitor-radar/preview-contract";
@@ -170,11 +172,12 @@ export async function GET(request: NextRequest) {
   const jobId = request.nextUrl.searchParams.get("job");
   if (jobId) {
     if (request.headers.get("sec-fetch-site") !== "same-origin") return reply({ detail: "只接受同來源查詢。" }, 403);
-    try { return reply(await readScanJob(jobId, request.headers.get("x-radar-job-token") ?? "")); }
+    try { return reply(await (jobId.startsWith("desktop-") ? readDesktop : readScanJob)(jobId, request.headers.get("x-radar-job-token") ?? "")); }
     catch { return reply({ detail: "掃描已過期或無法恢復，已保存結果仍可查看。" }, 404); }
   }
   return reply({
     version: "radar-live-ota-v0.5",
+    desktop: Boolean(desktopDirectory()),
     source: "isolated_browser",
     live: (["booking", "agoda", "trip"] as const).some((platform) => !collectionPaused(platform)),
     maxDays: 14,
@@ -188,7 +191,7 @@ export async function POST(request: NextRequest) {
     return reply({ detail: "測試端點未開啟。" }, 404);
   }
   const origin = request.headers.get("origin");
-  if (!origin || origin !== request.nextUrl.origin) {
+  if (!radarSameOrigin(origin, request.nextUrl.origin, request.headers.get("host"))) {
     return reply({ detail: "只接受測試頁面發出的同來源請求。" }, 403);
   }
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
@@ -215,6 +218,10 @@ export async function POST(request: NextRequest) {
   try {
     const body = await limitedJson(request);
     const scanRequest = buildRequest(body);
+    if (desktopDirectory() && scanRequest.platform === "agoda") {
+      if (!["localhost", "127.0.0.1"].includes(request.nextUrl.hostname)) return reply({ detail: "桌面收集只接受本機頁面。" }, 403);
+      return reply({ job: await enqueueDesktop(scanRequest) }, 202);
+    }
     const key = cacheKey(scanRequest);
     const cached = cache.get(key);
     if (cached && cached.expiresAt > now) {

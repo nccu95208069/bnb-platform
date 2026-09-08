@@ -2,7 +2,8 @@ import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, write
 import { resolve, join } from 'node:path';
 const root = resolve(process.cwd());
 const source = join(root, 'frontend');
-const target = '/tmp/daili-radar-test-build';
+const target = process.env.RADAR_ARTIFACT_DIR ? resolve(process.env.RADAR_ARTIFACT_DIR) : '/tmp/daili-radar-test-build';
+if (target === root || target === source || !target.endsWith('/daili-radar-test-build')) throw new Error('Unsafe artifact directory');
 if (!existsSync(join(source, 'src/app/radar-test/page.tsx'))) throw new Error('Radar source page missing');
 rmSync(target, { recursive: true, force: true });
 mkdirSync(target, { recursive: true });
