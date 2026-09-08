@@ -88,3 +88,37 @@ test("returned context must independently match all stay fields", async () => {
   assert.equal(sameListing("https://www.agoda.com/sweetfun/hotel/taipei-tw.html", "https://www.agoda.com/nearby/hotel/taipei-tw.html"), false);
   assert.equal(sameListing("https://www.agoda.com/sweetfun/hotel/taipei-tw.html", "http://127.0.0.1"), false);
 });
+
+test("Chinese address numbers normalize without changing road names", async () => {
+  const { compareTaiwanAddresses } = await import("../src/lib/competitor-radar/address");
+  assert.equal(compareTaiwanAddresses("新北市瑞芳區東和里中山路二十四之一號", "新北市瑞芳區中山路24號之1").status, "match");
+  assert.equal(compareTaiwanAddresses("臺北市信義區三民路一段二巷三號", "台北市信義區三民路1段2巷3號").status, "match");
+  assert.equal(compareTaiwanAddresses("新北市瑞芳區中山路24號", "新北市瑞芳區中正路24號").status, "conflict");
+});
+
+test("omitted licensing jurisdiction does not invent a registration conflict", async () => {
+  const { scorePropertyIdentity } = await import("../src/lib/competitor-radar/identity");
+  const a = { registrationNumber: "Registration No: 402", address: "新北市瑞芳區中山路24-1號" };
+  const b = { registrationNumber: "新北市民宿402號", address: "新北市瑞芳區中山路24之1號" };
+  assert.equal(scorePropertyIdentity(a, b).status, "confirmed");
+  assert.equal(scorePropertyIdentity({ registrationNumber: "宜蘭縣民宿402號" }, b).status, "rejected");
+});
+
+test("Agoda adopts only an explicit property Offer status with matching rendered controls", async () => {
+  const { verifyAgodaEvidence } = await import("../src/lib/competitor-radar/ota-evidence");
+  // Structure observed on the public 101 page on 2026-09-08; no prices are invented.
+  const sourceUrl = "https://www.agoda.com/sweetfun-101/hotel/taipei-tw.html";
+  const expected = { sourceUrl, roomNumber: "101", checkIn: "2026-09-09", checkOut: "2026-09-10", adults: 2, children: 0, rooms: 1, currency: "USD" };
+  const observed = { finalUrl: sourceUrl, sourceName: "水芳 Sweetfun 101", checkIn: "2026-09-09", checkOut: "2026-09-10", currency: "USD", offerContextUrl: "/search?selectedproperty=59713878&checkIn=2026-09-09T00%3A00%3A00&checkOut=2026-09-10T00%3A00%3A00&adults=2&children=0&rooms=1", offerStatusText: "Looks like we're sold out. Try changing your dates. Don't miss out on this great property!" };
+  assert.equal(verifyAgodaEvidence(expected, observed).soldOut, true);
+  for (const changed of [
+    { blocked: true }, { hasBookableOffer: true }, { currency: "TWD" },
+    { checkIn: "2026-09-10" }, { offerContextUrl: undefined },
+    { offerContextUrl: observed.offerContextUrl.replace("&children=0", "") },
+    { offerContextUrl: observed.offerContextUrl.replace("&adults=2", "&adults=4") },
+    { offerContextUrl: observed.offerContextUrl.replace("2026-09-10", "2026-09-11") },
+    { offerContextUrl: sourceUrl + "?checkIn=2026-09-09&checkOut=2026-09-10&adults=2&children=0&rooms=1" },
+    { sourceName: "水芳 Sweetfun 201" }, { finalUrl: "https://www.agoda.com/nearby/hotel/taipei-tw.html" },
+    { offerStatusText: undefined }, { offerStatusText: "Our last room is already booked at a nearby hotel" },
+  ]) assert.equal(verifyAgodaEvidence(expected, { ...observed, ...changed }).soldOut, false, JSON.stringify(changed));
+});

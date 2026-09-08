@@ -235,7 +235,7 @@ export async function POST(request: NextRequest) {
       scan,
       capability: {
         source: "isolated_browser",
-        live: true,
+        live: scan.collectionState !== "paused",
         physicalInventory: false,
         confirmedBookings: false,
       },

@@ -16,6 +16,9 @@ export interface OtaRoomObservation {
   amount?: number;
   currency?: string;
   sourceText?: string;
+  sourceUrl?: string;
+  returnedContext?: import("./ota-evidence").ReturnedStayContext;
+  contextVerified?: boolean;
 }
 
 export interface OtaDayObservation {
@@ -48,6 +51,7 @@ export interface OtaPlatformScan {
   platform: OtaPlatform;
   state: OtaScanState;
   capturedAt: string;
+  collectionState?: "attempted" | "paused";
   requestedDays: number;
   completedDays: number;
   identity: OtaPropertyIdentity;
@@ -79,7 +83,7 @@ export interface OtaScanResponse {
   scan: OtaPlatformScan;
   capability: {
     source: "isolated_browser";
-    live: true;
+    live: boolean;
     physicalInventory: false;
     confirmedBookings: false;
   };

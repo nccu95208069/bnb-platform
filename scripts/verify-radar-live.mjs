@@ -22,7 +22,9 @@ writeFileSync(out + '/registry.json', JSON.stringify(registry, null, 2));
 const date = new Date(); date.setUTCDate(date.getUTCDate() + 1);
 const startDate = date.toISOString().slice(0, 10);
 const scans = {};
-for (const platform of ['agoda', 'booking', 'trip']) {
+const platforms = (process.env.RADAR_PLATFORMS ?? 'agoda,booking,trip').split(',');
+assert.ok(platforms.every(p => ['agoda', 'booking', 'trip'].includes(p)));
+for (const platform of platforms) {
   const { job } = await post('/api/radar-ota', { async: true, platform, startDate, days: 1, adults: 2, property: website.property, canonicalRooms: website.canonicalRooms });
   assert.ok(job?.id);
   let result;

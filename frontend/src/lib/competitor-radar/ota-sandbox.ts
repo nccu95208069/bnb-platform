@@ -2,7 +2,7 @@ import "server-only";
 
 import { Sandbox } from "@vercel/sandbox";
 
-import { contextMatches, sameListing } from "./ota-evidence";
+import { verifyAgodaEvidence, type AgodaRenderedEvidence } from "./ota-evidence";
 import { scorePropertyIdentity } from "./identity";
 import type {
   OtaDayObservation,
@@ -297,7 +297,7 @@ async function scanBooking(request: OtaScanRequest): Promise<OtaPlatformScan> {
       return {
         ...emptyObservation(
           stayDate,
-          "Booking 已確認住宿與房型目錄，但這條公開頁面路徑沒有回傳可驗證的入住日期，因此不採用價格或房量。",
+          identityVerified ? "Booking 住宿已核對，但未取得可驗證入住日期，價格與房量保持未知。" : "Booking 住宿與入住日期尚未核對，價格與房量保持未知。",
           identityVerified,
           sourceUrl,
         ),
@@ -345,7 +345,7 @@ function agodaStayUrl(
   url.searchParams.set("rooms", "1");
   url.searchParams.set("adults", String(adults));
   url.searchParams.set("children", "0");
-  url.searchParams.set("currencyCode", "TWD");
+  url.searchParams.set("currencyCode", "USD");
   return url.href;
 }
 
@@ -370,68 +370,32 @@ async function scanAgodaSource(
         try {
           await command(sandbox, ["open", job.url]);
           await command(sandbox, ["wait", "2500"]);
-          const observed = await evaluate<
-            Omit<BrowserDayResult, "roomNumber" | "stayDate" | "checkOut" | "url">
-          >(
+          const observed = await evaluate<AgodaRenderedEvidence & { title: string }>(
             sandbox,
             `JSON.stringify((()=>{
-              const body=(document.body?.innerText||document.body?.textContent||'').replace(/\\s+/g,' ');
-              const month=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-              const labels=(raw)=>{
-                const d=new Date(raw+'T00:00:00Z');
-                const day=d.getUTCDate();
-                const padded=String(day).padStart(2,'0');
-                const mon=month[d.getUTCMonth()];
-                const year=d.getUTCFullYear();
-                return [day+' '+mon+' '+year,padded+' '+mon+' '+year,mon+' '+day+', '+year,raw];
-              };
-              const checkInLabels=labels(${JSON.stringify(job.stayDate)});
-              const checkOutLabels=labels(${JSON.stringify(job.checkOut)});
+              const body=(document.body?.innerText||'').replace(/\\s+/g,' ');
               const title=document.title||'';
               const blocked=/captcha|verify you are human|request rejected|access denied|unusual traffic/i.test(title+' '+body);
-              const dateVerified=!blocked&&checkInLabels.some(x=>body.includes(x))&&checkOutLabels.some(x=>body.includes(x));
-              const contextText=[...document.querySelectorAll('[data-selenium="occupancy-box"], [data-element-name="occupancy-box"], [data-selenium="search-box"]')].map(x=>x.textContent||'').join(' ');
-              const adults=(contextText.match(/(\\d+)\\s*adults?/i)||[])[1];
-              const children=(contextText.match(/(\\d+)\\s*children/i)||[])[1];
-              const rooms=(contextText.match(/(\\d+)\\s*rooms?/i)||[])[1];
-              const contextVerified=dateVerified&&Number(adults)===${request.adults}&&children!==undefined&&Number(children)===0&&Number(rooms)===1;
-              const soldOut=contextVerified&&/Sold out!.*Our last room is already booked|Looks like we're sold out/i.test(body);
-              const sourceName=(document.querySelector('h1')?.textContent||title.split('(')[0]||'').trim();
-              const priceTexts=[...document.querySelectorAll('[data-element-name*="price"],[data-selenium*="price"],[class*="Price"],[class*="price"]')]
-                .filter(node=>{const style=getComputedStyle(node);return style.display!=='none'&&style.visibility!=='hidden'})
-                .map(node=>(node.textContent||'').trim())
-                .filter(text=>text&&text.length<160);
-              const priceBlob=priceTexts.join(' | ');
-              const currencyToken=(priceBlob.match(/\\b(TWD|USD|NTD)\\b|NT\\$|US\\$/i)||[])[0]||
-                (body.match(/Select your currency\\s+(TWD|USD|NTD)/i)||[])[1];
-              const currency=/^(?:TWD|NTD|NT\\$)$/i.test(currencyToken||'')?'TWD':/^(?:USD|US\\$)$/i.test(currencyToken||'')?'USD':undefined;
-              const values=[];
-              for(const text of priceTexts){
-                const anchored=[...text.matchAll(/(?:TWD|NT\\$|NTD|USD|US\\$|\\$)\\s*([0-9][0-9,]*(?:\\.[0-9]+)?)/gi)];
-                const matches=anchored.length?anchored:[...text.matchAll(/\\b([0-9][0-9,]*(?:\\.[0-9]+)?)\\b/g)];
-                for(const match of matches){
-                  const value=Number(match[1].replaceAll(',',''));
-                  const minimum=currency==='TWD'?100:10;
-                  if(Number.isFinite(value)&&value>=minimum&&value<1000000)values.push(value);
-                }
-              }
-              // Generic price nodes can belong to nearby recommendations or SEO.
-              // Until an offer-scoped parser proves the full stay context, do not accept them.
-              const amount=undefined;
-              const available=false;
-              const sourceText=soldOut
-                ? 'Sold out! Our last room is already booked'
-                : available
-                  ? 'Agoda rendered a dated bookable room page'
-                  : 'No dated offer was exposed';
-              return {title,sourceName,dateVerified,contextVerified,returnedContext:{checkIn:dateVerified?${JSON.stringify(job.stayDate)}:undefined,checkOut:dateVerified?${JSON.stringify(job.checkOut)}:undefined,adults:adults===undefined?undefined:Number(adults),children:children===undefined?undefined:Number(children),rooms:rooms===undefined?undefined:Number(rooms),currency},finalUrl:location.href,blocked,soldOut,available,amount,currency,sourceText};
+              const visible=(node)=>Boolean(node && node.getClientRects().length && getComputedStyle(node).visibility!=='hidden');
+              const offer=[...document.querySelectorAll('[role="region"][aria-label="Offer"]')].find(visible);
+              const field=(selector,attribute)=>{
+                const node=[...document.querySelectorAll(selector)].find(visible);
+                return node?.getAttribute(attribute)||undefined;
+              };
+              const status=offer?.querySelector('[data-testid="urgency-text"]');
+              const link=offer?.querySelector('a[data-element-name="bottomnav-back-to-search"]');
+              const hasBookableOffer=Boolean(offer && [...offer.querySelectorAll('button,a')].some(node=>visible(node)&&/^(?:book now|reserve|select room)/i.test((node.textContent||'').trim())));
+              return {title,sourceName:document.querySelector('h1')?.textContent?.trim(),finalUrl:location.href,blocked,
+                checkIn:field('[data-selenium="checkInBox"]','data-date'),
+                checkOut:field('[data-selenium="checkOutBox"]','data-date'),
+                currency:field('[data-selenium="currency-container-selected-currency"]','data-value'),
+                offerContextUrl:link?.getAttribute('href'),
+                offerStatusText:visible(status)?status.textContent?.trim():undefined,hasBookableOffer};
             })())`,
-            300_000,
+            100_000,
           );
-          const listingMatches = sameListing(source.url, observed.finalUrl) &&
-            /sweetfun|水芳/i.test(observed.sourceName ?? "") &&
-            (!source.roomNumber || (observed.sourceName ?? "").includes(source.roomNumber));
-          output.push({ ...job, ...observed, contextVerified: observed.contextVerified && listingMatches && contextMatches({checkIn:job.stayDate,checkOut:job.checkOut,adults:request.adults,children:0,rooms:1,currency:"TWD"}, observed.returnedContext ?? {}) });
+          const verified = verifyAgodaEvidence({sourceUrl:source.url,roomNumber:source.roomNumber,checkIn:job.stayDate,checkOut:job.checkOut,adults:request.adults,children:0,rooms:1,currency:"USD"}, observed);
+          output.push({ ...job, ...observed, ...verified, available: false, sourceText: observed.offerStatusText ?? "No dated offer was exposed" });
           if (observed.blocked) break;
         } catch (error) {
           output.push({
@@ -527,6 +491,9 @@ async function scanAgoda(request: OtaScanRequest): Promise<OtaPlatformScan> {
             ? item.currency
             : undefined,
         sourceText: item.error ?? item.sourceText,
+        sourceUrl: item.finalUrl ?? item.url,
+        returnedContext: item.returnedContext,
+        contextVerified: Boolean(identityVerified && item.contextVerified),
       }));
       const usable = rooms.filter((room) => room.availability !== "unknown");
       const currencies = [...new Set(rooms.map((room) => room.currency).filter(Boolean))];
@@ -570,7 +537,7 @@ async function scanAgoda(request: OtaScanRequest): Promise<OtaPlatformScan> {
       ? "blocked"
       : completedDays === request.days && completeRoomCoverage
         ? "ready"
-        : completedDays
+        : results.some(item => !item.error && !item.blocked)
           ? "partial"
           : "failed";
   return {
@@ -585,7 +552,7 @@ async function scanAgoda(request: OtaScanRequest): Promise<OtaPlatformScan> {
       completeRoomCoverage
         ? "Agoda 已涵蓋這次草稿中的所有非包棟房號。"
         : "水芳在 Agoda 以獨立房間頁面販售；102 尚未找到可驗證頁面，因此不會推論整間住宿售罄。",
-      "Agoda 頁面可能忽略要求的 TWD 並回傳其他幣別；系統保留來源幣別，不自行換算。",
+      "Agoda 以 USD 查詢並核對頁面幣別；保留來源幣別，不自行換算。",
       "Agoda 未公開可靠待售間數，數量一律顯示未知。",
     ],
     durationMs: Date.now() - started,
@@ -690,7 +657,7 @@ async function scanTrip(request: OtaScanRequest): Promise<OtaPlatformScan> {
       identity,
       observations,
       warnings: [
-        "Trip.com 能核對住宿、日期與登記證，但房價區塊可能要求登入或只提供不完全符合條件的替代房型。",
+        "Trip.com 本次是否完成住宿與日期核對以結果為準；平台可能要求登入或提供不符合條件的替代房型。",
         "SEO 的 priceRange 不是指定入住日價格，系統刻意不採用。",
       ],
       durationMs: Date.now() - started,
@@ -727,6 +694,14 @@ export async function scanOtaPlatform(request: OtaScanRequest): Promise<OtaPlatf
     case "agoda":
       return scanAgoda(request);
     case "trip":
+      // Pause after a restricted response; ordinary retries must not probe again.
+      if (process.env.RADAR_TRIP_COLLECTION_ENABLED !== "true") return {
+        platform: "trip", state: "blocked", collectionState: "paused",
+        capturedAt: "2026-09-08T04:11:20.414Z", requestedDays: request.days, completedDays: 0,
+        identity: { platform: "trip", status: "not_found", sourceUrl: isSweetfun(request) ? TRIP_SWEETFUN_URL : undefined, evidence: [] },
+        observations: [], durationMs: 0,
+        warnings: ["Trip.com 採集路線於 2026-09-08 回傳受限結果，已暫停。這次未重新連線，日期、價格與參考房量維持無法確認。"],
+      };
       return scanTrip(request);
   }
 }

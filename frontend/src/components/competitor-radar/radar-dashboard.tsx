@@ -138,9 +138,9 @@ function statusLabel(state: OtaPlatformScan["state"] | undefined): string {
 }
 
 function availabilityLabel(value: OtaAvailability): string {
-  if (value === "available") return "有房";
-  if (value === "sold_out") return "售完";
-  return "未知";
+  if (value === "available") return "目前可訂";
+  if (value === "sold_out") return "目前無可訂方案";
+  return "無法確認";
 }
 
 function roomDay(
@@ -179,7 +179,7 @@ function roomSummary(scan: OtaPlatformScan | undefined, roomId: string) {
       item.amount !== undefined && Boolean(item.currency),
   );
   const currencies = [...new Set(prices.map((item) => item.currency))];
-  let primary = "價格未公開";
+  let primary = "價格無法確認";
   if (currencies.length === 1 && prices.length) {
     const amounts = prices.map((item) => item.amount);
     const minimum = Math.min(...amounts);
@@ -192,7 +192,7 @@ function roomSummary(scan: OtaPlatformScan | undefined, roomId: string) {
   if (knownDays) {
     return {
       primary,
-      secondary: `有房 ${availableDays} 天 · 售完 ${soldOutDays} 天`,
+      secondary: `可訂 ${availableDays} 天 · 無可訂方案 ${soldOutDays} 天`,
       tone: availableDays ? ("good" as const) : ("danger" as const),
     };
   }
@@ -637,7 +637,7 @@ export default function RadarDashboard() {
               {displayTabScan?.identity.sourceUrl && <a className={styles.sourceLink} href={displayTabScan.identity.sourceUrl} target="_blank" rel="noreferrer noopener"><ShieldCheck size={15} />{displayTabScan.identity.sourceName ?? "開啟平台來源"}<ExternalLink size={13} /></a>}
               <div className={styles.platformSummary}>
                 <span className={displayTabScan?.identity.status === "confirmed" ? styles.verified : styles.review}>{displayTabScan?.identity.status === "confirmed" ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}{displayTabScan?.identity.status === "confirmed" ? "住宿身分相符" : "住宿身分待確認"}</span>
-                <span>{displayTabScan?.warnings[0] ?? "平台資料尚未取得。"}</span>
+                <span>{displayTabScan?.state === "blocked" ? "平台目前限制存取，無法確認價格與可售狀態。" : "尚未通過核對的價格與房量保持未知。"}</span>
               </div>
               <div className={styles.dayTableScroll}>
                 <table className={styles.dayTable}>
@@ -657,7 +657,7 @@ export default function RadarDashboard() {
           <details className={styles.notes}><summary>查看辨識與資料細節</summary>
             <p>政府登記房間數：{registryCandidate?.totalRooms ?? "未取得"}；官網房型：{analysis.canonicalRooms.length}。兩者差異保留，不會刪除官網房型。</p>
             <p>{analysis.tourismRegistry?.message}</p>
-            {PLATFORMS.map(platform => <p key={platform}>{PLATFORM_LABELS[platform]} · {scans[platform] ? `擷取於 ${new Date(scans[platform]!.capturedAt).toLocaleString("zh-TW")}` : "尚未取得"}<br />{scans[platform]?.warnings.join("；")}</p>)}
+            {PLATFORMS.map(platform => <p key={platform}>{PLATFORM_LABELS[platform]} · {scans[platform] ? `${scans[platform]!.collectionState === "paused" ? "最近受限" : "擷取於"} ${new Date(scans[platform]!.capturedAt).toLocaleString("zh-TW")}` : "尚未取得"}<br />{scans[platform]?.warnings.join("；")}</p>)}
             <p>房量為公開參考值，可能受配額與關房設定影響。結果保存在此裝置；背景掃描可在 15 分鐘內恢復。</p>
             <p>版本：{build}</p>
           </details>
