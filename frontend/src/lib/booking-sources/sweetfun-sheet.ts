@@ -96,6 +96,7 @@ export function adaptSheetBookings(values: unknown[][], sourceId: string, observ
     booking.room_rate = r.amount;
     const guestCount = Number(r.get("入住人數"));
     if (Number.isInteger(guestCount) && guestCount > 0) booking.source_guest_count = guestCount;
+    booking.source_payment_flag = r.get("全額支付狀態") === "done" ? "done" : ["not_yet", "not yet"].includes(r.get("全額支付狀態")) ? "not_yet" : "unknown";
     booking.payment_status = r.get("全額支付狀態") === "done" ? "paid" : "unknown";
     booking.source_payment_label = r.get("全額支付狀態") === "done" ? "客人已付清；OTA 收款與旅宿入帳尚未記錄" :
       ["not_yet", "not yet"].includes(r.get("全額支付狀態")) ? "來源標記尚未完成付款" : "來源未提供明確付款狀態";

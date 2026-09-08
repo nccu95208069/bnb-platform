@@ -23,3 +23,5 @@ test('registry CAS persists across reads, rejects stale writes and fails closed 
  const before=await readSummaryRegistry('test');const next=captureIdentities(before.state,project(),0,'admin','fingerprint','2026-09-08');await saveSummaryRegistry('test',before.raw,next);assert.equal((await readSummaryRegistry('test')).state.orders[0].id,'o1');await assert.rejects(()=>saveSummaryRegistry('test',before.raw,next),/VERSION_CONFLICT/);
  t.mock.method(globalThis,'fetch',async()=>Response.json({}, {status:503}));await assert.rejects(()=>readSummaryRegistry('test'),/STORE_UNAVAILABLE/);
 });
+
+test('adapter unknown customer payment still retains explicit unclaimed flag',()=>{const r=project([{...row,platform:'agoda',payment_status:'unknown',source_payment_flag:'not_yet'}])[0];assert.equal(r.claim,'legacy_unclaimed');assert.equal(r.customer_payment,'unknown');});

@@ -78,6 +78,7 @@ export type CalendarBooking = {
   source_conflict?: boolean;
   source_issue_acknowledged?: boolean;
   source_payment_label?: string;
+  source_payment_flag?: "done" | "not_yet" | "unknown";
   source_guest_count?: number;
   source_order_linked?: boolean;
   source_identity_kind?: "parent_order" | "row";

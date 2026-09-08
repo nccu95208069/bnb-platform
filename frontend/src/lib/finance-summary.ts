@@ -48,7 +48,7 @@ export function summarizeOrders(property:string,rows:CalendarBooking[],entries:F
   }).sort((a,b)=>a.at.localeCompare(b.at)||a.id.localeCompare(b.id));
   const received=records.filter(r=>r.method!=='ota').reduce((s,r)=>s+r.amount_cents,0);
   const ota=records.filter(r=>r.method==='ota').reduce((s,r)=>s+r.amount_cents,0);
-  const statuses=unique(bookings.map(b=>b.payment_status));
+  const statuses=unique(bookings.map(b=>b.source_payment_flag==='not_yet'?'unpaid':b.payment_status));
   const source_amount=bookings.reduce((s,b)=>s+Math.round(b.room_rate*100),0);
   if(bookings.some(b=>!Number.isFinite(b.room_rate)||b.room_rate<0)||!Number.isSafeInteger(source_amount))issues.push('amount_invalid');
   // Without verified customer/settlement totals, positive evidence is recorded_unverified; even partial cannot be asserted.
