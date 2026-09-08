@@ -7,7 +7,8 @@ import { readBookingSnapshot } from '@/lib/booking-sources/snapshot';
 import { readOperationalSheet } from '@/lib/sheet-monitor/google';
 import { normalizeRows, HEADERS } from '@/lib/sheet-monitor/reconcile';
 import { adaptSheetBookings } from '@/lib/booking-sources/sweetfun-sheet';
-import { readLedger, checkRows, prepareReceipt, appendReceipt, canRecord, paymentStatus } from '@/lib/os-payments';
+import { financeAllocated, readLedger, checkRows, prepareReceipt, appendReceipt, canRecord, paymentStatus } from '@/lib/os-payments';
+import {manualFinanceEntries} from '@/lib/finance-store';
 import { randomUUID } from 'node:crypto';
 import { RedisWorkspaceStore, redisCommand } from '@/lib/workspace-auth/store';
 
@@ -26,6 +27,7 @@ async function context(request:NextRequest,property:unknown,order:unknown,write=
   const live=adaptSheetBookings([HEADERS,...normalized.map(r=>r.cells)],source.sourceId,new Date().toISOString(),[],normalized.map(r=>r.sourceRow),source.property);
   const current=checkRows(live.bookings,property,order,ledger);
   if(current.source_version!==check.source_version)throw new Error('SOURCE_CHANGED');
+  check.finance_received=financeAllocated(await manualFinanceEntries(property),order);
   return {actor,check,raw};
 }
 const failures:Record<string,[number,string]>={AMOUNT_EXCEEDS_TOTAL:[400,'本次加上 OS 已登記的房費超過訂單房費，請核對；額外收費請選其他款項。'],UNAUTHORIZED:[401,'請先登入。'],FORBIDDEN:[403,'此帳號沒有這間旅宿的付款權限。'],INVALID_INPUT:[400,'請確認金額、付款方式與日期時間。'],NOT_FOUND:[404,'來源訂單已變動或不存在，請重新整理日曆。'],SOURCE_CONFLICT:[409,'訂單資料有衝突，請先核對來源。'],SOURCE_CHANGED:[409,'訂單剛被更正，請等日曆同步後重新確認。'],VERSION_CONFLICT:[409,'付款或訂單資料已更新，請重新載入確認後再送出。'],IDEMPOTENCY_CONFLICT:[409,'同一次請求的內容不同，請重新載入。'],WRITE_UNCONFIRMED:[503,'可能已儲存，請使用原內容重試確認，勿另建一筆。'],RATE_LIMITED:[429,'操作過於頻繁，請稍後重試。']};

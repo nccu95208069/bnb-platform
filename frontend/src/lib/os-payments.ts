@@ -1,3 +1,5 @@
+import {manualFinanceEntries} from './finance-store.ts';
+import type {FinanceEntry} from './finance-model.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import type { CalendarBooking, PaymentRecord } from '../components/calendar/calendar-types';
 import { redisCommand } from './workspace-auth/store.ts';
@@ -5,7 +7,7 @@ import type { Principal } from './workspace-auth/types.ts';
 
 export type Receipt = PaymentRecord & { actor: string; actor_name: string; note: string; settles_room: boolean; request_id: string; request_hash: string; mission_id: string; source_version: string };
 export type Ledger = { version: number; receipts: Receipt[] };
-export type OrderCheck = { property_id: string; order_id: string; source_version: string; total: number; rooms: string[]; nights: number; source_paid: boolean; ledger: Ledger };
+export type OrderCheck = { property_id: string; order_id: string; source_version: string; total: number; rooms: string[]; nights: number; source_paid: boolean; finance_received?:number; ledger: Ledger };
 export const emptyLedger = (): Ledger => ({ version: 0, receipts: [] });
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function canRecord(actor: Principal, property: string) {
@@ -22,9 +24,9 @@ export function checkRows(rows: CalendarBooking[], property: string, order: stri
     source_paid: matches.every(b=>b.payment_status==='paid'), ledger };
 }
 export function paymentStatus(check: OrderCheck): CalendarBooking['payment_status'] {
-  const recordedRoomCents=check.ledger.receipts.filter(r=>r.payment_type!=='other').reduce((sum,r)=>sum+Math.round(r.amount*100),0);
+  const recordedRoomCents=Math.max(Math.round((check.finance_received??0)*100)+check.ledger.receipts.filter(r=>r.payment_method!=='ota'&&r.payment_type!=='other').reduce((s,r)=>s+Math.round(r.amount*100),0),check.ledger.receipts.filter(r=>r.payment_type!=='other').reduce((sum,r)=>sum+Math.round(r.amount*100),0));
   if (check.source_paid || (check.total>0 && recordedRoomCents>=Math.round(check.total*100)) || check.ledger.receipts.some(r=>r.settles_room && r.source_version===check.source_version)) return 'paid';
-  if (check.ledger.receipts.some(r=>r.payment_type!=='other')) return 'deposit';
+  if ((check.finance_received??0)>0||check.ledger.receipts.some(r=>r.payment_type!=='other')) return 'deposit';
   return 'unknown';
 }
 export function prepareReceipt(input: Record<string, unknown>, check: OrderCheck, actor: Principal, now = new Date().toISOString()): Receipt {
@@ -39,7 +41,7 @@ export function prepareReceipt(input: Record<string, unknown>, check: OrderCheck
   const existing=check.ledger.receipts.find(r=>r.request_id===request_id);
   if(existing) { if(existing.request_hash!==request_hash)throw new Error('IDEMPOTENCY_CONFLICT');return existing; }
   if(input.expected_version!==check.ledger.version||input.source_version!==check.source_version)throw new Error('VERSION_CONFLICT');
-  if(payment_type!=='other' && check.ledger.receipts.filter(r=>r.payment_type!=='other').reduce((sum,r)=>sum+Math.round(r.amount*100),0)+Math.round(amount*100)>Math.round(check.total*100))throw new Error('AMOUNT_EXCEEDS_TOTAL');
+  if(payment_type!=='other' && Math.max(check.ledger.receipts.filter(r=>r.payment_type!=='other').reduce((sum,r)=>sum+Math.round(r.amount*100),0),Math.round((check.finance_received??0)*100)+check.ledger.receipts.filter(r=>r.payment_type!=='other'&&r.payment_method!=='ota').reduce((sum,r)=>sum+Math.round(r.amount*100),0))+Math.round(amount*100)>Math.round(check.total*100))throw new Error('AMOUNT_EXCEEDS_TOTAL');
   if(check.ledger.receipts.length>=1000)throw new Error('LEDGER_FULL');
   return {id:randomUUID(),amount,payment_type:payment_type as Receipt['payment_type'],payment_method:payment_method as Receipt['payment_method'],received_at,created_at:now,
     actor:actor.id,actor_name:actor.displayName,note,settles_room,request_id,request_hash,mission_id:randomUUID(),source_version:check.source_version};
@@ -67,11 +69,14 @@ export async function appendReceipt(check:OrderCheck,raw:string|null,receipt:Rec
   return verified.ledger;
 }
 export async function overlayPayments(bookings:CalendarBooking[]):Promise<CalendarBooking[]> {
+  const finance=new Map<string,FinanceEntry[]>();await Promise.all([...new Set(bookings.map(b=>b.property_id))].map(async property=>finance.set(property,await manualFinanceEntries(property))));
   const groups=new Map<string,CalendarBooking[]>();
-  for(const b of bookings)if(!b.source_conflict){const key=ledgerKey(b.property_id,b.order_id);groups.set(key,[...(groups.get(key)??[]),b]);}
+  for(const b of bookings)if(!b.source_conflict&&b.reservation_status!=='cancelled'){const key=ledgerKey(b.property_id,b.order_id);groups.set(key,[...(groups.get(key)??[]),b]);}
   const entries=[...groups.entries()]; if(!entries.length)return bookings;
   const values=await redisCommand(['MGET',...entries.map(([key])=>key)]) as (string|null)[];
   const statuses=new Map<string,CalendarBooking['payment_status']>();
-  entries.forEach(([key,rows],index)=>{if(values[index]) {const ledger=JSON.parse(values[index]!) as Ledger;statuses.set(key,paymentStatus(checkRows(rows,rows[0].property_id,rows[0].order_id,ledger)));}});
+  entries.forEach(([key,rows],index)=>{{const ledger=values[index]?JSON.parse(values[index]!) as Ledger:emptyLedger();const check=checkRows(rows,rows[0].property_id,rows[0].order_id,ledger);check.finance_received=financeAllocated(finance.get(rows[0].property_id)??[],rows[0].order_id);statuses.set(key,paymentStatus(check));}});
   return bookings.map(b=>{const status=statuses.get(ledgerKey(b.property_id,b.order_id));return status?{...b,payment_status:status}:b;});
 }
+
+export const financeAllocated=(entries:FinanceEntry[],order:string)=>entries.reduce((s,e)=>s+(e.allocations?.filter(a=>a.order_id===order).reduce((n,a)=>n+a.amount_cents,0)??0),0)/100;
