@@ -36,3 +36,4 @@ Live deployment/browser results and PR disposition appended after verification.
 - Explicit OS-only capture returned verified=true; registry version 0 -> 1. Readback confirmed; stale replay returned 409. Unauthorized property returned 403. No Sheet writes or payment entries created.
 - Mobile 390x844 and desktop 1280x900 screenshots inspected. Browser errors empty. Mobile search width adjusted after review; remaining labels translated.
 - PR #17 compares only this increment against the prior deployed baseline branch. Intentionally not merged into main: main has independent changes and does not yet contain the deployed calendar/finance baseline. This is an integration dependency, not a claim of main readiness.
+- Final semantic review: positive recorded amounts with unknown totals use `recorded_unverified` in the API, not `partial`; Agent consumers must not infer an outstanding balance. Focused tests and TypeScript passed again.

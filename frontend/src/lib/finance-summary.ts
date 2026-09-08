@@ -3,7 +3,7 @@ import type {CalendarBooking} from '../components/calendar/calendar-types';
 import type {FinanceEntry} from './finance-model';
 import {ledgerKey} from './os-payments.ts';
 
-export type SettlementStatus = 'unknown' | 'partial' | 'complete' | 'unpaid';
+export type SettlementStatus = 'unknown' | 'recorded_unverified' | 'partial' | 'complete' | 'unpaid';
 export type OrderIdentity = {id:string; aliases:string[]; row_ids:string[]; first_seen:string; last_seen:string};
 export type SummaryRegistry = {schema:1; version:number; orders:OrderIdentity[]; audits:{version:number; actor:string; at:string; source_version:string}[]};
 export const emptyRegistry = ():SummaryRegistry => ({schema:1,version:0,orders:[],audits:[]});
@@ -51,12 +51,12 @@ export function summarizeOrders(property:string,rows:CalendarBooking[],entries:F
   const statuses=unique(bookings.map(b=>b.payment_status));
   const source_amount=bookings.reduce((s,b)=>s+Math.round(b.room_rate*100),0);
   if(bookings.some(b=>!Number.isFinite(b.room_rate)||b.room_rate<0)||!Number.isSafeInteger(source_amount))issues.push('amount_invalid');
-  // Without verified customer/settlement totals, positive evidence means partial, never complete.
+  // Without verified customer/settlement totals, positive evidence is recorded_unverified; even partial cannot be asserted.
   result.push({id,platform,rooms:unique(bookings.map(b=>b.room_number)),check_in:bookings.map(b=>b.check_in).sort()[0],check_out:bookings.map(b=>b.check_out).sort().at(-1)!,ota_ids,owl_ids,row_ids,aliases,
    source_amount_cents:issues.includes('amount_invalid')||issues.includes('source_conflict')?null:source_amount,
-   customer_payment:platform==='direct'&&received>0||ota>0?'partial':'unknown',
+   customer_payment:platform==='direct'&&received>0||ota>0?'recorded_unverified':'unknown',
    claim:platform==='direct'?'not_applicable':property==='sweetfun'&&platform==='agoda'&&statuses.length===1?(statuses[0]==='paid'?'legacy_claimed':statuses[0]==='unpaid'?'legacy_unclaimed':'unknown'):'unknown',
-   receipt:received>0?'partial':'unknown',recorded_received_cents:received,ota_collected_cents:ota,
+   receipt:received>0?'recorded_unverified':'unknown',recorded_received_cents:received,ota_collected_cents:ota,
    receivable_total_cents:null,outstanding_cents:null,legacy_status:statuses.join('/'),issues:[...issues,'amount_basis_unconfirmed'],records});
  }
  // Duplicate aliases within the same incoming batch cannot auto-merge separate ledgers.
