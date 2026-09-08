@@ -28,3 +28,11 @@ No critical issue found within M1 scope after these fixes. Known boundaries: ver
 - Post-review summary tests and TypeScript rerun passed.
 
 Live deployment/browser results and PR disposition appended after verification.
+
+## Live verification
+
+- Vercel production deployment `sweetfun-mn6lqfpgu-sweetfuns-projects.vercel.app`, alias `sweetfun-os.vercel.app` ready.
+- Authorized GET returned 200, 1,409 order summaries and 2 source issues. Unverified receivable totals all remained null. No guest names persisted by registry.
+- Explicit OS-only capture returned verified=true; registry version 0 -> 1. Readback confirmed; stale replay returned 409. Unauthorized property returned 403. No Sheet writes or payment entries created.
+- Mobile 390x844 and desktop 1280x900 screenshots inspected. Browser errors empty. Mobile search width adjusted after review; remaining labels translated.
+- PR #17 compares only this increment against the prior deployed baseline branch. Intentionally not merged into main: main has independent changes and does not yet contain the deployed calendar/finance baseline. This is an integration dependency, not a claim of main readiness.

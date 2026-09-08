@@ -1,5 +1,22 @@
 export const messages:Record<string,{en:string;th:string;vi:string}>= {
 
+  "顯示更多": {
+    "en": "Show more",
+    "th": "แสดงเพิ่มเติม",
+    "vi": "Hiển thị thêm"
+  },
+  "不適用": {
+    "en": "Not applicable",
+    "th": "ไม่เกี่ยวข้อง",
+    "vi": "Không áp dụng"
+  },
+  "部分付款": {
+    "en": "Partially paid",
+    "th": "ชำระบางส่วน",
+    "vi": "Thanh toán một phần"
+  }
+,
+
   "訂單財務摘要": {
     "en": "Order finance summary",
     "th": "สรุปการเงินการจอง",
