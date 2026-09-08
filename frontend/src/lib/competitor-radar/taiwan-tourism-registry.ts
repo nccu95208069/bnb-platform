@@ -515,6 +515,7 @@ async function loadPortalRecords(seed: PropertyIdentityInput): Promise<TourismRe
   if (!terms.length) return [];
 
   const idResults = await Promise.allSettled(terms.map(searchPortalHotelIds));
+  if (idResults.some(result => result.status === "rejected")) throw new Error("registry_search_incomplete");
   const ids = unique(
     idResults.flatMap((result) => (result.status === "fulfilled" ? result.value : [])),
   ).slice(0, MAX_PORTAL_RECORDS);
@@ -525,6 +526,7 @@ async function loadPortalRecords(seed: PropertyIdentityInput): Promise<TourismRe
   }
 
   const recordResults = await Promise.allSettled(ids.map(fetchPortalRecord));
+  if (recordResults.some(result => result.status === "rejected")) throw new Error("registry_records_incomplete");
   const records = recordResults.flatMap((result) =>
     result.status === "fulfilled" ? [result.value] : [],
   );

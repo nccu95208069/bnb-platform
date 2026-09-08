@@ -1,0 +1,20 @@
+name: Radar Current Source
+# Historical research only; never runs on a source commit.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: git archive --format=tar.gz --output=/tmp/radar-current.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: radar-current-source
+          path: /tmp/radar-current.tar.gz
+          retention-days: 2

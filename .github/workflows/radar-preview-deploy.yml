@@ -1,0 +1,129 @@
+name: Radar Preview Deploy
+
+on:
+  push:
+    branches: [feat/competitor-radar-testable-preview]
+    paths:
+      - 'frontend/src/**'
+      - 'frontend/tests/**'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'scripts/prepare-radar-preview.mjs'
+      - 'scripts/deploy-radar-preview.mjs'
+      - '.github/workflows/radar-preview-check.yml'
+      - '.github/workflows/radar-preview-deploy.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: radar-preview-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy-test-site:
+    if: github.repository == 'nccu95208069/bnb-platform'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    defaults:
+      run:
+        shell: bash
+    env:
+      RADAR_PREVIEW_MODE: 'true'
+      RADAR_BUILD_SHA: ${{ github.sha }}
+      NEXT_PUBLIC_DEMO_MODE: 'true'
+      NEXT_PUBLIC_SUPABASE_URL: 'https://placeholder.supabase.co'
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'preview-placeholder'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require successful acceptance of this exact revision
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'JS'
+          import { setTimeout as delay } from 'node:timers/promises';
+          const repo = process.env.GITHUB_REPOSITORY;
+          const sha = process.env.GITHUB_SHA;
+          let accepted = false;
+          for (let attempt = 0; attempt < 72; attempt++) {
+            const response = await fetch(`https://api.github.com/repos/${repo}/commits/${sha}/check-runs?per_page=100`, {
+              headers: {
+                Authorization: `Bearer ${process.env.GH_TOKEN}`,
+                Accept: 'application/vnd.github+json',
+                'X-GitHub-Api-Version': '2022-11-28',
+              },
+              signal: AbortSignal.timeout(15000),
+            });
+            if (!response.ok) throw new Error(`Unable to verify acceptance check: ${response.status}`);
+            const payload = await response.json();
+            const check = payload.check_runs.find(run => run.name === 'radar-verify' && run.app?.slug === 'github-actions');
+            if (check?.status === 'completed') {
+              if (check.conclusion !== 'success') throw new Error(`Acceptance gate failed: ${check.conclusion}`);
+              accepted = true;
+              break;
+            }
+            await delay(10000);
+          }
+          if (!accepted) throw new Error('Acceptance gate still pending for this revision');
+          console.log(`Verified tests, lint, build, Chromium and mobile WebKit for ${sha}`);
+          JS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build isolated deployment source
+        run: |
+          mkdir -p /tmp/radar-deploy-evidence
+          node scripts/prepare-radar-preview.mjs | tee /tmp/radar-deploy-evidence/isolation.json
+          tar -czf /tmp/radar-isolated-source.tar.gz -C /tmp/daili-radar-test-build .
+          cd /tmp/daili-radar-test-build
+          npm ci
+          npm run build | tee /tmp/radar-deploy-evidence/isolated-build.txt
+      - name: Install pinned deployment CLI
+        run: |
+          mkdir -p /tmp/radar-deploy-tools
+          npm install --prefix /tmp/radar-deploy-tools --save-exact vercel@59.10.0
+          /tmp/radar-deploy-tools/node_modules/.bin/vercel --help > /tmp/radar-deploy-evidence/cli-help.txt
+      - name: Deploy dedicated test project only
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: node scripts/deploy-radar-preview.mjs
+      - name: Verify public test application with desktop and mobile browsers
+        run: |
+          mkdir -p /tmp/radar-browser
+          printf '{"private":true}' > /tmp/radar-browser/package.json
+          npm install --prefix /tmp/radar-browser --save-exact playwright@1.58.2 agent-browser@0.36.0
+          /tmp/radar-browser/node_modules/.bin/playwright install --with-deps chromium webkit
+          export RADAR_TEST_URL="$(cat /tmp/radar-public-url.txt)"
+          export RADAR_EVIDENCE_DIR=/tmp/radar-deploy-evidence
+          export AGENT_BROWSER_EXECUTABLE_PATH="$(node -e "console.log(require('/tmp/radar-browser/node_modules/playwright').chromium.executablePath())")"
+          /tmp/radar-browser/node_modules/.bin/agent-browser open "$RADAR_TEST_URL/radar-test"
+          /tmp/radar-browser/node_modules/.bin/agent-browser snapshot -i > /tmp/radar-deploy-evidence/public-snapshot.txt
+          /tmp/radar-browser/node_modules/.bin/agent-browser screenshot /tmp/radar-deploy-evidence/public-initial.png
+          /tmp/radar-browser/node_modules/.bin/agent-browser close
+          timeout 240 node frontend/tests/radar-preview-browser.cjs | tee /tmp/radar-deploy-evidence/public-browser.log
+          {
+            echo '### Public deployment and interface checks'
+            cat /tmp/radar-public-url.txt
+            echo
+            echo "Build: $GITHUB_SHA"
+            echo 'Mocked Chromium and mobile WebKit interface checks passed. This is not live OTA acceptance.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: radar-public-test-evidence
+          path: /tmp/radar-deploy-evidence
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: radar-isolated-source
+          path: /tmp/radar-isolated-source.tar.gz
+          retention-days: 7

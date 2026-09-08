@@ -7,10 +7,24 @@ import type {
 const OPTIONAL_LOCALITY_PATTERN = /(?:[^縣市區鄉鎮路街大道巷弄號]{1,12})(?:村|里)/g;
 const NEIGHBORHOOD_PATTERN = /\d+鄰/g;
 
+function chineseNumber(value: string): string {
+  const digits: Record<string, number> = { 零: 0, 〇: 0, 一: 1, 二: 2, 兩: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+  if (!/[十百千]/.test(value)) return [...value].map(char => digits[char]).join("");
+  let total = 0, current = 0;
+  for (const char of value) {
+    const unit = ({ 十: 10, 百: 100, 千: 1000 } as Record<string, number>)[char];
+    if (unit) { total += (current || 1) * unit; current = 0; }
+    else current = digits[char] ?? 0;
+  }
+  return String(total + current);
+}
+
 function cleanText(value: string): string {
   return value
     .normalize("NFKC")
     .replaceAll("台", "臺")
+    .replace(/[零〇一二兩三四五六七八九十百千]+(?=段|巷|弄|鄰|號|之|-)/g, chineseNumber)
+    .replace(/(?<=之)[零〇一二兩三四五六七八九十百千]+(?=號|$)/g, chineseNumber)
     .replace(/[－–—]/g, "-")
     .replace(/(\d+)\s*號\s*之\s*(\d+)/g, "$1-$2號")
     .replace(/(\d+)\s*之\s*(\d+)\s*號/g, "$1-$2號")
@@ -155,7 +169,7 @@ interface ComponentRule {
 const COMPONENT_RULES: ComponentRule[] = [
   { key: "city", label: "縣市", weight: 0.12, exact: true },
   { key: "district", label: "行政區", weight: 0.18, exact: true },
-  { key: "road", label: "道路", weight: 0.28 },
+  { key: "road", label: "道路", weight: 0.28, exact: true },
   { key: "section", label: "段", weight: 0.05, exact: true, optional: true },
   { key: "lane", label: "巷", weight: 0.08, exact: true, optional: true },
   { key: "alley", label: "弄", weight: 0.06, exact: true, optional: true },
@@ -248,7 +262,7 @@ export function compareTaiwanAddresses(leftRaw: string, rightRaw: string): Addre
         : `${rule.label}不同，需搭配其他身分訊號確認。`,
     });
 
-    if (!matched && ["city", "district", "number"].includes(String(rule.key))) {
+    if (!matched && ["city", "district", "road", "number"].includes(String(rule.key))) {
       const conflict = `${rule.label}衝突：${leftValue} ≠ ${rightValue}`;
       conflicts.push(conflict);
     }

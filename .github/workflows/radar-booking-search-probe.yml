@@ -1,0 +1,47 @@
+name: Radar Booking Search Probe
+# Historical research only; never runs on a source commit.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    env:
+      VERCEL_TEAM_ID: team_rtARGegsahiZ6hOY7l2dUWGw
+      VERCEL_PROJECT_ID: prj_5a6ilBSvneWYIDTGoCFFZhAjWYeM
+    steps:
+      - uses: actions/setup-node@v4
+        with: { node-version: '24' }
+      - run: |
+          mkdir -p /tmp/booking-search && cd /tmp/booking-search
+          npm init -y >/dev/null
+          npm install --save-exact @vercel/sandbox >/dev/null
+      - name: Inspect one exact dated property card
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        working-directory: /tmp/booking-search
+        run: |
+          cat > probe.mjs <<'JS'
+          import { Sandbox } from '@vercel/sandbox';
+          import { writeFile } from 'node:fs/promises';
+          const url='https://www.booking.com/searchresults.zh-tw.html?ss=%E7%91%9E%E8%8A%B3%E5%8D%80&checkin=2026-09-15&checkout=2026-09-16&group_adults=2&group_children=0&no_rooms=1&selected_currency=TWD';
+          const box=await Sandbox.create({token:process.env.VERCEL_TOKEN,teamId:process.env.VERCEL_TEAM_ID,projectId:process.env.VERCEL_PROJECT_ID,source:{type:'snapshot',snapshotId:'snap_c3rDmQdTPMoDHIu55bxS3MruQxZz'},timeout:5*60*1000,resources:{vcpus:2},networkPolicy:'allow-all'});
+          async function run(args,limit=700000){const r=await box.runCommand({cmd:'agent-browser',args});const out=(await r.stdout()).slice(0,limit);if(r.exitCode)throw new Error((await r.stderr()).slice(0,5000));return out}
+          let data={};
+          try{
+            await run(['open',url]);await run(['wait','--load','networkidle']);await run(['wait','7000']);
+            const raw=await run(['eval',`JSON.stringify((()=>{const cards=[...document.querySelectorAll('[data-testid="property-card"]')];const card=cards.find(x=>/水芳瑞芳-九份|Sweetfun/i.test(x.innerText||''));return{requested:${JSON.stringify(url)},returned:location.href,title:document.title,cardCount:cards.length,found:Boolean(card),cardText:(card?.innerText||'').slice(0,25000),links:[...card?.querySelectorAll('a')||[]].map(a=>({text:(a.innerText||a.textContent||'').trim(),href:a.href})).slice(0,20),body:(document.body.innerText||'').slice(0,90000),blocked:/captcha|verify you are human|機器人驗證|request rejected/i.test(document.body.innerText||'')}})())`]);
+            data=JSON.parse(JSON.parse(raw));
+          }finally{await box.runCommand({cmd:'agent-browser',args:['close']}).catch(()=>undefined);await box.stop().catch(()=>undefined)}
+          await writeFile('booking-search.json',JSON.stringify(data,null,2));
+          console.log(JSON.stringify(data,null,2));
+          JS
+          node probe.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: radar-booking-search-probe
+          path: /tmp/booking-search/booking-search.json
+          retention-days: 7

@@ -1,0 +1,94 @@
+name: Radar Preview Check
+# Acceptance revision: explicit TWD labels and an observable NT$2,400 fixture.
+
+on:
+  push:
+    branches: [feat/competitor-radar-testable-preview]
+    paths:
+      - 'frontend/src/**'
+      - 'frontend/tests/**'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'scripts/prepare-radar-preview.mjs'
+      - 'scripts/deploy-radar-preview.mjs'
+      - '.github/workflows/radar-preview-check.yml'
+      - '.github/workflows/radar-preview-deploy.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: radar-preview-check
+  cancel-in-progress: true
+
+jobs:
+  radar-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    env:
+      RADAR_PREVIEW_MODE: 'true'
+      RADAR_BUILD_SHA: ${{ github.sha }}
+      NEXT_PUBLIC_DEMO_MODE: 'true'
+      NEXT_PUBLIC_SUPABASE_URL: 'https://placeholder.supabase.co'
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: 'preview-placeholder'
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Preserve exact source for independent verification
+        run: |
+          mkdir -p /tmp/radar-evidence
+          git archive --format=tar.gz --output=/tmp/radar-source-current.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: radar-source-current
+          path: /tmp/radar-source-current.tar.gz
+          retention-days: 3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - name: Strict unit test compilation and execution
+        working-directory: frontend
+        run: |
+          ./node_modules/.bin/tsc tests/competitor-radar-preview.test.ts tests/competitor-radar-draft-safety.test.ts tests/radar-desktop.test.ts --outDir /tmp/radar-unit --module commonjs --target es2022 --esModuleInterop --skipLibCheck --strict --types node
+          node --test /tmp/radar-unit/tests/competitor-radar-*.test.js /tmp/radar-unit/tests/radar-desktop.test.js | tee /tmp/radar-evidence/unit-tests.txt
+      - run: npm run lint
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+      - name: Install isolated browser runners
+        run: |
+          mkdir -p /tmp/radar-browser
+          printf '{"private":true}' > /tmp/radar-browser/package.json
+          npm install --prefix /tmp/radar-browser --save-exact playwright@1.58.2 agent-browser@0.36.0
+          /tmp/radar-browser/node_modules/.bin/playwright install --with-deps chromium webkit
+      - name: Desktop and mobile browser acceptance
+        working-directory: frontend
+        run: |
+          npm run start -- --port 3137 > /tmp/radar-evidence/server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:3137/api/radar-preview > /tmp/radar-evidence/health.json; then break; fi
+            sleep 1
+          done
+          export AGENT_BROWSER_EXECUTABLE_PATH="$(node -e "console.log(require('/tmp/radar-browser/node_modules/playwright').chromium.executablePath())")"
+          /tmp/radar-browser/node_modules/.bin/agent-browser open http://localhost:3137/radar-test
+          /tmp/radar-browser/node_modules/.bin/agent-browser snapshot -i > /tmp/radar-evidence/agent-browser-snapshot.txt
+          /tmp/radar-browser/node_modules/.bin/agent-browser screenshot /tmp/radar-evidence/radar-initial.png
+          /tmp/radar-browser/node_modules/.bin/agent-browser close
+          timeout 240 node tests/radar-preview-browser.cjs | tee /tmp/radar-evidence/browser.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: radar-browser-evidence
+          path: /tmp/radar-evidence
+          retention-days: 7

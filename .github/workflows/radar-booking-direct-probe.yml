@@ -1,0 +1,54 @@
+name: Radar Booking Direct Probe
+
+# Historical research only; never runs on a source commit.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      VERCEL_TEAM_ID: team_rtARGegsahiZ6hOY7l2dUWGw
+      VERCEL_PROJECT_ID: prj_5a6ilBSvneWYIDTGoCFFZhAjWYeM
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: |
+          mkdir -p /tmp/booking-direct && cd /tmp/booking-direct
+          npm init -y >/dev/null
+          npm install --save-exact @vercel/sandbox >/dev/null
+      - name: Open canonical dated property page and inspect room offers
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        working-directory: /tmp/booking-direct
+        run: |
+          cat > probe.mjs <<'JS'
+          import { Sandbox } from '@vercel/sandbox';
+          import { writeFile } from 'node:fs/promises';
+          const base='https://www.booking.com/hotel/tw/shui-fang-sweetfun-rui-fang-jiu-fen.zh-tw.html';
+          const url=base+'?checkin=2026-09-15&checkout=2026-09-16&group_adults=2&group_children=0&no_rooms=1&selected_currency=TWD';
+          const sandbox=await Sandbox.create({token:process.env.VERCEL_TOKEN,teamId:process.env.VERCEL_TEAM_ID,projectId:process.env.VERCEL_PROJECT_ID,source:{type:'snapshot',snapshotId:'snap_c3rDmQdTPMoDHIu55bxS3MruQxZz'},timeout:6*60*1000,resources:{vcpus:2},networkPolicy:'allow-all'});
+          async function cmd(args,limit=1200000){const r=await sandbox.runCommand({cmd:'agent-browser',args});const out={exitCode:r.exitCode,stdout:(await r.stdout()).slice(0,limit),stderr:(await r.stderr()).slice(0,5000)};if(out.exitCode)throw new Error(out.stderr);return out.stdout}
+          const evidence={requested:url};
+          try{
+            evidence.open=await cmd(['open',url]);
+            await cmd(['wait','--load','networkidle']);await cmd(['wait','8000']);
+            evidence.before=await cmd(['eval',`JSON.stringify({url:location.href,title:document.title,body:(document.body.innerText||'').slice(0,180000),table:document.querySelector('#hprt-table')?.innerText||'',buttons:[...document.querySelectorAll('button,a,[role="button"]')].map(x=>(x.innerText||x.textContent||'').trim()).filter(x=>/顯示價格|更新變更/.test(x)).slice(0,40)})`]);
+            evidence.click=await cmd(['eval',`(async()=>{const buttons=[...document.querySelectorAll('button,a,[role="button"]')].filter(x=>/顯示價格/.test((x.innerText||x.textContent||'').trim()));for(const button of buttons){button.scrollIntoView({block:'center'});button.click();await new Promise(r=>setTimeout(r,650))}return JSON.stringify({clicked:buttons.length})})()`]);
+            await cmd(['wait','5000']);
+            evidence.after=await cmd(['eval',`JSON.stringify({url:location.href,title:document.title,body:(document.body.innerText||'').slice(0,220000),table:document.querySelector('#hprt-table')?.innerText||'',rows:[...document.querySelectorAll('#hprt-table tr')].map(x=>(x.innerText||'').trim()).filter(Boolean).slice(0,160),prices:[...document.querySelectorAll('[class*="price"],[data-testid*="price"]')].map(x=>(x.innerText||x.textContent||'').trim()).filter(Boolean).slice(0,250),dialogs:[...document.querySelectorAll('[role="dialog"],dialog')].map(x=>(x.innerText||'').slice(0,60000)),resources:performance.getEntriesByType('resource').map(x=>x.name).filter(x=>/avail|room|price|block|graphql/i.test(x)).slice(-300)})`]);
+          } finally { await sandbox.runCommand({cmd:'agent-browser',args:['close']}).catch(()=>undefined); await sandbox.stop(); }
+          await writeFile('booking-direct.json',JSON.stringify(evidence,null,2));
+          console.log(JSON.stringify(evidence,null,2));
+          JS
+          node probe.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: radar-booking-direct-probe
+          path: /tmp/booking-direct/booking-direct.json
+          retention-days: 7

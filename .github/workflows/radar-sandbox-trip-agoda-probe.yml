@@ -1,0 +1,87 @@
+name: Radar Sandbox Trip Agoda Probe
+
+# Historical research only; never runs on a source commit.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      VERCEL_TEAM_ID: team_rtARGegsahiZ6hOY7l2dUWGw
+      VERCEL_PROJECT_ID: prj_5a6ilBSvneWYIDTGoCFFZhAjWYeM
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install sandbox SDK
+        run: |
+          mkdir -p /tmp/radar-trip-agoda && cd /tmp/radar-trip-agoda
+          npm init -y >/dev/null
+          npm install --save-exact @vercel/sandbox >/dev/null
+      - name: Probe dated OTA room pages
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        working-directory: /tmp/radar-trip-agoda
+        run: |
+          cat > probe.mjs <<'JS'
+          import { Sandbox } from '@vercel/sandbox';
+          import { writeFile } from 'node:fs/promises';
+          const sandbox = await Sandbox.create({
+            token: process.env.VERCEL_TOKEN,
+            teamId: process.env.VERCEL_TEAM_ID,
+            projectId: process.env.VERCEL_PROJECT_ID,
+            source: { type: 'snapshot', snapshotId: 'snap_c3rDmQdTPMoDHIu55bxS3MruQxZz' },
+            timeout: 8 * 60 * 1000,
+            resources: { vcpus: 2 },
+            networkPolicy: 'allow-all',
+          });
+          const targets = [
+            ['trip-0908','https://tw.trip.com/hotels/new-taipei-city-hotel-detail-133359377/sweet-fun/?checkIn=2026-09-08&checkOut=2026-09-09&adult=2&children=0&crn=1&curr=TWD'],
+            ['trip-0916','https://tw.trip.com/hotels/new-taipei-city-hotel-detail-133359377/sweet-fun/?checkIn=2026-09-16&checkOut=2026-09-17&adult=2&children=0&crn=1&curr=TWD'],
+            ['agoda-101-0916','https://www.agoda.com/sweetfun-101/hotel/taipei-tw.html?checkIn=2026-09-16&los=1&rooms=1&adults=2&children=0&currencyCode=TWD'],
+            ['agoda-201-0916','https://www.agoda.com/sweetfun/hotel/taipei-tw.html?checkIn=2026-09-16&los=1&rooms=1&adults=2&children=0&currencyCode=TWD'],
+            ['agoda-202-0916','https://www.agoda.com/sweetfun-202/hotel/taipei-tw.html?checkIn=2026-09-16&los=1&rooms=1&adults=2&children=0&currencyCode=TWD'],
+            ['agoda-301-0916','https://www.agoda.com/sweetfun-301/hotel/taipei-tw.html?checkIn=2026-09-16&los=1&rooms=1&adults=2&children=0&currencyCode=TWD'],
+            ['agoda-302-0916','https://www.agoda.com/sweetfun-302/hotel/taipei-tw.html?checkIn=2026-09-16&los=1&rooms=1&adults=2&children=0&currencyCode=TWD'],
+          ];
+          const evidence = { createdAt: new Date().toISOString(), targets: [] };
+          async function cmd(args, limit = 700000) {
+            const c = await sandbox.runCommand({ cmd: 'agent-browser', args });
+            return { exitCode: c.exitCode, stdout: (await c.stdout()).slice(0, limit), stderr: (await c.stderr()).slice(0, 5000) };
+          }
+          async function js(source, limit) { return cmd(['eval', source], limit); }
+          try {
+            for (const [key,url] of targets) {
+              await cmd(['close']);
+              const item = { key, requestedUrl:url };
+              try {
+                item.open = await cmd(['open',url]);
+                await cmd(['wait','--load','networkidle']);
+                await cmd(['wait','8000']);
+                item.page = await js(`JSON.stringify({
+                  url:location.href,
+                  title:document.title,
+                  body:(document.body.innerText||'').slice(0,90000),
+                  scripts:[...document.scripts].map((s,i)=>({i,type:s.type||'',id:s.id||'',text:(s.textContent||'').slice(0,30000)})).filter(x=>/room|price|hotel|checkIn|checkin|currency|availability|inventory/i.test(x.text)).slice(0,40),
+                  jsonld:[...document.querySelectorAll('script[type="application/ld+json"]')].map(s=>(s.textContent||'').slice(0,50000)),
+                  priceNodes:[...document.querySelectorAll('[class*="price"],[data-testid*="price"],[data-element-name*="price"]')].map(e=>({tag:e.tagName,class:e.className,text:(e.innerText||e.textContent||'').trim()})).filter(x=>x.text).slice(0,150),
+                  roomNodes:[...document.querySelectorAll('[class*="room"],[data-testid*="room"],[data-element-name*="room"]')].map(e=>({tag:e.tagName,class:e.className,text:(e.innerText||e.textContent||'').trim().slice(0,5000)})).filter(x=>x.text).slice(0,150)
+                })`,700000);
+              } catch(error) { item.error=error instanceof Error?error.message:String(error); }
+              evidence.targets.push(item);
+            }
+          } finally { await cmd(['close']); await sandbox.stop(); }
+          await writeFile('trip-agoda-probe.json',JSON.stringify(evidence,null,2));
+          console.log(JSON.stringify(evidence.targets.map(x=>({key:x.key,open:x.open?.exitCode,error:x.error,page:x.page?.stdout?.slice(0,30000)})),null,2));
+          JS
+          node probe.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: radar-trip-agoda-probe
+          path: /tmp/radar-trip-agoda/trip-agoda-probe.json
+          retention-days: 7

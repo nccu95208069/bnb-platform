@@ -10,6 +10,7 @@ function normalizeRegistrationNumber(value: string): string {
     .normalize("NFKC")
     .toUpperCase()
     .replaceAll("台", "臺")
+    .replace(/REGISTRATION|LICEN[CS]E|NUMBER|NO\.?/g, "")
     .replace(/旅館業|民宿|登記證|登記|編號|證號|字號|第|號|[:：\s-]/g, "")
     .trim();
 }
@@ -92,6 +93,10 @@ export function scorePropertyIdentity(
         `登記編號完全一致：${left.registrationNumber}`,
         "strong",
       );
+    } else if ((/^[A-Z]?\d+$/.test(a) || /^[A-Z]?\d+$/.test(b)) && a.match(/[A-Z]?\d+$/)?.[0] === b.match(/[A-Z]?\d+$/)?.[0]) {
+      weightedScore += 0.25;
+      addEvidence(evidence, "registration_number", "民宿／旅館登記編號", 0.5,
+        "證號數字相同，但一方未提供發證地區；需搭配地址核對。", "supporting");
     } else {
       hardConflict = true;
       conflicts.push("登記編號不同");

@@ -1,5 +1,7 @@
 # Competitor Radar — URL Intake Slice v0.1
 
+This document preserves the original v0.1 scope. For the isolated Safari preview and current limitations, see [Safari UAT](SAFARI_UAT_2026_09_08.md); exact-revision release evidence is maintained in PR #16.
+
 > Status: first implementation slice on `feat/competitor-radar-intake`  
 > Owner decision: 2026-09-07  
 > Product surface: `/competitor-radar`

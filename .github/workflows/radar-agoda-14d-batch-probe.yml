@@ -1,0 +1,75 @@
+name: Radar Agoda 14d Batch Probe
+
+# UAT rerun: 2026-09-08
+# Historical research only; never runs on a source commit.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      VERCEL_TEAM_ID: team_rtARGegsahiZ6hOY7l2dUWGw
+      VERCEL_PROJECT_ID: prj_5a6ilBSvneWYIDTGoCFFZhAjWYeM
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: |
+          mkdir -p /tmp/agoda-batch && cd /tmp/agoda-batch
+          npm init -y >/dev/null
+          npm install --save-exact @vercel/sandbox >/dev/null
+      - name: Collect 14 days across five Agoda room pages
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        working-directory: /tmp/agoda-batch
+        run: |
+          cat > probe.mjs <<'JS'
+          import { Sandbox } from '@vercel/sandbox';
+          import { writeFile } from 'node:fs/promises';
+          const sandbox=await Sandbox.create({token:process.env.VERCEL_TOKEN,teamId:process.env.VERCEL_TEAM_ID,projectId:process.env.VERCEL_PROJECT_ID,source:{type:'snapshot',snapshotId:'snap_c3rDmQdTPMoDHIu55bxS3MruQxZz'},timeout:5*60*1000,resources:{vcpus:2},networkPolicy:'allow-all'});
+          async function c(args,limit=1500000){const r=await sandbox.runCommand({cmd:'agent-browser',args});return{exitCode:r.exitCode,stdout:(await r.stdout()).slice(0,limit),stderr:(await r.stderr()).slice(0,5000)}}
+          try{
+            await c(['open','https://www.agoda.com/sweetfun-101/hotel/taipei-tw.html']); await c(['wait','3000']);
+            const script=`(async()=>{
+              const rooms=[['101','sweetfun-101'],['201','sweetfun'],['202','sweetfun-202'],['301','sweetfun-301'],['302','sweetfun-302']];
+              const start=new Date('2026-09-09T00:00:00Z');
+              const jobs=[];
+              for(let i=0;i<14;i++){
+                const d=new Date(start);d.setUTCDate(d.getUTCDate()+i);const day=d.toISOString().slice(0,10);
+                for(const [room,slug] of rooms) jobs.push({room,day,url:'https://www.agoda.com/'+slug+'/hotel/taipei-tw.html?checkIn='+day+'&los=1&rooms=1&adults=2&children=0&currencyCode=TWD'});
+              }
+              const one=async job=>{
+                try{
+                  const r=await fetch(job.url,{credentials:'include'});const html=await r.text();
+                  const doc=new DOMParser().parseFromString(html,'text/html');const body=(doc.body?.innerText||'').replace(/\\s+/g,' ');
+                  const scripts=[...doc.scripts].map(s=>s.textContent||'').join('\\n');
+                  const expected=new Date(job.day+'T00:00:00Z');const fmt=expected.toLocaleDateString('en-US',{day:'2-digit',month:'short',year:'numeric',timeZone:'UTC'}).replace(',','');
+                  const dateVerified=body.includes(fmt)||scripts.includes('checkIn='+job.day)||scripts.includes('checkInDateStr":"'+job.day);
+                  const soldOut=/Sold out!.*Our last room is already booked/i.test(body)||/"isSoldOut"\s*:\s*true/i.test(scripts);
+                  const currency=(scripts.match(/"currency"\s*:\s*\{"code"\s*:\s*"([A-Z]{3})"/)||[])[1]||((body.match(/\b(TWD|USD|NTD)\b/)||[])[1]);
+                  const values=[...body.matchAll(/(?:TWD|NT\$|NTD|USD|US\$)\s*([0-9][0-9,]*(?:\.\d+)?)/g)].map(m=>Number(m[1].replace(/,/g,''))).filter(n=>n>100&&n<1000000);
+                  return {...job,http:r.status,title:doc.title,dateVerified,soldOut,currency,price:values[0],htmlBytes:html.length};
+                }catch(error){return {...job,error:String(error)}}
+              };
+              const result=[];for(let i=0;i<jobs.length;i+=6){result.push(...await Promise.all(jobs.slice(i,i+6).map(one)))}
+              return JSON.stringify(result);
+            })()`;
+            const result=await c(['eval',script],1500000);
+            if(result.exitCode) throw new Error(result.stderr);
+            let parsed=JSON.parse(result.stdout); if(typeof parsed==='string') parsed=JSON.parse(parsed);
+            await writeFile('agoda-14d.json',JSON.stringify(parsed,null,2));
+            console.log(JSON.stringify({count:parsed.length,verified:parsed.filter(x=>x.dateVerified).length,soldOut:parsed.filter(x=>x.soldOut).length,priced:parsed.filter(x=>x.price).length,currencies:[...new Set(parsed.map(x=>x.currency).filter(Boolean))],sample:parsed.slice(0,10)},null,2));
+            await c(['close']);
+          }finally{await sandbox.stop()}
+          JS
+          node probe.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: radar-agoda-14d-batch
+          path: /tmp/agoda-batch/agoda-14d.json
+          retention-days: 7
