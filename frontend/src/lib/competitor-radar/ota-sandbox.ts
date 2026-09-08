@@ -46,6 +46,15 @@ interface BrowserIdentity {
 }
 
 
+interface TripDayResult {
+  stayDate: string;
+  checkOut: string;
+  url: string;
+  dateVerified: boolean;
+  sourceText?: string;
+  error?: string;
+}
+
 function addDays(value: string, amount: number): string {
   const date = new Date(`${value}T00:00:00Z`);
   date.setUTCDate(date.getUTCDate() + amount);
@@ -324,7 +333,7 @@ async function scanTrip(request: OtaScanRequest): Promise<OtaPlatformScan> {
       await command(sandbox, ["open", jobs[0]!.url]);
       await command(sandbox, ["wait", "3000"]);
       const serializedJobs = JSON.stringify(jobs).replace(/</g, "\\u003c");
-      return evaluate<Array<BrowserDayResult & BrowserIdentity>>(
+      return evaluate<Array<TripDayResult & BrowserIdentity>>(
         sandbox,
         `(async()=>{
           const jobs=${serializedJobs};

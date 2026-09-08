@@ -14,6 +14,7 @@ export interface OtaRoomObservation {
   quantityState: OtaQuantityState;
   quantity?: number;
   amount?: number;
+  priceBasis?: "tax_inclusive_stay_total";
   currency?: string;
   sourceText?: string;
   sourceUrl?: string;

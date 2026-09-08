@@ -27,5 +27,5 @@ export function acceptedQuote(expected: { propertyId: string; roomId: string; ra
   const reconciles = quote.preTaxAmount === undefined || quote.taxesAndFees === undefined ||
     (validMoney(quote.preTaxAmount) && Number.isFinite(quote.taxesAndFees) && quote.taxesAndFees >= 0 && Math.abs(quote.preTaxAmount + quote.taxesAndFees - (quote.totalAmount ?? NaN)) <= 0.02);
   const total = quote.includesTaxesAndFees && quote.priceBasis === "stay_total" && validMoney(quote.totalAmount) && reconciles ? quote.totalAmount : undefined;
-  return { availability: "available" as const, amount: total, currency: total === undefined ? undefined : quote.context.currency };
+  return { availability: "available" as const, amount: total, priceBasis: total === undefined ? undefined : "tax_inclusive_stay_total" as const, currency: total === undefined ? undefined : quote.context.currency };
 }
