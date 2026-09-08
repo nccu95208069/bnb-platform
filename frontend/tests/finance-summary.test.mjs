@@ -25,3 +25,14 @@ test('registry CAS persists across reads, rejects stale writes and fails closed 
 });
 
 test('adapter unknown customer payment still retains explicit unclaimed flag',()=>{const r=project([{...row,platform:'agoda',payment_status:'unknown',source_payment_flag:'not_yet'}])[0];assert.equal(r.claim,'legacy_unclaimed');assert.equal(r.customer_payment,'unknown');});
+
+test('single-order receipt contract supports optional user note without a fabricated settlement',async()=>{
+ const {applyFinance}=await import('../src/lib/finance-store.ts');const {validateFinanceLinks}=await import('../src/lib/finance-projection.ts');
+ const order={id:'o1',platform:'direct',receivable:300000};
+ const input={action:'create',kind:'income',category:'lodging',platform:'direct',amount:1000,date:'2026-09-08',method:'bank_transfer',description:'住宿收入',allocations:[{order_id:'o1',amount_cents:100000}],request_id:'11111111-1111-4111-8111-111111111111',expected_version:0};
+ validateFinanceLinks(input,[order],[],[],2026,'2026-09-08');
+ const actor={id:'admin',displayName:'Synthetic admin',role:'admin',viewPrices:true,allProperties:false,propertyIds:['sweetfun']};
+ const result=applyFinance({version:0,entries:[],operations:[]},input,actor,'sweetfun',2026,'2026-09-08T01:00:00Z');
+ assert.equal(result.state.entries[0].amount_cents,100000);assert.equal(result.state.entries[0].stage,'');assert.equal(result.state.entries[0].allocations[0].order_id,'o1');
+ assert.equal(applyFinance(result.state,input,actor,'sweetfun',2026).state.entries.length,1);
+});

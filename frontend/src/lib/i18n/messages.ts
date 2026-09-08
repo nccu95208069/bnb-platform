@@ -1,5 +1,137 @@
 export const messages:Record<string,{en:string;th:string;vi:string}>= {
 
+  "訂單收款": {
+    "en": "Order receipts",
+    "th": "รับเงินค่าจอง",
+    "vi": "Thu tiền đặt phòng"
+  },
+  "入住月份": {
+    "en": "Check-in month",
+    "th": "เดือนเช็กอิน",
+    "vi": "Tháng nhận phòng"
+  },
+  "搜尋全部訂單": {
+    "en": "Search all orders",
+    "th": "ค้นหาการจองทั้งหมด",
+    "vi": "Tìm tất cả đơn"
+  },
+  "搜尋全部訂單：編號、房間或日期": {
+    "en": "Search all orders: ID, room or date",
+    "th": "ค้นหาทั้งหมด: เลขการจอง ห้อง หรือวันที่",
+    "vi": "Tìm tất cả: mã đơn, phòng hoặc ngày"
+  },
+  "搜尋全部月份": {
+    "en": "Searching all months",
+    "th": "ค้นหาทุกเดือน",
+    "vi": "Tìm trong tất cả tháng"
+  },
+  "已收僅列已登記款項；應收與未收尚未確認時顯示待確認。": {
+    "en": "Received shows recorded payments only. Unverified totals and balances remain pending.",
+    "th": "เงินรับแสดงเฉพาะที่บันทึก ยอดรวมและยอดค้างที่ยังไม่ยืนยันจะแสดงรอยืนยัน",
+    "vi": "Đã thu chỉ gồm khoản đã ghi. Tổng và số còn lại chưa xác minh sẽ hiển thị chờ xác nhận."
+  },
+  "未登記": {
+    "en": "Not recorded",
+    "th": "ยังไม่บันทึก",
+    "vi": "Chưa ghi nhận"
+  },
+  "未收": {
+    "en": "Outstanding",
+    "th": "ยังไม่ได้รับ",
+    "vi": "Chưa thu"
+  },
+  "未請款": {
+    "en": "Unclaimed",
+    "th": "ยังไม่เบิกเงิน",
+    "vi": "Chưa yêu cầu chi trả"
+  },
+  "已請款": {
+    "en": "Claimed",
+    "th": "เบิกเงินแล้ว",
+    "vi": "Đã yêu cầu chi trả"
+  },
+  "請款待確認": {
+    "en": "Claim unverified",
+    "th": "รอยืนยันการเบิกเงิน",
+    "vi": "Chờ xác nhận yêu cầu chi trả"
+  },
+  "登記收款": {
+    "en": "Record receipt",
+    "th": "บันทึกเงินรับ",
+    "vi": "Ghi nhận thu tiền"
+  },
+  "訂單資料需核對，暫時無法登記收款。": {
+    "en": "Verify this order before recording a receipt.",
+    "th": "กรุณาตรวจสอบการจองก่อนบันทึกเงินรับ",
+    "vi": "Cần kiểm tra đơn trước khi ghi nhận thu tiền."
+  },
+  "查看明細": {
+    "en": "View details",
+    "th": "ดูรายละเอียด",
+    "vi": "Xem chi tiết"
+  },
+  "（尚未確認入帳計算基準）": {
+    "en": "(settlement basis unverified)",
+    "th": "(ยังไม่ยืนยันฐานคำนวณเงินรับ)",
+    "vi": "(chưa xác minh cơ sở tính tiền nhận)"
+  },
+  "請款狀態沿用主表標記，不代表銀行已入帳。": {
+    "en": "Claim status follows the main sheet flag; it does not confirm a bank receipt.",
+    "th": "สถานะเบิกเงินอ้างอิงชีตหลัก ไม่ใช่การยืนยันเงินเข้าธนาคาร",
+    "vi": "Trạng thái yêu cầu chi trả theo bảng chính, không xác nhận tiền đã vào ngân hàng."
+  },
+  "尚未登記收款，不代表客人未付款。": {
+    "en": "No receipt recorded does not mean the guest has not paid.",
+    "th": "ยังไม่บันทึกเงินรับ ไม่ได้หมายความว่าผู้เข้าพักยังไม่ชำระ",
+    "vi": "Chưa ghi nhận thu tiền không có nghĩa khách chưa trả."
+  },
+  "暫時無法讀取訂單，請關閉後重試。": {
+    "en": "Unable to load the order. Close and try again.",
+    "th": "โหลดการจองไม่ได้ กรุณาปิดแล้วลองใหม่",
+    "vi": "Không thể tải đơn. Đóng và thử lại."
+  },
+  "正在核對訂單…": {
+    "en": "Checking order…",
+    "th": "กำลังตรวจสอบการจอง…",
+    "vi": "Đang kiểm tra đơn…"
+  },
+  "這筆訂單目前無法登記更多房費，請到訂單詳情核對。": {
+    "en": "More room payments cannot be recorded for this order. Check its details.",
+    "th": "ยังบันทึกค่าห้องเพิ่มไม่ได้ กรุณาตรวจสอบรายละเอียดการจอง",
+    "vi": "Hiện không thể ghi thêm tiền phòng cho đơn này. Vui lòng kiểm tra chi tiết."
+  },
+  "只登記旅宿實際收到的款項，請款申請不算收款。": {
+    "en": "Record money the property actually received. A claim request is not a receipt.",
+    "th": "บันทึกเฉพาะเงินที่ที่พักได้รับจริง การขอเบิกเงินไม่ใช่เงินรับ",
+    "vi": "Chỉ ghi tiền cơ sở thực nhận. Yêu cầu chi trả chưa phải đã nhận tiền."
+  },
+  "本次收款金額": {
+    "en": "Amount received",
+    "th": "ยอดเงินรับครั้งนี้",
+    "vi": "Số tiền nhận lần này"
+  },
+  "收款日期": {
+    "en": "Receipt date",
+    "th": "วันที่รับเงิน",
+    "vi": "Ngày nhận tiền"
+  },
+  "備註（選填）": {
+    "en": "Note (optional)",
+    "th": "หมายเหตุ (ไม่บังคับ)",
+    "vi": "Ghi chú (không bắt buộc)"
+  },
+  "收款會存入 OS；目前不修改主表。": {
+    "en": "Receipts are saved in OS. The main sheet is not changed yet.",
+    "th": "บันทึกเงินรับใน OS โดยยังไม่แก้ไขชีตหลัก",
+    "vi": "Khoản thu được lưu trong OS; hiện chưa sửa bảng chính."
+  },
+  "確認收款": {
+    "en": "Confirm receipt",
+    "th": "ยืนยันเงินรับ",
+    "vi": "Xác nhận khoản thu"
+  }
+,
+
   "顯示更多": {
     "en": "Show more",
     "th": "แสดงเพิ่มเติม",
