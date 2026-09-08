@@ -1,4 +1,141 @@
 export const messages:Record<string,{en:string;th:string;vi:string}>= {
+
+  "訂單財務摘要": {
+    "en": "Order finance summary",
+    "th": "สรุปการเงินการจอง",
+    "vi": "Tóm tắt tài chính đơn đặt phòng"
+  },
+  "唯讀試行：付款、請款與入帳分開顯示；尚未寫回主表。": {
+    "en": "Read-only pilot: guest payments, claims and property receipts are separate. No writes to the main sheet.",
+    "th": "ทดลองอ่านอย่างเดียว: แยกการชำระเงิน การเบิกเงิน และเงินเข้าที่พัก ยังไม่เขียนกลับชีตหลัก",
+    "vi": "Thử nghiệm chỉ đọc: tách thanh toán, yêu cầu chi trả và tiền cơ sở nhận. Chưa ghi vào bảng chính."
+  },
+  "有紀錄，完整性待確認": {
+    "en": "Recorded; completeness unverified",
+    "th": "มีบันทึกแล้ว รอยืนยันความครบถ้วน",
+    "vi": "Có ghi nhận; chưa xác minh đầy đủ"
+  },
+  "舊表標記：已請款": {
+    "en": "Legacy flag: claimed",
+    "th": "สถานะเดิม: เบิกเงินแล้ว",
+    "vi": "Dấu cũ: đã yêu cầu chi trả"
+  },
+  "舊表標記：未請款": {
+    "en": "Legacy flag: unclaimed",
+    "th": "สถานะเดิม: ยังไม่เบิกเงิน",
+    "vi": "Dấu cũ: chưa yêu cầu chi trả"
+  },
+  "保存訂單對應": {
+    "en": "Save order mappings",
+    "th": "บันทึกการเชื่อมโยงการจอง",
+    "vi": "Lưu liên kết đơn đặt phòng"
+  },
+  "訂單編號、房間或入住日期": {
+    "en": "Booking ID, room or check-in date",
+    "th": "เลขการจอง ห้อง หรือวันเช็กอิน",
+    "vi": "Mã đơn, phòng hoặc ngày nhận phòng"
+  },
+  "財務摘要暫時無法讀取，請重新整理。": {
+    "en": "Summary unavailable. Please refresh.",
+    "th": "ไม่สามารถอ่านสรุปได้ กรุณาโหลดใหม่",
+    "vi": "Chưa thể tải tóm tắt. Vui lòng tải lại."
+  },
+  "資料可能已變動，請重新整理後確認保存結果。": {
+    "en": "Data may have changed. Refresh to check the saved result.",
+    "th": "ข้อมูลอาจเปลี่ยนแล้ว กรุณาโหลดใหม่เพื่อตรวจสอบผลการบันทึก",
+    "vi": "Dữ liệu có thể đã thay đổi. Tải lại để kiểm tra kết quả lưu."
+  },
+  "訂單數": {
+    "en": "Orders",
+    "th": "จำนวนการจอง",
+    "vi": "Số đơn"
+  },
+  "保留的歷史對應": {
+    "en": "Retained historical mappings",
+    "th": "การเชื่อมโยงเดิมที่เก็บไว้",
+    "vi": "Liên kết lịch sử được giữ"
+  },
+  "來源問題": {
+    "en": "Source issues",
+    "th": "ปัญหาข้อมูลต้นทาง",
+    "vi": "Vấn đề nguồn dữ liệu"
+  },
+  "版本": {
+    "en": "Version",
+    "th": "เวอร์ชัน",
+    "vi": "Phiên bản"
+  },
+  "上次保存": {
+    "en": "Last saved",
+    "th": "บันทึกล่าสุด",
+    "vi": "Lưu lần cuối"
+  },
+  "已記錄入帳不代表完整歷史收款；未知金額不以零代替。": {
+    "en": "Recorded receipts may not include all historical payments. Unknown amounts are not zero.",
+    "th": "เงินรับที่บันทึกอาจไม่ครบประวัติทั้งหมด ยอดที่ไม่ทราบไม่ใช่ศูนย์",
+    "vi": "Tiền đã ghi nhận có thể chưa đủ lịch sử. Số tiền chưa biết không phải bằng không."
+  },
+  "來源房費": {
+    "en": "Source room amount",
+    "th": "ค่าห้องจากต้นทาง",
+    "vi": "Tiền phòng từ nguồn"
+  },
+  "客人付款": {
+    "en": "Guest payment",
+    "th": "การชำระเงินของผู้เข้าพัก",
+    "vi": "Thanh toán của khách"
+  },
+  "平台請款": {
+    "en": "Platform claim",
+    "th": "การเบิกเงินจากแพลตฟอร์ม",
+    "vi": "Yêu cầu nền tảng chi trả"
+  },
+  "旅宿入帳": {
+    "en": "Property receipts",
+    "th": "เงินเข้าที่พัก",
+    "vi": "Tiền cơ sở đã nhận"
+  },
+  "確認應收總額": {
+    "en": "Verified total receivable",
+    "th": "ยอดที่ต้องรับที่ยืนยันแล้ว",
+    "vi": "Tổng phải thu đã xác minh"
+  },
+  "未入帳餘額": {
+    "en": "Outstanding balance",
+    "th": "ยอดที่ยังไม่เข้าบัญชี",
+    "vi": "Số dư chưa nhận"
+  },
+  "訂單對應有衝突，未自動合併或保存。": {
+    "en": "Conflicting order mappings: not automatically merged or saved.",
+    "th": "การเชื่อมโยงการจองขัดแย้ง ไม่รวม หรือบันทึกอัตโนมัติ",
+    "vi": "Liên kết đơn bị xung đột; chưa tự động gộp hoặc lưu."
+  },
+  "紀錄與來源": {
+    "en": "Records and sources",
+    "th": "บันทึกและแหล่งข้อมูล",
+    "vi": "Bản ghi và nguồn"
+  },
+  "來源列數": {
+    "en": "Source rows",
+    "th": "จำนวนแถวต้นทาง",
+    "vi": "Số dòng nguồn"
+  },
+  "舊付款標記": {
+    "en": "Legacy payment flag",
+    "th": "สถานะชำระเงินเดิม",
+    "vi": "Dấu thanh toán cũ"
+  },
+  "沒有符合的訂單": {
+    "en": "No matching orders",
+    "th": "ไม่พบการจองที่ตรงกัน",
+    "vi": "Không có đơn phù hợp"
+  },
+  "來源付款標記含歷史定義，不能視為旅宿入帳證明。": {
+    "en": "Legacy payment flags have mixed meanings and do not prove property receipt.",
+    "th": "สถานะชำระเงินเดิมมีหลายความหมาย ไม่ใช่หลักฐานเงินเข้าที่พัก",
+    "vi": "Dấu thanh toán cũ có nhiều ý nghĩa, không chứng minh cơ sở đã nhận tiền."
+  }
+,
   "日曆檢視": {
     "en": "Calendar view",
     "th": "มุมมองปฏิทิน",

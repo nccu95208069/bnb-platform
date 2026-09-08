@@ -90,3 +90,8 @@ See [UNSOLD_CALENDAR_DESIGN.md](UNSOLD_CALENDAR_DESIGN.md) for the sold/unsold s
 month/week/day views, two synthetic price cycles, nightly quotes, and shared
 human/Agent pricing review Missions. Uses the same isolated PostgreSQL preview and
 payment calendar. No live T-39 reads/writes or prediction claims are involved.
+
+## 財務拆分 M1（2026-09-08）
+
+- [詳細架構、階段與驗收](FINANCE_ARCHITECTURE_M1.md)
+- [Code review 與驗證](M1_VERIFICATION.md)
