@@ -1,11 +1,9 @@
 name: Radar Agoda 14d Batch Probe
 
 # UAT rerun: 2026-09-08
+# Historical research only; never runs on a source commit.
 on:
-  push:
-    branches: [feat/competitor-radar-testable-preview]
-    paths: [.github/workflows/radar-agoda-14d-batch-probe.yml]
-
+  workflow_dispatch:
 permissions:
   contents: read
 

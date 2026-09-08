@@ -86,13 +86,16 @@ async function run() {
   assert.equal(await page.locator('table').last().locator('thead th').count(), 15);
   assert.ok(await page.locator('[aria-label="有房"]').count() > 0);
   assert.ok(await page.locator('[aria-label="售完"]').count() > 0);
-  await page.getByRole('button', { name: '編輯民宿資訊' }).click();
+  await page.getByRole('button', { name: '編輯房型' }).click();
   const roomInput = page.getByLabel('101 河景四人房 房型名稱');
   await roomInput.fill('101 河景家庭四人房');
   await page.getByRole('button', { name: '完成編輯' }).click();
   await page.getByRole('button', { name: '總覽' }).click();
   assert.equal(await page.locator('table').first().locator('tbody tr').first().locator('td').first().locator('strong').innerText(), '101 河景家庭四人房');
   assert.equal(await page.getByLabel('價格趨勢房型').locator('option').first().innerText(), '101 河景家庭四人房');
+  await page.reload();
+  await page.getByText('101 河景家庭四人房', { exact: true }).first().waitFor();
+  assert.match(await page.locator('table').first().innerText(), /NT\$2,400/);
   await page.screenshot({ path: path.join(out, 'radar-desktop.png'), fullPage: true });
   assert.deepEqual(errors, []);
   await context.close();
@@ -109,9 +112,37 @@ async function run() {
   assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
   await phone.locator('nav[aria-label="平台切換"] button').filter({ hasText: 'Booking.com' }).click();
   await phone.getByRole('heading', { name: 'Booking.com' }).waitFor();
+  await phone.reload();
+  await phone.getByRole('heading', { name: '水芳 Sweetfun' }).waitFor();
+  assert.equal(await phone.locator('table').first().locator('tbody tr').count(), 6);
+  assert.equal(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1), true);
   await phone.screenshot({ path: path.join(out, 'radar-mobile-webkit.png'), fullPage: true });
   assert.deepEqual(phoneErrors, []);
   await mobile.close();
+
+  const recovery = await mobileBrowser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+  const recoveryPage = await recovery.newPage();
+  await installMocks(recoveryPage);
+  const started = {};
+  let release = false;
+  await recoveryPage.route('**/api/radar-ota*', async route => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON(); started[body.platform] = body;
+      return route.fulfill({ status: 202, json: { job: { id: body.platform, token: 'test-token', expiresAt: Date.now() + 60000 } } });
+    }
+    const platform = new URL(route.request().url()).searchParams.get('job');
+    return route.fulfill({ json: release ? { state: 'done', scan: otaResponse(platform, started[platform]).scan } : { state: 'running' } });
+  });
+  await recoveryPage.goto(base + '/radar-test');
+  await recoveryPage.getByRole('button', { name: '開始分析' }).click();
+  await recoveryPage.waitForFunction(() => Object.keys(JSON.parse(localStorage.getItem('daili-radar-mobile:v5') || '{}').jobs || {}).length === 3);
+  await recoveryPage.reload();
+  await recoveryPage.getByRole('heading', { name: '水芳 Sweetfun' }).waitFor();
+  release = true;
+  await recoveryPage.getByText('NT$2,400').first().waitFor();
+  await recoveryPage.waitForFunction(() => Object.keys(JSON.parse(localStorage.getItem('daili-radar-mobile:v5') || '{}').scans || {}).length === 3);
+  assert.equal(Object.keys(started).length, 3);
+  await recovery.close();
 
   const origin = new URL(base).origin;
   const api = await request.newContext();
@@ -120,7 +151,7 @@ async function run() {
   const cross = await api.post(base + '/api/radar-ota', { headers: { Origin: 'https://untrusted.example' }, data: {} });
   assert.equal(cross.status(), 403);
   await api.dispose();
-  fs.writeFileSync(path.join(out, 'browser-result.json'), JSON.stringify({ passed: true, layout: 'approved-minimal-wireframe', desktop: 'Chromium', mobile: 'WebKit 390x844', sixRooms: true, overviewTabs: true, fourteenDays: true, editableRooms: true, priceAndAvailabilityStates: true, noSyntheticMainFlow: true, ssrfBlocked: true, crossOriginBlocked: true }, null, 2));
+  fs.writeFileSync(path.join(out, 'browser-result.json'), JSON.stringify({ passed: true, mockedInterfaceTests: true, liveOtaUat: false, browserRestore: true, layout: 'approved-minimal-wireframe', desktop: 'Chromium', mobile: 'WebKit 390x844', sixRooms: true, overviewTabs: true, fourteenDays: true, editableRooms: true, priceAndAvailabilityStates: true, noSyntheticMainFlow: true, ssrfBlocked: true, crossOriginBlocked: true }, null, 2));
   console.log('BROWSER_ACCEPTANCE_PASS');
 }
 

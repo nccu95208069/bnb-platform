@@ -1,5 +1,6 @@
-import { type NextRequest, NextResponse } from "next/server";
+import { after, type NextRequest, NextResponse } from "next/server";
 
+import { createScanJob, readScanJob } from "@/lib/competitor-radar/scan-jobs";
 import { normalizeSourceOverrides, scanOtaPlatform } from "@/lib/competitor-radar/ota-sandbox";
 import type { OtaScanRequest, OtaScanResponse } from "@/lib/competitor-radar/ota-types";
 import { record, safeLink } from "@/lib/competitor-radar/preview-contract";
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const WINDOW_MS = 15 * 60 * 1_000;
-const buckets = new Map<string, { startedAt: number; count: number; active: boolean }>();
+const buckets = new Map<string, { startedAt: number; count: number; active: number }>();
 const cache = new Map<string, { expiresAt: number; response: OtaScanResponse }>();
 
 function reply(body: unknown, status = 200) {
@@ -162,12 +163,18 @@ function cacheKey(request: OtaScanRequest): string {
   });
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   if (process.env.RADAR_PREVIEW_MODE !== "true") {
     return reply({ detail: "測試端點未開啟。" }, 404);
   }
+  const jobId = request.nextUrl.searchParams.get("job");
+  if (jobId) {
+    if (request.headers.get("sec-fetch-site") !== "same-origin") return reply({ detail: "只接受同來源查詢。" }, 403);
+    try { return reply(await readScanJob(jobId, request.headers.get("x-radar-job-token") ?? "")); }
+    catch { return reply({ detail: "掃描已過期或無法恢復，已保存結果仍可查看。" }, 404); }
+  }
   return reply({
-    version: "radar-live-ota-v0.4",
+    version: "radar-live-ota-v0.5",
     source: "isolated_browser",
     live: true,
     maxDays: 14,
@@ -192,18 +199,19 @@ export async function POST(request: NextRequest) {
   if (buckets.size >= 1_024 && !buckets.has(ip)) {
     return reply({ detail: "測試站目前忙碌，請稍後重試。" }, 429);
   }
-  const bucket = buckets.get(ip) ?? { startedAt: now, count: 0, active: false };
+  const bucket = buckets.get(ip) ?? { startedAt: now, count: 0, active: 0 };
   if (now - bucket.startedAt > WINDOW_MS) {
     bucket.startedAt = now;
     bucket.count = 0;
   }
-  if (bucket.active || bucket.count >= 9) {
+  if (bucket.active >= 3 || bucket.count >= 9) {
     return reply({ detail: "同一來源的掃描過於頻繁，請先查看已取得的結果。" }, 429);
   }
-  bucket.active = true;
+  bucket.active += 1;
   bucket.count += 1;
   buckets.set(ip, bucket);
 
+  let background = false;
   try {
     const body = await limitedJson(request);
     const scanRequest = buildRequest(body);
@@ -211,6 +219,16 @@ export async function POST(request: NextRequest) {
     const cached = cache.get(key);
     if (cached && cached.expiresAt > now) {
       return reply({ ...cached.response, cached: true });
+    }
+    if (body.async === true) {
+      const { job, write } = await createScanJob();
+      background = true;
+      after(async () => {
+        try { await write({ state: "done", scan: await scanOtaPlatform(scanRequest) }); }
+        catch { await write({ state: "failed", detail: "平台暫時無法取得資料。" }).catch(() => undefined); }
+        finally { bucket.active = Math.max(0, bucket.active - 1); }
+      });
+      return reply({ job }, 202);
     }
     const scan = await scanOtaPlatform(scanRequest);
     const response: OtaScanResponse = {
@@ -236,6 +254,6 @@ export async function POST(request: NextRequest) {
       422,
     );
   } finally {
-    bucket.active = false;
+    if (!background) bucket.active = Math.max(0, bucket.active - 1);
   }
 }

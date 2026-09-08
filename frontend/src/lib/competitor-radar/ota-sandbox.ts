@@ -2,6 +2,7 @@ import "server-only";
 
 import { Sandbox } from "@vercel/sandbox";
 
+import { contextMatches, sameListing } from "./ota-evidence";
 import { scorePropertyIdentity } from "./identity";
 import type {
   OtaDayObservation,
@@ -59,6 +60,9 @@ interface BrowserDayResult {
   title?: string;
   sourceName?: string;
   dateVerified: boolean;
+  contextVerified?: boolean;
+  returnedContext?: { checkIn?: string; checkOut?: string; adults?: number; children?: number; rooms?: number; currency?: string };
+  finalUrl?: string;
   blocked?: boolean;
   soldOut?: boolean;
   available?: boolean;
@@ -83,23 +87,18 @@ function normalizedText(value: string | null | undefined): string {
 }
 
 function isSweetfun(request: OtaScanRequest): boolean {
-  const joined = [
-    request.property.name,
-    request.property.registrationNumber,
-    request.property.websiteUrl,
-    request.property.sourceUrl,
-    request.property.websiteHost,
-  ]
-    .filter(Boolean)
-    .join(" ");
-  return /水芳|sweetfun|新北市民宿\s*402/i.test(joined);
+  const match = scorePropertyIdentity(request.property, {
+    name: "水芳 Sweetfun", address: "新北市瑞芳區中山路24之1號",
+    registrationNumber: "新北市民宿402號", websiteUrl: "https://www.sweetfuntw.com/",
+  });
+  return match.status === "confirmed" && !match.conflicts.length;
 }
 
 function safePlatformUrl(value: string | undefined, platform: OtaPlatform): string | undefined {
   if (!value || value.length > 2_048) return undefined;
   try {
     const url = new URL(value);
-    if (url.protocol !== "https:" || url.username || url.password) return undefined;
+    if (url.protocol !== "https:" || url.username || url.password || (url.port && url.port !== "443")) return undefined;
     if (!PLATFORM_HOSTS[platform].test(url.hostname)) return undefined;
     url.hash = "";
     return url.href;
@@ -167,7 +166,10 @@ async function withBrowser<T>(fn: (sandbox: SandboxInstance) => Promise<T>): Pro
     source: { type: "snapshot", snapshotId: SNAPSHOT_ID },
     timeout: 240_000,
     resources: { vcpus: 2 },
-    networkPolicy: "allow-all",
+    networkPolicy: {
+      allow: ["*.booking.com", "*.bstatic.com", "*.agoda.com", "*.agoda.net", "*.agoda.io", "*.trip.com", "*.ctrip.com", "*.tripcdn.com"],
+      subnets: { deny: ["0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.168.0.0/16", "224.0.0.0/4", "::1/128", "fc00::/7", "fe80::/10"] },
+    },
   });
   try {
     return await fn(sandbox);
@@ -384,7 +386,12 @@ async function scanAgodaSource(
               const title=document.title||'';
               const blocked=/captcha|verify you are human|request rejected|access denied|unusual traffic/i.test(title+' '+body);
               const dateVerified=!blocked&&checkInLabels.some(x=>body.includes(x))&&checkOutLabels.some(x=>body.includes(x));
-              const soldOut=dateVerified&&/Sold out!.*Our last room is already booked|Looks like we're sold out/i.test(body);
+              const contextText=[...document.querySelectorAll('[data-selenium="occupancy-box"], [data-element-name="occupancy-box"], [data-selenium="search-box"]')].map(x=>x.textContent||'').join(' ');
+              const adults=(contextText.match(/(\\d+)\\s*adults?/i)||[])[1];
+              const children=(contextText.match(/(\\d+)\\s*children/i)||[])[1];
+              const rooms=(contextText.match(/(\\d+)\\s*rooms?/i)||[])[1];
+              const contextVerified=dateVerified&&Number(adults)===${request.adults}&&children!==undefined&&Number(children)===0&&Number(rooms)===1;
+              const soldOut=contextVerified&&/Sold out!.*Our last room is already booked|Looks like we're sold out/i.test(body);
               const sourceName=(document.querySelector('h1')?.textContent||title.split('(')[0]||'').trim();
               const priceTexts=[...document.querySelectorAll('[data-element-name*="price"],[data-selenium*="price"],[class*="Price"],[class*="price"]')]
                 .filter(node=>{const style=getComputedStyle(node);return style.display!=='none'&&style.visibility!=='hidden'})
@@ -404,20 +411,24 @@ async function scanAgodaSource(
                   if(Number.isFinite(value)&&value>=minimum&&value<1000000)values.push(value);
                 }
               }
-              const amount=dateVerified&&!soldOut&&currency&&values.length?Math.min(...values):undefined;
-              const available=dateVerified&&!soldOut&&(
-                amount!==undefined||/Book now|Reserve|Choose your room|Available room/i.test(body)
-              );
+              // Generic price nodes can belong to nearby recommendations or SEO.
+              // Until an offer-scoped parser proves the full stay context, do not accept them.
+              const amount=undefined;
+              const available=false;
               const sourceText=soldOut
                 ? 'Sold out! Our last room is already booked'
                 : available
                   ? 'Agoda rendered a dated bookable room page'
                   : 'No dated offer was exposed';
-              return {title,sourceName,dateVerified,blocked,soldOut,available,amount,currency,sourceText};
+              return {title,sourceName,dateVerified,contextVerified,returnedContext:{checkIn:dateVerified?${JSON.stringify(job.stayDate)}:undefined,checkOut:dateVerified?${JSON.stringify(job.checkOut)}:undefined,adults:adults===undefined?undefined:Number(adults),children:children===undefined?undefined:Number(children),rooms:rooms===undefined?undefined:Number(rooms),currency},finalUrl:location.href,blocked,soldOut,available,amount,currency,sourceText};
             })())`,
             300_000,
           );
-          output.push({ ...job, ...observed });
+          const listingMatches = sameListing(source.url, observed.finalUrl) &&
+            /sweetfun|水芳/i.test(observed.sourceName ?? "") &&
+            (!source.roomNumber || (observed.sourceName ?? "").includes(source.roomNumber));
+          output.push({ ...job, ...observed, contextVerified: observed.contextVerified && listingMatches && contextMatches({checkIn:job.stayDate,checkOut:job.checkOut,adults:request.adults,children:0,rooms:1,currency:"TWD"}, observed.returnedContext ?? {}) });
+          if (observed.blocked) break;
         } catch (error) {
           output.push({
             ...job,
@@ -495,7 +506,7 @@ async function scanAgoda(request: OtaScanRequest): Promise<OtaPlatformScan> {
           (item.roomNumber ? `Agoda ${item.roomNumber}` : "Agoda 房型"),
         canonicalRoomId: roomIdForNumber(request, item.roomNumber),
         availability:
-          !identityVerified || !item.dateVerified || item.error || item.blocked
+          !identityVerified || !item.contextVerified || !item.dateVerified || item.error || item.blocked
             ? "unknown"
             : item.soldOut
               ? "sold_out"
@@ -504,11 +515,11 @@ async function scanAgoda(request: OtaScanRequest): Promise<OtaPlatformScan> {
                 : "unknown",
         quantityState: "unknown",
         amount:
-          identityVerified && item.dateVerified && !item.soldOut
+          identityVerified && item.contextVerified && item.dateVerified && !item.soldOut
             ? item.amount
             : undefined,
         currency:
-          identityVerified && item.dateVerified && !item.soldOut
+          identityVerified && item.contextVerified && item.dateVerified && !item.soldOut
             ? item.currency
             : undefined,
         sourceText: item.error ?? item.sourceText,
@@ -528,7 +539,7 @@ async function scanAgoda(request: OtaScanRequest): Promise<OtaPlatformScan> {
           : "unknown";
       const dateVerified =
         day.length === sources.length &&
-        day.every((item) => item.dateVerified && !item.error && !item.blocked);
+        day.every((item) => item.contextVerified && item.dateVerified && !item.error && !item.blocked);
       return {
         stayDate,
         checkOut: addDays(stayDate, 1),
@@ -553,7 +564,7 @@ async function scanAgoda(request: OtaScanRequest): Promise<OtaPlatformScan> {
   const state: OtaPlatformScan["state"] =
     results.length > 0 && blockedCount === results.length
       ? "blocked"
-      : completedDays === request.days
+      : completedDays === request.days && completeRoomCoverage
         ? "ready"
         : completedDays
           ? "partial"
@@ -639,7 +650,7 @@ async function scanTrip(request: OtaScanRequest): Promise<OtaPlatformScan> {
             }catch(error){return {...job,dateVerified:false,error:String(error)}}
           };
           const output=[];
-          for(let index=0;index<jobs.length;index+=5){output.push(...await Promise.all(jobs.slice(index,index+5).map(parse)))}
+          for(const job of jobs){const result=await parse(job);output.push(result);if(result.blocked)break;}
           return JSON.stringify(output);
         })()`,
         1_500_000,

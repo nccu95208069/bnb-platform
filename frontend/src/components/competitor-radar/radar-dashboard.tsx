@@ -14,7 +14,9 @@ import {
   Settings2,
   ShieldCheck,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { parseDraft, record, validDate } from "@/lib/competitor-radar/preview-contract";
+import type { ScanJob, JobResult } from "@/lib/competitor-radar/scan-jobs";
 
 import type {
   OtaAvailability,
@@ -147,6 +149,7 @@ function roomDay(
   stayDate: string,
 ): { availability: OtaAvailability; amount?: number; currency?: string } {
   const day = scan?.observations.find((item) => item.stayDate === stayDate);
+  if (!day?.identityVerified || !day.dateVerified) return { availability: "unknown" };
   const rooms = day?.rooms.filter((room) => room.canonicalRoomId === roomId) ?? [];
   if (!rooms.length) return { availability: "unknown" };
   const availability = rooms.some((room) => room.availability === "available")
@@ -296,7 +299,84 @@ export default function RadarDashboard() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
-  const startDate = addDays(taipeiToday(), 1);
+  const [startDate, setStartDate] = useState(() => addDays(taipeiToday(), 1));
+  const [jobs, setJobs] = useState<Partial<Record<OtaPlatform, ScanJob>>>({});
+  const [hydrated, setHydrated] = useState(false);
+  const [build, setBuild] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const generation = useRef(0);
+  const storageKey = "daili-radar-mobile:v5";
+
+  useEffect(() => {
+    const run = ++generation.current;
+    try {
+      const raw = localStorage.getItem(storageKey);
+      if (raw) {
+        if (raw.length > 2_000_000) throw new Error("too_large");
+        const saved = record(JSON.parse(raw));
+        if (!validDate(saved.startDate)) throw new Error("invalid_date");
+        const draft = parseDraft(JSON.stringify({ schemaVersion: 1, mode: "live_website", analysis: saved.analysis, bookingUrl: "", checkIn: saved.startDate, checkOut: addDays(saved.startDate, 1), adults: 2, mappings: {} }));
+        setAnalysis(draft.analysis); setUrl(draft.analysis.requestedUrl); setStartDate(saved.startDate);
+        const restoredScans = record(saved.scans) as ScanMap;
+        for (const scan of Object.values(restoredScans)) {
+          if (!scan || !Array.isArray(scan.observations) || !Array.isArray(scan.warnings) || !scan.identity || !Number.isFinite(Date.parse(scan.capturedAt))) throw new Error("invalid_scan");
+          for (const day of scan.observations) {
+            if (!validDate(day.stayDate) || !Array.isArray(day.rooms)) throw new Error("invalid_day");
+          }
+        }
+        setScans(restoredScans);
+        setMessage("已恢復此裝置的結果；保存的資料不是即時報價。");
+        const pending = record(saved.jobs);
+        for (const platform of PLATFORMS) {
+          const job = record(pending[platform]);
+          if (typeof job.id === "string" && typeof job.token === "string" && typeof job.expiresAt === "number" && job.expiresAt > Date.now()) {
+            setJobs(state => ({ ...state, [platform]: job as unknown as ScanJob }));
+            void pollJob(platform, job as unknown as ScanJob, run);
+          }
+        }
+      }
+    } catch { setSaveError("無法還原保存內容，原資料仍保留。請重新分析。"); }
+    setHydrated(true);
+    fetch("/api/radar-preview").then(r => r.json()).then(r => setBuild(typeof r.build === "string" ? r.build : "")).catch(() => undefined);
+    return () => { generation.current = run + 1; };
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated || !analysis) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify({ analysis, scans, jobs, startDate }));
+      setSaveError("");
+    } catch { setSaveError("此瀏覽器無法保存結果；請保持頁面開啟。"); }
+  }, [analysis, scans, jobs, startDate, hydrated]);
+
+  async function pollJob(platform: OtaPlatform, job: ScanJob, run: number) {
+    setProgress(state => ({ ...state, [platform]: "running" }));
+    let terminal = false;
+    try {
+      while (Date.now() < job.expiresAt && run === generation.current) {
+        const response = await fetch(`/api/radar-ota?job=${encodeURIComponent(job.id)}`, { headers: { "x-radar-job-token": job.token }, signal: AbortSignal.timeout(20_000) });
+        if (!response.ok) throw new Error("掃描暫時無法恢復，請稍後重試。");
+        const result = await response.json() as JobResult;
+        if (run !== generation.current) return;
+        if (result.state === "done") {
+          terminal = true;
+          setScans(state => ({ ...state, [platform]: result.scan }));
+          setProgress(state => ({ ...state, [platform]: "done" }));
+          return;
+        }
+        if (result.state === "failed") { terminal = true; throw new Error(result.detail); }
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+      if (run === generation.current) throw new Error("掃描已逾時，已完成的資料仍保留。");
+    } catch {
+      if (run === generation.current) {
+        setProgress(state => ({ ...state, [platform]: "failed" }));
+        setMessage(`${PLATFORM_LABELS[platform]} 暫時無法確認，可單獨重試。`);
+      }
+    } finally {
+      if (run === generation.current && (terminal || Date.now() >= job.expiresAt)) setJobs(state => { const next = { ...state }; delete next[platform]; return next; });
+    }
+  }
   const dates = useMemo(
     () => Array.from({ length: 14 }, (_, index) => addDays(startDate, index)),
     [startDate],
@@ -306,7 +386,7 @@ export default function RadarDashboard() {
     analysis?.canonicalRooms.find((room) => room.id === selectedRoomId) ??
     analysis?.canonicalRooms[0];
 
-  async function scanPlatform(platform: OtaPlatform, current: CompetitorRadarAnalysis) {
+  async function scanPlatform(platform: OtaPlatform, current: CompetitorRadarAnalysis, scanStart = startDate) {
     setProgress((state) => ({ ...state, [platform]: "running" }));
     try {
       const sweetfun = /水芳|sweetfun|新北市民宿\s*402/i.test(
@@ -318,19 +398,25 @@ export default function RadarDashboard() {
         (source) => source.platform === platform,
       )?.sourceUrl;
       const sourceUrl = platform === "agoda" && sweetfun ? undefined : discoveredUrl;
-      const result = await jsonRequest<OtaScanResponse>(
+      const result = await jsonRequest<OtaScanResponse & { job?: ScanJob }>(
         "/api/radar-ota",
         {
+          async: true,
           platform,
-          startDate,
+          startDate: scanStart,
           days: 14,
           adults: 2,
           property: current.property,
           canonicalRooms: current.canonicalRooms,
           sourceUrl,
         },
-        280_000,
+        30_000,
       );
+      if (result.job) {
+        setJobs(state => ({ ...state, [platform]: result.job }));
+        await pollJob(platform, result.job, generation.current);
+        return;
+      }
       setScans((state) => ({ ...state, [platform]: result.scan }));
       setProgress((state) => ({ ...state, [platform]: "done" }));
     } catch (reason) {
@@ -341,12 +427,10 @@ export default function RadarDashboard() {
     }
   }
 
-  async function scanAll(current: CompetitorRadarAnalysis) {
-    setScans({});
+  async function scanAll(current: CompetitorRadarAnalysis, scanStart = startDate) {
+    const run = generation.current;
     setProgress({ booking: "waiting", agoda: "waiting", trip: "waiting" });
-    for (const platform of ["agoda", "booking", "trip"] as OtaPlatform[]) {
-      await scanPlatform(platform, current);
-    }
+    await Promise.all(PLATFORMS.map(platform => generation.current === run ? scanPlatform(platform, current, scanStart) : Promise.resolve()));
   }
 
   async function analyze() {
@@ -357,14 +441,17 @@ export default function RadarDashboard() {
     setBusy(true);
     setError("");
     setMessage("正在辨識住宿與官網房型…");
-    setAnalysis(null);
-    setScans({});
+
     try {
       const website = await jsonRequest<CompetitorRadarAnalysis>(
         "/api/radar-preview",
         { phase: "website", url },
         60_000,
       );
+      setAnalysis(website);
+      setScans({});
+      setSelectedRoomId(website.canonicalRooms[0]?.id ?? "");
+      setStartDate(addDays(taipeiToday(), 1));
       let complete = website;
       try {
         setMessage("已建立房型，正在核對政府旅宿資料…");
@@ -374,17 +461,18 @@ export default function RadarDashboard() {
           40_000,
         );
         complete = { ...website, tourismRegistry: registry };
+        setAnalysis(current => current ? { ...current, tourismRegistry: registry } : current);
       } catch {
         complete = website;
       }
       if (!complete.canonicalRooms.length) {
         throw new Error("官網沒有辨識到房型，請換成住宿的房型頁網址再試一次。");
       }
-      setAnalysis(complete);
+
       setSelectedRoomId(complete.canonicalRooms[0]!.id);
-      setMessage("住宿已辨識，正在讀取各 OTA 公開頁面；平台會依序完成。");
-      await scanAll(complete);
-      setMessage("分析完成。未知代表平台沒有回傳足夠證據，不是沒有房。");
+      setMessage("住宿已辨識，各平台會各自完成；可先查看或編輯房型。");
+      await scanAll(complete, addDays(taipeiToday(), 1));
+      setMessage("已完成本次查詢；各平台的結果與擷取時間如下。");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "無法完成分析。");
     } finally {
@@ -437,7 +525,7 @@ export default function RadarDashboard() {
               disabled={busy}
             />
           </div>
-          <button className={styles.primaryButton} disabled={busy}>
+          <button className={styles.primaryButton} disabled={busy || !hydrated}>
             {busy ? <Loader2 size={17} className={styles.spin} /> : <Search size={17} />}
             {busy ? "分析中" : "開始分析"}
           </button>
@@ -445,6 +533,7 @@ export default function RadarDashboard() {
         <p>目前可直接測試水芳官網。系統會辨識住宿、建立房型，再讀取 Booking、Agoda 與 Trip.com 公開頁面。</p>
       </section>
 
+      {saveError && <div className={styles.error} role="alert">{saveError}</div>}
       {error && <div className={styles.error} role="alert"><AlertCircle size={17} />{error}</div>}
       {message && <div className={styles.message} role="status">{busy && <Loader2 size={15} className={styles.spin} />}{message}</div>}
 
@@ -467,7 +556,7 @@ export default function RadarDashboard() {
               </div>
             </div>
             <button className={styles.secondaryButton} onClick={() => setEditing((value) => !value)}>
-              <Settings2 size={15} />{editing ? "完成編輯" : "編輯民宿資訊"}
+              <Settings2 size={15} />{editing ? "完成編輯" : "編輯房型"}
             </button>
           </section>
 
@@ -523,7 +612,7 @@ export default function RadarDashboard() {
                 </table>
               </div>
 
-              <div className={styles.visualGrid}>
+              {Object.values(scans).some(scan => scan.observations.some(day => day.rooms.some(room => room.amount !== undefined))) && <div className={styles.visualGrid}>
                 <section className={styles.visualCard}>
                   <div className={styles.visualHeading}><div><h3>價格趨勢</h3><p>只畫通過住宿、日期與幣別核對的數字</p></div><select aria-label="價格趨勢房型" value={selectedRoom?.id ?? ""} onChange={(event) => setSelectedRoomId(event.target.value)}>{analysis.canonicalRooms.map((room) => <option key={room.id} value={room.id}>{room.name}</option>)}</select></div>
                   <div className={styles.chartTabs}>{PLATFORMS.map((platform) => <button key={platform} onClick={() => setActiveTab(platform)}><PlatformBadge platform={platform} />{PLATFORM_LABELS[platform]}</button>)}</div>
@@ -537,7 +626,7 @@ export default function RadarDashboard() {
                     {PLATFORMS.map((platform) => <div className={styles.calendarRow} key={platform}><strong>{PLATFORM_LABELS[platform]}</strong>{dates.slice(0, 7).map((date) => { const day = platformDay(scans[platform], date); return <span key={date}><StatusDot value={day?.availability ?? "unknown"} title={day?.message} /></span>; })}</div>)}
                   </div>
                 </section>
-              </div>
+              </div>}
             </section>
           ) : (
             <section className={styles.contentCard}>
@@ -565,7 +654,13 @@ export default function RadarDashboard() {
             </section>
           )}
 
-          <div className={styles.disclaimer}><ShieldCheck size={18} /><span><strong>參考資料，不是確認銷售。</strong> 平台可售量可能受到配額、關房與限制條件影響；未知與抓取失敗不會被當成售完。</span></div>
+          <details className={styles.notes}><summary>查看辨識與資料細節</summary>
+            <p>政府登記房間數：{registryCandidate?.totalRooms ?? "未取得"}；官網房型：{analysis.canonicalRooms.length}。兩者差異保留，不會刪除官網房型。</p>
+            <p>{analysis.tourismRegistry?.message}</p>
+            {PLATFORMS.map(platform => <p key={platform}>{PLATFORM_LABELS[platform]} · {scans[platform] ? `擷取於 ${new Date(scans[platform]!.capturedAt).toLocaleString("zh-TW")}` : "尚未取得"}<br />{scans[platform]?.warnings.join("；")}</p>)}
+            <p>房量為公開參考值，可能受配額與關房設定影響。結果保存在此裝置；背景掃描可在 15 分鐘內恢復。</p>
+            <p>版本：{build}</p>
+          </details>
         </>
       )}
 

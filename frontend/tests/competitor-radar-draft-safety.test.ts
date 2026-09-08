@@ -58,3 +58,33 @@ test("prototype-shaped room keys cannot be read as mappings", () => {
   const raw = JSON.parse(scenarioJson("normal")); raw.availability[0].room_id = "constructor";
   assert.throws(() => parseBookingImport(JSON.stringify(raw)));
 });
+
+test("changing a government candidate derives new evidence without retaining the old license", async () => {
+  const { propertyForVerification } = await import("../src/lib/competitor-radar/preview-contract");
+  const d = syntheticDraft();
+  d.analysis.property.registrationNumber = undefined;
+  d.analysis.tourismRegistry = { status: "review", sourceUrl: "https://example.com", message: "review", candidates: [
+    { hotelId: "a", name: "A", matchedName: "A", registrationNumber: "新北市民宿1號", status: "review", score: .5, conflicts: [], evidence: [], platformUrls: {} },
+    { hotelId: "b", name: "B", matchedName: "B", registrationNumber: "新北市民宿2號", status: "review", score: .5, conflicts: [], evidence: [], platformUrls: {} },
+  ] };
+  d.registryDecision = { hotelId: "a", action: "confirmed" };
+  assert.equal(propertyForVerification(d).registrationNumber, "新北市民宿1號");
+  d.registryDecision = { hotelId: "b", action: "confirmed" };
+  assert.equal(propertyForVerification(d).registrationNumber, "新北市民宿2號");
+  d.registryDecision = { hotelId: "b", action: "rejected" };
+  assert.equal(propertyForVerification(d).registrationNumber, undefined);
+});
+
+test("returned context must independently match all stay fields", async () => {
+  const { contextMatches, sameListing } = await import("../src/lib/competitor-radar/ota-evidence");
+  const expected = { checkIn: "2026-09-10", checkOut: "2026-09-11", adults: 2, children: 0, rooms: 1, currency: "TWD" };
+  assert.equal(contextMatches(expected, {}), false);
+  for (const key of Object.keys(expected)) {
+    const missing = { ...expected }; delete missing[key as keyof typeof missing];
+    assert.equal(contextMatches(expected, missing), false);
+  }
+  assert.equal(contextMatches(expected, { ...expected, adults: 4 }), false);
+  assert.equal(contextMatches(expected, expected), true);
+  assert.equal(sameListing("https://www.agoda.com/sweetfun/hotel/taipei-tw.html", "https://www.agoda.com/nearby/hotel/taipei-tw.html"), false);
+  assert.equal(sameListing("https://www.agoda.com/sweetfun/hotel/taipei-tw.html", "http://127.0.0.1"), false);
+});

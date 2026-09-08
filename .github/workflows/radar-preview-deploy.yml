@@ -61,7 +61,7 @@ jobs:
             });
             if (!response.ok) throw new Error(`Unable to verify acceptance check: ${response.status}`);
             const payload = await response.json();
-            const check = payload.check_runs.find(run => run.name === 'verify' && run.app?.slug === 'github-actions');
+            const check = payload.check_runs.find(run => run.name === 'radar-verify' && run.app?.slug === 'github-actions');
             if (check?.status === 'completed') {
               if (check.conclusion !== 'success') throw new Error(`Acceptance gate failed: ${check.conclusion}`);
               accepted = true;
@@ -94,67 +94,6 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: node scripts/deploy-radar-preview.mjs
-      - name: Verify live public website and OTA adapters
-        run: |
-          export PUBLIC_URL="$(cat /tmp/radar-public-url.txt)"
-          node --input-type=module <<'JS'
-          import { writeFile } from 'node:fs/promises';
-          const base = process.env.PUBLIC_URL;
-          const post = async (path, body, timeout) => {
-            const response = await fetch(base + path, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', Origin: base },
-              body: JSON.stringify(body),
-              signal: AbortSignal.timeout(timeout),
-            });
-            const payload = await response.json().catch(() => ({}));
-            if (!response.ok) throw new Error(`${path} HTTP ${response.status}: ${payload.detail ?? 'unknown error'}`);
-            return payload;
-          };
-          const parts = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
-          const read = type => parts.find(part => part.type === type)?.value;
-          const today = `${read('year')}-${read('month')}-${read('day')}`;
-          const date = new Date(`${today}T00:00:00Z`); date.setUTCDate(date.getUTCDate() + 1);
-          const startDate = date.toISOString().slice(0, 10);
-
-          const website = await post('/api/radar-preview', { phase: 'website', url: 'https://www.sweetfuntw.com/' }, 90000);
-          if (website.property?.name !== '水芳 Sweetfun' || website.canonicalRooms?.length !== 6) throw new Error('Live official-site identity or six-room extraction failed');
-          const registry = await post('/api/radar-preview', { phase: 'registry', property: website.property }, 60000);
-          if (!registry.candidates?.some(candidate => candidate.hotelId === 'Hotel_A15010000H_035813')) throw new Error('Live registry candidate was not returned');
-          const request = { startDate, adults: 2, property: website.property, canonicalRooms: website.canonicalRooms };
-
-          const agoda = await post('/api/radar-ota', { ...request, platform: 'agoda', days: 14 }, 310000);
-          if (agoda.capability?.live !== true || agoda.scan?.platform !== 'agoda') throw new Error('Agoda live capability contract missing');
-          if (agoda.scan.requestedDays !== 14 || agoda.scan.observations?.length !== 14) throw new Error('Agoda did not return the requested 14-day frame');
-          if (agoda.scan.completedDays !== 14 || agoda.scan.identity?.status !== 'confirmed') throw new Error(`Agoda verification incomplete: ${agoda.scan.completedDays}/14, identity=${agoda.scan.identity?.status}`);
-          if (!agoda.scan.observations.every(day => day.rooms?.length === 5 && day.dateVerified)) throw new Error('Agoda did not verify all five known room pages for each date');
-          if (!agoda.scan.observations.flatMap(day => day.rooms).every(room => room.quantityState === 'unknown' && room.quantity === undefined)) throw new Error('Agoda exposed an unsupported exact quantity');
-          for (const day of agoda.scan.observations) {
-            if (day.rooms.every(room => room.availability === 'sold_out') && day.availability !== 'unknown') throw new Error('Incomplete five-of-six Agoda coverage was mislabeled as whole-property sold out');
-          }
-
-          const booking = await post('/api/radar-ota', { ...request, platform: 'booking', days: 1 }, 120000);
-          if (booking.scan?.platform !== 'booking' || booking.scan.requestedDays !== 1 || booking.scan.completedDays !== 0) throw new Error('Booking date-evidence quarantine contract failed');
-          if (booking.scan.observations?.some(day => day.minAmount !== undefined || day.dateVerified)) throw new Error('Booking accepted a price without returned-date proof');
-
-          const trip = await post('/api/radar-ota', { ...request, platform: 'trip', days: 1 }, 120000);
-          if (trip.scan?.platform !== 'trip' || trip.scan.requestedDays !== 1) throw new Error('Trip.com adapter response contract failed');
-          if (trip.scan.observations?.some(day => day.minAmount !== undefined)) throw new Error('Trip.com accepted an unverified public price');
-
-          const evidence = {
-            publicUrl: base,
-            startDate,
-            officialWebsite: { property: website.property.name, rooms: website.canonicalRooms.map(room => ({ id: room.id, name: room.name, roomNumber: room.roomNumber, capacity: room.capacity })) },
-            registry: { status: registry.status, selectedHotelId: registry.selectedHotelId, candidateIds: registry.candidates.map(candidate => candidate.hotelId) },
-            scans: {
-              agoda: { state: agoda.scan.state, requestedDays: agoda.scan.requestedDays, completedDays: agoda.scan.completedDays, identity: agoda.scan.identity.status, durationMs: agoda.scan.durationMs, dayStates: agoda.scan.observations.map(day => ({ stayDate: day.stayDate, availability: day.availability, dateVerified: day.dateVerified, roomStates: day.rooms.map(room => ({ canonicalRoomId: room.canonicalRoomId, availability: room.availability, amount: room.amount, currency: room.currency, quantityState: room.quantityState })) })) },
-              booking: { state: booking.scan.state, requestedDays: booking.scan.requestedDays, completedDays: booking.scan.completedDays, identity: booking.scan.identity.status },
-              trip: { state: trip.scan.state, requestedDays: trip.scan.requestedDays, completedDays: trip.scan.completedDays, identity: trip.scan.identity.status },
-            },
-          };
-          await writeFile('/tmp/radar-deploy-evidence/live-public-ota.json', JSON.stringify(evidence, null, 2));
-          console.log('LIVE_PUBLIC_OTA_PASS', JSON.stringify({ startDate, agoda: evidence.scans.agoda, booking: evidence.scans.booking, trip: evidence.scans.trip }));
-          JS
       - name: Verify public test application with desktop and mobile browsers
         run: |
           mkdir -p /tmp/radar-browser
@@ -170,11 +109,11 @@ jobs:
           /tmp/radar-browser/node_modules/.bin/agent-browser close
           timeout 240 node frontend/tests/radar-preview-browser.cjs | tee /tmp/radar-deploy-evidence/public-browser.log
           {
-            echo '### Public Safari-compatible radar test site verified'
+            echo '### Public deployment and interface checks'
             cat /tmp/radar-public-url.txt
             echo
             echo "Build: $GITHUB_SHA"
-            echo 'Live official website, registry, Agoda 14-day adapter, Booking quarantine, Trip.com quarantine, Chromium and mobile WebKit passed.'
+            echo 'Mocked Chromium and mobile WebKit interface checks passed. This is not live OTA acceptance.'
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()

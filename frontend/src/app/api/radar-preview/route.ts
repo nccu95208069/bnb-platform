@@ -17,13 +17,13 @@ function reply(body: unknown, status = 200) {
 export async function GET() {
   if (process.env.RADAR_PREVIEW_MODE !== "true") return reply({ detail: "測試端點未開啟。" }, 404);
   return reply({
-    version: "radar-preview-v0.4",
+    version: "radar-preview-v0.5",
     build: process.env.RADAR_BUILD_SHA ?? "local",
     liveOtaEndpoint: true,
-    persistence: "none",
+    persistence: "browser-local",
     providerCapabilities: {
       booking: "live_property_and_room_catalog_only",
-      agoda: "live_dated_room_status",
+      agoda: "sweetfun_experimental_context_gated",
       trip: "live_date_identity_only",
     },
   });
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
   for (const [key, item] of buckets) if (now - item.started > WINDOW && !item.active) buckets.delete(key);
   if (buckets.size >= 1024 && !buckets.has(ip)) return reply({ detail: "測試站目前忙碌，請稍後重試。" }, 429);
   const bucket = buckets.get(ip) ?? { started: now, count: 0, active: false };
-  if (bucket.count >= 12 || bucket.active) return reply({ detail: "分析頻率超過測試站限制；範例、編輯與匯入仍可使用。" }, 429);
+  if (bucket.count >= 12 || bucket.active) return reply({ detail: "分析頻率超過測試站限制；已取得的結果仍保留。" }, 429);
   bucket.count++; bucket.active = true; buckets.set(ip, bucket);
   try {
     const body = await limitedJson(request);
@@ -92,6 +92,6 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof PublicUrlError) return reply({ detail: error.message }, 422);
     if (error instanceof SyntaxError) return reply({ detail: "JSON 格式不正確。" }, 400);
-    return reply({ detail: "未能完成這次分析。既有草稿未被覆蓋；可重試或使用完整範例測試。" }, 400);
+    return reply({ detail: "未能完成這次分析。既有草稿未被覆蓋；可稍後重試。" }, 400);
   } finally { bucket.active = false; }
 }

@@ -1,10 +1,8 @@
 name: Radar Booking Direct Probe
 
+# Historical research only; never runs on a source commit.
 on:
-  push:
-    branches: [feat/competitor-radar-testable-preview]
-    paths: [.github/workflows/radar-booking-direct-probe.yml]
-
+  workflow_dispatch:
 permissions:
   contents: read
 

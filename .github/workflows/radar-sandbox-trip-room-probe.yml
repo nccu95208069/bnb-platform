@@ -1,10 +1,8 @@
 name: Radar Sandbox Trip Room Probe
 
+# Historical research only; never runs on a source commit.
 on:
-  push:
-    branches: [feat/competitor-radar-testable-preview]
-    paths: [.github/workflows/radar-sandbox-trip-room-probe.yml]
-
+  workflow_dispatch:
 permissions:
   contents: read
 

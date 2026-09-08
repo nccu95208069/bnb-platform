@@ -1,11 +1,9 @@
 name: Radar Sandbox OTA Probe
 
 # UAT probe: apply selected dates before expanding room prices
+# Historical research only; never runs on a source commit.
 on:
-  push:
-    branches: [feat/competitor-radar-testable-preview]
-    paths: [.github/workflows/radar-sandbox-ota-probe.yml]
-
+  workflow_dispatch:
 permissions:
   contents: read
 
