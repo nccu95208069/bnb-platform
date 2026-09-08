@@ -15,7 +15,7 @@ fs.mkdirSync(out,{recursive:true});
     await page.getByRole('button',{name:'開始分析',exact:true}).click();
     await page.getByRole('heading',{name:'未來 14 天價格與可售狀態'}).waitFor({timeout:90000});
     assert.equal(await page.locator('table').first().locator('tbody tr').count(),6);
-    await page.waitForFunction(()=>{const s=JSON.parse(localStorage.getItem('daili-radar-mobile:v5')||'{}');return Object.keys(s.jobs||{}).length>0},{},{timeout:60000});
+    await page.waitForFunction(()=>{const s=JSON.parse(localStorage.getItem('daili-radar-mobile:v5')||'{}');return ['agoda','booking','trip'].every(p=>s.jobs?.[p]||s.scans?.[p])},{},{timeout:60000});
     await context.setOffline(true);
     await page.waitForTimeout(8000);
     await context.setOffline(false);

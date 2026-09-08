@@ -22,9 +22,9 @@ export async function GET() {
     liveOtaEndpoint: true,
     persistence: "browser-local",
     providerCapabilities: {
-      booking: "live_property_and_room_catalog_only",
-      agoda: "sweetfun_experimental_context_gated",
-      trip: "live_date_identity_only",
+      booking: "property_catalog_attempt_no_dated_offers",
+      agoda: "sweetfun_five_room_offer_status_only_quantity_unknown",
+      trip: "paused_after_restricted_response",
     },
   });
 }
