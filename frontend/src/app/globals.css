@@ -175,3 +175,15 @@
   box-shadow: none !important;
 }
 .payment-review [data-payment-state="paid"] .payment-badge { display: none; }
+
+/* Keep focused form text readable on phones so Safari need not zoom the page.
+   Unlayered rule intentionally wins over Tailwind text-sm and inherited labels.
+   Do not disable pinch zoom; desktop form typography remains unchanged. */
+@media (max-width: 767px), (hover: none) and (pointer: coarse) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="hidden"]),
+  textarea,
+  select,
+  [contenteditable="true"] {
+    font-size: max(16px, 1rem);
+  }
+}
