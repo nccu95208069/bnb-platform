@@ -41,6 +41,7 @@ export default function SettingsPage() {
   return <>
     <LanguageSettings/>
     {maySeeFinance(member?.role)&&<section className="mb-6 rounded-2xl border bg-white p-5"><h2 className="font-semibold">{uiText("帳號與管理")}</h2><p className="mt-1 text-sm text-muted-foreground">{uiText("管理成員、角色與可存取的旅宿。")}</p><Link href="/settings/access" className="mt-4 inline-flex rounded-lg border px-4 py-2 text-sm font-medium">{uiText("權限管理 →")}</Link></section>}
+    {maySeeFinance(member?.role)&&<Link href="/settings/payment-accounts" className="mb-6 block rounded-xl border bg-white p-4">{uiText("設定付款帳戶")}</Link>}
     <CalendarAppearanceSettings />
     {process.env.NEXT_PUBLIC_CALENDAR_SOURCE !== "sheet_snapshot" && <LegacySettingsPage />}
   </>;

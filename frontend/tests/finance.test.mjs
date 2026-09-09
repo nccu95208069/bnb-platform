@@ -60,3 +60,18 @@ test('custom categories survive recurring expense generation and separate proper
  const result=apply({action:'recurring_create',category:'custom',category_name:'Garden care',amount:100,description:'',method:'bank_transfer',start:'2026-09-01',day:1,expected_version:0,request_id:base.request_id});
  const rules=result.state.recurring;const due=recurrenceDue(rules,[],2026,'2026-09-09');assert.equal(due[0].category_name,'Garden care');assert.equal(expenseCategories(rules)[rules[0].category],'Garden care');assert.equal(expenseCategories([])[rules[0].category],undefined);
 });
+test('payment account settings only retain suffixes, enforce property and method',()=>{
+ const input={action:'payment_account_create',method:'credit_card',last_digits:'0123',name:'Company',expected_version:0,request_id:base.request_id};
+ const first=apply(input);const a=first.state.payment_accounts[0];assert.equal(a.last_digits,'0123');assert.equal(first.state.entries.length,0);assert.equal(apply(input,first.state).entry_id,a.id);
+ const spend={...base,payment_account_id:a.id,method:'credit_card',expected_version:1,request_id:'00000000-0000-4000-8000-000000000002'};
+ const result=apply(spend,first.state);assert.equal(result.state.entries[0].payment_account.last_digits,'0123');assert.equal(result.state.payment_accounts.length,1);
+ for(const patch of [{last_digits:'1234567812345678'},{last_digits:'123'},{last_digits:'abcd'},{method:'cash'},{name:'a'.repeat(51)}])assert.throws(()=>apply({...input,...patch}),/INVALID_INPUT/);
+ assert.throws(()=>apply({...spend,method:'bank_transfer'},first.state),/INVALID_INPUT/);
+ assert.throws(()=>applyFinance(empty(),{...base,payment_account_id:a.id,method:'credit_card'},actor,'sweetfun',2026,now,[],[{...a,property_id:'offland'}]),/INVALID_INPUT/);
+ assert.equal(apply({...input,method:'bank_transfer',last_digits:'00123'}).state.payment_accounts[0].last_digits,'00123');
+ assert.throws(()=>apply({...input,last_digits:'9999'},first.state),/IDEMPOTENCY_CONFLICT/);
+});
+test('expense can reference previously configured account from another ledger year',()=>{
+ const a={id:'saved',property_id:'sweetfun',method:'bank_transfer',last_digits:'00123',name:'Bank',created_at:now,actor_id:actor.id};
+ const r=applyFinance(empty(),{...base,payment_account_id:a.id},actor,'sweetfun',2026,now,[],[a]);assert.equal(r.state.entries[0].payment_account.id,'saved');
+});

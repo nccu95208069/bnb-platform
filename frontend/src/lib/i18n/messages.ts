@@ -1,4 +1,12 @@
 export const messages:Record<string,{en:string;th:string;vi:string}>= {
+  "只需填寫末碼，供此旅宿記帳時辨認。": {"en": "Only the last digits are needed to identify payments for this property.", "th": "กรอกเฉพาะเลขท้ายเพื่อใช้ระบุการชำระเงินของที่พักนี้", "vi": "Chỉ cần số cuối để nhận diện khi ghi chi cho cơ sở này."},
+  "名稱（選填）": {"en": "Name (optional)", "th": "ชื่อ (ไม่บังคับ)", "vi": "Tên (không bắt buộc)"},
+  "帳戶後 5 碼": {"en": "Last 5 account digits", "th": "เลขบัญชี 5 หลักสุดท้าย", "vi": "5 số cuối tài khoản"},
+  "信用卡後 4 碼": {"en": "Last 4 card digits", "th": "เลขบัตร 4 หลักสุดท้าย", "vi": "4 số cuối thẻ"},
+  "轉帳帳戶": {"en": "Bank account", "th": "บัญชีธนาคาร", "vi": "Tài khoản ngân hàng"},
+  "新增付款帳戶": {"en": "Add payment account", "th": "เพิ่มบัญชีชำระเงิน", "vi": "Thêm tài khoản thanh toán"},
+  "設定付款帳戶": {"en": "Set up payment accounts", "th": "ตั้งค่าบัญชีชำระเงิน", "vi": "Thiết lập tài khoản thanh toán"},
+  "付款帳戶": {"en": "Payment accounts", "th": "บัญชีชำระเงิน", "vi": "Tài khoản thanh toán"},
   "隨這筆紀錄儲存，供此旅宿之後使用。": {"en": "Saved with this entry for this property to reuse.", "th": "บันทึกพร้อมรายการนี้เพื่อให้ที่พักนี้ใช้ครั้งต่อไป", "vi": "Lưu cùng bản ghi này để cơ sở này dùng lại."},
   "新分類名稱": {"en": "New category name", "th": "ชื่อหมวดหมู่ใหม่", "vi": "Tên danh mục mới"},
   "＋ 新增分類": {"en": "＋ Add category", "th": "＋ เพิ่มหมวดหมู่", "vi": "＋ Thêm danh mục"},

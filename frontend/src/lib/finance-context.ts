@@ -12,10 +12,11 @@ export async function financeContext(source:SheetSourceDefinition,year:number){
  if(!snapshot)throw new Error('UNAVAILABLE');
  calendar.sort((a,b)=>a.id.localeCompare(b.id));
  const entries=[...states.flatMap(s=>s.state.entries),...calendar];
+ const payment_accounts=states.flatMap(s=>s.state.payment_accounts??[]);
  const recurring=states.flatMap(s=>s.state.recurring??[]);
  const ruleMap=new Map<string,PayoutRule>();for(const s of states)for(const r of s.state.payout_rules??[])if((r.updated_at??'')>=(ruleMap.get(r.platform)?.updated_at??''))ruleMap.set(r.platform,r);
  const payout_rules=['ctrip','owljourney'].map(platform=>ruleMap.get(platform)??{platform,mode:'manual' as const,day:10,offset:1});
  const {orders,excluded}=projectOrders(snapshot.bookings,entries,payout_rules);
  const selected=states[sorted.indexOf(year)];
- return {raw:selected.raw,state:selected.state as FinanceState,entries,orders,recurring,payout_rules,excluded_orders:excluded,versions:Object.fromEntries(sorted.map((y,i)=>[y,states[i].state.version])),due:[...new Set([...recurring.map(r=>Number(r.start.slice(0,4))),year])].flatMap(start=>Array.from({length:Math.max(0,year-start+1)},(_,i)=>start+i)).filter((y,i,a)=>a.indexOf(y)===i).flatMap(y=>recurrenceDue(recurring,entries,y)),projection_version:projectionVersion([snapshot.bookings.map(b=>[b.id,b.order_id,b.room_rate,b.check_in,b.check_out,b.platform,b.source_conflict,b.reservation_status]),states.filter(s=>s.state.version>0).map(s=>s.state),calendar]),asof:taipeiDate()};
+ return {raw:selected.raw,state:selected.state as FinanceState,entries,orders,recurring,payment_accounts,payout_rules,excluded_orders:excluded,versions:Object.fromEntries(sorted.map((y,i)=>[y,states[i].state.version])),due:[...new Set([...recurring.map(r=>Number(r.start.slice(0,4))),year])].flatMap(start=>Array.from({length:Math.max(0,year-start+1)},(_,i)=>start+i)).filter((y,i,a)=>a.indexOf(y)===i).flatMap(y=>recurrenceDue(recurring,entries,y)),projection_version:projectionVersion([snapshot.bookings.map(b=>[b.id,b.order_id,b.room_rate,b.check_in,b.check_out,b.platform,b.source_conflict,b.reservation_status]),states.filter(s=>s.state.version>0).map(s=>s.state),calendar]),asof:taipeiDate()};
 }
