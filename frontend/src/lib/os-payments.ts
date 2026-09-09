@@ -1,3 +1,4 @@
+import {auditSnapshot,changedFields,type FinanceAuditEvent} from './finance-audit.ts';
 import {manualFinanceEntries} from './finance-store.ts';
 import type {FinanceEntry} from './finance-model.ts';
 import { createHash, randomUUID } from 'node:crypto';
@@ -5,7 +6,7 @@ import type { CalendarBooking, PaymentRecord } from '../components/calendar/cale
 import { redisCommand } from './workspace-auth/store.ts';
 import type { Principal } from './workspace-auth/types.ts';
 
-export type Receipt = PaymentRecord & { actor: string; actor_name: string; note: string; settles_room: boolean; request_id: string; request_hash: string; mission_id: string; source_version: string };
+export type Receipt = PaymentRecord & { audit?:FinanceAuditEvent; actor: string; actor_name: string; note: string; settles_room: boolean; request_id: string; request_hash: string; mission_id: string; source_version: string };
 export type Ledger = { version: number; receipts: Receipt[] };
 export type OrderCheck = { property_id: string; order_id: string; source_version: string; total: number; rooms: string[]; nights: number; source_paid: boolean; finance_received?:number; ledger: Ledger };
 export const emptyLedger = (): Ledger => ({ version: 0, receipts: [] });
@@ -43,8 +44,11 @@ export function prepareReceipt(input: Record<string, unknown>, check: OrderCheck
   if(input.expected_version!==check.ledger.version||input.source_version!==check.source_version)throw new Error('VERSION_CONFLICT');
   if(payment_type!=='other' && Math.max(check.ledger.receipts.filter(r=>r.payment_type!=='other').reduce((sum,r)=>sum+Math.round(r.amount*100),0),Math.round((check.finance_received??0)*100)+check.ledger.receipts.filter(r=>r.payment_type!=='other'&&r.payment_method!=='ota').reduce((sum,r)=>sum+Math.round(r.amount*100),0))+Math.round(amount*100)>Math.round(check.total*100))throw new Error('AMOUNT_EXCEEDS_TOTAL');
   if(check.ledger.receipts.length>=1000)throw new Error('LEDGER_FULL');
-  return {id:randomUUID(),amount,payment_type:payment_type as Receipt['payment_type'],payment_method:payment_method as Receipt['payment_method'],received_at,created_at:now,
+  const receipt:Receipt={id:randomUUID(),amount,payment_type:payment_type as Receipt['payment_type'],payment_method:payment_method as Receipt['payment_method'],received_at,created_at:now,
     actor:actor.id,actor_name:actor.displayName,note,settles_room,request_id,request_hash,mission_id:randomUUID(),source_version:check.source_version};
+  const after=auditSnapshot(receipt);
+  receipt.audit={schema_version:1,id:request_id,request_id,property_id:check.property_id,action:'calendar_payment_recorded',actor_id:actor.id,actor_name:actor.displayName,actor_email:actor.email??null,actor_role:actor.role,at:now,source:'calendar',result:'succeeded',target_type:'receipt',target_id:receipt.id,before:null,after:{...after,order_id:check.order_id},changed_fields:changedFields(null,{...after,order_id:check.order_id}),version_before:check.ledger.version,version_after:check.ledger.version+1,source_version:check.source_version,completeness:'complete'};
+  return receipt;
 }
 export const ledgerKey=(property:string,order:string)=>`sweetfun-os:payments:v1:${property}:${digest(order)}`;
 export async function readLedger(property:string,order:string):Promise<{raw:string|null;ledger:Ledger}> {
@@ -64,7 +68,7 @@ export async function appendReceipt(check:OrderCheck,raw:string|null,receipt:Rec
     if(result!==1)throw new Error('VERSION_CONFLICT');
   }
   const verified=await readLedger(check.property_id,check.order_id);
-  if(!verified.ledger.receipts.some(r=>r.id===receipt.id&&r.request_hash===receipt.request_hash))throw new Error('WRITE_UNCONFIRMED');
+  if(!verified.ledger.receipts.some(r=>r.id===receipt.id&&r.request_hash===receipt.request_hash&&JSON.stringify(r.audit)===JSON.stringify(receipt.audit)))throw new Error('WRITE_UNCONFIRMED');
   await redisCommand(["SET", `${ledgerKey(check.property_id,check.order_id)}:mission:${receipt.mission_id}`, JSON.stringify({id:receipt.mission_id,status:"completed",action:"record_payment",actor:receipt.actor,receipt_id:receipt.id,source_version:receipt.source_version,verified_at:new Date().toISOString(),steps:["check_order","record_payment","verify_receipt"],sheet_write:false})]);
   return verified.ledger;
 }

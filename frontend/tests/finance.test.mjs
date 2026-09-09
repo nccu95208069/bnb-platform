@@ -98,3 +98,37 @@ test('single expense month separates cash and expense and supports moving betwee
  assert.equal(e.date,'2026-09-08');assert.equal(e.created_at,now);assert.equal(entryInMonth(e,'2026-08'),true);assert.equal(entryInMonth(e,'2026-09'),false);assert.equal(expenseAmountInMonth(e,'2026-08'),769400);assert.equal(summarize([e],'2026-08').allocatedExpense,769400);assert.equal(summarize([e],'2026-09').expense,769400);assert.equal(summarize([e],'2026-09').allocatedExpense,0);
  const split={...e,expense_spread:[{month:'2026-08',amount_cents:384700},{month:'2026-09',amount_cents:384700}]};assert.equal(expenseAmountInMonth(split,'2026-09'),384700);
 });
+test('audit captures authoritative actor, immutable before/after and idempotent actions',()=>{
+ const a={...actor,email:'admin@example.test'};
+ const first=apply({...base,actor_id:'forged'},empty(),a);
+ const event=first.state.operations[0].event;
+ assert.equal(event.action,'expense_created');assert.equal(event.actor_id,a.id);assert.equal(event.actor_email,a.email);assert.equal(event.actor_role,'admin');assert.equal(event.at,now);assert.equal(event.before,null);assert.equal(event.after.amount_cents,12345);assert.equal(event.version_after,1);
+ const edit={...base,action:'update_expense',entry_id:first.entry_id,amount:200,request_id:'00000000-0000-4000-8000-000000000002',expected_version:1};
+ const second=apply(edit,first.state,a),change=second.state.operations[1].event;
+ assert.equal(change.action,'expense_updated');assert.equal(change.before.amount_cents,12345);assert.equal(change.after.amount_cents,20000);assert.ok(change.changed_fields.includes('amount_cents'));assert.equal(change.after.history,undefined);assert.equal(event.after.amount_cents,12345);
+ assert.equal(apply(edit,second.state,a).state.operations.length,2);
+ const third=apply({action:'void',entry_id:first.entry_id,reason:'duplicate',expected_version:2,request_id:'00000000-0000-4000-8000-000000000003'},second.state,a).state.operations[2].event;
+ assert.equal(third.action,'expense_voided');assert.equal(third.before.status,'active');assert.equal(third.after.status,'void');assert.equal(third.after.void_reason,'duplicate');
+ const income=apply({...base,kind:'income',category:'other'});assert.equal(income.state.operations[0].event.action,'income_created');
+});
+test('audit includes payment account and recurring/payout setting changes',()=>{
+ const account=apply({...base,action:'payment_account_create',name:'Card',method:'credit_card',last_digits:'1234'}).state.operations[0].event;
+ assert.equal(account.action,'payment_account_created');assert.equal(account.after.last_digits,'1234');assert.equal(account.before,null);
+ const recurring=apply({...base,action:'recurring_create',start:'2026-09-01',end:null,day:10});
+ assert.equal(recurring.state.operations[0].event.action,'recurring_created');
+ const stopped=apply({action:'recurring_stop',rule_id:recurring.entry_id,expected_version:1,request_id:'00000000-0000-4000-8000-000000000002'},recurring.state).state.operations[1].event;
+ assert.equal(stopped.action,'recurring_stopped');assert.equal(stopped.before.stopped_at,undefined);assert.equal(stopped.after.stopped_at,'2026-09-08');
+ const rule=apply({...base,action:'payout_rule',platform:'ctrip',mode:'monthly',day:10,offset:1});
+ const updated=apply({...base,action:'payout_rule',platform:'ctrip',mode:'monthly',day:20,offset:1,expected_version:1,request_id:'00000000-0000-4000-8000-000000000002'},rule.state).state.operations[1].event;
+ assert.equal(updated.action,'payout_rule_updated');assert.equal(updated.before.day,10);assert.equal(updated.after.day,20);assert.equal(updated.target_id,'ctrip');
+});
+test('payout audit preserves effective prior-year rule',()=>{
+ const result=applyFinance(empty(),{...base,action:'payout_rule',platform:'ctrip',mode:'monthly',day:20,offset:1},actor,'sweetfun',2026,now,[],[],[{platform:'ctrip',mode:'monthly',day:5,offset:1,updated_at:'2025-12-01'}]);
+ assert.equal(result.state.operations[0].event.before.day,5);
+});
+test('write verification rejects missing audit even if operation ID exists',async t=>{
+ process.env.KV_REST_API_URL='https://test.invalid';process.env.KV_REST_API_TOKEN='test';const state=apply().state;
+ const missing=JSON.parse(JSON.stringify(state));delete missing.operations[0].event;
+ t.mock.method(globalThis,'fetch',async(_,options)=>{const c=JSON.parse(options.body);return Response.json({result:c[0]==='EVAL'?1:JSON.stringify(missing)});});
+ await assert.rejects(()=>writeFinance('sweetfun',2026,null,state,base.request_id),/WRITE_UNCONFIRMED/);
+});
