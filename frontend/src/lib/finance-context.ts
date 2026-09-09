@@ -11,7 +11,7 @@ export async function financeContext(source:SheetSourceDefinition,year:number){
  const [states,calendar,snapshot]=await Promise.all([Promise.all(sorted.map(y=>readFinance(source.property.id,y))),calendarIncome(source.property.id,null),readBookingSnapshot(source)]);
  if(!snapshot)throw new Error('UNAVAILABLE');
  calendar.sort((a,b)=>a.id.localeCompare(b.id));
- const entries=[...states.flatMap(s=>s.state.entries),...calendar];
+ const entries=[...states.flatMap((s,i)=>s.state.entries.map(e=>({...e,ledger_year:sorted[i]}))),...calendar];
  const payment_accounts=states.flatMap(s=>s.state.payment_accounts??[]);
  const recurring=states.flatMap(s=>s.state.recurring??[]);
  const ruleMap=new Map<string,PayoutRule>();for(const s of states)for(const r of s.state.payout_rules??[])if((r.updated_at??'')>=(ruleMap.get(r.platform)?.updated_at??''))ruleMap.set(r.platform,r);

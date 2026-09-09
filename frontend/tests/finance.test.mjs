@@ -75,3 +75,18 @@ test('expense can reference previously configured account from another ledger ye
  const a={id:'saved',property_id:'sweetfun',method:'bank_transfer',last_digits:'00123',name:'Bank',created_at:now,actor_id:actor.id};
  const r=applyFinance(empty(),{...base,payment_account_id:a.id},actor,'sweetfun',2026,now,[],[a]);assert.equal(r.state.entries[0].payment_account.id,'saved');
 });
+test('editing expense updates same ID, retains audit and recorder, supports changing year',()=>{
+ const first=apply({...base,advanced_by:{type:'self'}});const id=first.entry_id;
+ const update={...base,action:'update_expense',entry_id:id,amount:200,date:'2025-12-31',expected_version:1,request_id:'00000000-0000-4000-8000-000000000002'};
+ const editor={...actor,id:'second-admin',displayName:'Second'};
+ const second=apply(update,first.state,editor);assert.equal(second.state.entries.length,1);const e=second.state.entries[0];assert.equal(e.id,id);assert.equal(e.amount_cents,20000);assert.equal(e.actor,actor.displayName);assert.equal(e.advanced_by.account_id,actor.id);assert.equal(e.history[0].before.amount_cents,12345);assert.equal(e.history[0].actor_id,editor.id);assert.equal(summarize([e],'2025-12').expense,20000);assert.equal(summarize([e],'2026-09').expense,0);assert.equal(apply(update,second.state,editor).entry_id,id);
+ assert.throws(()=>apply({...update,advanced_by:null},second.state,editor),/IDEMPOTENCY_CONFLICT/);
+ assert.throws(()=>apply({...update,request_id:'00000000-0000-4000-8000-000000000003'},second.state,editor),/VERSION_CONFLICT/);
+ const third=apply({...update,amount:220,expected_version:2,advanced_by:null,request_id:'00000000-0000-4000-8000-000000000003'},second.state,editor);assert.equal(third.state.entries[0].advanced_by,undefined);assert.equal(third.state.entries[0].history.length,2);assert.equal(third.state.entries[0].history[1].before.history,undefined);
+});
+test('expense edits cannot mutate income, void rows, property, recurring identity or split totals',()=>{
+ const first=apply();const update={...base,action:'update_expense',entry_id:first.entry_id,expected_version:1,request_id:'00000000-0000-4000-8000-000000000002'};
+ for(const patch of [{kind:'income',category:'other'},{recurrence_id:'fake'},{allocations:[]},{date:'2026-09-10'}])assert.throws(()=>apply({...update,...patch},first.state));
+ for(const patch of [{kind:'income'},{source:'calendar'},{status:'void'},{property_id:'offland'}])assert.throws(()=>apply(update,{...first.state,entries:[{...first.state.entries[0],...patch}]}),/INVALID_INPUT/);
+ const recurring={...first.state,entries:[{...first.state.entries[0],recurrence_id:'r',occurrence:'2026-09-01'}]};assert.throws(()=>apply({...update,date:'2026-08-31'},recurring),/INVALID_INPUT/);assert.equal(apply(update,recurring).state.entries[0].recurrence_id,'r');
+});

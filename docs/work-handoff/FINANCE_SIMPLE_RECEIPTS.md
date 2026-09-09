@@ -52,3 +52,12 @@ Validation: 131 frontend tests passed; TypeScript and lint passed (two existing 
 
 ## Mobile form focus zoom (2026-09-09)
 A shared, unlayered CSS rule keeps text-entry controls, native selects and editable content at least 16px on narrow screens or coarse-pointer touch devices, overriding inherited/text-sm 14px styles. This covers payment-account settings and other forms. Desktop typography stays unchanged, and no viewport zoom restriction is introduced. No data/API changes. Review confirms checkbox/radio/range/hidden inputs are excluded.
+
+## Edit recorded expenses (2026-09-09)
+Active manual expense details expose Edit expense and prefill amount, payment date, category, description, method/account, advance payer and exact allocation rows. Save uses `update_expense` with entry_id and the existing version/projection/request protocol. Income and void records are not editable through this action. Original entry ID, creator/time and recurrence identity remain intact; omitted advance payer preserves its historical snapshot, explicit null clears it. Allocation and payment-account fields reflect the full submitted replacement. A recurring payment cannot move earlier than its occurrence; changing one payment does not edit the recurring template.
+
+Each edit appends an immutable prior snapshot (without nested history), server actor ID/name and timestamp. Details show prior values; at most 200 edits per entry are accepted (further edits rejected rather than dropping history). Idempotent retries return the same entry; changed payload or stale ledger/source versions reject. Existing permissions/property isolation still apply.
+
+To support changing payment year without a non-atomic ledger move, GET adds `ledger_year` from the containing storage record. Edit/void submit that ledger year even after the date changes; cash/monthly reports already read all years and use actual date. This keeps one authoritative entry and audit chain. No Sheet writes.
+
+Validation: 133 frontend tests passed, including same-ID update, cross-year totals, recorder preservation, history without nesting, explicit clear vs omission idempotency, recurrence preservation, and denial for income/void/foreign property. TypeScript and lint passed (two pre-existing calendar warnings). Self-review found no critical issue.

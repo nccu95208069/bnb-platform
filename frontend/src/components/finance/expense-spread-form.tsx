@@ -2,8 +2,8 @@
 import {useState} from 'react';
 import {useT,useIntlLocale} from '@/components/i18n/language-provider';
 import {spreadMonths,equalSpread,type ExpenseShare} from '@/lib/expense-spread';
-export function useExpenseSpread(amount:string,date:string){
- const [enabled,setEnabled]=useState(false),[start,setStart]=useState(date.slice(0,7)),[end,setEnd]=useState(date.slice(0,7)),[custom,setCustom]=useState(false),[values,setValues]=useState<Record<string,string>>({});
+export function useExpenseSpread(amount:string,date:string,initial?:ExpenseShare[]){
+ const [enabled,setEnabled]=useState(!!initial?.length),[start,setStart]=useState(initial?.[0]?.month??date.slice(0,7)),[end,setEnd]=useState(initial?.at(-1)?.month??date.slice(0,7)),[custom,setCustom]=useState(!!initial?.length),[values,setValues]=useState<Record<string,string>>(Object.fromEntries((initial??[]).map(r=>[r.month,String(r.amount_cents/100)])));
  const months=spreadMonths(start,end),equal=equalSpread(Math.round(Number(amount)*100),months);
  const rows=custom?months.map(month=>({month,amount_cents:Math.round(Number(values[month]??'')*100)})):equal;
  const valid=!enabled||(rows.length>=2&&rows.every(r=>Number.isSafeInteger(r.amount_cents)&&r.amount_cents>=0)&&(!custom||months.every(m=>values[m]?.trim()!==''))&&rows.reduce((s,r)=>s+r.amount_cents,0)===Math.round(Number(amount)*100)&&Number(amount)>0);

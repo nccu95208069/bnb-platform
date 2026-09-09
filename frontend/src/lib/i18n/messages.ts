@@ -1,4 +1,8 @@
 export const messages:Record<string,{en:string;th:string;vi:string}>= {
+  "儲存修改": {"en": "Save changes", "th": "บันทึกการแก้ไข", "vi": "Lưu thay đổi"},
+  "修改前": {"en": "Before change", "th": "ก่อนแก้ไข", "vi": "Trước khi sửa"},
+  "修改紀錄": {"en": "Edit history", "th": "ประวัติการแก้ไข", "vi": "Lịch sử chỉnh sửa"},
+  "編輯費用": {"en": "Edit expense", "th": "แก้ไขค่าใช้จ่าย", "vi": "Sửa khoản chi"},
   "只需填寫末碼，供此旅宿記帳時辨認。": {"en": "Only the last digits are needed to identify payments for this property.", "th": "กรอกเฉพาะเลขท้ายเพื่อใช้ระบุการชำระเงินของที่พักนี้", "vi": "Chỉ cần số cuối để nhận diện khi ghi chi cho cơ sở này."},
   "名稱（選填）": {"en": "Name (optional)", "th": "ชื่อ (ไม่บังคับ)", "vi": "Tên (không bắt buộc)"},
   "帳戶後 5 碼": {"en": "Last 5 account digits", "th": "เลขบัญชี 5 หลักสุดท้าย", "vi": "5 số cuối tài khoản"},
