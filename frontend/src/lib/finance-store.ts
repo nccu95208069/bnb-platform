@@ -14,6 +14,7 @@ export function applyFinance(state:FinanceState,input:Record<string,unknown>,act
  if(typeof input.request_id!=='string'||!/^[a-f0-9-]{36}$/.test(input.request_id))throw new Error('INVALID_INPUT');
  const hashFields=[actor.id,input.action,input.kind,input.category,input.amount,input.date,input.description,input.method,input.stage,input.entry_id,input.reason,input.allocations,input.platform,input.recurrence_id,input.occurrence,input.start,input.end,input.day,input.rule_id,input.mode,input.offset];
  if(input.advanced_by!=null)hashFields.push(input.advanced_by);
+ if(input.category_name!=null)hashFields.push({category_name:input.category_name});
  if(input.expense_spread!=null)hashFields.push({expense_spread:input.expense_spread});
  const hash=createHash('sha256').update(JSON.stringify(hashFields)).digest('hex');
  const previous=state.operations.find(o=>o.id===input.request_id);if(previous){if(previous.hash!==hash)throw new Error('IDEMPOTENCY_CONFLICT');return {state,entry_id:previous.entry_id};}
@@ -21,10 +22,10 @@ export function applyFinance(state:FinanceState,input:Record<string,unknown>,act
  if(state.operations.length>=10000)throw new Error('LIMIT_REACHED');
  let entries=[...state.entries],id:string;let recurring=[...(state.recurring??[])],payout_rules=[...(state.payout_rules??[])];
  if(input.action==='recurring_create'){
- const {category,amount,description='',method,start,end,day}=input;
+ const {amount,description='',method,start,end,day}=input;const {category,category_name}=resolveCategory(input,'expense');
  const validDate=(v:unknown)=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v)&&Number.isFinite(Date.parse(v))&&new Date(v).toISOString().slice(0,10)===v;
- if(typeof category!=='string'||!Object.hasOwn(EXPENSE_CATEGORIES,category)||typeof amount!=='number'||!Number.isFinite(amount)||amount<=0||amount>10000000||Math.abs(amount*100-Math.round(amount*100))>0.00001||typeof description!=='string'||description.length>500||typeof method!=='string'||method==='ota'||!Object.hasOwn(METHODS,method)||!validDate(start)||String(start).slice(0,4)!==String(year)||(end!=null&&end!==''&&(!validDate(end)||String(end)<String(start)))||!Number.isInteger(day)||Number(day)<1||Number(day)>31)throw new Error('INVALID_INPUT');
- id=randomUUID();recurring.push({id,year,category,amount_cents:Math.round(amount*100),description:description.trim(),method:method as FinanceEntry['method'],start:String(start),end:end?String(end):null,day:Number(day),actor:actor.displayName,created_at:now});
+ if(typeof category!=='string'||(!Object.hasOwn(EXPENSE_CATEGORIES,category)&&!category_name)||typeof amount!=='number'||!Number.isFinite(amount)||amount<=0||amount>10000000||Math.abs(amount*100-Math.round(amount*100))>0.00001||typeof description!=='string'||description.length>500||typeof method!=='string'||method==='ota'||!Object.hasOwn(METHODS,method)||!validDate(start)||String(start).slice(0,4)!==String(year)||(end!=null&&end!==''&&(!validDate(end)||String(end)<String(start)))||!Number.isInteger(day)||Number(day)<1||Number(day)>31)throw new Error('INVALID_INPUT');
+ id=randomUUID();recurring.push({id,year,category,category_name,amount_cents:Math.round(amount*100),description:description.trim(),method:method as FinanceEntry['method'],start:String(start),end:end?String(end):null,day:Number(day),actor:actor.displayName,created_at:now});
  }else if(input.action==='recurring_stop'){
  const rule=recurring.find(r=>r.id===input.rule_id);if(!rule||rule.stopped_at)throw new Error('INVALID_INPUT');id=rule.id;recurring=recurring.map(r=>r.id===id?{...r,stopped_at:taipeiDate(new Date(now)),stopped_by:actor.displayName}:r);
  }else if(input.action==='payout_rule'){
@@ -35,13 +36,13 @@ export function applyFinance(state:FinanceState,input:Record<string,unknown>,act
    const old=entries.find(e=>e.id===input.entry_id);if(!old||old.source!=='manual'||old.status!=='active')throw new Error('INVALID_INPUT');id=old.id;
    entries=entries.map(e=>e.id===id?{...e,status:'void',void_reason:input.reason as string,void_at:now,void_actor:actor.displayName}:e);
  }else if(input.action==='create'){
-   const {kind,category,amount,date,description='',method,stage}=input;
-   if((kind!=='income'&&kind!=='expense')||typeof category!=='string'||!Object.hasOwn(kind==='income'?INCOME_CATEGORIES:EXPENSE_CATEGORIES,category)||typeof amount!=='number'||!Number.isFinite(amount)||amount<=0||amount>10000000||Math.abs(amount*100-Math.round(amount*100))>0.00001||typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||date.slice(0,4)!==String(year)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date||typeof description!=='string'||(kind==='income'&&!description.trim())||description.length>500||typeof method!=='string'||!Object.hasOwn(METHODS,method)||!['','deposit','balance','full','other'].includes(String(stage??'')))throw new Error('INVALID_INPUT');
+   const {kind,amount,date,description='',method,stage}=input;const {category,category_name}=resolveCategory(input,kind);
+   if((kind!=='income'&&kind!=='expense')||typeof category!=='string'||(!Object.hasOwn(kind==='income'?INCOME_CATEGORIES:EXPENSE_CATEGORIES,category)&&!category_name)||typeof amount!=='number'||!Number.isFinite(amount)||amount<=0||amount>10000000||Math.abs(amount*100-Math.round(amount*100))>0.00001||typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||date.slice(0,4)!==String(year)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date||typeof description!=='string'||(kind==='income'&&!description.trim())||description.length>500||typeof method!=='string'||!Object.hasOwn(METHODS,method)||!['','deposit','balance','full','other'].includes(String(stage??'')))throw new Error('INVALID_INPUT');
    if(date>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(now)))throw new Error('FUTURE_DATE');
    if(kind==='expense'&&method==='ota')throw new Error('INVALID_INPUT');
    const advanced_by=resolveAdvance(input.advanced_by,kind,actor,property,members);
    const expense_spread=validateSpread(input.expense_spread,kind,Math.round(amount*100));
-   id=randomUUID();entries.push({expense_spread,advanced_by,id,property_id:property,kind,category,amount_cents:Math.round(amount*100),date,description:description.trim(),method:method as FinanceEntry['method'],stage:kind==='income'&&category==='lodging'?String(stage??''):undefined,source:'manual',actor:actor.displayName,created_at:now,status:'active',allocations:input.allocations as FinanceEntry['allocations'],platform:typeof input.platform==='string'?input.platform:undefined,recurrence_id:typeof input.recurrence_id==='string'?input.recurrence_id:undefined,occurrence:typeof input.occurrence==='string'?input.occurrence:undefined});
+   id=randomUUID();entries.push({expense_spread,advanced_by,id,property_id:property,kind,category,category_name,amount_cents:Math.round(amount*100),date,description:description.trim(),method:method as FinanceEntry['method'],stage:kind==='income'&&category==='lodging'?String(stage??''):undefined,source:'manual',actor:actor.displayName,created_at:now,status:'active',allocations:input.allocations as FinanceEntry['allocations'],platform:typeof input.platform==='string'?input.platform:undefined,recurrence_id:typeof input.recurrence_id==='string'?input.recurrence_id:undefined,occurrence:typeof input.occurrence==='string'?input.occurrence:undefined});
  }else throw new Error('INVALID_INPUT');
  return {entry_id:id,state:{version:state.version+1,entries,recurring,payout_rules,operations:[...state.operations,{id:input.request_id,hash,entry_id:id,at:now,actor:actor.id}]}};
 }
@@ -81,4 +82,18 @@ export function resolveAdvance(value:unknown,kind:unknown,actor:Principal,proper
  }
  if(v.type==='other'&&typeof v.name==='string'&&v.name.trim()&&v.name.trim().length<=100)return {type:'other',name:v.name.trim()};
  throw new Error('INVALID_INPUT');
+}
+
+function resolveCategory(input:Record<string,unknown>,kind:unknown){
+ if(input.category==='custom'||(typeof input.category==='string'&&input.category.startsWith('custom_'))){
+ if(kind!=='expense'||typeof input.category_name!=='string')throw new Error('INVALID_INPUT');
+ const name=input.category_name.trim().normalize('NFKC');
+ if(!name||name.length>50||/[\x00-\x1f]/.test(name))throw new Error('INVALID_INPUT');
+ const builtin=Object.entries(EXPENSE_CATEGORIES).find(([,label])=>label===name);
+ const category=builtin?.[0]??'custom_'+createHash('sha256').update(name.toLowerCase()).digest('hex').slice(0,20);
+ if(input.category!=='custom'&&input.category!==category)throw new Error('INVALID_INPUT');
+ return {category,category_name:builtin?undefined:name};
+ }
+ if(input.category_name!=null)throw new Error('INVALID_INPUT');
+ return {category:input.category,category_name:undefined};
 }

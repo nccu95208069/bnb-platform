@@ -1,4 +1,11 @@
 export const messages:Record<string,{en:string;th:string;vi:string}>= {
+  "隨這筆紀錄儲存，供此旅宿之後使用。": {"en": "Saved with this entry for this property to reuse.", "th": "บันทึกพร้อมรายการนี้เพื่อให้ที่พักนี้ใช้ครั้งต่อไป", "vi": "Lưu cùng bản ghi này để cơ sở này dùng lại."},
+  "新分類名稱": {"en": "New category name", "th": "ชื่อหมวดหมู่ใหม่", "vi": "Tên danh mục mới"},
+  "＋ 新增分類": {"en": "＋ Add category", "th": "＋ เพิ่มหมวดหมู่", "vi": "＋ Thêm danh mục"},
+  "水電瓦斯（舊分類）": {"en": "Utilities (legacy)", "th": "ค่าสาธารณูปโภค (หมวดเดิม)", "vi": "Điện nước gas (mục cũ)"},
+  "瓦斯費": {"en": "Gas", "th": "ค่าก๊าซ", "vi": "Tiền gas"},
+  "電費": {"en": "Electricity", "th": "ค่าไฟฟ้า", "vi": "Tiền điện"},
+  "水費": {"en": "Water", "th": "ค่าน้ำ", "vi": "Tiền nước"},
   "本月費用": {"en": "Monthly expenses", "th": "ค่าใช้จ่ายประจำเดือน", "vi": "Chi phí tháng"},
   "本月費用分布": {"en": "Monthly expense distribution", "th": "สัดส่วนค่าใช้จ่ายประจำเดือน", "vi": "Cơ cấu chi phí tháng"},
   "依費用歸屬月份 · 全年分攤費用": {"en": "By expense allocation month · Annual allocated expenses", "th": "ตามเดือนที่แบ่งค่าใช้จ่าย · รวมทั้งปี", "vi": "Theo tháng phân bổ · Tổng chi phí phân bổ năm"},

@@ -48,3 +48,15 @@ test('spread rejects bad totals, duplicate months, invalid months and income',()
  for(const expense_spread of [[],[{month:'2026-07',amount_cents:12345}],[{month:'2026-07',amount_cents:1},{month:'2026-08',amount_cents:2}],[{month:'2026-07',amount_cents:6000},{month:'2026-07',amount_cents:6345}],[{month:'2026-13',amount_cents:6000},{month:'2026-14',amount_cents:6345}],[{month:'2026-07',amount_cents:-1},{month:'2026-08',amount_cents:12346}]])assert.throws(()=>apply({...base,expense_spread}),/INVALID_INPUT/);
  assert.throws(()=>apply({...base,kind:'income',category:'other',expense_spread:[{month:'2026-07',amount_cents:6000},{month:'2026-08',amount_cents:6345}]}),/INVALID_INPUT/);
 });
+test('separate utilities and custom expense categories persist with server IDs',()=>{
+ for(const category of ['water','electricity','gas'])assert.equal(apply({...base,category}).state.entries[0].category,category);
+ const input={...base,category:'custom',category_name:'  Garden care  '};const created=apply(input);const e=created.state.entries[0];assert.match(e.category,/^custom_[a-f0-9]{20}$/);assert.equal(e.category_name,'Garden care');assert.equal(summarize([e],'2026-09').categories[0].label,'Garden care');assert.equal(apply(input,created.state).entry_id,e.id);
+ assert.equal(apply({...base,category:e.category,category_name:e.category_name}).state.entries[0].category,e.category);
+ for(const patch of [{category_name:' '},{category_name:'a'.repeat(51)},{category:'custom_wrong'},{kind:'income',category:'custom'}])assert.throws(()=>apply({...input,...patch}),/INVALID_INPUT/);
+ assert.throws(()=>apply({...input,category_name:'Different'},created.state),/IDEMPOTENCY_CONFLICT/);
+});
+test('custom categories survive recurring expense generation and separate property catalogs',async()=>{
+ const {recurrenceDue,expenseCategories}=await import('../src/lib/finance-model.ts');
+ const result=apply({action:'recurring_create',category:'custom',category_name:'Garden care',amount:100,description:'',method:'bank_transfer',start:'2026-09-01',day:1,expected_version:0,request_id:base.request_id});
+ const rules=result.state.recurring;const due=recurrenceDue(rules,[],2026,'2026-09-09');assert.equal(due[0].category_name,'Garden care');assert.equal(expenseCategories(rules)[rules[0].category],'Garden care');assert.equal(expenseCategories([])[rules[0].category],undefined);
+});
