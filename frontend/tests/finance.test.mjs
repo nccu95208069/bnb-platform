@@ -32,3 +32,19 @@ test('account payer must be active and in property scope; name is server-resolve
  assert.deepEqual(run(m).state.entries[0].advanced_by,{type:'account',account_id:m.id,name:m.displayName});
  for(const member of [{...m,status:'suspended'},{...m,propertyIds:['offland']}])assert.throws(()=>run(member),/INVALID_INPUT/);
 });
+test('expense spread preserves cash date and allocates charts across years',()=>{
+ const expense_spread=[{month:'2025-12',amount_cents:6000},{month:'2026-01',amount_cents:6345}];
+ const input={...base,expense_spread};const r=apply(input);const entries=r.state.entries;
+ assert.equal(entries.length,1);assert.equal(summarize(entries,'2026-09').expense,12345);
+ assert.equal(summarize(entries,'2026-09').allocatedExpense,0);
+ assert.equal(summarize(entries,'2025-12').allocatedExpense,6000);
+ assert.equal(summarize(entries,'2026-01').categories[0].amount,6345);
+ assert.equal(summarize(entries,'2026-09').monthly[0].expense,6345);
+ assert.equal(apply(input,r.state).entry_id,r.entry_id);
+ assert.throws(()=>apply({...input,expense_spread:[{month:'2025-12',amount_cents:6001},{month:'2026-01',amount_cents:6344}]},r.state),/IDEMPOTENCY_CONFLICT/);
+ assert.equal(summarize([{...entries[0],status:'void'}],'2025-12').allocatedExpense,0);
+});
+test('spread rejects bad totals, duplicate months, invalid months and income',()=>{
+ for(const expense_spread of [[],[{month:'2026-07',amount_cents:12345}],[{month:'2026-07',amount_cents:1},{month:'2026-08',amount_cents:2}],[{month:'2026-07',amount_cents:6000},{month:'2026-07',amount_cents:6345}],[{month:'2026-13',amount_cents:6000},{month:'2026-14',amount_cents:6345}],[{month:'2026-07',amount_cents:-1},{month:'2026-08',amount_cents:12346}]])assert.throws(()=>apply({...base,expense_spread}),/INVALID_INPUT/);
+ assert.throws(()=>apply({...base,kind:'income',category:'other',expense_spread:[{month:'2026-07',amount_cents:6000},{month:'2026-08',amount_cents:6345}]}),/INVALID_INPUT/);
+});

@@ -1,3 +1,4 @@
+import {validateSpread} from './expense-spread.ts';
 import {createHash,randomUUID} from 'node:crypto';
 import {redisCommand} from './workspace-auth/store.ts';
 import type {Member,Principal} from './workspace-auth/types.ts';
@@ -13,6 +14,7 @@ export function applyFinance(state:FinanceState,input:Record<string,unknown>,act
  if(typeof input.request_id!=='string'||!/^[a-f0-9-]{36}$/.test(input.request_id))throw new Error('INVALID_INPUT');
  const hashFields=[actor.id,input.action,input.kind,input.category,input.amount,input.date,input.description,input.method,input.stage,input.entry_id,input.reason,input.allocations,input.platform,input.recurrence_id,input.occurrence,input.start,input.end,input.day,input.rule_id,input.mode,input.offset];
  if(input.advanced_by!=null)hashFields.push(input.advanced_by);
+ if(input.expense_spread!=null)hashFields.push({expense_spread:input.expense_spread});
  const hash=createHash('sha256').update(JSON.stringify(hashFields)).digest('hex');
  const previous=state.operations.find(o=>o.id===input.request_id);if(previous){if(previous.hash!==hash)throw new Error('IDEMPOTENCY_CONFLICT');return {state,entry_id:previous.entry_id};}
  if(input.expected_version!==state.version)throw new Error('VERSION_CONFLICT');
@@ -38,7 +40,8 @@ export function applyFinance(state:FinanceState,input:Record<string,unknown>,act
    if(date>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(now)))throw new Error('FUTURE_DATE');
    if(kind==='expense'&&method==='ota')throw new Error('INVALID_INPUT');
    const advanced_by=resolveAdvance(input.advanced_by,kind,actor,property,members);
-   id=randomUUID();entries.push({advanced_by,id,property_id:property,kind,category,amount_cents:Math.round(amount*100),date,description:description.trim(),method:method as FinanceEntry['method'],stage:kind==='income'&&category==='lodging'?String(stage??''):undefined,source:'manual',actor:actor.displayName,created_at:now,status:'active',allocations:input.allocations as FinanceEntry['allocations'],platform:typeof input.platform==='string'?input.platform:undefined,recurrence_id:typeof input.recurrence_id==='string'?input.recurrence_id:undefined,occurrence:typeof input.occurrence==='string'?input.occurrence:undefined});
+   const expense_spread=validateSpread(input.expense_spread,kind,Math.round(amount*100));
+   id=randomUUID();entries.push({expense_spread,advanced_by,id,property_id:property,kind,category,amount_cents:Math.round(amount*100),date,description:description.trim(),method:method as FinanceEntry['method'],stage:kind==='income'&&category==='lodging'?String(stage??''):undefined,source:'manual',actor:actor.displayName,created_at:now,status:'active',allocations:input.allocations as FinanceEntry['allocations'],platform:typeof input.platform==='string'?input.platform:undefined,recurrence_id:typeof input.recurrence_id==='string'?input.recurrence_id:undefined,occurrence:typeof input.occurrence==='string'?input.occurrence:undefined});
  }else throw new Error('INVALID_INPUT');
  return {entry_id:id,state:{version:state.version+1,entries,recurring,payout_rules,operations:[...state.operations,{id:input.request_id,hash,entry_id:id,at:now,actor:actor.id}]}};
 }
