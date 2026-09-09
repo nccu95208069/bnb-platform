@@ -61,3 +61,10 @@ Each edit appends an immutable prior snapshot (without nested history), server a
 To support changing payment year without a non-atomic ledger move, GET adds `ledger_year` from the containing storage record. Edit/void submit that ledger year even after the date changes; cash/monthly reports already read all years and use actual date. This keeps one authoritative entry and audit chain. No Sheet writes.
 
 Validation: 133 frontend tests passed, including same-ID update, cross-year totals, recorder preservation, history without nesting, explicit clear vs omission idempotency, recurrence preservation, and denial for income/void/foreign property. TypeScript and lint passed (two pre-existing calendar warnings). Self-review found no critical issue.
+
+## Single-month expense attribution (2026-09-09)
+Supersedes the earlier 2-month minimum: `expense_spread` accepts 1–120 months. The form's optional expense-month section defaults to one month, with a nested multi-month toggle. Single-month allocation always follows the full expense amount; multi-month custom amounts still require an exact total.
+
+Bookkeeping/overview expense rows now follow allocation months (payment month fallback), and each row shows only the selected month's allocated amount. Income still follows receipt date. Details retain the full amount, labeled payment date, original registration timestamp and explicit expense-month breakdown. Cash summaries stay based on actual payment date. Moving an expense from September into August changes neither payment date nor creation timestamp and creates no second payment.
+
+Validation: 134 tests passed, including 7,694 paid in September attributed wholly to August, preservation of both dates, exclusion from September expense list/chart, and partial amounts for multi-month rows. No live customer record was modified: assistant login expired and the available browser connection could not be retrieved. Owner can edit the identified laundry expense once deployment completes.

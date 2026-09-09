@@ -1,4 +1,12 @@
 export const messages:Record<string,{en:string;th:string;vi:string}>= {
+  "歸屬": {"en": "Expense month", "th": "เดือนค่าใช้จ่าย", "vi": "Tháng ghi nhận"},
+  "本月收支紀錄": {"en": "Monthly entries", "th": "รายการประจำเดือน", "vi": "Ghi nhận trong tháng"},
+  "支出按費用歸屬月份、收入按收款日期整理。": {"en": "Expenses by expense month; income by receipt date.", "th": "ค่าใช้จ่ายตามเดือนที่กำหนด รายรับตามวันที่รับเงิน", "vi": "Chi phí theo tháng ghi nhận; thu nhập theo ngày nhận tiền."},
+  "請確認歸屬月份，分攤合計須等於費用金額。": {"en": "Check the expense months; allocations must equal the expense amount.", "th": "ตรวจสอบเดือนและยอดรวมต้องเท่ากับค่าใช้จ่าย", "vi": "Kiểm tra tháng ghi nhận; tổng phân bổ phải bằng khoản chi."},
+  "分攤到多個月份": {"en": "Spread across months", "th": "แบ่งหลายเดือน", "vi": "Phân bổ nhiều tháng"},
+  "費用按歸屬月份統計，付款日期與登記時間不變。": {"en": "Expenses are grouped by expense month; payment and recording dates stay unchanged.", "th": "ค่าใช้จ่ายรวมตามเดือนที่กำหนด วันที่จ่ายและเวลาบันทึกไม่เปลี่ยน", "vi": "Chi phí theo tháng ghi nhận; ngày thanh toán và thời gian nhập giữ nguyên."},
+  "費用歸屬月份": {"en": "Expense month", "th": "เดือนค่าใช้จ่าย", "vi": "Tháng ghi nhận chi phí"},
+  "指定費用歸屬月份（選填）": {"en": "Set expense month (optional)", "th": "กำหนดเดือนค่าใช้จ่าย (ไม่บังคับ)", "vi": "Chọn tháng ghi nhận chi phí (không bắt buộc)"},
   "儲存修改": {"en": "Save changes", "th": "บันทึกการแก้ไข", "vi": "Lưu thay đổi"},
   "修改前": {"en": "Before change", "th": "ก่อนแก้ไข", "vi": "Trước khi sửa"},
   "修改紀錄": {"en": "Edit history", "th": "ประวัติการแก้ไข", "vi": "Lịch sử chỉnh sửa"},

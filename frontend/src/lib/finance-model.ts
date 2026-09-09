@@ -41,3 +41,6 @@ export function revenueSummary(orders:FinanceOrder[],entries:FinanceEntry[],mont
 }
 
 export function expenseCategories(records:{category:string;category_name?:string}[]):Record<string,string>{return {...EXPENSE_CATEGORIES,...Object.fromEntries(records.filter(e=>e.category.startsWith('custom_')&&e.category_name).map(e=>[e.category,e.category_name!]))};}
+
+export function expenseAmountInMonth(entry:FinanceEntry,month:string){return (entry.expense_spread??[{month:entry.date.slice(0,7),amount_cents:entry.amount_cents}]).filter(r=>r.month===month).reduce((sum,r)=>sum+r.amount_cents,0);}
+export function entryInMonth(entry:FinanceEntry,month:string){return entry.kind==='expense'?(entry.expense_spread??[{month:entry.date.slice(0,7)}]).some(r=>r.month===month):entry.date.startsWith(month);}

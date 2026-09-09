@@ -45,7 +45,7 @@ test('expense spread preserves cash date and allocates charts across years',()=>
  assert.equal(summarize([{...entries[0],status:'void'}],'2025-12').allocatedExpense,0);
 });
 test('spread rejects bad totals, duplicate months, invalid months and income',()=>{
- for(const expense_spread of [[],[{month:'2026-07',amount_cents:12345}],[{month:'2026-07',amount_cents:1},{month:'2026-08',amount_cents:2}],[{month:'2026-07',amount_cents:6000},{month:'2026-07',amount_cents:6345}],[{month:'2026-13',amount_cents:6000},{month:'2026-14',amount_cents:6345}],[{month:'2026-07',amount_cents:-1},{month:'2026-08',amount_cents:12346}]])assert.throws(()=>apply({...base,expense_spread}),/INVALID_INPUT/);
+ for(const expense_spread of [[],[{month:'2026-07',amount_cents:1},{month:'2026-08',amount_cents:2}],[{month:'2026-07',amount_cents:6000},{month:'2026-07',amount_cents:6345}],[{month:'2026-13',amount_cents:6000},{month:'2026-14',amount_cents:6345}],[{month:'2026-07',amount_cents:-1},{month:'2026-08',amount_cents:12346}]])assert.throws(()=>apply({...base,expense_spread}),/INVALID_INPUT/);
  assert.throws(()=>apply({...base,kind:'income',category:'other',expense_spread:[{month:'2026-07',amount_cents:6000},{month:'2026-08',amount_cents:6345}]}),/INVALID_INPUT/);
 });
 test('separate utilities and custom expense categories persist with server IDs',()=>{
@@ -89,4 +89,12 @@ test('expense edits cannot mutate income, void rows, property, recurring identit
  for(const patch of [{kind:'income',category:'other'},{recurrence_id:'fake'},{allocations:[]},{date:'2026-09-10'}])assert.throws(()=>apply({...update,...patch},first.state));
  for(const patch of [{kind:'income'},{source:'calendar'},{status:'void'},{property_id:'offland'}])assert.throws(()=>apply(update,{...first.state,entries:[{...first.state.entries[0],...patch}]}),/INVALID_INPUT/);
  const recurring={...first.state,entries:[{...first.state.entries[0],recurrence_id:'r',occurrence:'2026-09-01'}]};assert.throws(()=>apply({...update,date:'2026-08-31'},recurring),/INVALID_INPUT/);assert.equal(apply(update,recurring).state.entries[0].recurrence_id,'r');
+});
+
+test('single expense month separates cash and expense and supports moving between months',async()=>{
+ const {entryInMonth,expenseAmountInMonth}=await import('../src/lib/finance-model.ts');
+ const first=apply({...base,amount:7694});
+ const updated=apply({...base,amount:7694,action:'update_expense',entry_id:first.entry_id,expense_spread:[{month:'2026-08',amount_cents:769400}],expected_version:1,request_id:'00000000-0000-4000-8000-000000000002'},first.state);const e=updated.state.entries[0];
+ assert.equal(e.date,'2026-09-08');assert.equal(e.created_at,now);assert.equal(entryInMonth(e,'2026-08'),true);assert.equal(entryInMonth(e,'2026-09'),false);assert.equal(expenseAmountInMonth(e,'2026-08'),769400);assert.equal(summarize([e],'2026-08').allocatedExpense,769400);assert.equal(summarize([e],'2026-09').expense,769400);assert.equal(summarize([e],'2026-09').allocatedExpense,0);
+ const split={...e,expense_spread:[{month:'2026-08',amount_cents:384700},{month:'2026-09',amount_cents:384700}]};assert.equal(expenseAmountInMonth(split,'2026-09'),384700);
 });
