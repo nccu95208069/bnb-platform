@@ -1,6 +1,6 @@
 "use client";
 import {useT} from "@/components/i18n/language-provider";
-import { parseGuestRemarks } from "@/lib/guest-remarks";
+import { parseGuestRemarks, prioritizeGuestRemarks } from "@/lib/guest-remarks";
 import type { CalendarBooking } from "./calendar-types";
 import { PLATFORM_LABELS } from "./calendar-utils";
 
@@ -37,7 +37,7 @@ export function GuestRemarks({booking, compact = false, limit = 1}: {booking:Cal
 
  const remarks=remarksFor(booking);
  if(!remarks.length)return null;
- const visible=compact?remarks.slice(0,limit):remarks;
+ const visible=compact?prioritizeGuestRemarks(remarks).slice(0,limit):remarks;
  return <span aria-label={uiText("重點備註：{0}", [remarks.map(r=>uiText(r.label)).join('、')])} className={compact?'mt-0.5 flex min-w-0 items-center gap-0.5 text-[9px] leading-[12px]':'mt-1 flex flex-wrap gap-1 text-xs leading-5'}>
   {visible.map(r=><span key={r.kind+r.label} className="rounded-sm border border-current/40 px-0.5 font-semibold">{uiText(compact ? (({ig_contact:"IG聯繫",influencer:"IG邀請",baby_bath:"澡盆",bath_chair:"浴室椅"} as Record<string,string>)[r.kind] ?? r.label) : r.label)}</span>)}
   {compact&&remarks.length>limit&&<span className="shrink-0 text-[9px]">+{remarks.length-limit}</span>}

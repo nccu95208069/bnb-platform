@@ -15,3 +15,4 @@ test('contact channel and invited influencer are distinct; supplies have searcha
  assert.deepEqual(parseGuestRemarks('測試旅客(澡盆) 浴室的塑膠椅子 消毒鍋').map(r=>r.label),['嬰兒澡盆','浴室塑膠椅','消毒鍋']);
  assert.deepEqual(parseGuestRemarks('BIG NAME'),[]);
 });
+test('compact priority exposes subsidy without changing card distinction or source order',async()=>{const {prioritizeGuestRemarks}=await import('../src/lib/guest-remarks.ts');const tags=parseGuestRemarks('Test 加床 國旅卡 國旅補 消毒鍋');assert.equal(prioritizeGuestRemarks(tags)[0].kind,'travel_subsidy');assert.equal(tags[0].kind,'extra_bed');assert.equal(prioritizeGuestRemarks(tags).filter(t=>t.kind==='travel_card').length,1);});
