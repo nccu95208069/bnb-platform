@@ -23,3 +23,8 @@ export function comparableGuestName(raw:string):string {
 export function mergeGuestRemarks(remarks:GuestRemark[]):GuestRemark[]{
  return remarks.filter((r,i)=>remarks.findIndex(other=>other.kind===r.kind&&other.label===r.label)===i);
 }
+
+// Month cards have one compact tag slot; keep the subsidy visible ahead of overflow.
+export function prioritizeGuestRemarks(remarks:GuestRemark[]):GuestRemark[]{
+ return [...remarks.filter(r=>r.kind==='travel_subsidy'),...remarks.filter(r=>r.kind!=='travel_subsidy')];
+}

@@ -1,4 +1,369 @@
 export const messages:Record<string,{en:string;th:string;vi:string}>= {
+  "財務操作紀錄": {"en": "Financial activity", "th": "ประวัติการเงิน", "vi": "Nhật ký tài chính"},
+  "記錄成功的財務操作；歷史缺漏不會推測補填。": {"en": "Successful financial actions; missing historical details are not inferred.", "th": "บันทึกการเงินที่สำเร็จ ไม่คาดเดาข้อมูลเก่าที่ขาดหาย", "vi": "Ghi lại thao tác tài chính thành công; không suy đoán dữ liệu lịch sử còn thiếu."},
+  "操作類型": {"en": "Action type", "th": "ประเภทการดำเนินการ", "vi": "Loại thao tác"},
+  "全部操作": {"en": "All actions", "th": "ทั้งหมด", "vi": "Tất cả thao tác"},
+  "搜尋紀錄": {"en": "Search records", "th": "ค้นหาประวัติ", "vi": "Tìm nhật ký"},
+  "搜尋帳號、日期或內容": {"en": "Search account, date or content", "th": "ค้นหาบัญชี วันที่ หรือเนื้อหา", "vi": "Tìm tài khoản, ngày hoặc nội dung"},
+  "紀錄筆數": {"en": "Records", "th": "จำนวนรายการ", "vi": "Số bản ghi"},
+  "已成功儲存": {"en": "Saved successfully", "th": "บันทึกสำเร็จ", "vi": "Đã lưu thành công"},
+  "歷史紀錄不完整：僅顯示當時有保存的資訊。": {"en": "Incomplete historical record: only information saved at the time is shown.", "th": "ประวัติไม่ครบ แสดงเฉพาะข้อมูลที่บันทึกไว้ในขณะนั้น", "vi": "Lịch sử chưa đầy đủ: chỉ hiển thị thông tin đã được lưu lúc đó."},
+  "查看變更內容": {"en": "View changes", "th": "ดูการเปลี่ยนแปลง", "vi": "Xem thay đổi"},
+  "修改後": {"en": "After change", "th": "หลังแก้ไข", "vi": "Sau khi sửa"},
+  "沒有保存完整的變更前後內容。": {"en": "Complete before/after details were not saved.", "th": "ไม่ได้บันทึกข้อมูลก่อนและหลังครบถ้วน", "vi": "Chưa lưu đầy đủ nội dung trước và sau."},
+  "追溯資訊": {"en": "Trace details", "th": "ข้อมูลติดตาม", "vi": "Thông tin truy vết"},
+  "帳號 ID": {"en": "Account ID", "th": "รหัสบัญชี", "vi": "ID tài khoản"},
+  "資料 ID": {"en": "Record ID", "th": "รหัสรายการ", "vi": "ID bản ghi"},
+  "請求 ID": {"en": "Request ID", "th": "รหัสคำขอ", "vi": "ID yêu cầu"},
+  "紀錄暫時無法讀取，請重新整理。": {"en": "Records unavailable. Please refresh.", "th": "อ่านประวัติไม่ได้ โปรดโหลดใหม่", "vi": "Không thể tải nhật ký. Vui lòng tải lại."},
+  "新增費用": {"en": "Create expense", "th": "เพิ่มค่าใช้จ่าย", "vi": "Thêm chi phí"},
+  "修改費用": {"en": "Update expense", "th": "แก้ไขค่าใช้จ่าย", "vi": "Sửa chi phí"},
+  "作廢費用": {"en": "Void expense", "th": "ยกเลิกค่าใช้จ่าย", "vi": "Hủy chi phí"},
+  "作廢收入": {"en": "Void income", "th": "ยกเลิกรายรับ", "vi": "Hủy thu nhập"},
+  "新增循環支出": {"en": "Create recurring expense", "th": "เพิ่มค่าใช้จ่ายประจำ", "vi": "Thêm chi phí định kỳ"},
+  "修改平台入帳規則": {"en": "Update payout rule", "th": "แก้ไขกฎรับเงิน", "vi": "Sửa quy tắc nhận tiền"},
+  "日曆登記收款": {"en": "Calendar receipt", "th": "รับเงินผ่านปฏิทิน", "vi": "Ghi thu trên lịch"},
+  "歷史紀錄不完整": {"en": "Incomplete historical record", "th": "ประวัติไม่ครบ", "vi": "Lịch sử chưa đầy đủ"},
+  "金額（分）": {"en": "Amount (cents)", "th": "จำนวนเงิน (หน่วยย่อย)", "vi": "Số tiền (xu)"},
+  "訂單分配": {"en": "Order allocation", "th": "จัดสรรคำสั่งจอง", "vi": "Phân bổ đơn đặt"},
+  "帳戶末碼": {"en": "Account last digits", "th": "เลขท้ายบัญชี", "vi": "Số cuối tài khoản"},
+  "月份偏移": {"en": "Month offset", "th": "ระยะเดือน", "vi": "Độ lệch tháng"},
+
+  "歸屬": {"en": "Expense month", "th": "เดือนค่าใช้จ่าย", "vi": "Tháng ghi nhận"},
+  "本月收支紀錄": {"en": "Monthly entries", "th": "รายการประจำเดือน", "vi": "Ghi nhận trong tháng"},
+  "支出按費用歸屬月份、收入按收款日期整理。": {"en": "Expenses by expense month; income by receipt date.", "th": "ค่าใช้จ่ายตามเดือนที่กำหนด รายรับตามวันที่รับเงิน", "vi": "Chi phí theo tháng ghi nhận; thu nhập theo ngày nhận tiền."},
+  "請確認歸屬月份，分攤合計須等於費用金額。": {"en": "Check the expense months; allocations must equal the expense amount.", "th": "ตรวจสอบเดือนและยอดรวมต้องเท่ากับค่าใช้จ่าย", "vi": "Kiểm tra tháng ghi nhận; tổng phân bổ phải bằng khoản chi."},
+  "分攤到多個月份": {"en": "Spread across months", "th": "แบ่งหลายเดือน", "vi": "Phân bổ nhiều tháng"},
+  "費用按歸屬月份統計，付款日期與登記時間不變。": {"en": "Expenses are grouped by expense month; payment and recording dates stay unchanged.", "th": "ค่าใช้จ่ายรวมตามเดือนที่กำหนด วันที่จ่ายและเวลาบันทึกไม่เปลี่ยน", "vi": "Chi phí theo tháng ghi nhận; ngày thanh toán và thời gian nhập giữ nguyên."},
+  "費用歸屬月份": {"en": "Expense month", "th": "เดือนค่าใช้จ่าย", "vi": "Tháng ghi nhận chi phí"},
+  "指定費用歸屬月份（選填）": {"en": "Set expense month (optional)", "th": "กำหนดเดือนค่าใช้จ่าย (ไม่บังคับ)", "vi": "Chọn tháng ghi nhận chi phí (không bắt buộc)"},
+  "儲存修改": {"en": "Save changes", "th": "บันทึกการแก้ไข", "vi": "Lưu thay đổi"},
+  "修改前": {"en": "Before change", "th": "ก่อนแก้ไข", "vi": "Trước khi sửa"},
+  "修改紀錄": {"en": "Edit history", "th": "ประวัติการแก้ไข", "vi": "Lịch sử chỉnh sửa"},
+  "編輯費用": {"en": "Edit expense", "th": "แก้ไขค่าใช้จ่าย", "vi": "Sửa khoản chi"},
+  "只需填寫末碼，供此旅宿記帳時辨認。": {"en": "Only the last digits are needed to identify payments for this property.", "th": "กรอกเฉพาะเลขท้ายเพื่อใช้ระบุการชำระเงินของที่พักนี้", "vi": "Chỉ cần số cuối để nhận diện khi ghi chi cho cơ sở này."},
+  "名稱（選填）": {"en": "Name (optional)", "th": "ชื่อ (ไม่บังคับ)", "vi": "Tên (không bắt buộc)"},
+  "帳戶後 5 碼": {"en": "Last 5 account digits", "th": "เลขบัญชี 5 หลักสุดท้าย", "vi": "5 số cuối tài khoản"},
+  "信用卡後 4 碼": {"en": "Last 4 card digits", "th": "เลขบัตร 4 หลักสุดท้าย", "vi": "4 số cuối thẻ"},
+  "轉帳帳戶": {"en": "Bank account", "th": "บัญชีธนาคาร", "vi": "Tài khoản ngân hàng"},
+  "新增付款帳戶": {"en": "Add payment account", "th": "เพิ่มบัญชีชำระเงิน", "vi": "Thêm tài khoản thanh toán"},
+  "設定付款帳戶": {"en": "Set up payment accounts", "th": "ตั้งค่าบัญชีชำระเงิน", "vi": "Thiết lập tài khoản thanh toán"},
+  "付款帳戶": {"en": "Payment accounts", "th": "บัญชีชำระเงิน", "vi": "Tài khoản thanh toán"},
+  "隨這筆紀錄儲存，供此旅宿之後使用。": {"en": "Saved with this entry for this property to reuse.", "th": "บันทึกพร้อมรายการนี้เพื่อให้ที่พักนี้ใช้ครั้งต่อไป", "vi": "Lưu cùng bản ghi này để cơ sở này dùng lại."},
+  "新分類名稱": {"en": "New category name", "th": "ชื่อหมวดหมู่ใหม่", "vi": "Tên danh mục mới"},
+  "＋ 新增分類": {"en": "＋ Add category", "th": "＋ เพิ่มหมวดหมู่", "vi": "＋ Thêm danh mục"},
+  "水電瓦斯（舊分類）": {"en": "Utilities (legacy)", "th": "ค่าสาธารณูปโภค (หมวดเดิม)", "vi": "Điện nước gas (mục cũ)"},
+  "瓦斯費": {"en": "Gas", "th": "ค่าก๊าซ", "vi": "Tiền gas"},
+  "電費": {"en": "Electricity", "th": "ค่าไฟฟ้า", "vi": "Tiền điện"},
+  "水費": {"en": "Water", "th": "ค่าน้ำ", "vi": "Tiền nước"},
+  "本月費用": {"en": "Monthly expenses", "th": "ค่าใช้จ่ายประจำเดือน", "vi": "Chi phí tháng"},
+  "本月費用分布": {"en": "Monthly expense distribution", "th": "สัดส่วนค่าใช้จ่ายประจำเดือน", "vi": "Cơ cấu chi phí tháng"},
+  "依費用歸屬月份 · 全年分攤費用": {"en": "By expense allocation month · Annual allocated expenses", "th": "ตามเดือนที่แบ่งค่าใช้จ่าย · รวมทั้งปี", "vi": "Theo tháng phân bổ · Tổng chi phí phân bổ năm"},
+  "年費用趨勢": {"en": "Expense trend", "th": "แนวโน้มค่าใช้จ่าย", "vi": "Xu hướng chi phí"},
+  "分攤": {"en": "Allocated", "th": "แบ่งค่าใช้จ่าย", "vi": "Phân bổ"},
+  "費用分攤": {"en": "Expense allocation", "th": "การแบ่งค่าใช้จ่าย", "vi": "Phân bổ chi phí"},
+  "請選擇 2–120 個月份，分攤合計須等於費用金額。": {"en": "Choose 2–120 months. Allocations must equal the expense amount.", "th": "เลือก 2–120 เดือน ยอดรวมต้องเท่ากับค่าใช้จ่าย", "vi": "Chọn 2–120 tháng. Tổng phân bổ phải bằng khoản chi."},
+  "分攤金額": {"en": "Allocated amount", "th": "ยอดที่แบ่ง", "vi": "Số tiền phân bổ"},
+  "自行調整金額": {"en": "Adjust amounts", "th": "ปรับจำนวนเงิน", "vi": "Điều chỉnh số tiền"},
+  "恢復平均分攤": {"en": "Split equally", "th": "แบ่งเท่ากัน", "vi": "Chia đều"},
+  "結束月份": {"en": "End month", "th": "เดือนสิ้นสุด", "vi": "Tháng kết thúc"},
+  "起始月份": {"en": "Start month", "th": "เดือนเริ่มต้น", "vi": "Tháng bắt đầu"},
+  "付款仍記一筆，費用圖表依分攤月份計算。": {"en": "One payment record; expense charts use the allocated months.", "th": "บันทึกการจ่ายครั้งเดียว กราฟค่าใช้จ่ายคำนวณตามเดือนที่แบ่ง", "vi": "Vẫn ghi một lần thanh toán; biểu đồ chi phí tính theo tháng phân bổ."},
+  "分攤到多個月份（選填）": {"en": "Spread across months (optional)", "th": "แบ่งค่าใช้จ่ายหลายเดือน (ไม่บังคับ)", "vi": "Phân bổ nhiều tháng (không bắt buộc)"},
+  "代墊人（選填）": {"en": "Paid on behalf by (optional)", "th": "ผู้สำรองจ่าย (ไม่บังคับ)", "vi": "Người ứng tiền (không bắt buộc)"},
+  "代墊人：": {"en": "Paid on behalf by: ", "th": "ผู้สำรองจ่าย: ", "vi": "Người ứng tiền: "},
+  "登記者本人": {"en": "Me (the recorder)", "th": "ฉัน (ผู้บันทึก)", "vi": "Tôi (người ghi)"},
+  "其他人": {"en": "Someone else", "th": "บุคคลอื่น", "vi": "Người khác"},
+  "代墊人姓名": {"en": "Name of person who paid", "th": "ชื่อผู้สำรองจ่าย", "vi": "Tên người ứng tiền"},
+  "整筆訂單房費": {"en":"Total booking room charges","th":"ค่าห้องรวมทั้งการจอง","vi":"Tổng tiền phòng của đơn"},
+  "已登記收款": {"en":"Recorded receipts","th":"เงินรับที่บันทึกแล้ว","vi":"Khoản thu đã ghi nhận"},
+  "依訂房表房費帶入，已扣除 OS 登記收款；可按實際收到的金額修改。": {"en":"Prefilled from booking-sheet room charges less OS receipts. Adjust to the amount actually received.","th":"ใส่ค่าห้องจากชีตโดยหักเงินรับที่บันทึกใน OS แล้ว ปรับตามยอดที่ได้รับจริงได้","vi":"Điền từ tiền phòng trên bảng, trừ khoản thu đã ghi trong OS. Có thể sửa theo số tiền thực nhận."},
+
+  "訂單收款": {
+    "en": "Order receipts",
+    "th": "รับเงินค่าจอง",
+    "vi": "Thu tiền đặt phòng"
+  },
+  "入住月份": {
+    "en": "Check-in month",
+    "th": "เดือนเช็กอิน",
+    "vi": "Tháng nhận phòng"
+  },
+  "搜尋全部訂單": {
+    "en": "Search all orders",
+    "th": "ค้นหาการจองทั้งหมด",
+    "vi": "Tìm tất cả đơn"
+  },
+  "搜尋全部訂單：編號、房間或日期": {
+    "en": "Search all orders: ID, room or date",
+    "th": "ค้นหาทั้งหมด: เลขการจอง ห้อง หรือวันที่",
+    "vi": "Tìm tất cả: mã đơn, phòng hoặc ngày"
+  },
+  "搜尋全部月份": {
+    "en": "Searching all months",
+    "th": "ค้นหาทุกเดือน",
+    "vi": "Tìm trong tất cả tháng"
+  },
+  "已收僅列已登記款項；應收與未收尚未確認時顯示待確認。": {
+    "en": "Received shows recorded payments only. Unverified totals and balances remain pending.",
+    "th": "เงินรับแสดงเฉพาะที่บันทึก ยอดรวมและยอดค้างที่ยังไม่ยืนยันจะแสดงรอยืนยัน",
+    "vi": "Đã thu chỉ gồm khoản đã ghi. Tổng và số còn lại chưa xác minh sẽ hiển thị chờ xác nhận."
+  },
+  "未登記": {
+    "en": "Not recorded",
+    "th": "ยังไม่บันทึก",
+    "vi": "Chưa ghi nhận"
+  },
+  "未收": {
+    "en": "Outstanding",
+    "th": "ยังไม่ได้รับ",
+    "vi": "Chưa thu"
+  },
+  "未請款": {
+    "en": "Unclaimed",
+    "th": "ยังไม่เบิกเงิน",
+    "vi": "Chưa yêu cầu chi trả"
+  },
+  "已請款": {
+    "en": "Claimed",
+    "th": "เบิกเงินแล้ว",
+    "vi": "Đã yêu cầu chi trả"
+  },
+  "請款待確認": {
+    "en": "Claim unverified",
+    "th": "รอยืนยันการเบิกเงิน",
+    "vi": "Chờ xác nhận yêu cầu chi trả"
+  },
+  "登記收款": {
+    "en": "Record receipt",
+    "th": "บันทึกเงินรับ",
+    "vi": "Ghi nhận thu tiền"
+  },
+  "訂單資料需核對，暫時無法登記收款。": {
+    "en": "Verify this order before recording a receipt.",
+    "th": "กรุณาตรวจสอบการจองก่อนบันทึกเงินรับ",
+    "vi": "Cần kiểm tra đơn trước khi ghi nhận thu tiền."
+  },
+  "查看明細": {
+    "en": "View details",
+    "th": "ดูรายละเอียด",
+    "vi": "Xem chi tiết"
+  },
+  "（尚未確認入帳計算基準）": {
+    "en": "(settlement basis unverified)",
+    "th": "(ยังไม่ยืนยันฐานคำนวณเงินรับ)",
+    "vi": "(chưa xác minh cơ sở tính tiền nhận)"
+  },
+  "請款狀態沿用主表標記，不代表銀行已入帳。": {
+    "en": "Claim status follows the main sheet flag; it does not confirm a bank receipt.",
+    "th": "สถานะเบิกเงินอ้างอิงชีตหลัก ไม่ใช่การยืนยันเงินเข้าธนาคาร",
+    "vi": "Trạng thái yêu cầu chi trả theo bảng chính, không xác nhận tiền đã vào ngân hàng."
+  },
+  "尚未登記收款，不代表客人未付款。": {
+    "en": "No receipt recorded does not mean the guest has not paid.",
+    "th": "ยังไม่บันทึกเงินรับ ไม่ได้หมายความว่าผู้เข้าพักยังไม่ชำระ",
+    "vi": "Chưa ghi nhận thu tiền không có nghĩa khách chưa trả."
+  },
+  "暫時無法讀取訂單，請關閉後重試。": {
+    "en": "Unable to load the order. Close and try again.",
+    "th": "โหลดการจองไม่ได้ กรุณาปิดแล้วลองใหม่",
+    "vi": "Không thể tải đơn. Đóng và thử lại."
+  },
+  "正在核對訂單…": {
+    "en": "Checking order…",
+    "th": "กำลังตรวจสอบการจอง…",
+    "vi": "Đang kiểm tra đơn…"
+  },
+  "這筆訂單目前無法登記更多房費，請到訂單詳情核對。": {
+    "en": "More room payments cannot be recorded for this order. Check its details.",
+    "th": "ยังบันทึกค่าห้องเพิ่มไม่ได้ กรุณาตรวจสอบรายละเอียดการจอง",
+    "vi": "Hiện không thể ghi thêm tiền phòng cho đơn này. Vui lòng kiểm tra chi tiết."
+  },
+  "只登記旅宿實際收到的款項，請款申請不算收款。": {
+    "en": "Record money the property actually received. A claim request is not a receipt.",
+    "th": "บันทึกเฉพาะเงินที่ที่พักได้รับจริง การขอเบิกเงินไม่ใช่เงินรับ",
+    "vi": "Chỉ ghi tiền cơ sở thực nhận. Yêu cầu chi trả chưa phải đã nhận tiền."
+  },
+  "本次收款金額": {
+    "en": "Amount received",
+    "th": "ยอดเงินรับครั้งนี้",
+    "vi": "Số tiền nhận lần này"
+  },
+  "收款日期": {
+    "en": "Receipt date",
+    "th": "วันที่รับเงิน",
+    "vi": "Ngày nhận tiền"
+  },
+  "備註（選填）": {
+    "en": "Note (optional)",
+    "th": "หมายเหตุ (ไม่บังคับ)",
+    "vi": "Ghi chú (không bắt buộc)"
+  },
+  "收款會存入 OS；目前不修改主表。": {
+    "en": "Receipts are saved in OS. The main sheet is not changed yet.",
+    "th": "บันทึกเงินรับใน OS โดยยังไม่แก้ไขชีตหลัก",
+    "vi": "Khoản thu được lưu trong OS; hiện chưa sửa bảng chính."
+  },
+  "確認收款": {
+    "en": "Confirm receipt",
+    "th": "ยืนยันเงินรับ",
+    "vi": "Xác nhận khoản thu"
+  }
+,
+
+  "顯示更多": {
+    "en": "Show more",
+    "th": "แสดงเพิ่มเติม",
+    "vi": "Hiển thị thêm"
+  },
+  "不適用": {
+    "en": "Not applicable",
+    "th": "ไม่เกี่ยวข้อง",
+    "vi": "Không áp dụng"
+  },
+  "部分付款": {
+    "en": "Partially paid",
+    "th": "ชำระบางส่วน",
+    "vi": "Thanh toán một phần"
+  }
+,
+
+  "訂單財務摘要": {
+    "en": "Order finance summary",
+    "th": "สรุปการเงินการจอง",
+    "vi": "Tóm tắt tài chính đơn đặt phòng"
+  },
+  "唯讀試行：付款、請款與入帳分開顯示；尚未寫回主表。": {
+    "en": "Read-only pilot: guest payments, claims and property receipts are separate. No writes to the main sheet.",
+    "th": "ทดลองอ่านอย่างเดียว: แยกการชำระเงิน การเบิกเงิน และเงินเข้าที่พัก ยังไม่เขียนกลับชีตหลัก",
+    "vi": "Thử nghiệm chỉ đọc: tách thanh toán, yêu cầu chi trả và tiền cơ sở nhận. Chưa ghi vào bảng chính."
+  },
+  "有紀錄，完整性待確認": {
+    "en": "Recorded; completeness unverified",
+    "th": "มีบันทึกแล้ว รอยืนยันความครบถ้วน",
+    "vi": "Có ghi nhận; chưa xác minh đầy đủ"
+  },
+  "舊表標記：已請款": {
+    "en": "Legacy flag: claimed",
+    "th": "สถานะเดิม: เบิกเงินแล้ว",
+    "vi": "Dấu cũ: đã yêu cầu chi trả"
+  },
+  "舊表標記：未請款": {
+    "en": "Legacy flag: unclaimed",
+    "th": "สถานะเดิม: ยังไม่เบิกเงิน",
+    "vi": "Dấu cũ: chưa yêu cầu chi trả"
+  },
+  "保存訂單對應": {
+    "en": "Save order mappings",
+    "th": "บันทึกการเชื่อมโยงการจอง",
+    "vi": "Lưu liên kết đơn đặt phòng"
+  },
+  "訂單編號、房間或入住日期": {
+    "en": "Booking ID, room or check-in date",
+    "th": "เลขการจอง ห้อง หรือวันเช็กอิน",
+    "vi": "Mã đơn, phòng hoặc ngày nhận phòng"
+  },
+  "財務摘要暫時無法讀取，請重新整理。": {
+    "en": "Summary unavailable. Please refresh.",
+    "th": "ไม่สามารถอ่านสรุปได้ กรุณาโหลดใหม่",
+    "vi": "Chưa thể tải tóm tắt. Vui lòng tải lại."
+  },
+  "資料可能已變動，請重新整理後確認保存結果。": {
+    "en": "Data may have changed. Refresh to check the saved result.",
+    "th": "ข้อมูลอาจเปลี่ยนแล้ว กรุณาโหลดใหม่เพื่อตรวจสอบผลการบันทึก",
+    "vi": "Dữ liệu có thể đã thay đổi. Tải lại để kiểm tra kết quả lưu."
+  },
+  "訂單數": {
+    "en": "Orders",
+    "th": "จำนวนการจอง",
+    "vi": "Số đơn"
+  },
+  "保留的歷史對應": {
+    "en": "Retained historical mappings",
+    "th": "การเชื่อมโยงเดิมที่เก็บไว้",
+    "vi": "Liên kết lịch sử được giữ"
+  },
+  "來源問題": {
+    "en": "Source issues",
+    "th": "ปัญหาข้อมูลต้นทาง",
+    "vi": "Vấn đề nguồn dữ liệu"
+  },
+  "版本": {
+    "en": "Version",
+    "th": "เวอร์ชัน",
+    "vi": "Phiên bản"
+  },
+  "上次保存": {
+    "en": "Last saved",
+    "th": "บันทึกล่าสุด",
+    "vi": "Lưu lần cuối"
+  },
+  "已記錄入帳不代表完整歷史收款；未知金額不以零代替。": {
+    "en": "Recorded receipts may not include all historical payments. Unknown amounts are not zero.",
+    "th": "เงินรับที่บันทึกอาจไม่ครบประวัติทั้งหมด ยอดที่ไม่ทราบไม่ใช่ศูนย์",
+    "vi": "Tiền đã ghi nhận có thể chưa đủ lịch sử. Số tiền chưa biết không phải bằng không."
+  },
+  "來源房費": {
+    "en": "Source room amount",
+    "th": "ค่าห้องจากต้นทาง",
+    "vi": "Tiền phòng từ nguồn"
+  },
+  "客人付款": {
+    "en": "Guest payment",
+    "th": "การชำระเงินของผู้เข้าพัก",
+    "vi": "Thanh toán của khách"
+  },
+  "平台請款": {
+    "en": "Platform claim",
+    "th": "การเบิกเงินจากแพลตฟอร์ม",
+    "vi": "Yêu cầu nền tảng chi trả"
+  },
+  "旅宿入帳": {
+    "en": "Property receipts",
+    "th": "เงินเข้าที่พัก",
+    "vi": "Tiền cơ sở đã nhận"
+  },
+  "確認應收總額": {
+    "en": "Verified total receivable",
+    "th": "ยอดที่ต้องรับที่ยืนยันแล้ว",
+    "vi": "Tổng phải thu đã xác minh"
+  },
+  "未入帳餘額": {
+    "en": "Outstanding balance",
+    "th": "ยอดที่ยังไม่เข้าบัญชี",
+    "vi": "Số dư chưa nhận"
+  },
+  "訂單對應有衝突，未自動合併或保存。": {
+    "en": "Conflicting order mappings: not automatically merged or saved.",
+    "th": "การเชื่อมโยงการจองขัดแย้ง ไม่รวม หรือบันทึกอัตโนมัติ",
+    "vi": "Liên kết đơn bị xung đột; chưa tự động gộp hoặc lưu."
+  },
+  "紀錄與來源": {
+    "en": "Records and sources",
+    "th": "บันทึกและแหล่งข้อมูล",
+    "vi": "Bản ghi và nguồn"
+  },
+  "來源列數": {
+    "en": "Source rows",
+    "th": "จำนวนแถวต้นทาง",
+    "vi": "Số dòng nguồn"
+  },
+  "舊付款標記": {
+    "en": "Legacy payment flag",
+    "th": "สถานะชำระเงินเดิม",
+    "vi": "Dấu thanh toán cũ"
+  },
+  "沒有符合的訂單": {
+    "en": "No matching orders",
+    "th": "ไม่พบการจองที่ตรงกัน",
+    "vi": "Không có đơn phù hợp"
+  },
+  "來源付款標記含歷史定義，不能視為旅宿入帳證明。": {
+    "en": "Legacy payment flags have mixed meanings and do not prove property receipt.",
+    "th": "สถานะชำระเงินเดิมมีหลายความหมาย ไม่ใช่หลักฐานเงินเข้าที่พัก",
+    "vi": "Dấu thanh toán cũ có nhiều ý nghĩa, không chứng minh cơ sở đã nhận tiền."
+  }
+,
   "日曆檢視": {
     "en": "Calendar view",
     "th": "มุมมองปฏิทิน",

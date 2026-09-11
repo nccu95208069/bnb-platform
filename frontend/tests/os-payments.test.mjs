@@ -18,3 +18,8 @@ test('persistent CAS rejects concurrent append and readback supports retries',as
  try{const r=prepareReceipt(input,check,actor,now);await appendReceipt(check,null,r);assert.equal((await readLedger('sweetfun','SF-test')).ledger.receipts.length,1);await assert.rejects(()=>appendReceipt(check,null,{...r,id:'different'}),/VERSION_CONFLICT/);const current=await readLedger('sweetfun','SF-test');await appendReceipt({...check,ledger:current.ledger},current.raw,r);assert.equal((await readLedger('sweetfun','SF-test')).ledger.receipts.length,1);assert.ok([...db.values()].some(v=>JSON.parse(v).status==='completed'));}finally{global.fetch=original;}
 });
 test('full payment records a distinct receipt and explicit settlement',()=>{const r=prepareReceipt({...input,payment_type:'full',amount:2000,settles_room:true},check,actor,now);assert.equal(r.payment_type,'full');assert.equal(paymentStatus({...check,ledger:{version:1,receipts:[r]}}),'paid');assert.throws(()=>prepareReceipt({...input,payment_type:'full',settles_room:false},check,actor,now),/INVALID_INPUT/);});
+test('calendar receipt audit records server identity, time and source version without nested secrets',()=>{
+ const r=prepareReceipt(input,check,{...actor,email:'admin@example.test'},now),e=r.audit;
+ assert.equal(e.action,'calendar_payment_recorded');assert.equal(e.actor_email,'admin@example.test');assert.equal(e.at,now);assert.equal(e.after.amount,500);assert.equal(e.after.order_id,check.order_id);assert.equal(e.after.request_hash,undefined);assert.equal(e.after.audit,undefined);assert.equal(e.source_version,check.source_version);assert.equal(e.version_before,0);assert.equal(e.version_after,1);
+ assert.deepEqual(prepareReceipt(input,{...check,ledger:{version:1,receipts:[r]}},actor,now).audit,e);
+});
