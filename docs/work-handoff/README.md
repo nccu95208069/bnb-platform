@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-09-14 production update: [OwlNest price refresh and calendar position repair](CALENDAR_PRICE_REFRESH_2026-09-14.md), deployed with verified live price snapshot refresh; signed-in owner acceptance remains.
+
 2026-09-06 follow-up: [Sheet monitor implementation and activation status](SHEET_MONITOR.md). Sweetfun and OFFLAND now have verified one-minute production schedules; the public calendar remains anonymous and read-only.
 
 This folder organizes the product decisions, shipped implementation, unresolved work, and transition instructions needed to continue in ChatGPT Work or a coding agent.

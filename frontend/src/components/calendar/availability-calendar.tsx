@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { probabilityText } from "@/lib/sales-probability";
 import { PricePair, roomNightStyle } from "./availability-presentation";
+import { owlNestPriceLabel } from "@/lib/availability";
 import { UnsoldMonthScroller } from "./unsold-month-scroller";
 import { availabilityFeatures } from "@/lib/availability-features";
 import {
@@ -108,7 +109,7 @@ const uiLocale = useIntlLocale();
   const setOnlyAvailable = useCalendarPreferences((s) => s.setAvailabilityOnly);
   const [monthJump, setMonthJump] = useState(0);
   const [monthSelected, setMonthSelected] = useState<RoomNight | null>(null);
-  const onVisibleMonth = useCallback((month: string) => setAnchor(month), [setAnchor]);
+  const onVisibleMonth = useCallback((month: string) => setAnchor(current => startOfMonth(current) === month ? current : month), [setAnchor]);
   const [data, setData] = useState<AvailabilityResult | null>(null),
     [error, setError] = useState("");
   const [loading, setLoading] = useState(true),
@@ -121,6 +122,30 @@ const uiLocale = useIntlLocale();
   const setPreview = useCalendarPreferences((s) => s.setPricingPreview);
   const [busy, setBusy] = useState(false),
     [actionError, setActionError] = useState("");
+  const [priceRefreshing, setPriceRefreshing] = useState(false);
+  const priceRefreshLock = useRef(false);
+  const [priceRefreshMessage, setPriceRefreshMessage] = useState("");
+  const [priceRefreshError, setPriceRefreshError] = useState(false);
+  async function refreshPrices() {
+    if (priceRefreshLock.current) return;
+    priceRefreshLock.current = true;
+    setPriceRefreshing(true);
+    setPriceRefreshError(false);
+    setPriceRefreshMessage("正在讀取未來三個月、全部房間與通路的最新價格…");
+    try {
+      const response = await fetch("/api/v1/availability/refresh", {method:"POST"});
+      const result = await response.json();
+      if (!response.ok || !result.verified) throw Error(result.detail || "更新尚未完成，請重試。");
+      setPriceRefreshMessage(`已更新未來三個月價格 · ${new Date(result.observed_at).toLocaleString("zh-TW",{timeZone:"Asia/Taipei"})}`);
+      setRefresh(value=>value+1);
+    } catch(error) {
+      setPriceRefreshError(true);
+      setPriceRefreshMessage(error instanceof Error ? error.message : "更新失敗，請稍後重試。");
+    } finally {
+      priceRefreshLock.current=false;
+      setPriceRefreshing(false);
+    }
+  }
   const goal = useCalendarPreferences((s) => s.pricingGoal);
   const setGoal = useCalendarPreferences((s) => s.setPricingGoal);
   const mission = useCalendarPreferences((s) => s.pricingMission);
@@ -388,8 +413,10 @@ const uiLocale = useIntlLocale();
             </SelectContent>
           </Select>
           <Button variant="ghost" size="icon" className="size-8" aria-label={uiText("更新未售房況")} disabled={loading} onClick={() => setRefresh(v => v + 1)}><RefreshCw className={cn("size-4", loading && "animate-spin")} /></Button>
+          {!PAYMENT_SANDBOX && property === "sweetfun" && canPrice && ["owner","admin","god"].includes(role) && <Button variant="outline" size="sm" disabled={priceRefreshing} onClick={()=>void refreshPrices()}><RefreshCw className={cn("size-4",priceRefreshing && "animate-spin")} />{priceRefreshing ? "正在抓取價格…" : "更新 OwlNest 價格"}</Button>}
         </div>
       </div>
+      {priceRefreshMessage && <p role={priceRefreshError ? "alert" : "status"} className={cn("text-xs",priceRefreshError ? "text-destructive" : "text-muted-foreground")}>{priceRefreshMessage}</p>}
       {!PAYMENT_SANDBOX && <p className="text-[11px] text-muted-foreground" aria-label={uiText("房價上次更新時間")}>{uiText("房價更新")}{data?.cells[0]?.pricing?.observed_at ? new Intl.DateTimeFormat("zh-TW", { timeZone:"Asia/Taipei", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" }).format(new Date(data.cells[0].pricing.observed_at)) : uiText("讀取中")}</p>}
       <div className="flex items-center gap-3 text-xs" aria-label={uiText("未售房況摘要")}>
         <span>{uiText("未售")}<strong className="tabular-nums">{loading ? "—" : data?.counts.available ?? 0}</strong></span>
@@ -631,7 +658,7 @@ const uiLocale = useIntlLocale();
                     {[
                       ["牌價", selectedCell.pricing.base_price],
                       [
-                        `${channelLabels[channel]} 觀測價`,
+                        owlNestPriceLabel(channel),
                         selectedCell.pricing.current_price,
                       ],
                       ...(PAYMENT_SANDBOX ? [["建議・未發布", selectedCell.pricing.suggested_price]] : []),

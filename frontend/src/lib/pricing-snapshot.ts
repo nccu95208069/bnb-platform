@@ -11,6 +11,7 @@ export type PricingSnapshot = {
   source_commit: string;
   cells: {
     date: string; room: string; channels: Partial<Record<Channel, number>>;
+    observed_at?: string;
     rack_price: number | null; daytype: string; baseline_version: string;
     sales_probability?: SalesProbability | null;
     stock: { count: number | null; is_lock: boolean } | null;
@@ -24,6 +25,7 @@ export function validatePricingSnapshot(value: unknown): PricingSnapshot {
       !/^[a-f0-9]{40}$/.test(s.source_commit) || !Array.isArray(s.cells) || s.cells.length < 6 || s.cells.length > 6000) throw Error('INVALID_PRICING_SNAPSHOT');
   for (const c of s.cells) {
     const key = `${c.date}|${c.room}`;
+    if (c.observed_at !== undefined && (!Number.isFinite(Date.parse(c.observed_at)) || Date.parse(c.observed_at)>Date.parse(s.observed_at))) throw Error('INVALID_PRICING_CELL');
     if (!/^\d{4}-\d{2}-\d{2}$/.test(c.date) || new Date(c.date).toISOString().slice(0,10) !== c.date ||
         !PRICING_ROOMS.includes(c.room) || seen.has(key) || typeof c.daytype !== 'string' ||
         typeof c.baseline_version !== 'string' || !c.channels ||

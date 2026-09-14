@@ -991,8 +991,8 @@ const uiLocale = useIntlLocale();
               <MonthScroller
                 months={MONTHS}
                 targetMonth={monthTarget}
-                targetDate={todayRequest ? localTodayIso() : undefined}
-                targetRevision={todayRequest}
+                targetDate={anchorDate}
+                targetRevision={todayRequest + historyRevision}
                 bookings={filteredBookings}
                 rooms={visibleRooms}
                 properties={selectedProperties}

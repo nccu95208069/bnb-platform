@@ -140,18 +140,13 @@ export function useCalendarHistory() {
           );
           return;
         }
-        if (
-          history.state?.bnbPrevious &&
-          JSON.stringify(history.state.bnbPrevious) === encoded
-        ) {
-          history.back();
-        } else {
-          history.pushState(
-            { ...history.state, bnbCalendar: next, bnbPrevious: previous },
-            "",
-            url(next),
-          );
-        }
+        // Explicit toggles are new visits. Calling asynchronous history.back()
+        // here races the next view's layout and can restore an unrelated date.
+        history.pushState(
+          { ...history.state, bnbCalendar: next },
+          "",
+          url(next),
+        );
       });
     });
     const restore = (event: PopStateEvent) => {

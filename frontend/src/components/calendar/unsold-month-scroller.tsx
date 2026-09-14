@@ -9,8 +9,9 @@ import { availabilityApi, inventoryLabels, priceText, type AvailabilityResult, t
 import { PAYMENT_SANDBOX } from "@/lib/payment-workflow";
 import { availabilityFeatures } from "@/lib/availability-features";
 import { PricePair, roomNightStyle } from "./availability-presentation";
+import { useMonthPosition } from "./use-month-position";
 import { useCalendarPreferences } from "./calendar-preferences";
-import { addDays, addMonths, formatMonthLabel, localTodayIso, startOfMonth, WEEKDAY_LABELS, monthStarts } from "./calendar-utils";
+import { addDays, addMonths, formatMonthLabel, localTodayIso, WEEKDAY_LABELS, monthStarts } from "./calendar-utils";
 
 const MONTHS = monthStarts("2025-01-01", 36);
 type Props = {
@@ -54,7 +55,7 @@ const uiLocale = useIntlLocale();
  const hidePrice=!!data?.price_hidden;
  const matches=(c:RoomNight)=>(!onlyAvailable||c.state==="available")&&(!search.trim()||`${c.room} ${inventoryLabels[c.state]} ${c.reason}`.toLowerCase().includes(search.trim().toLowerCase()));
  const openCell=props.onSelect, selectDay=props.onSelectDay;
- return <section ref={ref} data-unsold-month={month} className="border-b bg-card">
+ return <section ref={ref} data-unsold-month={month} data-position-month={month} className="border-b bg-card">
   <h2 className="flex h-12 items-center justify-between border-b px-3 text-base font-semibold">{formatMonthLabel(month, uiLocale)}<span className="text-xs font-normal text-muted-foreground">{correct && !error ? uiText("{0} 未售房晚", [cells.filter(c=>c.state==="available").length]):""}</span></h2>
   {error && <button className="w-full bg-amber-50 p-2 text-sm" onClick={()=>setRetry(v=>v+1)}>{uiText("此月份暫時無法讀取，點此重試")}</button>}
 
@@ -86,6 +87,7 @@ const uiLocale = useIntlLocale();
                       <Fragment key={day}>
                         <div
                           data-unsold-date={day}
+                          data-position-date={day}
                           className={cn(
                             "min-h-44 border-b border-r p-1 sm:p-2",
                             !inMonth && "bg-muted/25",
@@ -216,36 +218,9 @@ export function UnsoldMonthScroller(props:Props) {
   window.addEventListener("resize",measure);window.visualViewport?.addEventListener("resize",measure);
   return ()=>{observer.disconnect();cancelAnimationFrame(frame);window.removeEventListener("resize",measure);window.visualViewport?.removeEventListener("resize",measure);};
  },[]);
- const scrollingMonth=useRef<string|null>(null);
- const lastJump=useRef(props.jump);
- const onVisible=useRef(props.onVisibleMonth);
- useEffect(()=>{onVisible.current=props.onVisibleMonth;},[props.onVisibleMonth]);
- const visible=useRef(startOfMonth(props.anchor));
- useLayoutEffect(()=>{
-  const month=startOfMonth(props.anchor),forced=lastJump.current!==props.jump;
-  lastJump.current=props.jump;
-  if(!forced && scrollingMonth.current===month){scrollingMonth.current=null;return;}
-  const container=root.current,node=container?.querySelector<HTMLElement>(`[data-unsold-month="${month}"]`);
-  if(!container||!node)return;
-  const day=forced?node.querySelector<HTMLElement>(`[data-unsold-date="${props.anchor}"]`):null;
-  const target=day??node;
-  visible.current=month;
-  container.scrollTo({top:Math.max(0,target.getBoundingClientRect().top-container.getBoundingClientRect().top+container.scrollTop-(day?48:0)),behavior:"instant"});
- },[props.anchor,props.jump]);
- useEffect(()=>{
-  const container=root.current;if(!container)return;
-  let frame=0;
-  const update=()=>{
-   frame=0;
-   const bounds=container.getBoundingClientRect();
-   const best=[...container.querySelectorAll<HTMLElement>("[data-unsold-month]")].map(node=>{const r=node.getBoundingClientRect();return{month:node.dataset.unsoldMonth!,height:Math.max(0,Math.min(r.bottom,bounds.bottom)-Math.max(r.top,bounds.top))};}).sort((a,b)=>b.height-a.height)[0];
-   if(best?.height>0&&visible.current!==best.month){visible.current=best.month;scrollingMonth.current=best.month;onVisible.current(best.month);}
-  };
-  const scroll=()=>{if(!frame)frame=requestAnimationFrame(update);};
-  container.addEventListener("scroll",scroll,{passive:true});
-  return ()=>{container.removeEventListener("scroll",scroll);cancelAnimationFrame(frame);};
- },[]);
- return <div ref={root} role="region" aria-label={uiText("未售月曆，可上下捲動月份")} tabIndex={0} className="h-[calc(100dvh-280px)] min-h-[280px] overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm">
+ const historyRevision=useCalendarPreferences(s=>s.historyRevision);
+ useMonthPosition(root,props.anchor,props.jump+historyRevision,props.onVisibleMonth);
+ return <div ref={root} style={{overflowAnchor:"none"}} role="region" aria-label={uiText("未售月曆，可上下捲動月份")} tabIndex={0} className="h-[calc(100dvh-280px)] min-h-[280px] overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm">
   {MONTHS.map(month=><MonthPanel key={month} month={month} root={root} props={props}/>)}
  </div>;
 }

@@ -3,7 +3,8 @@ import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 
 import { PaymentBadge } from "./payment-badge";
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo, useRef } from "react";
+import { useMonthPosition } from "./use-month-position";
 import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
 import { GuestRemarks, remarksFor, BookingIdentity, bookingIdentityText, realGuestName } from "./booking-identity";
@@ -189,6 +190,7 @@ const uiLocale = useIntlLocale();
     <section
       ref={sectionRef}
       data-month={monthStart}
+      data-position-month={monthStart}
       className="scroll-mt-2 bg-card"
     >
       <div className="sticky top-0 z-20 flex items-center justify-between border-y bg-background/95 px-3 py-2.5 backdrop-blur md:px-4">
@@ -238,7 +240,7 @@ const uiLocale = useIntlLocale();
                 const arrivals = monthBookings.filter(b => b.check_in === date).length;
                 const departures = monthBookings.filter(b => b.check_out === date).length;
                 return <div key={date} className="relative flex items-start justify-between px-1 md:px-2" style={{gridColumn: index + 1, gridRow: 1}}>
-                  <button data-calendar-date={date} type="button" onClick={() => onSelectDay(date)}
+                  <button data-calendar-date={date} data-position-date={date} type="button" onClick={() => onSelectDay(date)}
                     className={cn("flex size-6 items-center justify-center rounded-full text-[11px] font-semibold hover:bg-accent md:size-7 md:text-xs",
                       !isSameMonth(date, monthStart) && "text-muted-foreground",
                       date === today && "bg-primary text-primary-foreground hover:bg-primary/90")}>
@@ -324,47 +326,12 @@ export function MonthScroller({
   onVisibleMonthChange: (month: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const monthRefs = useRef(new Map<string, HTMLElement>());
-
-  useEffect(() => {
-    const node = monthRefs.current.get(targetMonth);
-    const container = scrollRef.current;
-    if (!node || !container) return;
-    const day = targetDate?.startsWith(targetMonth.slice(0,7)) ? node.querySelector<HTMLElement>(`[data-calendar-date="${targetDate}"]`) : null;
-    container.scrollTo({
-      top: day ? Math.max(0,day.getBoundingClientRect().top-container.getBoundingClientRect().top+container.scrollTop-72) : node.offsetTop - container.offsetTop,
-      // Do not publish intermediate months into navigation history.
-      behavior: "instant",
-    });
-  }, [targetMonth,targetDate,targetRevision]);
-
-  useEffect(() => {
-    const root = scrollRef.current;
-    if (!root) return;
-
-    const observer = new IntersectionObserver(
-      () => {
-        // Keep the month with the most visible content active, including when
-        // focusing an order briefly reveals the previous month's last week.
-        const bounds = root.getBoundingClientRect();
-        const visible = [...monthRefs.current.entries()]
-          .map(([month, node]) => {
-            const rect = node.getBoundingClientRect();
-            return { month, height: Math.max(0, Math.min(rect.bottom, bounds.bottom) - Math.max(rect.top, bounds.top)) };
-          })
-          .sort((a, b) => b.height - a.height)[0];
-        if (visible && visible.height > 0) onVisibleMonthChange(visible.month);
-      },
-      { root, threshold: [0, 0.15, 0.35, 0.5, 0.6, 0.85, 1] },
-    );
-
-    monthRefs.current.forEach((node) => observer.observe(node));
-    return () => observer.disconnect();
-  }, [months, onVisibleMonthChange]);
+  useMonthPosition(scrollRef, targetDate?.startsWith(targetMonth.slice(0, 7)) ? targetDate : targetMonth, targetRevision ?? 0, onVisibleMonthChange);
 
   return (
     <div
       ref={scrollRef}
+      style={{ overflowAnchor: "none" }}
       className="h-[calc(100dvh-224px)] min-h-[520px] overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm md:h-[calc(100dvh-250px)]"
     >
       {months.map((monthStart) => (
@@ -376,10 +343,7 @@ export function MonthScroller({
           properties={properties}
           onSelectBooking={onSelectBooking}
           onSelectDay={onSelectDay}
-          sectionRef={(node) => {
-            if (node) monthRefs.current.set(monthStart, node);
-            else monthRefs.current.delete(monthStart);
-          }}
+          sectionRef={() => {}}
         />
       ))}
     </div>
