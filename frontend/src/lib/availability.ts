@@ -16,6 +16,9 @@ export const channelLabels: Record<Channel, string> = {
   agoda: "Agoda",
   owljourney: "揪你",
 };
+export function owlNestPriceLabel(channel: Channel) {
+  return `Owlnest (${channelLabels[channel]})價格`;
+}
 export const inventoryLabels: Record<InventoryState, string> = {
   available: "未售",
   sold: "已售",
@@ -27,7 +30,7 @@ export const inventoryLabels: Record<InventoryState, string> = {
   past: "已過期",
 };
 export const policyLabels: Record<string, string> = {
-  observed_snapshot: "通路觀測價",
+  observed_snapshot: "Owlnest 平台價格",
   stale_snapshot: "價格待更新",
   tiered: "可進調價預演",
   holdout: "對照組・保護中",

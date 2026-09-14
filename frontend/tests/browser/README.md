@@ -1,5 +1,12 @@
 # Calendar browser acceptance check
 
+`calendar-position-refresh.js` runs on a localhost calendar with demo access enabled,
+using synthetic fetch responses only. Open an unsold month URL with an explicit date,
+then run `agent-browser eval --stdin < tests/browser/calendar-position-refresh.js`.
+It checks 24 mode/view toggles, refresh success/failure/double-click, asynchronous
+month-height changes, Back/Forward and leaving/returning via Home. No real OwlNest
+or pricing snapshot writes are performed. Run September and a future month.
+
 Start the isolated preview using `docs/work-handoff/AGENT_PAYMENT_PLAYBOOK.md`.
 Open `/calendar?mode=unsold&view=month&date=2026-09-05` in an agent-browser session,
 then evaluate `calendar-navigation.js` using `agent-browser eval`. This is the
