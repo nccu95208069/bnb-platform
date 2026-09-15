@@ -84,7 +84,7 @@ test('isCapacityConfirmed only accepts explicit confirmed', () => {
   assert.equal(isCapacityConfirmed('confirmed'), true);
   assert.equal(isCapacityConfirmed('unconfirmed'), false);
   assert.equal(isCapacityConfirmed('pending'), false);
-  assert.equal(isCapacityConfirmed('draft'), false);
+  assert.equal(isCapacityConfirmed('draft'), false); // not a RadarImport status; still must not unlock rates
   assert.equal(isCapacityConfirmed(undefined), false);
   assert.equal(isCapacityConfirmed(null), false);
 });

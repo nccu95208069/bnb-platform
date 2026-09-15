@@ -36,7 +36,6 @@ export default function AvailabilityCalendar({
   inventorySource,
   capacityStatus,
   capacityProvenance,
-  draftInventory,
   inventoryAsOf,
   inventoryNote,
 }: {
@@ -48,9 +47,8 @@ export default function AvailabilityCalendar({
   assumeUnlisted: boolean;
   inventorySource?: string;
   capacityStatus?: CapacityStatus;
+  /** Confirmed payloads only. */
   capacityProvenance?: CapacityProvenance;
-  /** Display-only draft units; never used for rates/heat. */
-  draftInventory?: Record<string, number>;
   inventoryAsOf?: string;
   inventoryNote?: string;
 }) {
@@ -80,7 +78,6 @@ export default function AvailabilityCalendar({
   );
   const summary = summarizeCalendar(period.map(date => days.get(date)!));
   const total = capacityConfirmed ? days.get(period[0])?.total ?? null : null;
-  const draftTotal = !capacityConfirmed ? inventoryUnits(draftInventory) : null;
   const selectedDate = selection && period.includes(selection) ? selection : period.find(date => days.get(date)?.verified) ?? period[0];
   const selected = days.get(selectedDate)!;
   const changePeriod = useCallback(
@@ -247,7 +244,6 @@ export default function AvailabilityCalendar({
           </strong>
           <small>
             {rooms.length} 種房型 · {capacitySourceLabel}
-            {draftTotal != null ? ` · 草稿顯示 ${draftTotal} 間（不計率）` : ""}
           </small>
         </div>
         <div>
@@ -392,8 +388,7 @@ export default function AvailabilityCalendar({
       )}
       {!capacityConfirmed && (
         <p className={styles.note} data-testid="capacity-unconfirmed-note">
-          容量待確認：不去化率、不著色熱力。已知剩餘與未知房型數仍可顯示
-          {draftTotal != null ? `；草稿容量 ${draftTotal} 間僅供參考，不計入去化` : ""}。
+          容量待確認：不去化率、不著色熱力。已知剩餘與未知房型數仍可顯示。
         </p>
       )}
       <p className={styles.note}>

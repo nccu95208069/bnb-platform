@@ -41,7 +41,7 @@ export function periodDates(anchor: string, mode: "month" | "week") {
   return Array.from({ length: mode === "week" ? 7 : count / 86400000 }, (_, i) => offsetDate(first, i));
 }
 
-/** Treat only explicit "confirmed" as usable for rates/heat; unconfirmed/pending/draft/missing → false. */
+/** Treat only explicit "confirmed" as usable for rates/heat; any other status (unconfirmed/pending/missing) → false. */
 export function isCapacityConfirmed(capacityStatus?: string | null): boolean {
   return capacityStatus === "confirmed";
 }
@@ -49,7 +49,7 @@ export function isCapacityConfirmed(capacityStatus?: string | null): boolean {
 /**
  * Build one calendar day.
  * Rate/heat inputs require capacityConfirmed===true AND a complete positive integer roomInventory
- * for every catalog room. Unconfirmed/pending/draft never uses inventory for totals even if present by mistake.
+ * for every catalog room. Non-confirmed never uses inventory for totals even if present by mistake.
  * assumeUnlisted must stay false on github imports (unknown/unlisted ≠ 0).
  */
 export function calendarDay(

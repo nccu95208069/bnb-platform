@@ -101,16 +101,16 @@ export interface OtaScanResponse {
 
 /**
  * Capacity confirmation for competitor-radar sell-through / heat (FE gate).
- * Phase 1 publish uses "confirmed" | "unconfirmed". "pending" / "draft" are legacy aliases
- * and must be treated like unconfirmed for rates/heat.
+ * Phase 1/2 publish: "confirmed" | "unconfirmed". Draft capacity files never appear on RadarImport
+ * and do not change this field. Legacy "pending" is treated as unconfirmed.
  */
-export type CapacityStatus = "confirmed" | "unconfirmed" | "pending" | "draft";
+export type CapacityStatus = "confirmed" | "unconfirmed" | "pending";
 
 export type InventorySource = "confirmed" | "estimated" | "user_confirmed";
 
 /**
- * Phase 1 confirmed provenance is flat: confirmedBy / method / dailyTotalUnits / fingerprint / path.
- * Nested `source` and `confirmedAt` remain optional so older payloads still render.
+ * Confirmed-payload provenance only. Flat: confirmedBy / method / dailyTotalUnits / fingerprint / path.
+ * Nested `source` and `confirmedAt` remain optional so older confirmed payloads still render.
  */
 export interface CapacityProvenance {
   confirmedBy: string;
@@ -118,20 +118,19 @@ export interface CapacityProvenance {
   dailyTotalUnits: number;
   roomCatalogFingerprint: string;
   path?: string;
-  /** Legacy; prefer top-level inventoryAsOf on the import payload. */
+  /** Legacy; prefer top-level inventoryAsOf on the confirmed import payload. */
   confirmedAt?: string;
   source?: { kind?: string; method?: string; note?: string };
 }
 
 /**
- * Capacity fields expected on github/receiver RadarImport payloads.
- * Unconfirmed payloads omit roomInventory, inventorySource, inventoryAsOf, inventoryNote, capacityProvenance.
+ * Capacity fields on github/receiver RadarImport payloads.
+ * Unconfirmed: omit roomInventory, inventorySource, inventoryAsOf, inventoryNote, capacityProvenance.
+ * Draft capacity files are not published onto this object.
  */
 export interface RadarCapacityFields {
   capacityStatus?: CapacityStatus;
   roomInventory?: Record<string, number>;
-  /** Display-only when present; NEVER used for rates/heat. */
-  draftInventory?: Record<string, number>;
   inventorySource?: InventorySource;
   inventoryAsOf?: string;
   inventoryNote?: string;

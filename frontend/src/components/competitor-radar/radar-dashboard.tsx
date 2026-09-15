@@ -309,13 +309,13 @@ export interface RadarImport {
   inventoryReconciled?: boolean;
   /** Confirmed catalog capacity only — pass to calendar rates when capacityStatus==="confirmed". */
   roomInventory?: Record<string, number>;
-  /** Display-only; NEVER used for sell-through / heat. */
-  draftInventory?: Record<string, number>;
+  /** Confirmed payloads only. */
   inventorySource?: InventorySource;
   inventoryAsOf?: string;
   inventoryNote?: string;
-  /** Only "confirmed" unlocks rates/heat. unconfirmed | pending | draft | missing → 容量待確認. */
+  /** Only "confirmed" unlocks rates/heat. Any other status → 容量待確認. */
   capacityStatus?: CapacityStatus;
+  /** Confirmed payloads only. */
   capacityProvenance?: CapacityProvenance;
   stayDates?: string[];
   notes?: string[];
@@ -699,12 +699,11 @@ export default function RadarDashboard({ initialData }: { initialData?: RadarImp
               }
               startDate={startDate}
               assumeUnlisted={initialData ? initialData.assumeUnlisted === true : false}
-              inventorySource={inventorySource}
+              inventorySource={initialData?.capacityStatus === "confirmed" ? inventorySource : undefined}
               capacityStatus={initialData?.capacityStatus ?? (roomInventory ? "confirmed" : "unconfirmed")}
-              capacityProvenance={initialData?.capacityProvenance}
-              draftInventory={initialData?.draftInventory}
-              inventoryAsOf={initialData?.inventoryAsOf}
-              inventoryNote={initialData?.inventoryNote}
+              capacityProvenance={initialData?.capacityStatus === "confirmed" ? initialData.capacityProvenance : undefined}
+              inventoryAsOf={initialData?.capacityStatus === "confirmed" ? initialData.inventoryAsOf : undefined}
+              inventoryNote={initialData?.capacityStatus === "confirmed" ? initialData.inventoryNote : undefined}
             />
           ) : activeTab === "overview" ? (
             <section className={styles.contentCard}>
