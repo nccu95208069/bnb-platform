@@ -14,6 +14,8 @@ export interface OtaRoomObservation {
   quantityState: OtaQuantityState;
   quantity?: number;
   amount?: number;
+  displayedAmount?: number;
+  displayedPriceBasis?: "tax_excluded";
   priceBasis?: "tax_inclusive_stay_total";
   currency?: string;
   sourceText?: string;
@@ -24,6 +26,10 @@ export interface OtaRoomObservation {
 }
 
 export interface OtaDayObservation {
+  observedAt?: string;
+  priceReview?: boolean;
+  provenance?: { repository: string; commit: string; jobId: string; attemptId: string; runId: string; path: string };
+  roomIssues?: Record<string, string>;
   stayDate: string;
   checkOut: string;
   state: OtaScanState;
@@ -61,7 +67,7 @@ export interface OtaPlatformScan {
   observations: OtaDayObservation[];
   warnings: string[];
   durationMs: number;
-  collector?: "desktop_computer_use";
+  collector?: "desktop_computer_use" | "anonymous_browser";
 }
 
 export interface OtaSourceOverride {
@@ -91,4 +97,48 @@ export interface OtaScanResponse {
     physicalInventory: false;
     confirmedBookings: false;
   };
+}
+
+/**
+ * Capacity confirmation for competitor-radar sell-through / heat (FE gate).
+ * Phase 1/2 publish: "confirmed" | "unconfirmed". Draft capacity files never appear on RadarImport
+ * and do not change this field. Legacy "pending" is treated as unconfirmed.
+ */
+export type CapacityStatus = "confirmed" | "unconfirmed" | "pending";
+
+export type InventorySource = "confirmed" | "estimated" | "user_confirmed";
+
+/**
+ * Confirmed-payload provenance only. Flat: confirmedBy / method / dailyTotalUnits / fingerprint / path.
+ * Nested `source` and `confirmedAt` remain optional so older confirmed payloads still render.
+ */
+export interface CapacityProvenance {
+  confirmedBy: string;
+  method: string;
+  dailyTotalUnits: number;
+  roomCatalogFingerprint: string;
+  path?: string;
+  /** Legacy; prefer top-level inventoryAsOf on the confirmed import payload. */
+  confirmedAt?: string;
+  source?: { kind?: string; method?: string; note?: string };
+}
+
+/**
+ * Capacity fields on github/receiver RadarImport payloads.
+ * Unconfirmed: omit roomInventory, inventorySource, inventoryAsOf, inventoryNote, capacityProvenance.
+ * Draft capacity files are not published onto this object.
+ */
+export interface RadarCapacityFields {
+  capacityStatus?: CapacityStatus;
+  roomInventory?: Record<string, number>;
+  inventorySource?: InventorySource;
+  inventoryAsOf?: string;
+  inventoryNote?: string;
+  capacityProvenance?: CapacityProvenance;
+  assumeUnlisted?: boolean;
+  allowInventoryEditing?: boolean;
+}
+
+export function capacityProvenanceMethod(provenance?: CapacityProvenance | null): string | undefined {
+  return provenance?.method || provenance?.source?.method;
 }

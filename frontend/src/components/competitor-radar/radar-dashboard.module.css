@@ -4,3 +4,11 @@
 @media(max-width:620px){.tableScroll{border:0}.overviewTable{min-width:0;display:block}.overviewTable thead{display:none}.overviewTable tbody{display:grid;gap:12px}.overviewTable tr{display:block;border:1px solid var(--line);border-radius:10px;padding:10px}.overviewTable td{display:block;width:100%!important;padding:8px 4px;border:0}.overviewTable td:not(:first-child){display:flex;align-items:center;justify-content:space-between}.overviewTable td:nth-child(2):before{content:"Booking.com"}.overviewTable td:nth-child(3):before{content:"Agoda"}.overviewTable td:nth-child(4):before{content:"Trip.com"}.summaryCell{text-align:right}.calendarGrid{grid-template-columns:65px repeat(7,minmax(0,1fr))}.tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr))}.tabs>button{padding:0 3px;font-size:11px;justify-content:center}.tabs .platformMark{display:none}}
 
 .page input,.page select{min-height:44px}
+.collectionControls{display:flex;gap:8px;flex-wrap:wrap}
+.weekNavigation{display:flex;align-items:center;gap:8px;font-size:12px;color:#466185}
+.soldRateRow th{background:#eef6ff;font-size:11px}
+.soldRateRow strong{display:block}
+.importTable td small{white-space:normal}
+.importSold{background:#fff4f4}
+.importPrice{display:block;font-size:11px}
+.importCellLabel{font-size:12px}

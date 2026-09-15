@@ -1,0 +1,9 @@
+.banner { margin: 20px auto 0; max-width: 1180px; padding: 20px 24px; border: 1px solid #b7d6cd; border-radius: 16px; background: #f2f8f5; color: #183c34; display: flex; justify-content: space-between; align-items: center; gap: 20px; font-family: inherit; }
+.banner strong { font-size: 18px; }
+.banner p { margin: 8px 0; line-height: 1.5; }
+.banner small { color: #47665e; line-height: 1.5; }
+.actions { display: flex; flex-shrink: 0; flex-direction: column; gap: 10px; align-items: center; font-size: 13px; }
+.actions button { border: 1px solid #30685a; border-radius: 8px; padding: 10px 16px; background: white; color: #183c34; cursor: pointer; font: inherit; }
+.actions button:disabled { opacity: .5; cursor: wait; }
+.actions a { color: #215e50; }
+@media(max-width: 640px) { .banner { margin: 12px; padding: 16px; flex-direction: column; align-items: stretch; } .actions { flex-direction: row; flex-wrap: wrap; justify-content: flex-start; } }

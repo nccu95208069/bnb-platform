@@ -11,6 +11,7 @@ on:
       - 'frontend/package-lock.json'
       - 'scripts/prepare-radar-preview.mjs'
       - 'scripts/deploy-radar-preview.mjs'
+      - 'scripts/radar-browser/**'
       - '.github/workflows/radar-preview-check.yml'
       - '.github/workflows/radar-preview-deploy.yml'
 
@@ -60,6 +61,7 @@ jobs:
         run: |
           ./node_modules/.bin/tsc tests/competitor-radar-preview.test.ts tests/competitor-radar-draft-safety.test.ts tests/radar-desktop.test.ts --outDir /tmp/radar-unit --module commonjs --target es2022 --esModuleInterop --skipLibCheck --strict --types node
           node --test /tmp/radar-unit/tests/competitor-radar-*.test.js /tmp/radar-unit/tests/radar-desktop.test.js | tee /tmp/radar-evidence/unit-tests.txt
+          node --test ../scripts/radar-browser/calendar-data.test.mjs | tee /tmp/radar-evidence/calendar-data-tests.txt
       - run: npm run lint
         working-directory: frontend
       - run: npm run build
