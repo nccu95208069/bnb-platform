@@ -5,7 +5,7 @@ import { ChevronLeft, ChevronRight, CalendarDays, ArrowLeftRight } from "lucide-
 import { capacityProvenanceMethod, type CapacityProvenance, type CapacityStatus, type OtaPlatformScan } from "@/lib/competitor-radar/ota-types";
 import {
   calendarDay,
-  isCapacityConfirmed,
+  isCapacityGateOpen,
   offsetDate,
   periodDates,
   shiftMonth,
@@ -52,7 +52,7 @@ export default function AvailabilityCalendar({
   inventoryAsOf?: string;
   inventoryNote?: string;
 }) {
-  const capacityConfirmed = isCapacityConfirmed(capacityStatus);
+  const capacityConfirmed = isCapacityGateOpen(capacityStatus, rooms, inventory);
   const [mode, setMode] = useState<"month" | "week">("month");
   const [anchor, setAnchor] = useState(startDate);
   const [selection, setSelection] = useState<string | null>(startDate);

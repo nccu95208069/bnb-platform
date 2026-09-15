@@ -10,7 +10,7 @@ const directory = mkdtempSync(join(tmpdir(), 'radar-calendar-'));
 const source = readFileSync(new URL('../../frontend/src/components/competitor-radar/calendar-data.ts', import.meta.url), 'utf8');
 const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS } }).outputText;
 writeFileSync(join(directory, 'calendar.cjs'), compiled);
-const { calendarDay, periodDates, weekStart, shiftMonth, summarizeCalendar, isCapacityConfirmed } = createRequire(import.meta.url)(join(directory, 'calendar.cjs'));
+const { calendarDay, periodDates, weekStart, shiftMonth, summarizeCalendar, isCapacityConfirmed, hasCompleteRoomInventory, isCapacityGateOpen } = createRequire(import.meta.url)(join(directory, 'calendar.cjs'));
 after(() => rmSync(directory, { recursive: true }));
 const rooms = [{ id: 'a', name: 'A' }, { id: 'b', name: 'B' }];
 const inventory = { a: 2, b: 4 };
@@ -165,4 +165,19 @@ test('non-positive inventory units never yield rate', () => {
   const value = calendarDay('2026-09-15', scan(), rooms, { a: 2, b: 0 }, false, true);
   assert.equal(value.total, null);
   assert.equal(value.rate, null);
+  assert.equal(value.capacityConfirmed, false);
+});
+
+test('sell-through gate requires confirmed status AND complete roomInventory', () => {
+  assert.equal(hasCompleteRoomInventory(rooms, inventory), true);
+  assert.equal(hasCompleteRoomInventory(rooms, { a: 2 }), false);
+  assert.equal(hasCompleteRoomInventory(rooms, { a: 2, b: 0 }), false);
+  assert.equal(hasCompleteRoomInventory(rooms, undefined), false);
+  assert.equal(hasCompleteRoomInventory([], inventory), false);
+  assert.equal(isCapacityGateOpen('confirmed', rooms, inventory), true);
+  assert.equal(isCapacityGateOpen('confirmed', rooms, { a: 2 }), false);
+  assert.equal(isCapacityGateOpen('unconfirmed', rooms, inventory), false);
+  assert.equal(isCapacityGateOpen('pending', rooms, inventory), false);
+  assert.equal(isCapacityGateOpen('draft', rooms, inventory), false);
+  assert.equal(isCapacityGateOpen(undefined, rooms, inventory), false);
 });

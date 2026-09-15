@@ -313,11 +313,17 @@
     flex-direction: column;
   }
   .summary,
-  .roomList,
-  .grid,
-  .weekdays,
-  .week {
+  .roomList {
     grid-template-columns: 1fr 1fr;
+  }
+  .surface {
+    overflow-x: auto;
+  }
+  .weekdays,
+  .grid,
+  .week {
+    min-width: 560px;
+    grid-template-columns: repeat(7, minmax(72px, 1fr));
   }
   .gestureHint {
     margin-left: 0;

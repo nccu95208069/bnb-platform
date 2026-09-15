@@ -41,9 +41,33 @@ export function periodDates(anchor: string, mode: "month" | "week") {
   return Array.from({ length: mode === "week" ? 7 : count / 86400000 }, (_, i) => offsetDate(first, i));
 }
 
-/** Treat only explicit "confirmed" as usable for rates/heat; any other status (unconfirmed/pending/missing) → false. */
+/** Treat only explicit "confirmed" as usable for rates/heat; any other status (unconfirmed/pending/missing/draft) → false. */
 export function isCapacityConfirmed(capacityStatus?: string | null): boolean {
   return capacityStatus === "confirmed";
+}
+
+/** Complete positive integer units for every catalog room. Missing/zero/non-integer → not usable for rates. */
+export function hasCompleteRoomInventory(
+  rooms: CalendarRoom[],
+  inventory?: Record<string, number> | null,
+): boolean {
+  return (
+    !!inventory &&
+    rooms.length > 0 &&
+    rooms.every(room => Number.isInteger(inventory[room.id]) && inventory[room.id]! > 0)
+  );
+}
+
+/**
+ * Sell-through / heat gate: capacityStatus==="confirmed" AND complete roomInventory on RadarImport.
+ * Draft rooms / proposedUnits are never an input here.
+ */
+export function isCapacityGateOpen(
+  capacityStatus: string | null | undefined,
+  rooms: CalendarRoom[],
+  inventory?: Record<string, number> | null,
+): boolean {
+  return isCapacityConfirmed(capacityStatus) && hasCompleteRoomInventory(rooms, inventory);
 }
 
 /**
@@ -62,10 +86,7 @@ export function calendarDay(
 ): CalendarDay {
   // Gate: never apply inventory for rates unless capacity is confirmed.
   const gatedInventory = capacityConfirmed ? inventory : undefined;
-  const capacityValid =
-    !!gatedInventory &&
-    rooms.length > 0 &&
-    rooms.every(room => Number.isInteger(gatedInventory[room.id]) && gatedInventory[room.id]! > 0);
+  const capacityValid = hasCompleteRoomInventory(rooms, gatedInventory);
   const total = capacityValid ? rooms.reduce((n, room) => n + gatedInventory![room.id]!, 0) : null;
   const day = scan?.observations.find(item => item.stayDate === date);
   const verified =

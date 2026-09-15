@@ -18,6 +18,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { parseDraft, record, validDate } from "@/lib/competitor-radar/preview-contract";
 import AvailabilityCalendar from "./availability-calendar";
+import { isCapacityGateOpen } from "./calendar-data";
 import { currentScan } from "@/lib/competitor-radar/ota-evidence";
 import type { ScanJob, JobResult } from "@/lib/competitor-radar/scan-jobs";
 
@@ -586,6 +587,11 @@ export default function RadarDashboard({ initialData }: { initialData?: RadarImp
   const verified = analysis?.tourismRegistry?.status === "matched" || analysis?.property.identityStatus === "confirmed";
   const visibleScans: ScanMap = Object.fromEntries(Object.entries(scans).map(([platform, scan]) => [platform, scan ? { ...scan, observations: scan.observations.filter(day => initialData ? dates.includes(day.stayDate) : day.stayDate >= startDate && day.stayDate < addDays(startDate, 14)) } : undefined]));
   const displayTabScan = activeTab === "overview" || activeTab === "calendar" ? undefined : visibleScans[activeTab];
+  const githubCapacityOpen = Boolean(
+    initialData &&
+      analysis &&
+      isCapacityGateOpen(initialData.capacityStatus, analysis.canonicalRooms, roomInventory),
+  );
 
   return (
     <main className={styles.page}>
@@ -694,16 +700,24 @@ export default function RadarDashboard({ initialData }: { initialData?: RadarImp
               rooms={analysis.canonicalRooms}
               inventory={
                 initialData
-                  ? (initialData.capacityStatus === "confirmed" ? roomInventory : undefined)
+                  ? (githubCapacityOpen ? roomInventory : undefined)
                   : roomInventory
               }
               startDate={startDate}
               assumeUnlisted={initialData ? initialData.assumeUnlisted === true : false}
-              inventorySource={initialData?.capacityStatus === "confirmed" ? inventorySource : undefined}
-              capacityStatus={initialData?.capacityStatus ?? (roomInventory ? "confirmed" : "unconfirmed")}
-              capacityProvenance={initialData?.capacityStatus === "confirmed" ? initialData.capacityProvenance : undefined}
-              inventoryAsOf={initialData?.capacityStatus === "confirmed" ? initialData.inventoryAsOf : undefined}
-              inventoryNote={initialData?.capacityStatus === "confirmed" ? initialData.inventoryNote : undefined}
+              inventorySource={githubCapacityOpen ? inventorySource : undefined}
+              capacityStatus={
+                initialData
+                  ? githubCapacityOpen
+                    ? "confirmed"
+                    : "unconfirmed"
+                  : roomInventory
+                    ? "confirmed"
+                    : "unconfirmed"
+              }
+              capacityProvenance={githubCapacityOpen ? initialData?.capacityProvenance : undefined}
+              inventoryAsOf={githubCapacityOpen ? initialData?.inventoryAsOf : undefined}
+              inventoryNote={githubCapacityOpen ? initialData?.inventoryNote : undefined}
             />
           ) : activeTab === "overview" ? (
             <section className={styles.contentCard}>
@@ -756,13 +770,13 @@ export default function RadarDashboard({ initialData }: { initialData?: RadarImp
                 <span className={displayTabScan?.identity.status === "confirmed" ? styles.verified : styles.review}>{displayTabScan?.identity.status === "confirmed" ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}{displayTabScan?.identity.status === "confirmed" ? "住宿身分相符" : "住宿身分待確認"}</span>
                 <span>{displayTabScan?.state === "blocked" ? "平台目前限制存取，無法確認價格與可售狀態。" : "尚未通過核對的價格與房量保持未知。"}</span>
               </div>}
-              <p className={styles.chartNote}>{initialData ? `${formatDate(dates[0], true)}–${formatDate(dates[dates.length - 1], true)} · ${initialData.capacityStatus === "confirmed" && roomInventory ? "容量已確認，可計去化率" : "容量待確認，不計去化率"}` : "參考房量：數量未公開"}</p>
+              <p className={styles.chartNote}>{initialData ? `${formatDate(dates[0], true)}–${formatDate(dates[dates.length - 1], true)} · ${githubCapacityOpen ? "容量已確認，可計去化率" : "容量待確認，不計去化率"}` : "參考房量：數量未公開"}</p>
               {displayTabScan?.collector === "desktop_computer_use" && <p className={styles.chartNote}>電腦實際核對 · 2 成人、0 兒童、1 房、每次 1 晚 · 顯示已核對方案含稅總額 · {new Date(displayTabScan.capturedAt).toLocaleString("zh-TW")}</p>}
               <div className={styles.dayTableScroll}>
                 <table className={`${styles.dayTable} ${initialData ? styles.importTable : ""}`}>
                   <thead><tr><th>房型</th>{dates.map((date) => <th key={date}>{formatDate(date)}<small>{weekday(date)}</small></th>)}</tr>
-                    {initialData && activeTab === "booking" && <tr className={styles.soldRateRow}><th scope="row">{(initialData.capacityStatus === "confirmed" && roomInventory) ? "估計售出率" : "容量待確認"}</th>{dates.map(date => {
-                      if (initialData.capacityStatus === "confirmed" && roomInventory) {
+                    {initialData && activeTab === "booking" && <tr className={styles.soldRateRow}><th scope="row">{githubCapacityOpen ? "估計售出率" : "容量待確認"}</th>{dates.map(date => {
+                      if (githubCapacityOpen && roomInventory) {
                         const values = analysis.canonicalRooms.map(room => ({total: roomInventory![room.id], value: roomDay(displayTabScan, room.id, date)}));
                         const total = values.reduce((sum, item) => sum + (item.total ?? 0), 0);
                         const remaining = values.map(({total: cap, value}) => value.availability === "sold_out" ? 0 : value.availability === "available" && value.quantity !== undefined && cap !== undefined && value.quantity >= 0 && value.quantity <= cap ? value.quantity : null);
@@ -775,7 +789,7 @@ export default function RadarDashboard({ initialData }: { initialData?: RadarImp
                   </thead>
                   <tbody>
                     {analysis.canonicalRooms.map((room) => (
-                      <tr key={room.id}><td><strong>{room.name}{roomInventory?.[room.id] !== undefined && initialData?.capacityStatus === "confirmed" && `（${roomInventory[room.id]} 間）`}</strong><small>{roomInventory?.[room.id] !== undefined && initialData?.capacityStatus === "confirmed" ? (inventorySource === "user_confirmed" ? "手動設定" : "已確認房數") : room.capacity ? `${room.capacity} 人` : ""}</small></td>{dates.map((date) => { const value = roomDay(displayTabScan, room.id, date); return <td key={date}><StatusDot value={value.availability} title={value.reason} />{value.amount !== undefined && <small>{formatMoney(value.amount, value.currency)}</small>}{value.quantity !== undefined && <small>剩 {value.quantity} 間</small>}</td>; })}</tr>
+                      <tr key={room.id}><td><strong>{room.name}{githubCapacityOpen && roomInventory?.[room.id] !== undefined && `（${roomInventory[room.id]} 間）`}</strong><small>{githubCapacityOpen && roomInventory?.[room.id] !== undefined ? (inventorySource === "user_confirmed" ? "手動設定" : "已確認房數") : room.capacity ? `${room.capacity} 人` : ""}</small></td>{dates.map((date) => { const value = roomDay(displayTabScan, room.id, date); return <td key={date}><StatusDot value={value.availability} title={value.reason} />{value.amount !== undefined && <small>{formatMoney(value.amount, value.currency)}</small>}{value.quantity !== undefined && <small>剩 {value.quantity} 間</small>}</td>; })}</tr>
                     ))}
                     {!initialData && activeTab !== "agoda" && <tr><td><strong>平台層狀態</strong><small>未能對應到官網房型時顯示於此</small></td>{dates.map((date) => { const day = platformDay(displayTabScan, date); return <td key={date}><StatusDot value={day?.availability ?? "unknown"} title={day?.message} />{day?.minAmount !== undefined && <small>{formatMoney(day.minAmount, day.currency)}</small>}</td>; })}</tr>}
                   </tbody>
@@ -783,7 +797,7 @@ export default function RadarDashboard({ initialData }: { initialData?: RadarImp
               </div>
               {!!initialData?.notes?.length && <details className={styles.notes}><summary>住宿資訊與腳本實測紀錄</summary>{initialData.notes.map(note => <p key={note}>{note}</p>)}</details>}
               {initialData && activeTab === "booking" ? <details className={styles.notes}><summary>判讀方式</summary>
-                {initialData.capacityStatus === "confirmed" && roomInventory ? <><p>以已確認的 {analysis.canonicalRooms.length} 種房型、共 {Object.values(roomInventory).reduce((sum, count) => sum + count, 0)} 間為基準。估計售出率＝（總房數－平台公開剩餘間數）÷ 總房數。未列出與數量未公開保持未知，不計為 0。</p><p>這是依平台可售房量推估，可能受關房與平台配額影響，不等於已確認訂單。沒有硬編碼民宿總房數。</p></> : <><p>容量待確認：不去化率。已知剩餘與未知房型仍可參考；未列出不計為 0，也不使用估計總房數。</p><p>標示「未稅」的數字只代表頁面標價，含稅總額仍待審。</p></>}
+                {githubCapacityOpen && roomInventory ? <><p>以已確認的 {analysis.canonicalRooms.length} 種房型、共 {Object.values(roomInventory).reduce((sum, count) => sum + count, 0)} 間為基準。估計售出率＝（總房數－平台公開剩餘間數）÷ 總房數。未列出與數量未公開保持未知，不計為 0。</p><p>這是依平台可售房量推估，可能受關房與平台配額影響，不等於已確認訂單。沒有硬編碼民宿總房數。</p></> : <><p>容量待確認：不去化率。已知剩餘與未知房型仍可參考；未列出不計為 0，也不使用估計總房數。</p><p>標示「未稅」的數字只代表頁面標價，含稅總額仍待審。</p></>}
               </details> : displayTabScan?.warnings.length ? <details className={styles.notes}><summary>資料限制與判讀方式</summary>{displayTabScan.warnings.map((warning) => <p key={warning}>{warning}</p>)}</details> : null}
               {displayTabScan?.collector === "desktop_computer_use" && <details className={styles.notes}><summary>查看已核對方案與稅費</summary>{displayTabScan.observations.flatMap(day => day.rooms.filter(room => room.amount !== undefined).map(room => <p key={`${day.stayDate}-${room.sourceRoomId}-${room.ratePlan}`}><strong>{day.stayDate} · {room.sourceRoomName}</strong><br />{room.ratePlan} · 含稅總額 {formatMoney(room.amount!, room.currency)}{room.priceDetails?.preTaxAmount !== undefined && ` · 房價 ${formatMoney(room.priceDetails.preTaxAmount)}`}{room.priceDetails?.taxesAndFees !== undefined && ` · 稅費 ${formatMoney(room.priceDetails.taxesAndFees)}`}<br />{room.sourceText}</p>))}</details>}
             </section>

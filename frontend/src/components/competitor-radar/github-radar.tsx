@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import RadarDashboard, { type RadarImport } from "./radar-dashboard";
+import { isCapacityGateOpen } from "./calendar-data";
 import { capacityProvenanceMethod } from "@/lib/competitor-radar/ota-types";
 import styles from "./github-radar.module.css";
 
 type State = { data?: RadarImport; revision?: string; commit?: string; checkedAt?: string; error?: string; syncing?: boolean; rejectedCount?: number };
 
 function capacityBanner(data: RadarImport) {
-  const status = data.capacityStatus ?? "unconfirmed";
-  if (status === "confirmed") {
+  if (isCapacityGateOpen(data.capacityStatus, data.analysis.canonicalRooms, data.roomInventory)) {
     const units =
       data.capacityProvenance?.dailyTotalUnits ??
       (data.roomInventory ? Object.values(data.roomInventory).reduce((a, b) => a + b, 0) : undefined);
