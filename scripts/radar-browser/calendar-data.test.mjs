@@ -82,13 +82,14 @@ test('period summary weights room-nights and excludes unknown dates', () => {
 
 test('isCapacityConfirmed only accepts explicit confirmed', () => {
   assert.equal(isCapacityConfirmed('confirmed'), true);
+  assert.equal(isCapacityConfirmed('unconfirmed'), false);
   assert.equal(isCapacityConfirmed('pending'), false);
   assert.equal(isCapacityConfirmed('draft'), false);
   assert.equal(isCapacityConfirmed(undefined), false);
   assert.equal(isCapacityConfirmed(null), false);
 });
 
-test('pending capacity: inventory present by mistake still yields no rates/heat inputs', () => {
+test('unconfirmed capacity: inventory present by mistake still yields no rates/heat inputs', () => {
   // capacityConfirmed=false must ignore inventory even if caller forgot to strip it
   const value = calendarDay('2026-09-15', scan(), rooms, inventory, false, false);
   assert.equal(value.total, null);

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, CalendarDays, ArrowLeftRight } from "lucide-react";
-import type { CapacityProvenance, CapacityStatus, OtaPlatformScan } from "@/lib/competitor-radar/ota-types";
+import { capacityProvenanceMethod, type CapacityProvenance, type CapacityStatus, type OtaPlatformScan } from "@/lib/competitor-radar/ota-types";
 import {
   calendarDay,
   isCapacityConfirmed,
@@ -37,10 +37,12 @@ export default function AvailabilityCalendar({
   capacityStatus,
   capacityProvenance,
   draftInventory,
+  inventoryAsOf,
+  inventoryNote,
 }: {
   scan?: OtaPlatformScan;
   rooms: CalendarRoom[];
-  /** Only pass when capacityStatus==="confirmed"; pending inventory must not reach rates. */
+  /** Only pass when capacityStatus==="confirmed"; unconfirmed inventory must not reach rates. */
   inventory?: Record<string, number>;
   startDate: string;
   assumeUnlisted: boolean;
@@ -49,6 +51,8 @@ export default function AvailabilityCalendar({
   capacityProvenance?: CapacityProvenance;
   /** Display-only draft units; never used for rates/heat. */
   draftInventory?: Record<string, number>;
+  inventoryAsOf?: string;
+  inventoryNote?: string;
 }) {
   const capacityConfirmed = isCapacityConfirmed(capacityStatus);
   const [mode, setMode] = useState<"month" | "week">("month");
@@ -119,6 +123,9 @@ export default function AvailabilityCalendar({
   const provenanceTotal =
     capacityProvenance?.dailyTotalUnits ??
     (capacityConfirmed ? inventoryUnits(inventory) : null);
+  const provenanceMethod = capacityProvenanceMethod(capacityProvenance);
+  const provenanceAt = inventoryAsOf ?? capacityProvenance?.confirmedAt;
+  const provenanceNote = inventoryNote ?? capacityProvenance?.source?.note;
 
   function dayCell(day: CalendarDay) {
     const outside = !period.includes(day.date);
@@ -376,16 +383,15 @@ export default function AvailabilityCalendar({
       {capacityConfirmed && provenanceTotal != null && (
         <p className={styles.note} data-testid="capacity-provenance">
           容量已確認 · 每日基準 {provenanceTotal} 間
-          {capacityProvenance
-            ? ` · ${capacityProvenance.confirmedBy} · ${new Date(capacityProvenance.confirmedAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })} · ${capacityProvenance.source.method}`
-            : inventorySource
-              ? ` · 來源 ${inventorySource}`
-              : ""}
-          {capacityProvenance?.source.note ? ` · ${capacityProvenance.source.note}` : ""}
+          {capacityProvenance?.confirmedBy ? ` · ${capacityProvenance.confirmedBy}` : ""}
+          {provenanceAt ? ` · ${new Date(provenanceAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}` : ""}
+          {provenanceMethod ? ` · ${provenanceMethod}` : inventorySource ? ` · 來源 ${inventorySource}` : ""}
+          {capacityProvenance?.path ? ` · ${capacityProvenance.path}` : ""}
+          {provenanceNote ? ` · ${provenanceNote}` : ""}
         </p>
       )}
       {!capacityConfirmed && (
-        <p className={styles.note} data-testid="capacity-pending-note">
+        <p className={styles.note} data-testid="capacity-unconfirmed-note">
           容量待確認：不去化率、不著色熱力。已知剩餘與未知房型數仍可顯示
           {draftTotal != null ? `；草稿容量 ${draftTotal} 間僅供參考，不計入去化` : ""}。
         </p>

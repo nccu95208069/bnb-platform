@@ -99,23 +99,33 @@ export interface OtaScanResponse {
   };
 }
 
-/** Capacity confirmation for competitor-radar sell-through / heat (FE gate). */
-export type CapacityStatus = "confirmed" | "pending" | "draft";
+/**
+ * Capacity confirmation for competitor-radar sell-through / heat (FE gate).
+ * Phase 1 publish uses "confirmed" | "unconfirmed". "pending" / "draft" are legacy aliases
+ * and must be treated like unconfirmed for rates/heat.
+ */
+export type CapacityStatus = "confirmed" | "unconfirmed" | "pending" | "draft";
 
 export type InventorySource = "confirmed" | "estimated" | "user_confirmed";
 
+/**
+ * Phase 1 confirmed provenance is flat: confirmedBy / method / dailyTotalUnits / fingerprint / path.
+ * Nested `source` and `confirmedAt` remain optional so older payloads still render.
+ */
 export interface CapacityProvenance {
-  confirmedAt: string;
   confirmedBy: string;
-  source: { kind: "manual_confirmed"; method: string; note?: string };
+  method: string;
+  dailyTotalUnits: number;
   roomCatalogFingerprint: string;
   path?: string;
-  dailyTotalUnits: number;
+  /** Legacy; prefer top-level inventoryAsOf on the import payload. */
+  confirmedAt?: string;
+  source?: { kind?: string; method?: string; note?: string };
 }
 
 /**
  * Capacity fields expected on github/receiver RadarImport payloads.
- * Prefer attaching these on RadarImport in radar-dashboard; kept here for shared typing.
+ * Unconfirmed payloads omit roomInventory, inventorySource, inventoryAsOf, inventoryNote, capacityProvenance.
  */
 export interface RadarCapacityFields {
   capacityStatus?: CapacityStatus;
@@ -123,7 +133,13 @@ export interface RadarCapacityFields {
   /** Display-only when present; NEVER used for rates/heat. */
   draftInventory?: Record<string, number>;
   inventorySource?: InventorySource;
+  inventoryAsOf?: string;
+  inventoryNote?: string;
   capacityProvenance?: CapacityProvenance;
   assumeUnlisted?: boolean;
   allowInventoryEditing?: boolean;
+}
+
+export function capacityProvenanceMethod(provenance?: CapacityProvenance | null): string | undefined {
+  return provenance?.method || provenance?.source?.method;
 }

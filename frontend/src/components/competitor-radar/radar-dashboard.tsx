@@ -312,7 +312,9 @@ export interface RadarImport {
   /** Display-only; NEVER used for sell-through / heat. */
   draftInventory?: Record<string, number>;
   inventorySource?: InventorySource;
-  /** Only "confirmed" unlocks rates/heat. pending | draft | missing → treat as unconfirmed. */
+  inventoryAsOf?: string;
+  inventoryNote?: string;
+  /** Only "confirmed" unlocks rates/heat. unconfirmed | pending | draft | missing → 容量待確認. */
   capacityStatus?: CapacityStatus;
   capacityProvenance?: CapacityProvenance;
   stayDates?: string[];
@@ -698,9 +700,11 @@ export default function RadarDashboard({ initialData }: { initialData?: RadarImp
               startDate={startDate}
               assumeUnlisted={initialData ? initialData.assumeUnlisted === true : false}
               inventorySource={inventorySource}
-              capacityStatus={initialData?.capacityStatus ?? (roomInventory ? "confirmed" : "pending")}
+              capacityStatus={initialData?.capacityStatus ?? (roomInventory ? "confirmed" : "unconfirmed")}
               capacityProvenance={initialData?.capacityProvenance}
               draftInventory={initialData?.draftInventory}
+              inventoryAsOf={initialData?.inventoryAsOf}
+              inventoryNote={initialData?.inventoryNote}
             />
           ) : activeTab === "overview" ? (
             <section className={styles.contentCard}>

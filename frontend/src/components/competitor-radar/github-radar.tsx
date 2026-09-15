@@ -2,21 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import RadarDashboard, { type RadarImport } from "./radar-dashboard";
+import { capacityProvenanceMethod } from "@/lib/competitor-radar/ota-types";
 import styles from "./github-radar.module.css";
 
 type State = { data?: RadarImport; revision?: string; commit?: string; checkedAt?: string; error?: string; syncing?: boolean; rejectedCount?: number };
 
 function capacityBanner(data: RadarImport) {
-  const status = data.capacityStatus ?? "pending";
+  const status = data.capacityStatus ?? "unconfirmed";
   if (status === "confirmed") {
     const units =
       data.capacityProvenance?.dailyTotalUnits ??
       (data.roomInventory ? Object.values(data.roomInventory).reduce((a, b) => a + b, 0) : undefined);
-    const source = data.inventorySource ?? data.capacityProvenance?.source.method ?? "confirmed";
-    return `容量已確認${units != null ? ` · 每日基準 ${units} 間` : ""} · 來源 ${source}。去化率與熱力已啟用。`;
-  }
-  if (status === "draft") {
-    return "容量為草稿：僅供顯示，不去化率、不著色熱力。請等待確認後再計賣穿。";
+    const source = data.inventorySource ?? capacityProvenanceMethod(data.capacityProvenance) ?? "confirmed";
+    const asOf = data.inventoryAsOf
+      ? ` · ${new Date(data.inventoryAsOf).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}`
+      : "";
+    return `容量已確認${units != null ? ` · 每日基準 ${units} 間` : ""} · 來源 ${source}${asOf}。去化率與熱力已啟用。`;
   }
   return "容量待確認：月曆顯示「容量待確認」，不去化率、不著色熱力。已知剩餘與未知房型仍可參考。";
 }
