@@ -4,6 +4,7 @@ import {
   AlertCircle,
   CalendarDays,
   CheckCircle2,
+  ChevronLeft,
   ChevronRight,
   ExternalLink,
   Loader2,
@@ -16,10 +17,14 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { parseDraft, record, validDate } from "@/lib/competitor-radar/preview-contract";
+import AvailabilityCalendar from "./availability-calendar";
 import { currentScan } from "@/lib/competitor-radar/ota-evidence";
 import type { ScanJob, JobResult } from "@/lib/competitor-radar/scan-jobs";
 
 import type {
+  CapacityProvenance,
+  CapacityStatus,
+  InventorySource,
   OtaAvailability,
   OtaPlatform,
   OtaPlatformScan,
@@ -32,7 +37,7 @@ import type {
 
 import styles from "./radar-dashboard.module.css";
 
-type Tab = "overview" | OtaPlatform;
+type Tab = "overview" | "calendar" | OtaPlatform;
 type ScanMap = Partial<Record<OtaPlatform, OtaPlatformScan>>;
 type ScanProgress = Partial<Record<OtaPlatform, "waiting" | "running" | "done" | "failed">>;
 
@@ -148,11 +153,12 @@ function roomDay(
   scan: OtaPlatformScan | undefined,
   roomId: string,
   stayDate: string,
-): { availability: OtaAvailability; amount?: number; currency?: string } {
+): { availability: OtaAvailability; amount?: number; displayedAmount?: number; currency?: string; reason?: string; quantity?: number } {
   const day = scan?.observations.find((item) => item.stayDate === stayDate);
-  if (!day?.identityVerified || !day.dateVerified) return { availability: "unknown" };
+  if (!day) return { availability: "unknown", reason: "未收集" };
+  if (!day.identityVerified || !day.dateVerified) return { availability: "unknown", reason: day.state === "failed" ? "抓取失敗：" + day.message : "待核對：" + (day.message || "未取得有效資料") };
   const rooms = day?.rooms.filter((room) => room.canonicalRoomId === roomId) ?? [];
-  if (!rooms.length) return { availability: "unknown" };
+  if (!rooms.length) return { availability: "unknown", reason: day.roomIssues?.[roomId] || "未出現房型" };
   const availability = rooms.some((room) => room.availability === "available")
     ? "available"
     : rooms.every((room) => room.availability === "sold_out")
@@ -164,8 +170,11 @@ function roomDay(
     .filter((amount): amount is number => amount !== undefined);
   return {
     availability,
+    quantity: rooms.length === 1 ? rooms[0].quantity : undefined,
+    displayedAmount: rooms.length === 1 && rooms[0].displayedPriceBasis === "tax_excluded" ? rooms[0].displayedAmount : undefined,
     amount: currencies.length === 1 && prices.length ? Math.min(...prices) : undefined,
     currency: currencies.length === 1 ? currencies[0] : undefined,
+    reason: rooms.length ? undefined : day.roomIssues?.[roomId],
   };
 }
 
@@ -290,20 +299,73 @@ function ProgressBadge({ progress, scan }: { progress?: ScanProgress[OtaPlatform
   return <span className={styles.progressBadge}>{statusLabel(scan?.state)}</span>;
 }
 
-export default function RadarDashboard() {
+export interface RadarImport {
+  assumeUnlisted?: boolean;
+  allowInventoryEditing?: boolean;
+  analysis: CompetitorRadarAnalysis;
+  scans: ScanMap;
+  startDate: string;
+  label: string;
+  inventoryReconciled?: boolean;
+  /** Confirmed catalog capacity only — pass to calendar rates when capacityStatus==="confirmed". */
+  roomInventory?: Record<string, number>;
+  /** Display-only; NEVER used for sell-through / heat. */
+  draftInventory?: Record<string, number>;
+  inventorySource?: InventorySource;
+  /** Only "confirmed" unlocks rates/heat. pending | draft | missing → treat as unconfirmed. */
+  capacityStatus?: CapacityStatus;
+  capacityProvenance?: CapacityProvenance;
+  stayDates?: string[];
+  notes?: string[];
+}
+
+export default function RadarDashboard({ initialData }: { initialData?: RadarImport } = {}) {
+  const [roomInventory, setRoomInventory] = useState(initialData?.roomInventory);
+  const [inventorySource, setInventorySource] = useState(initialData?.inventorySource);
+  const [inventoryEditing, setInventoryEditing] = useState(false);
+  const [inventoryDraft, setInventoryDraft] = useState<Record<string, string>>({});
+  const [inventorySaving, setInventorySaving] = useState(false);
+  const [inventoryError, setInventoryError] = useState("");
+  async function saveInventory() {
+    const inventory = Object.fromEntries(Object.entries(inventoryDraft).map(([id, value]) => [id, Number(value)]));
+    if (Object.values(inventory).some((n) => !Number.isInteger(n) || n < 1 || n > 100)) {
+      setInventoryError("每種房型請填入 1–100 的整數");
+      return;
+    }
+    setInventorySaving(true);
+    setInventoryError("");
+    try {
+      const response = await fetch("/api/radar-inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ view: new URLSearchParams(window.location.search).get("view"), inventory }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw Error(result.error);
+      setRoomInventory(result.roomInventory);
+      setInventorySource("user_confirmed");
+      setInventoryEditing(false);
+      setMessage("房數已儲存，估計售出率已更新。");
+    } catch (error) {
+      setInventoryError(error instanceof Error ? error.message : "儲存失敗");
+    } finally {
+      setInventorySaving(false);
+    }
+  }
   const [url, setUrl] = useState("https://www.sweetfuntw.com/");
-  const [analysis, setAnalysis] = useState<CompetitorRadarAnalysis | null>(null);
-  const [scans, setScans] = useState<ScanMap>({});
+  const [analysis, setAnalysis] = useState<CompetitorRadarAnalysis | null>(initialData?.analysis ?? null);
+  const [scans, setScans] = useState<ScanMap>(initialData?.scans ?? {});
   const [progress, setProgress] = useState<ScanProgress>({});
-  const [activeTab, setActiveTab] = useState<Tab>("overview");
+  const [activeTab, setActiveTab] = useState<Tab>(initialData ? "calendar" : "overview");
   const [selectedRoomId, setSelectedRoomId] = useState("");
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(initialData?.label ?? "");
   const [error, setError] = useState("");
-  const [startDate, setStartDate] = useState(() => addDays(taipeiToday(), 1));
+  const [importDateOffset, setImportDateOffset] = useState(0);
+  const [startDate, setStartDate] = useState(() => initialData?.startDate ?? addDays(taipeiToday(), 1));
   const [jobs, setJobs] = useState<Partial<Record<OtaPlatform, ScanJob>>>({});
-  const [hydrated, setHydrated] = useState(false);
+  const [hydrated, setHydrated] = useState(!!initialData);
   const [build, setBuild] = useState("");
   const [saveError, setSaveError] = useState("");
   const [desktop, setDesktop] = useState(false);
@@ -313,6 +375,7 @@ export default function RadarDashboard() {
 
   useEffect(() => {
     const run = ++generation.current;
+    if (initialData) return;
     try {
       const raw = localStorage.getItem(storageKey);
       if (raw) {
@@ -344,15 +407,15 @@ export default function RadarDashboard() {
     fetch("/api/radar-preview").then(r => r.json()).then(r => setBuild(typeof r.build === "string" ? r.build : "")).catch(() => undefined);
     fetch("/api/radar-ota").then(r => r.json()).then(r => { if (r.desktop === true) { setDesktop(true); setScanDays(1); } }).catch(() => undefined);
     return () => { generation.current = run + 1; };
-  }, []);
+  }, [initialData]);
 
   useEffect(() => {
-    if (!hydrated || !analysis) return;
+    if (initialData || !hydrated || !analysis) return;
     try {
       localStorage.setItem(storageKey, JSON.stringify({ analysis, scans, jobs, startDate }));
       setSaveError("");
     } catch { setSaveError("此瀏覽器無法保存結果；請保持頁面開啟。"); }
-  }, [analysis, scans, jobs, startDate, hydrated]);
+  }, [analysis, scans, jobs, startDate, hydrated, initialData]);
 
   async function pollJob(platform: OtaPlatform, job: ScanJob, run: number) {
     setProgress(state => ({ ...state, [platform]: "running" }));
@@ -386,8 +449,14 @@ export default function RadarDashboard() {
     }
   }
   const dates = useMemo(
-    () => Array.from({ length: 14 }, (_, index) => addDays(startDate, index)),
-    [startDate],
+    () =>
+      (initialData?.stayDates
+        ? initialData.stayDates.length > 8
+          ? initialData.stayDates.slice(importDateOffset, importDateOffset + 7)
+          : initialData.stayDates
+        : undefined) ??
+      Array.from({ length: initialData?.scans.booking?.requestedDays ?? 14 }, (_, index) => addDays(startDate, index)),
+    [startDate, initialData, importDateOffset],
   );
 
   const selectedRoom =
@@ -513,8 +582,8 @@ export default function RadarDashboard() {
     (candidate) => candidate.hotelId === analysis.tourismRegistry?.selectedHotelId,
   );
   const verified = analysis?.tourismRegistry?.status === "matched" || analysis?.property.identityStatus === "confirmed";
-  const visibleScans: ScanMap = Object.fromEntries(Object.entries(scans).map(([platform, scan]) => [platform, scan ? { ...scan, observations: scan.observations.filter(day => day.stayDate >= startDate && day.stayDate < addDays(startDate, 14)) } : undefined]));
-  const displayTabScan = activeTab === "overview" ? undefined : visibleScans[activeTab];
+  const visibleScans: ScanMap = Object.fromEntries(Object.entries(scans).map(([platform, scan]) => [platform, scan ? { ...scan, observations: scan.observations.filter(day => initialData ? dates.includes(day.stayDate) : day.stayDate >= startDate && day.stayDate < addDays(startDate, 14)) } : undefined]));
+  const displayTabScan = activeTab === "overview" || activeTab === "calendar" ? undefined : visibleScans[activeTab];
 
   return (
     <main className={styles.page}>
@@ -526,7 +595,7 @@ export default function RadarDashboard() {
         <span className={styles.previewTag}>測試版 · 公開資料</span>
       </header>
 
-      <section className={styles.searchCard}>
+      <section className={styles.searchCard} hidden={!!initialData}>
         <form onSubmit={(event) => { event.preventDefault(); void analyze(); }}>
           <div className={styles.searchInput}>
             <Search size={19} />
@@ -552,7 +621,7 @@ export default function RadarDashboard() {
 
       {analysis && (
         <>
-          {desktop && <section className={styles.propertyCard} aria-label="桌面收集">
+          {desktop && !initialData && <section className={styles.propertyCard} aria-label="桌面收集">
             <div className={styles.propertyInfo}><strong>電腦收集</strong><p>使用這台電腦的 Chrome。請保持電腦及 Codex 開啟；每兩分鐘檢查待辦，完成後回填此頁。</p><p>目前開放 Agoda；Booking 與 Trip 尚未開放桌面收集。</p></div>
             <label>入住日<input aria-label="收集入住日" type="date" value={startDate} onChange={event => { if (validDate(event.target.value)) setStartDate(event.target.value); }} disabled={Object.values(progress).some(value => value === "running" || value === "waiting")} /></label>
             <label>天數<select aria-label="收集天數" value={scanDays} onChange={event => setScanDays(Number(event.target.value))} disabled={Object.values(progress).some(value => value === "running" || value === "waiting")}><option value={1}>1 天</option><option value={3}>3 天</option><option value={7}>7 天</option><option value={14}>14 天</option></select></label>
@@ -571,13 +640,20 @@ export default function RadarDashboard() {
               <p><MapPin size={15} />{analysis.property.address ?? "官網未公開完整地址"}</p>
               <div className={styles.propertyMeta}>
                 <span>{analysis.property.registrationNumber ?? registryCandidate?.registrationNumber ?? "未找到民宿編號"}</span>
-                <span>{analysis.canonicalRooms.length} 個官網房型</span>
+                <span>{analysis.canonicalRooms.length} 個{initialData && !initialData.inventoryReconciled ? "Booking" : "官網"}房型</span>
               </div>
             </div>
-            <button className={styles.secondaryButton} onClick={() => setEditing((value) => !value)}>
+            {!initialData && <button className={styles.secondaryButton} onClick={() => setEditing((value) => !value)}>
               <Settings2 size={15} />{editing ? "完成編輯" : "編輯房型"}
-            </button>
+            </button>}
           </section>
+
+          {initialData && initialData.allowInventoryEditing === true && <section className={styles.editor}>
+            <div className={styles.editorHeading}><div><h2>房間數設定</h2><p>{roomInventory ? `${inventorySource === "user_confirmed" ? "已手動設定" : "自動預估"} · 共 ${Object.values(roomInventory).reduce((a,b)=>a+b,0)} 間` : "房數待確認"}；用於計算估計售出率。</p></div>
+            {!inventoryEditing && <button onClick={()=>{setInventoryDraft(Object.fromEntries(analysis.canonicalRooms.map(r=>[r.id,String(roomInventory?.[r.id]??"")])));setInventoryError("");setInventoryEditing(true);}}>編輯房數</button>}</div>
+            {inventoryEditing && <><div className={styles.editorGrid}>{analysis.canonicalRooms.map(room=><label className={styles.editorRoom} key={room.id}>{room.name}<input aria-label={`${room.name} 房間數`} type="number" min={1} max={100} step={1} disabled={inventorySaving} value={inventoryDraft[room.id]??""} onChange={event=>setInventoryDraft({...inventoryDraft,[room.id]:event.target.value})}/></label>)}</div>
+            {inventoryError && <p role="alert">{inventoryError}</p>}<div className={styles.collectionControls} style={{marginTop:12}}><button className={styles.secondaryButton} disabled={inventorySaving} onClick={()=>void saveInventory()}>{inventorySaving?"儲存中…":"儲存房數"}</button><button className={styles.secondaryButton} disabled={inventorySaving} onClick={()=>setInventoryEditing(false)}>取消</button></div></>}
+          </section>}
 
           {editing && (
             <section className={styles.editor}>
@@ -597,7 +673,8 @@ export default function RadarDashboard() {
             </section>
           )}
 
-          <nav className={styles.tabs} aria-label="平台切換">
+          <nav className={styles.tabs} aria-label="雷達頁面切換">
+            <button className={activeTab === "calendar" ? styles.activeTab : ""} onClick={() => setActiveTab("calendar")}><CalendarDays size={16} />房況月曆</button>
             <button className={activeTab === "overview" ? styles.activeTab : ""} onClick={() => setActiveTab("overview")}>總覽</button>
             {PLATFORMS.map((platform) => (
               <button key={platform} className={activeTab === platform ? styles.activeTab : ""} onClick={() => setActiveTab(platform)}>
@@ -608,7 +685,24 @@ export default function RadarDashboard() {
             ))}
           </nav>
 
-          {activeTab === "overview" ? (
+          {activeTab === "calendar" ? (
+            <AvailabilityCalendar
+              key={analysis.property.sourceUrl ?? analysis.property.name}
+              scan={scans.booking}
+              rooms={analysis.canonicalRooms}
+              inventory={
+                initialData
+                  ? (initialData.capacityStatus === "confirmed" ? roomInventory : undefined)
+                  : roomInventory
+              }
+              startDate={startDate}
+              assumeUnlisted={initialData ? initialData.assumeUnlisted === true : false}
+              inventorySource={inventorySource}
+              capacityStatus={initialData?.capacityStatus ?? (roomInventory ? "confirmed" : "pending")}
+              capacityProvenance={initialData?.capacityProvenance}
+              draftInventory={initialData?.draftInventory}
+            />
+          ) : activeTab === "overview" ? (
             <section className={styles.contentCard}>
               <div className={styles.contentHeading}>
                 <div><h2>未來 14 天價格與可售狀態</h2><p>房量是平台公開頁面的參考狀態，不是實體庫存或確認訂單。</p></div>
@@ -651,27 +745,43 @@ export default function RadarDashboard() {
             <section className={styles.contentCard}>
               <div className={styles.contentHeading}>
                 <div className={styles.platformHeading}><PlatformBadge platform={activeTab} /><div><h2>{PLATFORM_LABELS[activeTab]}</h2><p>{displayTabScan ? `${displayTabScan.completedDays}/${displayTabScan.requestedDays} 天完成日期核對 · ${statusLabel(displayTabScan.state)}` : "尚未取得資料"}</p></div></div>
-                <button className={styles.secondaryButton} onClick={() => analysis && void scanPlatform(activeTab, analysis)} disabled={progress[activeTab] === "running"}><RefreshCw size={15} />重新抓取</button>
+                {initialData?.stayDates && initialData.stayDates.length > 8 && <div className={styles.weekNavigation} aria-label="房型表日期切換"><button className={styles.secondaryButton} aria-label="房型表上一週" disabled={importDateOffset === 0} onClick={() => setImportDateOffset(value => Math.max(0, value - 7))}><ChevronLeft size={17} /></button><span>{formatDate(dates[0], true)} – {formatDate(dates[dates.length - 1], true)}</span><button className={styles.secondaryButton} aria-label="房型表下一週" disabled={importDateOffset + 7 >= initialData.stayDates.length} onClick={() => setImportDateOffset(value => value + 7)}><ChevronRight size={17} /></button></div>}
+                {!initialData && <button className={styles.secondaryButton} onClick={() => analysis && void scanPlatform(activeTab, analysis)} disabled={progress[activeTab] === "running"}><RefreshCw size={15} />重新抓取</button>}
               </div>
               {displayTabScan?.identity.sourceUrl && <a className={styles.sourceLink} href={displayTabScan.identity.sourceUrl} target="_blank" rel="noreferrer noopener"><ShieldCheck size={15} />{displayTabScan.identity.sourceName ?? "開啟平台來源"}<ExternalLink size={13} /></a>}
-              <div className={styles.platformSummary}>
+              {!initialData && <div className={styles.platformSummary}>
                 <span className={displayTabScan?.identity.status === "confirmed" ? styles.verified : styles.review}>{displayTabScan?.identity.status === "confirmed" ? <CheckCircle2 size={14} /> : <AlertCircle size={14} />}{displayTabScan?.identity.status === "confirmed" ? "住宿身分相符" : "住宿身分待確認"}</span>
                 <span>{displayTabScan?.state === "blocked" ? "平台目前限制存取，無法確認價格與可售狀態。" : "尚未通過核對的價格與房量保持未知。"}</span>
-              </div>
-              <p className={styles.chartNote}>參考房量：數量未公開</p>
+              </div>}
+              <p className={styles.chartNote}>{initialData ? `${formatDate(dates[0], true)}–${formatDate(dates[dates.length - 1], true)} · ${initialData.capacityStatus === "confirmed" && roomInventory ? "容量已確認，可計去化率" : "容量待確認，不計去化率"}` : "參考房量：數量未公開"}</p>
               {displayTabScan?.collector === "desktop_computer_use" && <p className={styles.chartNote}>電腦實際核對 · 2 成人、0 兒童、1 房、每次 1 晚 · 顯示已核對方案含稅總額 · {new Date(displayTabScan.capturedAt).toLocaleString("zh-TW")}</p>}
               <div className={styles.dayTableScroll}>
-                <table className={styles.dayTable}>
-                  <thead><tr><th>房型</th>{dates.map((date) => <th key={date}>{formatDate(date)}<small>{weekday(date)}</small></th>)}</tr></thead>
+                <table className={`${styles.dayTable} ${initialData ? styles.importTable : ""}`}>
+                  <thead><tr><th>房型</th>{dates.map((date) => <th key={date}>{formatDate(date)}<small>{weekday(date)}</small></th>)}</tr>
+                    {initialData && activeTab === "booking" && <tr className={styles.soldRateRow}><th scope="row">{(initialData.capacityStatus === "confirmed" && roomInventory) ? "估計售出率" : "容量待確認"}</th>{dates.map(date => {
+                      if (initialData.capacityStatus === "confirmed" && roomInventory) {
+                        const values = analysis.canonicalRooms.map(room => ({total: roomInventory![room.id], value: roomDay(displayTabScan, room.id, date)}));
+                        const total = values.reduce((sum, item) => sum + (item.total ?? 0), 0);
+                        const remaining = values.map(({total: cap, value}) => value.availability === "sold_out" ? 0 : value.availability === "available" && value.quantity !== undefined && cap !== undefined && value.quantity >= 0 && value.quantity <= cap ? value.quantity : null);
+                        if (remaining.some(value => value === null) || !Number.isFinite(total) || total <= 0 || values.some(item => !Number.isInteger(item.total) || (item.total ?? 0) <= 0)) return <th key={date}><strong>—</strong><small>房量待確認</small></th>;
+                        const sold = total - remaining.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+                        return <th key={date}><strong>{Number((sold / total * 100).toFixed(1))}%</strong><small>{sold} / {total} 間</small></th>;
+                      }
+                      return <th key={date}><strong>—</strong><small>容量待確認</small></th>;
+                    })}</tr>}
+                  </thead>
                   <tbody>
                     {analysis.canonicalRooms.map((room) => (
-                      <tr key={room.id}><td><strong>{room.name}</strong><small>{room.capacity ? `${room.capacity} 人` : ""}</small></td>{dates.map((date) => { const value = roomDay(displayTabScan, room.id, date); return <td key={date}><StatusDot value={value.availability} />{value.amount !== undefined && <small>{formatMoney(value.amount, value.currency)}</small>}</td>; })}</tr>
+                      <tr key={room.id}><td><strong>{room.name}{roomInventory?.[room.id] !== undefined && initialData?.capacityStatus === "confirmed" && `（${roomInventory[room.id]} 間）`}</strong><small>{roomInventory?.[room.id] !== undefined && initialData?.capacityStatus === "confirmed" ? (inventorySource === "user_confirmed" ? "手動設定" : "已確認房數") : room.capacity ? `${room.capacity} 人` : ""}</small></td>{dates.map((date) => { const value = roomDay(displayTabScan, room.id, date); return <td key={date}><StatusDot value={value.availability} title={value.reason} />{value.amount !== undefined && <small>{formatMoney(value.amount, value.currency)}</small>}{value.quantity !== undefined && <small>剩 {value.quantity} 間</small>}</td>; })}</tr>
                     ))}
-                    {activeTab !== "agoda" && <tr><td><strong>平台層狀態</strong><small>未能對應到官網房型時顯示於此</small></td>{dates.map((date) => { const day = platformDay(displayTabScan, date); return <td key={date}><StatusDot value={day?.availability ?? "unknown"} title={day?.message} />{day?.minAmount !== undefined && <small>{formatMoney(day.minAmount, day.currency)}</small>}</td>; })}</tr>}
+                    {!initialData && activeTab !== "agoda" && <tr><td><strong>平台層狀態</strong><small>未能對應到官網房型時顯示於此</small></td>{dates.map((date) => { const day = platformDay(displayTabScan, date); return <td key={date}><StatusDot value={day?.availability ?? "unknown"} title={day?.message} />{day?.minAmount !== undefined && <small>{formatMoney(day.minAmount, day.currency)}</small>}</td>; })}</tr>}
                   </tbody>
                 </table>
               </div>
-              {displayTabScan?.warnings.length ? <details className={styles.notes}><summary>資料限制與判讀方式</summary>{displayTabScan.warnings.map((warning) => <p key={warning}>{warning}</p>)}</details> : null}
+              {!!initialData?.notes?.length && <details className={styles.notes}><summary>住宿資訊與腳本實測紀錄</summary>{initialData.notes.map(note => <p key={note}>{note}</p>)}</details>}
+              {initialData && activeTab === "booking" ? <details className={styles.notes}><summary>判讀方式</summary>
+                {initialData.capacityStatus === "confirmed" && roomInventory ? <><p>以已確認的 {analysis.canonicalRooms.length} 種房型、共 {Object.values(roomInventory).reduce((sum, count) => sum + count, 0)} 間為基準。估計售出率＝（總房數－平台公開剩餘間數）÷ 總房數。未列出與數量未公開保持未知，不計為 0。</p><p>這是依平台可售房量推估，可能受關房與平台配額影響，不等於已確認訂單。沒有硬編碼民宿總房數。</p></> : <><p>容量待確認：不去化率。已知剩餘與未知房型仍可參考；未列出不計為 0，也不使用估計總房數。</p><p>標示「未稅」的數字只代表頁面標價，含稅總額仍待審。</p></>}
+              </details> : displayTabScan?.warnings.length ? <details className={styles.notes}><summary>資料限制與判讀方式</summary>{displayTabScan.warnings.map((warning) => <p key={warning}>{warning}</p>)}</details> : null}
               {displayTabScan?.collector === "desktop_computer_use" && <details className={styles.notes}><summary>查看已核對方案與稅費</summary>{displayTabScan.observations.flatMap(day => day.rooms.filter(room => room.amount !== undefined).map(room => <p key={`${day.stayDate}-${room.sourceRoomId}-${room.ratePlan}`}><strong>{day.stayDate} · {room.sourceRoomName}</strong><br />{room.ratePlan} · 含稅總額 {formatMoney(room.amount!, room.currency)}{room.priceDetails?.preTaxAmount !== undefined && ` · 房價 ${formatMoney(room.priceDetails.preTaxAmount)}`}{room.priceDetails?.taxesAndFees !== undefined && ` · 稅費 ${formatMoney(room.priceDetails.taxesAndFees)}`}<br />{room.sourceText}</p>))}</details>}
             </section>
           )}
@@ -686,7 +796,7 @@ export default function RadarDashboard() {
         </>
       )}
 
-      {!analysis && !busy && (
+      {!analysis && !busy && !initialData && (
         <section className={styles.emptyState}>
           <div><Search size={25} /></div>
           <h2>貼一個網址就開始</h2>

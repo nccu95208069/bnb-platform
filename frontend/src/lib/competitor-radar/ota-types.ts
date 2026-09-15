@@ -14,6 +14,8 @@ export interface OtaRoomObservation {
   quantityState: OtaQuantityState;
   quantity?: number;
   amount?: number;
+  displayedAmount?: number;
+  displayedPriceBasis?: "tax_excluded";
   priceBasis?: "tax_inclusive_stay_total";
   currency?: string;
   sourceText?: string;
@@ -24,6 +26,10 @@ export interface OtaRoomObservation {
 }
 
 export interface OtaDayObservation {
+  observedAt?: string;
+  priceReview?: boolean;
+  provenance?: { repository: string; commit: string; jobId: string; attemptId: string; runId: string; path: string };
+  roomIssues?: Record<string, string>;
   stayDate: string;
   checkOut: string;
   state: OtaScanState;
@@ -61,7 +67,7 @@ export interface OtaPlatformScan {
   observations: OtaDayObservation[];
   warnings: string[];
   durationMs: number;
-  collector?: "desktop_computer_use";
+  collector?: "desktop_computer_use" | "anonymous_browser";
 }
 
 export interface OtaSourceOverride {
@@ -91,4 +97,33 @@ export interface OtaScanResponse {
     physicalInventory: false;
     confirmedBookings: false;
   };
+}
+
+/** Capacity confirmation for competitor-radar sell-through / heat (FE gate). */
+export type CapacityStatus = "confirmed" | "pending" | "draft";
+
+export type InventorySource = "confirmed" | "estimated" | "user_confirmed";
+
+export interface CapacityProvenance {
+  confirmedAt: string;
+  confirmedBy: string;
+  source: { kind: "manual_confirmed"; method: string; note?: string };
+  roomCatalogFingerprint: string;
+  path?: string;
+  dailyTotalUnits: number;
+}
+
+/**
+ * Capacity fields expected on github/receiver RadarImport payloads.
+ * Prefer attaching these on RadarImport in radar-dashboard; kept here for shared typing.
+ */
+export interface RadarCapacityFields {
+  capacityStatus?: CapacityStatus;
+  roomInventory?: Record<string, number>;
+  /** Display-only when present; NEVER used for rates/heat. */
+  draftInventory?: Record<string, number>;
+  inventorySource?: InventorySource;
+  capacityProvenance?: CapacityProvenance;
+  assumeUnlisted?: boolean;
+  allowInventoryEditing?: boolean;
 }
