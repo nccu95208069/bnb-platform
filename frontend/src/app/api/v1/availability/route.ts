@@ -9,6 +9,7 @@ import { sourceDefinition, activeSources } from '@/lib/booking-sources/config';
 import { validatePricingSnapshot } from '@/lib/pricing-snapshot';
 import { liveAvailability } from '@/lib/live-availability';
 import type { Channel } from '@/lib/availability';
+import { OFFLAND_REFERENCE_KEY, validateOfflandReference, attachOfflandReference } from '@/lib/offland-reference';
 const headers = {'Cache-Control':'private, no-store',Vary:'Cookie'};
 export async function GET(request: NextRequest) {
   const reply = (data: unknown, status = 200) => NextResponse.json(data, {status,headers});
@@ -30,6 +31,14 @@ export async function GET(request: NextRequest) {
     const prices=raw ? validatePricingSnapshot(JSON.parse(gunzipSync(Buffer.from(String(raw).slice(4),"base64"),{maxOutputLength:4*1024*1024}).toString("utf8")),property) : null;
     const result = liveAvailability({start,end,channel,rooms,demo_cycle:1},bookings,prices,new Date(),property);
     result.properties = activeSources().filter(s => allowedProperty(principal,s.property.id)).map(s => ({id:s.property.id,name:s.property.name,short_name:s.property.name,location:s.property.id === "sweetfun" ? "瑞芳" : "宜蘭五結",room_count:s.property.rooms.length,color:s.property.id === "sweetfun" ? "emerald" : "violet"}));
+    if(property==='offland') {
+      // Optional research data never makes authoritative current prices fail.
+      let reference=null;
+      try { const raw=await redisCommand(['GET',OFFLAND_REFERENCE_KEY]);
+        if(raw)reference=validateOfflandReference(JSON.parse(String(raw)));
+      } catch { /* Missing/invalid research stays unavailable. */ }
+      return reply(attachOfflandReference(result,reference));
+    }
     return reply(result);
   } catch { return reply({detail:'房況或價格來源暫時無法讀取，請稍後重試。'},503); }
 }
