@@ -1,3 +1,4 @@
+import { activeSources } from '@/lib/booking-sources/config';
 import { NextRequest, NextResponse } from "next/server";
 import { principalFor } from "@/lib/workspace-auth/session";
 import { allowedProperty } from "@/lib/workspace-auth/projection";
@@ -12,8 +13,10 @@ export async function POST(request:NextRequest) {
     sameOrigin(request);
     const principal=await principalFor(request);
     if (!principal) return reply({detail:"請先登入。"},401);
-    if (!principal.viewPrices || !["owner","admin","god"].includes(principal.role) || !allowedProperty(principal,"sweetfun")) return reply({detail:"只有水芳管理者可以更新 OwlNest 價格。"},403);
-    return reply(await refreshOwlNest());
+    const property=request.nextUrl.searchParams.get("property") ?? "sweetfun";
+    if (!activeSources().some(s=>s.property.id===property)) return reply({detail:"此旅宿尚未接入定價來源。"},422);
+    if (!principal.viewPrices || !["owner","admin","god"].includes(principal.role) || !allowedProperty(principal,property)) return reply({detail:"只有此旅宿管理者可以更新 OwlNest 價格。"},403);
+    return reply(await refreshOwlNest(undefined,property));
   } catch(error) {
     const code=error instanceof Error ? error.message : "";
     const errors:Record<string,[number,string]>={

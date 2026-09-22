@@ -1083,8 +1083,8 @@ export function BookingCalendarResponsive() {
   const { viewPrices } = useEffectivePermissions();
   const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);
   const membership = useAccessControl((state) => state.membership);
-  const sweetfunAllowed = PAYMENT_SANDBOX || !!membership?.allProperties || !!membership?.propertyIds.includes("sweetfun");
-  const showUnsold = viewPrices && sweetfunAllowed && (selectedPropertyIds.length === 0 || selectedPropertyIds.includes("sweetfun"));
+  const supported = ["sweetfun", "offland"];
+  const showUnsold = viewPrices && supported.some(id => (PAYMENT_SANDBOX || membership?.allProperties || membership?.propertyIds.includes(id)) && (selectedPropertyIds.length === 0 || selectedPropertyIds.includes(id)));
   useEffect(() => { if (ready && !showUnsold && mode === "unsold") setMode("sold"); }, [ready, showUnsold, mode, setMode]);
   if (!ready)
     return <p className="p-4 text-sm text-muted-foreground">{uiText("讀取日曆…")}</p>;
@@ -1115,7 +1115,7 @@ export function BookingCalendarResponsive() {
         </div>
       )}
       {mode === "unsold" && showUnsold ? (
-        <AvailabilityCalendar />
+        <AvailabilityCalendar key={selectedPropertyIds.join(",")} />
       ) : (
         <SoldBookingCalendar />
       )}

@@ -8,6 +8,7 @@ import { channelLabels } from "@/lib/availability";
 type State = ReturnType<typeof useCalendarPreferences.getState>;
 function snapshot(s: State) {
   return {
+    selectedPropertyIds: s.selectedPropertyIds,
     mode: s.mode,
     view: s.view,
     anchorDate: s.anchorDate,
@@ -38,10 +39,11 @@ function validDate(value: string | null): value is string {
     new Date(value).toISOString().slice(0, 10) === value
   );
 }
-const rooms = ["101", "102", "201", "202", "301", "302"];
+const rooms = ["101", "102", "201", "202", "301", "302", "包棟"];
 function fromUrl(s: State) {
   const p = new URLSearchParams(location.search);
   const next = snapshot(s);
+  if (p.has("properties")) next.selectedPropertyIds = [...new Set((p.get("properties") ?? "").split(",").filter(id=>["sweetfun","offland"].includes(id)))];
   const mode = p.get("mode"),
     view = p.get("view"),
     day = p.get("date"),
@@ -79,6 +81,7 @@ function url(s: ReturnType<typeof snapshot>) {
     room: s.availabilityRoom,
     channel: s.availabilityChannel,
   });
+  if (s.selectedPropertyIds?.length) p.set("properties",s.selectedPropertyIds.join(","));
   if (availabilityFeatures.demoPriceCycles)
     p.set("cycle", String(s.availabilityCycle));
   if (s.searchQuery) p.set("q", s.searchQuery);

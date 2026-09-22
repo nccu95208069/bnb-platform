@@ -3,7 +3,7 @@ import {useT} from "@/components/i18n/language-provider";
 
 import Link from "next/link";
 import { useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   LogOut,
   Check,
@@ -185,6 +185,10 @@ function SidebarAccount() {
 }
 
 function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+  const query=useSearchParams();
+  const selected=useCalendarPreferences(s=>s.selectedPropertyIds);
+  const financialProperty=query.get("property") || (selected.length===1 ? selected[0] : "");
+  const financeHref=(path:string)=>`${path}?property=${encodeURIComponent(financialProperty)}`;
   const uiText = useT();
 
   const pathname = usePathname();
@@ -219,7 +223,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       <nav className="flex-1 space-y-1 p-3" aria-label={uiText("工作台導覽")}>
         <Link href="/home" onClick={onNavigate} className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",pathname==="/home"?"bg-primary text-primary-foreground":"text-muted-foreground hover:bg-accent")}><House className="size-4"/>{uiText("首頁")}</Link>
-        {WORKSPACE_MODULES.map(module=>{const Icon=MODULE_ICONS[module.id];if(module.id==='finance'&&!maySeeFinance(membership?.role))return null;const active=pathname===module.href||pathname.startsWith(module.href+'/')||(module.id==='settings'&&pathname==='/access');return module.enabled?<div key={module.id}><Link href={module.href} onClick={onNavigate} className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",active?"bg-primary text-primary-foreground":"text-muted-foreground hover:bg-accent")}><Icon className="size-4"/>{uiText(module.label)}</Link>{module.id==='finance'&&active&&<div className="ml-7 border-l pl-3 text-xs"><Link href="/finance" onClick={onNavigate} className="block py-2">{uiText("財務首頁")}</Link><Link href="/finance/bookkeeping" onClick={onNavigate} className="block py-2">{uiText("記帳")}</Link></div>}</div>:<div key={module.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground/60"><Icon className="size-4"/>{uiText(module.label)}<span className="ml-auto text-[10px]">{uiText("規劃中")}</span></div>;})}
+        {WORKSPACE_MODULES.map(module=>{const Icon=MODULE_ICONS[module.id];if(module.id==='finance'&&!maySeeFinance(membership?.role))return null;const active=pathname===module.href||pathname.startsWith(module.href+'/')||(module.id==='settings'&&pathname==='/access');return module.enabled?<div key={module.id}><Link href={module.id==='finance'?financeHref(module.href):module.href} onClick={onNavigate} className={cn("flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium",active?"bg-primary text-primary-foreground":"text-muted-foreground hover:bg-accent")}><Icon className="size-4"/>{uiText(module.label)}</Link>{module.id==='finance'&&active&&<div className="ml-7 border-l pl-3 text-xs"><Link href={financeHref("/finance")} onClick={onNavigate} className="block py-2">{uiText("財務首頁")}</Link><Link href={financeHref("/finance/bookkeeping")} onClick={onNavigate} className="block py-2">{uiText("記帳")}</Link></div>}</div>:<div key={module.id} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-muted-foreground/60"><Icon className="size-4"/>{uiText(module.label)}<span className="ml-auto text-[10px]">{uiText("規劃中")}</span></div>;})}
 
       </nav>
 

@@ -1,11 +1,14 @@
+import { pricingProperty } from './property-pricing.ts';
 import type { AvailabilityQuery, AvailabilityResult, InventoryState, RoomNight } from './availability';
 import type { BookingSourceSnapshot } from './booking-sources/sweetfun-sheet';
-import { PRICING_ROOMS, type PricingSnapshot } from './pricing-snapshot';
+import { type PricingSnapshot } from './pricing-snapshot';
 
 const nextDay = (d: string) => new Date(Date.parse(d + 'T00:00:00Z') + 86400000).toISOString().slice(0,10);
-export function liveAvailability(query: AvailabilityQuery, bookings: BookingSourceSnapshot, prices: PricingSnapshot | null, now = new Date()): AvailabilityResult {
+export function liveAvailability(query: AvailabilityQuery, bookings: BookingSourceSnapshot, prices: PricingSnapshot | null, now = new Date(), property = "sweetfun"): AvailabilityResult {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year:'numeric',month:'2-digit',day:'2-digit' }).format(now);
-  const rooms = query.rooms.length ? query.rooms : PRICING_ROOMS;
+  const config = pricingProperty(property);
+  if (prices && prices.property_id !== property) throw Error("PRICING_PROPERTY_MISMATCH");
+  const rooms = query.rooms.length ? query.rooms : config.roomNames;
   const priceMap = new Map(prices?.cells.map(c => [`${c.date}|${c.room}`, c]));
   const counts: Record<InventoryState, number> = {available:0,sold:0,held:0,blocked:0,maintenance:0,unknown:0,conflict:0,past:0};
   const cells: RoomNight[] = [];
@@ -33,6 +36,6 @@ export function liveAvailability(query: AvailabilityQuery, bookings: BookingSour
     });
     counts[state]++;
   }
-  return {status:'read_only',mode:'live_sheet_pricing_snapshot',snapshot_id:`${bookings.source.snapshot_version}:${prices?.version ?? 'missing'}`,asof:today,query,property_id:'sweetfun',rooms,cells,counts,price_hidden:false,continuous_windows:[],
+  return {status:'read_only',mode:'live_sheet_pricing_snapshot',snapshot_id:`${bookings.source.snapshot_version}:${prices?.version ?? 'missing'}`,asof:today,query,property_id:property,rooms,cells,counts,price_hidden:false,continuous_windows:[],
     source_notice: prices ? `訂房表持續同步。可按「更新 OwlNest 價格」讀取未來三個月價格；各日期的抓取時間見明細。此為 OwlNest 通路系統價，客人促銷後實付可能不同。` : '訂房表持續同步；價格來源尚未發布，請勿據此報價。'};
 }

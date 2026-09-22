@@ -76,6 +76,9 @@ import {
 } from "@/lib/access-control";
 import { cn } from "@/lib/utils";
 
+import { pricingProperty } from "@/lib/property-pricing";
+import { useAccessControl } from "@/lib/access-control";
+
 export function AvailabilityCalendar() {
 const uiLocale = useIntlLocale();
 
@@ -89,7 +92,10 @@ const uiLocale = useIntlLocale();
     setPeriodLabel = useCalendarPreferences((s) => s.setMobilePeriodLabel);
   const setProperties = useCalendarPreferences((s) => s.setProperties);
   const selectedPropertyIds = useCalendarPreferences((s) => s.selectedPropertyIds);
-  const property = selectedPropertyIds.includes("sweetfun") || selectedPropertyIds.length === 0 ? "sweetfun" : selectedPropertyIds[0];
+  const membership = useAccessControl(s=>s.membership);
+  const allowedIds = ["sweetfun","offland"].filter(id=>membership?.allProperties || membership?.propertyIds.includes(id));
+  const property = selectedPropertyIds.find(id=>allowedIds.includes(id)) ?? allowedIds[0] ?? "sweetfun";
+  const config = pricingProperty(property);
   const search = useCalendarPreferences((s) => s.searchQuery),
     setSearch = useCalendarPreferences((s) => s.setSearchQuery);
   const searchOpen = useCalendarPreferences((s) => s.mobileSearchOpen),
@@ -98,9 +104,11 @@ const uiLocale = useIntlLocale();
     role = useEffectiveRole();
   const canPrice = permissions.viewPrices,
     canHandoff = role === "owner" || role === "admin";
-  const channel = useCalendarPreferences((s) => s.availabilityChannel);
+  const savedChannel = useCalendarPreferences((s) => s.availabilityChannel);
+  const channel = config.channels.includes(savedChannel) ? savedChannel : "direct";
   const setChannel = useCalendarPreferences((s) => s.setAvailabilityChannel);
-  const room = useCalendarPreferences((s) => s.availabilityRoom);
+  const savedRoom = useCalendarPreferences((s) => s.availabilityRoom);
+  const room = config.roomNames.includes(savedRoom) ? savedRoom : "all";
   const setRoom = useCalendarPreferences((s) => s.setAvailabilityRoom);
   const savedCycle = useCalendarPreferences((s) => s.availabilityCycle);
   const cycle = availabilityFeatures.demoPriceCycles ? savedCycle : 1;
@@ -133,7 +141,7 @@ const uiLocale = useIntlLocale();
     setPriceRefreshError(false);
     setPriceRefreshMessage("正在讀取未來三個月、全部房間與通路的最新價格…");
     try {
-      const response = await fetch("/api/v1/availability/refresh", {method:"POST"});
+      const response = await fetch(`/api/v1/availability/refresh?property=${property}`, {method:"POST"});
       const result = await response.json();
       if (!response.ok || !result.verified) throw Error(result.detail || "更新尚未完成，請重試。");
       setPriceRefreshMessage(`已更新未來三個月價格 · ${new Date(result.observed_at).toLocaleString("zh-TW",{timeZone:"Asia/Taipei"})}`);
@@ -230,7 +238,7 @@ const uiLocale = useIntlLocale();
     () => new Map(cells.map((c) => [`${c.date}|${c.room}`, c])),
     [cells],
   );
-  const selectedCell = selected
+  const selectedCell = selected && config.roomNames.includes(selected.room)
     ? byKey.get(`${selected.date}|${selected.room}`) ?? (monthSelected?.date === selected.date && monthSelected.room === selected.room ? monthSelected : undefined)
     : undefined;
   const hidePrice = !canPrice || !!data?.price_hidden;
@@ -391,9 +399,9 @@ const uiLocale = useIntlLocale();
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">{uiText("全部房間")}</SelectItem>
-              {["101", "102", "201", "202", "301", "302"].map((r) => (
+              {config.roomNames.map((r) => (
                 <SelectItem key={r} value={r}>
-                  {r} {uiText("房")}</SelectItem>
+                  {r}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -405,18 +413,18 @@ const uiLocale = useIntlLocale();
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {Object.entries(channelLabels).map(([value, label]) => (
+              {Object.entries(channelLabels).filter(([value])=>config.channels.includes(value as Channel)).map(([value, label]) => (
                 <SelectItem key={value} value={value}>
-                  {uiText(label)}
+                  {uiText(property === "offland" && value === "direct" ? "官網・6 人包棟" : label)}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
           <Button variant="ghost" size="icon" className="size-8" aria-label={uiText("更新未售房況")} disabled={loading} onClick={() => setRefresh(v => v + 1)}><RefreshCw className={cn("size-4", loading && "animate-spin")} /></Button>
-          {!PAYMENT_SANDBOX && property === "sweetfun" && canPrice && ["owner","admin","god"].includes(role) && <Button variant="outline" size="sm" disabled={priceRefreshing} onClick={()=>void refreshPrices()}><RefreshCw className={cn("size-4",priceRefreshing && "animate-spin")} />{priceRefreshing ? "正在抓取價格…" : "更新 OwlNest 價格"}</Button>}
+          {!PAYMENT_SANDBOX && canPrice && ["owner","admin","god"].includes(role) && <Button variant="outline" size="sm" disabled={priceRefreshing} onClick={()=>void refreshPrices()}><RefreshCw className={cn("size-4",priceRefreshing && "animate-spin")} />{priceRefreshing ? "正在抓取價格…" : "更新 OwlNest 價格"}</Button>}
         </div>
       </div>
-      {priceRefreshMessage && <p role={priceRefreshError ? "alert" : "status"} className={cn("text-xs",priceRefreshError ? "text-destructive" : "text-muted-foreground")}>{priceRefreshMessage}</p>}
+      {priceRefreshMessage && <p role={priceRefreshError ? "alert" : "status"} className={cn("text-xs",priceRefreshError ? "text-destructive" : "text-muted-foreground")}>{priceRefreshMessage}<button type="button" aria-label={uiText("關閉")} className="ml-2 px-2" onClick={()=>setPriceRefreshMessage("")}>×</button></p>}
       {!PAYMENT_SANDBOX && <p className="text-[11px] text-muted-foreground" aria-label={uiText("房價上次更新時間")}>{uiText("房價更新")}{data?.cells[0]?.pricing?.observed_at ? new Intl.DateTimeFormat("zh-TW", { timeZone:"Asia/Taipei", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" }).format(new Date(data.cells[0].pricing.observed_at)) : uiText("讀取中")}</p>}
       <div className="flex items-center gap-3 text-xs" aria-label={uiText("未售房況摘要")}>
         <span>{uiText("未售")}<strong className="tabular-nums">{loading ? "—" : data?.counts.available ?? 0}</strong></span>
@@ -510,7 +518,7 @@ const uiLocale = useIntlLocale();
         </div>
       )}
       {view === "month" ? (
-        <UnsoldMonthScroller anchor={anchor} jump={monthJump} property={property} room={room} channel={channel} cycle={cycle} refresh={refresh} search={search} onlyAvailable={onlyAvailable} onVisibleMonth={onVisibleMonth} onSelect={openCell} onSelectDay={selectDay} />
+        <UnsoldMonthScroller key={property} anchor={anchor} jump={monthJump} property={property} room={room} channel={channel} cycle={cycle} refresh={refresh} search={search} onlyAvailable={onlyAvailable} onVisibleMonth={onVisibleMonth} onSelect={openCell} onSelectDay={selectDay} />
       ) : loading ? (
         <div className="flex min-h-72 items-center justify-center gap-2 text-muted-foreground">
           <LoaderCircle className="size-4 animate-spin" />
@@ -665,7 +673,7 @@ const uiLocale = useIntlLocale();
                     ].map(([label, value]) => (
                       <div key={label}>
                         <p className="text-[10px] text-muted-foreground">
-                          {uiText(label)}
+                          {uiText(property === "offland" && value === "direct" ? "官網・6 人包棟" : label)}
                         </p>
                         <p className="mt-1 text-base font-semibold">
                           {value == null ? "—" : priceText(Number(value))}

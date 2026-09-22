@@ -8,9 +8,11 @@ export type InventoryState =
   | "unknown"
   | "conflict"
   | "past";
-export type Channel = "direct" | "airbnb" | "booking" | "agoda" | "owljourney";
+export type Channel = "direct" | "airbnb" | "booking" | "agoda" | "owljourney" | "ctrip" | "direct_four";
 export const channelLabels: Record<Channel, string> = {
   direct: "官網",
+  direct_four: "官網・4 人包棟",
+  ctrip: "Trip.com",
   airbnb: "Airbnb",
   booking: "Booking",
   agoda: "Agoda",

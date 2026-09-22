@@ -1,6 +1,7 @@
 "use client";
 import {useEffect,useState} from 'react';
 import Link from 'next/link';
+import {useSearchParams} from 'next/navigation';
 import {useT,useIntlLocale} from '@/components/i18n/language-provider';
 import {AUDIT_ACTIONS,type FinanceAuditEvent} from '@/lib/finance-audit';
 import {taipeiDate} from '@/lib/finance-model';
@@ -8,12 +9,13 @@ type Report={properties:{id:string;name:string}[];property_id:string;total:numbe
 const labels:Record<string,string>={amount_cents:'金額（分）',amount:'金額（元）',date:'付款日期',description:'說明',method:'付款方式',payment_method:'付款方式',payment_type:'收款類型',received_at:'收款日期',expense_spread:'費用歸屬月份',advanced_by:'代墊人',payment_account:'付款帳戶',category:'分類',category_name:'分類名稱',status:'狀態',void_reason:'作廢原因',allocations:'訂單分配',note:'備註',stage:'收款類型',platform:'預訂平台',name:'名稱',last_digits:'帳戶末碼',start:'開始日期',end:'結束日期',day:'日期',offset:'月份偏移',mode:'模式'};
 export function FinanceAudit(){
  const t=useT(),locale=useIntlLocale();
- const [property,setProperty]=useState(''),[page,setPage]=useState(1),[action,setAction]=useState(''),[search,setSearch]=useState(''),[q,setQ]=useState(''),[refresh,setRefresh]=useState(0),[result,setResult]=useState<{key:string;data:Report}|null>(null),[error,setError]=useState('');
+ const query=useSearchParams();
+ const [property,setProperty]=useState(query.get('property')??''),[page,setPage]=useState(1),[action,setAction]=useState(''),[search,setSearch]=useState(''),[q,setQ]=useState(''),[refresh,setRefresh]=useState(0),[result,setResult]=useState<{key:string;data:Report}|null>(null),[error,setError]=useState('');
  const key=JSON.stringify([property,page,action,q,refresh]),data=result?.key===key?result.data:null;
  useEffect(()=>{const abort=new AbortController();const query=new URLSearchParams({property,year:taipeiDate().slice(0,4),audit:'1',page:String(page),action,q});fetch(`/api/v1/finance?${query}`,{cache:'no-store',signal:abort.signal}).then(async r=>{if(!r.ok)throw Error();return r.json();}).then(data=>{if(!abort.signal.aborted){setResult({key,data});setError('');}}).catch(()=>{if(!abort.signal.aborted)setError('紀錄暫時無法讀取，請重新整理。');});return()=>abort.abort();},[key,property,page,action,q]);
  const value=(v:unknown)=>v==null?'—':typeof v==='object'?JSON.stringify(v,null,2):String(v);
  return <main className="mx-auto max-w-5xl space-y-4 p-3 pb-12 text-slate-800">
- <Link className="text-sm underline" href="/finance">← {t('財務首頁')}</Link><h1 className="text-2xl font-semibold">{t('財務操作紀錄')}</h1>
+ <Link className="text-sm underline" href={`/finance?property=${encodeURIComponent(property||data?.property_id||'')}`}>← {t('財務首頁')}</Link><h1 className="text-2xl font-semibold">{t('財務操作紀錄')}</h1>
  <p className="text-sm text-slate-500">{t('記錄成功的財務操作；歷史缺漏不會推測補填。')}</p>
  <form className="flex flex-wrap gap-2" onSubmit={e=>{e.preventDefault();setPage(1);setQ(search.trim());}}>
  <select aria-label={t('我的旅宿')} value={property||data?.property_id||''} onChange={e=>{setProperty(e.target.value);setPage(1);}} className="min-w-0 rounded-lg border p-2">{result?.data.properties.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>

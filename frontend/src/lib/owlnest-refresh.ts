@@ -1,11 +1,9 @@
+import { pricingProperty } from './property-pricing.ts';
 import { createHash, randomUUID } from "node:crypto";
 import { gzipSync, gunzipSync } from "node:zlib";
-import { PRICING_CHANNELS, PRICING_KEY, validatePricingSnapshot, type PricingSnapshot } from "./pricing-snapshot.ts";
+import { validatePricingSnapshot, type PricingSnapshot } from "./pricing-snapshot.ts";
 import { redisCommand } from "./workspace-auth/store.ts";
 
-const ROOM_IDS: Record<number, string> = {29260:"101",29261:"102",29262:"201",29263:"202",29264:"301",29265:"302"};
-const PLAN_IDS = {35000:"direct",35007:"airbnb",35005:"booking",35006:"agoda",32116:"owljourney"} as const;
-const API = "https://www.owlting.com/booking/v2/admin/hotels/6188/calendars";
 const DAY = 86400000;
 
 export function refreshWindow(now = new Date()) {
@@ -18,19 +16,20 @@ export function refreshWindow(now = new Date()) {
 
 type OwlRoom = { room_id:number; plans:{id:number;plan_items:{date:string;price:number}[]}[]; stocks?:{date:string;count:number|null;is_lock:boolean|0|1}[] };
 export function refreshedSnapshot(raw: unknown, prior: PricingSnapshot, start:string, end:string, observed:string): PricingSnapshot {
+  const config = pricingProperty(prior.property_id);
   const payload = raw as {status:number;data:OwlRoom[]};
   if (payload?.status !== 0 || !Array.isArray(payload.data)) throw Error("OWLNEST_RESPONSE_INVALID");
   const old = new Map(prior.cells.map(c => [`${c.date}|${c.room}`,c]));
   const cells: PricingSnapshot["cells"] = [];
   const seenRooms = new Set<string>();
   for (const room of payload.data) {
-    const code = ROOM_IDS[room.room_id];
+    const code = config.rooms[room.room_id];
     if (!code) continue;
     if (seenRooms.has(code) || !Array.isArray(room.plans)) throw Error("OWLNEST_RESPONSE_INVALID");
     seenRooms.add(code);
-    const values = new Map<string,Partial<Record<typeof PRICING_CHANNELS[number],number>>>();
+    const values = new Map<string,Partial<Record<import("./availability").Channel,number>>>();
     for (const plan of room.plans) {
-      const channel = PLAN_IDS[plan.id as keyof typeof PLAN_IDS];
+      const channel = config.plans[plan.id];
       if (!channel) continue;
       if (!Array.isArray(plan.plan_items)) throw Error("OWLNEST_RESPONSE_INVALID");
       for (const item of plan.plan_items) {
@@ -52,14 +51,14 @@ export function refreshedSnapshot(raw: unknown, prior: PricingSnapshot, start:st
     }
     for (let d=Date.parse(start); d<Date.parse(end); d+=DAY) {
       const date=new Date(d).toISOString().slice(0,10), channels=values.get(date);
-      if (!channels || PRICING_CHANNELS.some(c => channels[c] === undefined)) throw Error("OWLNEST_RESPONSE_INCOMPLETE");
+      if (!channels || config.channels.some(c => channels[c] === undefined)) throw Error("OWLNEST_RESPONSE_INCOMPLETE");
       const previous = old.get(`${date}|${code}`);
       cells.push({date,room:code,channels,observed_at:observed,stock:stocks.get(date) ?? null,
         rack_price:previous?.rack_price ?? null,daytype:previous?.daytype ?? "",baseline_version:previous?.baseline_version ?? "",
         sales_probability:previous?.sales_probability ?? null});
     }
   }
-  if (seenRooms.size !== 6) throw Error("OWLNEST_RESPONSE_INCOMPLETE");
+  if (seenRooms.size !== config.roomNames.length) throw Error("OWLNEST_RESPONSE_INCOMPLETE");
   // Dates outside this refresh retain their own observation time, never appear freshly read.
   cells.push(...prior.cells.filter(c => c.date < start || c.date >= end).map(c=>({...c,observed_at:c.observed_at ?? prior.observed_at})));
   cells.sort((a,b)=>a.date.localeCompare(b.date)||a.room.localeCompare(b.room));
@@ -68,7 +67,9 @@ export function refreshedSnapshot(raw: unknown, prior: PricingSnapshot, start:st
   return validatePricingSnapshot(snapshot);
 }
 
-export async function readOwlNest(start:string,end:string) {
+export async function readOwlNest(start:string,end:string,property="sweetfun") {
+  const config=pricingProperty(property);
+  const API=`https://www.owlting.com/booking/v2/admin/hotels/${config.hotel}/calendars`;
   const authorization = process.env.OWLNEST_AUTHORIZATION;
   if (!authorization || authorization.length < 20 || /undefined|null/i.test(authorization)) throw Error("OWLNEST_NOT_CONFIGURED");
   const inclusiveEnd = new Date(Date.parse(end)-DAY).toISOString().slice(0,10);
@@ -83,24 +84,25 @@ export async function readOwlNest(start:string,end:string) {
   return raw;
 }
 
-export async function refreshOwlNest(deps={command:redisCommand,read:readOwlNest,now:()=>new Date()}) {
+export async function refreshOwlNest(deps={command:redisCommand,read:readOwlNest,now:()=>new Date()}, property="sweetfun") {
+  const config=pricingProperty(property), PRICING_KEY=config.key;
   const lock = PRICING_KEY+":refresh-lock", owner=randomUUID();
   if (await deps.command(["SET",lock,owner,"NX","EX",90]) !== "OK") throw Error("PRICE_REFRESH_BUSY");
   try {
     const raw=await deps.command(["GET",PRICING_KEY]);
-    if (typeof raw !== "string" || !raw.startsWith("gz1:")) throw Error("PRICING_NOT_READY");
-    const prior=validatePricingSnapshot(JSON.parse(gunzipSync(Buffer.from(raw.slice(4),"base64"),{maxOutputLength:4*1024*1024}).toString("utf8")));
+    if (raw !== null && (typeof raw !== "string" || !raw.startsWith("gz1:"))) throw Error("PRICING_NOT_READY");
+    const prior:PricingSnapshot=raw === null ? {schema:1,property_id:config.id,observed_at:"1970-01-01T00:00:00Z",version:"0".repeat(20),source_commit:"0".repeat(40),cells:[]} : validatePricingSnapshot(JSON.parse(gunzipSync(Buffer.from(String(raw).slice(4),"base64"),{maxOutputLength:4*1024*1024}).toString("utf8")),property);
     const {start,end}=refreshWindow(deps.now());
-    const response=await deps.read(start,end);
+    const response=await deps.read(start,end,property);
     const observed=deps.now().toISOString();
     if (Date.parse(observed) <= Date.parse(prior.observed_at)) throw Error("PRICE_REFRESH_CONFLICT");
     const snapshot=refreshedSnapshot(response,prior,start,end,observed);
     const encoded="gz1:"+gzipSync(JSON.stringify(snapshot)).toString("base64");
-    const result=await deps.command(["EVAL","if redis.call('GET',KEYS[1])~=ARGV[1] or redis.call('GET',KEYS[2])~=ARGV[2] then return 0 end; redis.call('SET',KEYS[3],ARGV[2]); redis.call('SET',KEYS[2],ARGV[3]); return 1",3,lock,PRICING_KEY,PRICING_KEY+":previous",owner,raw,encoded]).catch(()=>{throw Error("PRICE_REFRESH_UNCONFIRMED");});
+    const result=await deps.command(["EVAL","if redis.call('GET',KEYS[1])~=ARGV[1] or (redis.call('GET',KEYS[2]) or '')~=ARGV[2] then return 0 end; if ARGV[2]~='' then redis.call('SET',KEYS[3],ARGV[2]); end; redis.call('SET',KEYS[2],ARGV[3]); return 1",3,lock,PRICING_KEY,PRICING_KEY+":previous",owner,raw ?? "",encoded]).catch(()=>{throw Error("PRICE_REFRESH_UNCONFIRMED");});
     if (result !== 1) throw Error("PRICE_REFRESH_CONFLICT");
     const confirmed=await deps.command(["GET",PRICING_KEY]).catch(()=>{throw Error("PRICE_REFRESH_UNCONFIRMED");});
     if (confirmed !== encoded) throw Error("PRICE_REFRESH_UNCONFIRMED");
-    return {verified:true,observed_at:observed,start,end,version:snapshot.version,room_count:6,channel_count:5};
+    return {verified:true,observed_at:observed,start,end,version:snapshot.version,property_id:property,room_count:config.roomNames.length,channel_count:config.channels.length};
   } finally {
     await deps.command(["EVAL","if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end; return 0",1,lock,owner]).catch(()=>undefined);
   }
