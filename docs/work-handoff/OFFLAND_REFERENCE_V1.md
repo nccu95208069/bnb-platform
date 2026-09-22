@@ -38,7 +38,17 @@ and two pre-existing unused-variable warnings. Targeted cases cover isolation,
 permissions, future/stale/missing values, occupied nights, changed current prices,
 OTA exclusion and four-person matching. The first cache is readback-verified:
 version 8048a7656370cfbd9fb8, 26 villa dates, research date 2026-09-22.
-Browser and deployment verification are still pending at this commit.
+Deployment promoted: `sweetfun-k4rpdz52v-sweetfuns-projects.vercel.app`, deployment
+`dpl_F47FSycog1bWkxsQm4iiHReNCGxy`, code commit `8fda6e7`; PR #22 targets the
+production baseline branch, not main. Candidate anonymous API check returned 401.
+Real signed-in Chrome verification on sweetfun-os.vercel.app: 2026-10-05 six-person
+current 10000 / trial 8800, four-person current 8600 / trial 7260, shared probability
+32.1%. Desktop and 390x844 mobile day view passed; detail states research date,
+one-villa interpretation, unfinished calibration and no automatic OwlNest changes.
+The earlier standalone live-handler smoke attempt lacked local signing settings;
+no credential was changed, and verification used the existing signed-in browser.
+Daily heartbeat `offland` now refreshes only the research cache after observation;
+the first actual scheduled refresh remains to be observed.
 
 Rollback: return domain to the prior verified production deployment. Research data
 can remain because prior code does not read this key. Do not roll back live prices.
