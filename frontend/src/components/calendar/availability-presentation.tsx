@@ -44,7 +44,10 @@ export function PricePair({
       >
         {priceText(p.current_price)}
       </p>
-      <p className={compact ? "text-[9px] leading-tight opacity-80" : "text-xs"}>{uiText(probabilityText(cell.sales_probability))}</p>
+      <p className={compact ? "text-[9px] leading-tight opacity-80" : "text-xs"}>{cell.offland_reference
+        ? cell.offland_reference.probability == null ? "試算機率 —" : `試算 ${Math.floor(cell.offland_reference.probability*1000)/10}%`
+        : uiText(probabilityText(cell.sales_probability))}</p>
+      {cell.offland_reference?.suggested_price != null && <p className={compact ? "text-[9px] leading-tight" : "text-xs"}>建議 {priceText(cell.offland_reference.suggested_price)} · 未發布</p>}
       {!compact && (
         <p className="text-xs text-muted-foreground">
           {p.suggested_price != null
@@ -55,4 +58,3 @@ export function PricePair({
     </div>
   );
 }
-

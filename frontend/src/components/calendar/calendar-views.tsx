@@ -1,4 +1,5 @@
 "use client";
+import {GuestNotificationButton} from "./guest-notification";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 
@@ -80,7 +81,7 @@ function BookingChip({
       : "";
 
   return (
-    <button
+    <div className="flex min-w-0 items-center gap-1"><button
       type="button"
       data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
       onClick={() => onSelect(booking)}
@@ -125,7 +126,7 @@ function BookingChip({
       <span className="ml-auto hidden sm:inline-block">
         <PaymentDot booking={booking} />
       </span>
-    </button>
+    </button><GuestNotificationButton booking={booking} /></div>
   );
 }
 

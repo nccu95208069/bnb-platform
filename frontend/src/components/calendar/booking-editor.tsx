@@ -1,4 +1,5 @@
 "use client";
+import {GuestNotificationButton} from "./guest-notification";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 
@@ -858,6 +859,7 @@ const uiLocale = useIntlLocale();
               </SheetDescription>
             </div>
           </SheetHeader>
+          {booking && <div className="px-5 pt-4"><GuestNotificationButton booking={booking} detail /></div>}
 
           {booking && (
             <div className="space-y-5 px-5 py-5">

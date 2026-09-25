@@ -64,6 +64,7 @@ export type NightPrice = {
 };
 export type SalesProbability = { value: number; asof: string; source_version: string };
 export type RoomNight = {
+  offland_reference?: import('./offland-reference').OfflandReference | null;
   sales_probability?: SalesProbability | null;
   date: string;
   room: string;

@@ -1,4 +1,5 @@
 "use client";
+import {GuestNotificationProvider} from "./guest-notification";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 import { OsPaymentPanel } from "@/components/payments/os-payment-panel";
@@ -1089,7 +1090,7 @@ export function BookingCalendarResponsive() {
   if (!ready)
     return <p className="p-4 text-sm text-muted-foreground">{uiText("讀取日曆…")}</p>;
   return (
-    <div className={paymentReview && viewPrices && mode === "sold" ? "payment-review" : ""}>
+    <GuestNotificationProvider><div className={paymentReview && viewPrices && mode === "sold" ? "payment-review" : ""}>
       {(showUnsold || (viewPrices && mode === "sold")) && (
         <div className="sticky top-14 z-40 mb-1 flex flex-wrap items-center justify-end gap-1 bg-background/95 py-1 backdrop-blur md:top-0">
           {viewPrices && mode === "sold" && <Button size="sm" variant={paymentReview ? "default" : "outline"} aria-pressed={paymentReview} onClick={() => setPaymentReview(v=>!v)} className="mr-auto">{uiText("檢視付款狀態")}</Button>}
@@ -1119,6 +1120,6 @@ export function BookingCalendarResponsive() {
       ) : (
         <SoldBookingCalendar />
       )}
-    </div>
+    </div></GuestNotificationProvider>
   );
 }

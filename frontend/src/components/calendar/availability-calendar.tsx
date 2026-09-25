@@ -657,7 +657,8 @@ const uiLocale = useIntlLocale();
               </Badge>
               <p className="text-sm">{selectedCell.reason}</p>
               {selectedCell.state === "available" && <div className={cn("rounded-lg border p-3 text-sm", roomNightStyle(selectedCell))}>
-                <p className="font-semibold">{probabilityText(selectedCell.sales_probability)}</p>
+                <p className="font-semibold">{property === "offland" ? selectedCell.offland_reference?.probability != null ? `整棟售出機率（試算中）${Math.floor(selectedCell.offland_reference.probability*1000)/10}%` : "試算機率未提供" : probabilityText(selectedCell.sales_probability)}</p>
+                {property === "offland" && <p className="mt-1 text-xs">四人／六人共用同一棟機率。歷史資料仍在驗證，並非此價格的成交保證。{selectedCell.offland_reference ? `預測日期：${selectedCell.offland_reference.asof}。` : "資料不足、連假或過期時留白。"}不會自動修改 OwlNest。</p>}
                 {selectedCell.sales_probability && <p className="mt-1 text-xs">{uiText("模型預測日期：")}{selectedCell.sales_probability.asof}{uiText("。這是定價模型的售出機率，非成交保證，也不表示調價已執行。")}</p>}
               </div>}
               {!hidePrice && selectedCell.pricing && (
@@ -682,6 +683,7 @@ const uiLocale = useIntlLocale();
                     ))}
                   </div>
                   <p className="flex items-start gap-2 text-xs text-muted-foreground">
+                    {property === "offland" && <span>參考建議價：{selectedCell.offland_reference?.suggested_price != null ? priceText(selectedCell.offland_reference.suggested_price) : "—"}（未發布）。僅四／六人官網方案；依底價與漲跌限制試算，不依機率調價。原價改變後停止顯示舊建議。</span>}
                     <CircleHelp className="size-4 shrink-0" />
                     {selectedCell.pricing.limits}{uiText("。價格讀取：")}{selectedCell.pricing.observed_at ? new Date(selectedCell.pricing.observed_at).toLocaleString(uiLocale, {timeZone:"Asia/Taipei"}) : uiText("尚無資料")}{uiText("。價格版本")}{selectedCell.pricing.price_version}
                     {uiText("。客人前台實付尚未核對，通路促銷可能使實付與系統價不同。")}</p>

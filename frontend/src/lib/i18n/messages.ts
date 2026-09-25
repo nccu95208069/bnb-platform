@@ -1,4 +1,11 @@
 export const messages:Record<string,{en:string;th:string;vi:string}>= {
+  "儲存未確認，請重試": {"en": "Save not confirmed. Please retry.", "th": "ยังยืนยันการบันทึกไม่ได้ กรุณาลองใหม่", "vi": "Chưa xác nhận lưu. Vui lòng thử lại."},
+  "狀態已被更新，請重新確認": {"en": "Status changed. Please check again.", "th": "สถานะเปลี่ยนแล้ว กรุณาตรวจสอบอีกครั้ง", "vi": "Trạng thái đã thay đổi. Vui lòng kiểm tra lại."},
+  "通知狀態讀取失敗，點此重試": {"en": "Unable to load notification status. Retry.", "th": "โหลดสถานะไม่ได้ กรุณาลองใหม่", "vi": "Không tải được trạng thái. Hãy thử lại."},
+  "僅標記已通知，不會發送訊息": {"en": "Records notification only; no message is sent.", "th": "บันทึกสถานะแจ้งแล้วเท่านั้น ไม่ส่งข้อความ", "vi": "Chỉ ghi nhận đã thông báo, không gửi tin nhắn."},
+  "撤回已通知標記": {"en": "Undo notified status", "th": "ยกเลิกสถานะแจ้งแล้ว", "vi": "Hủy trạng thái đã thông báo"},
+  "✅ 已通知": {"en": "✅ Notified", "th": "✅ แจ้งแล้ว", "vi": "✅ Đã thông báo"},
+  "尚未通知": {"en": "Not notified", "th": "ยังไม่ได้แจ้ง", "vi": "Chưa thông báo"},
   "財務操作紀錄": {"en": "Financial activity", "th": "ประวัติการเงิน", "vi": "Nhật ký tài chính"},
   "記錄成功的財務操作；歷史缺漏不會推測補填。": {"en": "Successful financial actions; missing historical details are not inferred.", "th": "บันทึกการเงินที่สำเร็จ ไม่คาดเดาข้อมูลเก่าที่ขาดหาย", "vi": "Ghi lại thao tác tài chính thành công; không suy đoán dữ liệu lịch sử còn thiếu."},
   "操作類型": {"en": "Action type", "th": "ประเภทการดำเนินการ", "vi": "Loại thao tác"},
