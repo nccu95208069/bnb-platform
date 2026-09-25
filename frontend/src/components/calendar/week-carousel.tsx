@@ -1,4 +1,5 @@
 "use client";
+import {GuestNotificationButton} from "./guest-notification";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 
@@ -62,7 +63,7 @@ function MobileBookingChip({
   const uiText = useT();
   const nights = stayNightCount(booking);
   return (
-    <button
+    <div className="flex min-w-0 items-center gap-1"><button
       type="button"
       data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
       onClick={() => onSelect(booking)}
@@ -89,7 +90,7 @@ function MobileBookingChip({
         </span>
       )}
       <PaymentDot booking={booking} />
-    </button>
+    </button><GuestNotificationButton booking={booking} /></div>
   );
 }
 
@@ -306,11 +307,9 @@ const uiLocale = useIntlLocale();
                   const endIndex = dayDifference(clippedEnd, rangeStart);
                   const nights = stayNightCount(booking);
                   return (
-                    <button
+                    <div
                       key={booking.id}
-                      type="button"
                       data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
-                  onClick={() => onSelectBooking(booking)}
                       className={cn(
                         "z-20 mx-1 my-2 flex min-h-10 py-2 min-w-0 self-center rounded-lg border px-2.5 text-left text-xs shadow-sm transition hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
@@ -321,7 +320,7 @@ const uiLocale = useIntlLocale();
                       }}
                       title={uiText("{0}｜{1}｜{2}–{3}｜連住 {4} 晚", [bookingIdentityText(booking),booking.property_name,booking.check_in,booking.check_out,nights])}
                     >
-                      <span className="flex min-w-0 flex-1 items-center gap-2">
+                      <button type="button" onClick={() => onSelectBooking(booking)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                         <span
                           className={cn(
                             "size-2 shrink-0 rounded-sm",
@@ -336,8 +335,8 @@ const uiLocale = useIntlLocale();
                             {uiText("連住")}{nights} {uiText("晚")}</span>
                         )}
                         <PaymentDot booking={booking} />
-                      </span>
-                    </button>
+                      </button><GuestNotificationButton booking={booking} />
+                    </div>
                   );
                 })}
               </div>
