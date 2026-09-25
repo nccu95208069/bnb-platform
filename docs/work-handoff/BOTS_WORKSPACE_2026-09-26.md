@@ -36,3 +36,20 @@ Run `npm run lint` and `npm run build`. Deployment and browser acceptance result
 ## Rollback
 
 Previous production deployment: `dpl_5LfZVmDUCY1PRxyFHtqGFd6sFmZM` (`sweetfun-bcet1nfwl-sweetfuns-projects.vercel.app`). Promote previous deployment to roll back UI/API without touching live orders or sandbox records.
+
+## Completed deployment and acceptance
+
+- Production URL: https://sweetfun-os.vercel.app/bots
+- Deployed code: `8d09b60`; deployment `dpl_B2sZhCi6xAFA98PDEj2gmzn8GzbA`.
+- Candidate build passed, app-level anonymous API returned 401 and HTML redirected to login. Static assets returned 200. Promoted after checking previous production had not changed.
+- Production anonymous state and conversation APIs returned 401.
+- Existing owner browser session opened all five roles; the real source showed healthy current synchronization and Gemini configured.
+- Real Gemini chat generated the current-month fixed report. Financial tool independently matched its room-night count and recorded room-charge total, while actual settlement, balance and profit stayed unknown.
+- An explicitly labelled sandbox acceptance task was created, read back after a full reload, and marked complete. No production booking or payment mutation was performed.
+- Conversation survived reload and is available in recent conversations. Browser console had no warnings or errors during report acceptance.
+- Automated tests: 37 Bot tests and 168 existing frontend regression tests passed. Production and local builds passed. Lint: zero errors; two pre-existing unused-variable warnings in calendar views remain.
+- The owner's explicit approval to store the provided Gemini key in this project's Production Secret was obtained after automatic security review requested it. The secret was configured without printing or committing its value.
+
+## Owner trial
+
+Sign in with the existing Sweetfun owner account. Choose 分析專家 and 目前訂單 · 唯讀, then ask「依固定框架分析本月訂房狀況」. Choose 隔離測試資料 to try reservation/payment/document changes. Team settings controls bot scope and fixed report templates. Live financial facts are recorded room charges and guest payment flags only; this release does not connect the separate formal settlement ledger.
