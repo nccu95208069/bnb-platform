@@ -1,0 +1,27 @@
+export const roles = {
+ concierge: {name:'總管家', icon:'✳', color:'#566554', tagline:'把事情安排好，讓你專心待客。', mission:'協調營運、分派工作、追蹤異常；不代替專業角色執行交易。', read:['sop','operations','analysis','market'], write:['operations'], tools:['overview','tasks.list','tasks.create','tasks.update','delegate','documents.list','documents.read','documents.create','documents.update','documents.archive','calculate','organize'], no:['直接修改訂單、收款、房價或庫存','替其他 Bot 擴權','刪除稽核紀錄'], prompts:['整理目前營運重點與待辦','請分析專家分析本月訂房狀況','新增明天檢查備品的營運任務']},
+ finance: {name:'財務經理', icon:'◈', color:'#94734c', tagline:'每一筆收支，都有依據。', mission:'登記收款、沖銷錯帳、核對應收與實收；保留完整帳務軌跡。', read:['sop','finance','reservations'], write:['finance'], tools:['finance.summary','payments.record','payments.reverse','orders.list','documents.list','documents.read','documents.create','documents.update','documents.archive','calculate','organize'], no:['修改訂單房間、日期或價格','永久刪除收款紀錄','將表載房費宣稱為淨利'], prompts:['整理本月收款與未收款','查詢隔離訂單的付款狀況','計算 12800 扣除 15% 佣金的金額']},
+ reservations: {name:'訂房經理',icon:'⌂',color:'#667e99',tagline:'從空房到入住，井然有序。',mission:'查房、建立與調整訂單、取消訂單；每次修改檢查房態與版本。',read:['sop','reservations','operations'],write:['reservations'],tools:['orders.list','availability','orders.create','orders.update','orders.cancel','documents.list','documents.read','documents.create','documents.update','documents.archive','calculate','organize'],no:['收款、退款或修改帳本','刪除訂單歷史','操作正式 OTA 庫存'],prompts:['列出本月訂單','查詢本週可用房間','整理待入住的訂單']},
+ analyst:{name:'分析專家',icon:'↗',color:'#88749c',tagline:'讓數字回答問題。',mission:'依業主固定模板整理訂房分析；只填可信指標，不自行擴充章節、推測原因或捏造數字。',read:['sop','analysis'],write:['analysis'],tools:['reports.booking','documents.list','documents.read','documents.create','documents.update','documents.archive','calculate','organize'],no:['讀取住客身份或逐筆收款','修改訂單與來源資料','修改業主模板、自由擴充報告'],prompts:['依固定框架分析本月訂房狀況','分析各房間與通路的表現','計算 (32000 - 6800) / 32000 * 100']},
+ market:{name:'市場調查經理',icon:'◎',color:'#a17b69',tagline:'先看證據，再談市場。',mission:'整理附來源的市場觀察與可比報價；缺資料就列缺口，不把未知当售罄。',read:['sop','market'],write:['market'],tools:['reports.market','market.list','market.add','market.archive','documents.list','documents.read','documents.create','documents.update','documents.archive','calculate','organize'],no:['讀取住客或財務明細','發布或調整正式房價','將不可比較價格納入中位數、假造來源'],prompts:['依框架整理市場觀察','列出可比較的競品證據','整理目前市場資料的缺口']}
+};
+export const categories={sop:'共同作業規範',operations:'營運與任務',finance:'財務與對帳',reservations:'訂單與房態',analysis:'分析報告',market:'市場研究'};
+export const metrics={occupied:{label:'已訂房晚',unit:'房晚',definition:'期間內有效訂单占用的實體房晚，退房日不計。'},capacity:{label:'可售房晚基數',unit:'房晚',definition:'房間數 × 區間天數；未接停賣紀錄時是假設持續可售。'},occupancy:{label:'假設住房率',unit:'%',definition:'已訂房晚 ÷ 可售房晚基數 × 100；不代表實際入住率。'},revenue:{label:'表載可分析房費',unit:'元',definition:'已知且無衝突房晚的表載金額，非實收或淨利。'},adr:{label:'平均有收費房晚金額',unit:'元',definition:'正金額且無衝突房費 ÷ 對應房晚；零元與未知不算。'},unknown:{label:'金額未知／衝突房晚',unit:'房晚',definition:'缺少房費或房晚資料存在衝突，不視為零。'},directShare:{label:'直訂房晚占比',unit:'%',definition:'已知直訂房晚 ÷ 已訂房晚 × 100。'}};
+export const defaultTemplates=[{id:'booking',title:'訂房營運分析',version:1,sections:[{title:'營運概況',group:'all',metrics:['occupied','capacity','occupancy','revenue','adr','unknown']},{title:'房間表現',group:'room',metrics:['occupied','occupancy','revenue','adr']},{title:'通路組成',group:'channel',metrics:['occupied','revenue','adr']}],note:'只呈現已核對數字；未具備成本、停賣及完整取消歷史，不推算淨利、實際入住率或需求原因。'},{id:'market',title:'市場觀察報告',version:1,sections:[{title:'可比樣本',group:'evidence',metrics:[]},{title:'可比價格摘要',group:'comparisons',metrics:[]},{title:'資料缺口',group:'gaps',metrics:[]}],note:'同入住日、晚數、人數、稅費及取消條件才可比較。未知不等於售罄。'}];
+export const products=[
+ {name:'Sweetfun OS',domain:'日曆・訂單・財務',owner:'訂房／財務經理',state:'水芳目前訂單唯讀'},
+ {name:'LINE 訂房 / Gmail',domain:'多通路收單與訂單異常',owner:'訂房經理',state:'未接入'},
+ {name:'AI 訂單健檢',domain:'匿名歷史分析快照',owner:'分析專家',state:'固定框架已整合'},
+ {name:'bnb-pricing',domain:'動態房價與發布',owner:'分析 → 總管家交辦',state:'未接入・不可發布'},
+ {name:'競品雷達',domain:'可比價格與證據',owner:'市場調查經理',state:'隔離證據管理'},
+ {name:'Daili',domain:'住客客服與訊息',owner:'總管家協調',state:'未接入・不可傳訊'},
+ {name:'RoomReady',domain:'清掃與備品任務',owner:'總管家',state:'未接入・隔離待辦'}
+];
+export const toolHelp={
+ 'overview':'無參數。取得營運摘要，不含逐筆財務。','tasks.list':'無參數。列任務。','tasks.create':'{title,assignee:BotID,due:YYYY-MM-DD}。新增隔離任務。','tasks.update':'{id,version,status:todo|doing|done}。更新任務。','delegate':'{botId,instruction}。分派一次，只能使用對方自身工具，不可再分派。',
+ 'orders.list':'{start?,end?,id?}。依目前資料集查詢訂單；live 顯示匿名房晚，sandbox 為隔離訂單。','availability':'{start,end}。入住至退房的可用房間。','orders.create':'{room,start,end,guest,total,channel}。日期必須 YYYY-MM-DD、total 非負數，先查 availability。','orders.update':'{id,version,room?,start?,end?,guest?,total?,channel?}。先查 orders.list 取得版本。','orders.cancel':'{id,version}。取消並保留歷史。',
+ 'finance.summary':'{start?,end?}。sandbox 依入住期間看應收與收款現金流；live 僅核對表載房費，實收與未收餘額未知。','payments.record':'{orderId,amount,method:cash|transfer|card,receivedAt:YYYY-MM-DD}。必須明確訂單與金額。','payments.reverse':'{id,reason}。全額沖銷原收款，非真的退款。',
+ 'documents.list':'無參數。僅可讀範圍。','documents.read':'{id}。讀取一份允許文件。','documents.create':'{category,title,content}。新增允許分類文件。','documents.update':'{id,version,title,content}。先讀文件取得版本。','documents.archive':'{id,version}。可追溯封存。',
+ 'reports.booking':'{start:YYYY-MM-DD,end:YYYY-MM-DD}。按已核准模板產出，不增加說明文字；end 為不含當日。','reports.market':'無參數。固定市場報告。','market.list':'無參數。列市場證據。','market.add':'{name,url,stayDate,nights,guests,price,taxIncluded:boolean,cancellation,observedAt:ISO時間}。只保存使用者給的證據，不假裝已上網查證。','market.archive':'{id,version}。封存證據。',
+ 'calculate':'{expression}。僅 + - * / % 和括號；% 代表百分比，例如 12800*(1-15%)。','organize':'{rows:[{...}],sortBy?,groupBy?}。整理使用者給的表格，不新增事實。'
+};
