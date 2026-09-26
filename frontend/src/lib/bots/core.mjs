@@ -13,11 +13,11 @@ const month=()=>{const m=today().slice(0,7);const d=new Date(m+'-01');d.setUTCMo
 export const rooms={sweetfun:['101','102','201','202','301','302'],offland:['villa']};
 export function range(a={}){const r={...month(),...a};need(date(r.start)&&date(r.end)&&days(r.start,r.end)>0&&days(r.start,r.end)<=730,'請提供有效日期區間（最多 730 天，結束日不包含）。');return r;}
 export function context(s,botId,property,dataset='sandbox'){
- const bot=s.get('bots',botId);need(bot&&bot.active,'Bot 不存在或已停用。');need(rooms[property],'據點不存在。');need(['sandbox','live'].includes(dataset),'資料來源不存在。');
+ const bot=s.get('bots',botId);need(bot&&bot.active,'Bot 不存在或已停用。');need(rooms[property],'據點不存在。');need(['sandbox','live','imported'].includes(dataset),'資料來源不存在。');
  if(dataset==='live'&&property!=='sweetfun')fail('not_configured','正式來源目前只開放水芳訂單。',409);
- return {bot,property,dataset};
+ return {bot,property,dataset,preferences:s.get('onboarding',property+':'+bot.role)};
 }
-export function authorize(c,tool){if(!roles[c.bot.role].tools.includes(tool)||!c.bot.tools.includes(tool))fail('forbidden','這個 Bot 沒有使用此工具的權限。',403);if(c.dataset==='live'&&!['overview','orders.list','availability','finance.summary','reports.booking','calculate','organize','delegate'].includes(tool))fail('readonly_source','正式資料唯讀；請切換隔離測試資料進行新增、修改、取消、收款及文件操作。',403);}
+export function authorize(c,tool){if(!roles[c.bot.role].tools.includes(tool)||!c.bot.tools.includes(tool))fail('forbidden','這個 Bot 沒有使用此工具的權限。',403);if(c.dataset!=='sandbox'&&!['overview','orders.list','availability','finance.summary','reports.booking','calculate','organize','delegate'].includes(tool))fail('readonly_source','正式資料唯讀；請切換隔離測試資料進行新增、修改、取消、收款及文件操作。',403);}
 function scoped(s,kind,id,c){const v=s.get(kind,id);if(!v||v.property!==c.property)fail('not_found','找不到這個據點的紀錄。',404);return v;}
 function docPermit(c,d,mode){const list=mode==='read'?c.bot.read:c.bot.write;if(!list.includes(d.category)||!(mode==='read'?roles[c.bot.role].read:roles[c.bot.role].write).includes(d.category))fail('forbidden','此文件不在 Bot 的授權範圍。',403);if(d.dataset!==c.dataset)fail('readonly_source','此資料來源不允許這項操作。',403);}
 function version(v,a){if(a.version!==v.version)fail('version_conflict','資料已更新，請重新讀取後再操作。',409);}
@@ -35,10 +35,10 @@ export function calculate(expression){
 export function historySource(s){if(!s.live)fail('source_unavailable','正式訂單來源暫時無法讀取，請稍後重試。',503);return liveProjection(s.live);}
 function reportBooking(s,c,a){
  const r=range(a),template=s.get('templates','booking');let rs,roomList,source;
- if(c.dataset==='live'){const h=historySource(s);rs=h.rows;roomList=h.rooms;source={mode:'live',title:'水芳目前訂單・唯讀',asof:h.asof,version:h.hash,warning:'管理系統同步資料；表載房晚占用率未扣停賣，不能推定 OTA 可售庫存。'};}
+ if(c.dataset!=='sandbox'){const h=historySource(s);rs=h.rows;roomList=h.rooms;source={mode:c.dataset,title:s.live.source.title||'水芳目前訂單・唯讀',asof:h.asof,version:h.hash,warning:'管理系統同步資料；表載房晚占用率未扣停賣，不能推定 OTA 可售庫存。'};}
  else{roomList=rooms[c.property];rs=all(s,'orders',c).filter(o=>o.status==='active').flatMap(o=>{const n=days(o.start,o.end);return Array.from({length:n},(_,i)=>({room:o.room,day:new Date(Date.parse(o.start)+i*86400000).toISOString().slice(0,10),channel:o.channel,fee:o.total===null?null:o.total/n,ambiguous:false}));});source={mode:'sandbox',title:'隔離測試訂單',asof:new Date().toISOString(),warning:'示範資料，僅供操作驗收；非真實營運績效。'};}
  const filtered=rs.filter(x=>x.day>=r.start&&x.day<r.end);
- const outside=false; // Current snapshot covers the selected calendar; no bookings means no recorded occupancy.
+ const outside=c.dataset==='imported'&&(r.start<s.live.period.start||r.end>s.live.period.end); // Current snapshot covers the selected calendar; no bookings means no recorded occupancy.
  const grouped=new Map();for(const x of filtered){const k=x.room+'|'+x.day;if(!grouped.has(k))grouped.set(k,[]);grouped.get(k).push(x);}
  const normalized=[...grouped.values()].map(xs=>xs.length>1||xs[0].ambiguous?{...xs[0],fee:null,channel:'待確認',ambiguous:true}:xs[0]);
  function values(rows,cap){const occ=rows.length,good=rows.filter(x=>x.fee!==null&&!x.ambiguous),paid=good.filter(x=>x.fee>0);return {occupied:outside?null:occ,capacity:outside?null:cap,occupancy:outside||cap===null?null:round(occ/cap*100),revenue:outside||(!good.length&&occ)?null:round(good.reduce((n,x)=>n+x.fee,0)),adr:outside||!paid.length?null:round(paid.reduce((n,x)=>n+x.fee,0)/paid.length),unknown:outside?null:rows.filter(x=>x.fee===null||x.ambiguous).length,directShare:outside||!occ?null:round(rows.filter(x=>['direct','直客','直訂'].includes(x.channel)).length/occ*100)};}
@@ -47,7 +47,7 @@ function reportBooking(s,c,a){
 }
 export function execute(s,c,tool,a={},key=uid('op')){
  authorize(c,tool);need(a&&typeof a==='object'&&!Array.isArray(a),'工具參數格式錯誤。');
- if(c.dataset==='live'&&['overview','orders.list','availability','finance.summary'].includes(tool))return {...liveQuery(s.live,c,tool,range(a),a),tool,property:c.property,dataset:c.dataset};
+ if(c.dataset!=='sandbox'&&['overview','orders.list','availability','finance.summary'].includes(tool))return {...liveQuery(s.live,c,tool,range(a),a),tool,property:c.property,dataset:c.dataset};
  const mutate=/\.(create|update|archive|record|reverse|cancel|add)$/.test(tool);
  const fingerprint=createHash('sha256').update(JSON.stringify({bot:c.bot.id,property:c.property,dataset:c.dataset,tool,a})).digest('hex');
  const run=()=>{

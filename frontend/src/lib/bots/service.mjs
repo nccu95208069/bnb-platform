@@ -3,22 +3,26 @@ import {roles,categories,metrics,products,toolHelp} from './catalog.mjs';
 import {context,execute,saveBot,saveTemplate,fail} from './core.mjs';
 import {runAgent,loadKey,model,authorizedHistory} from './agent.mjs';
 import {uid} from './store.mjs';
+import {setupState,saveSetup,importData,importedSnapshot} from './onboarding.mjs';
 export async function dispatch(s,operation,method,a,id,readSource){
  if(method==='GET'){
   if(operation==='bootstrap')return {csrf:'same-origin',owner:'Sweetfun 業主',mode:'production'};
   if(operation==='state'){
    let history;try{const h=await readSource();history={available:true,asof:h.source.sync.last_checked_at,rows:h.bookings.length,version:h.source.snapshot_version,property:'sweetfun',mode:'live'}}catch{history={available:false,mode:'unavailable'}}
-   return {bots:s.all('bots'),roles,categories,metrics,templates:s.all('templates'),products,toolHelp,provider:{configured:!!loadKey(),model},history,sandboxMonth:s.get('meta','seed').month};
+   return {setup:setupState(s),bots:s.all('bots'),roles,categories,metrics,templates:s.all('templates'),products,toolHelp,provider:{configured:!!loadKey(),model},history,sandboxMonth:s.get('meta','seed').month};
   }
   if(operation==='audit')return {rows:s.audits()};
   if(operation==='conversations')return {rows:s.all('conversations').sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)).map(({messages,...v})=>({...v,count:messages.length}))};
   if(operation==='conversation'){const v=s.get('conversations',id);if(!v)fail('not_found','對話不存在。',404);return v;}
  }else if(method==='POST'){
+  if(operation==='onboarding')return saveSetup(s,a);
+  if(operation==='import')return importData(s,a);
   if(operation==='bots')return saveBot(s,a);
   if(operation==='templates')return saveTemplate(s,a);
   if(!['tool','chat'].includes(operation))fail('not_found','找不到此操作。',404);
   const c=context(s,a.botId,a.property,a.dataset);
   if(c.dataset==='live')s.live=await readSource();
+  if(c.dataset==='imported')s.live=importedSnapshot(s,a.property);
   if(operation==='tool'){
    if(typeof a.key!=='string'||!a.key||a.key.length>100)fail('invalid_input','缺少操作識別碼。');
    return execute(s,c,a.tool,a.args,a.key);

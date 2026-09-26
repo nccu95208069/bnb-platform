@@ -20,8 +20,9 @@ async function handle(request:NextRequest,{params}:{params:Promise<{operation:st
   if(write&&!request.headers.get('content-type')?.startsWith('application/json'))return NextResponse.json({message:'請使用 JSON 格式。'},{status:415,headers});
   let body={};
   if(write){
-   if(Number(request.headers.get('content-length'))>100000)throw new Fault('too_large','請求資料過大。',413);
-   const text=await request.text();if(Buffer.byteLength(text)>100000)throw new Fault('too_large','請求資料過大。',413);
+   const limit=operation==='import'?3000000:100000;
+   if(Number(request.headers.get('content-length'))>limit)throw new Fault('too_large','請求資料過大。',413);
+   const text=await request.text();if(Buffer.byteLength(text)>limit)throw new Fault('too_large','請求資料過大。',413);
    try{body=JSON.parse(text)}catch{throw new Fault('invalid_json','資料格式不正確。',400)}
    if(!body||typeof body!=='object'||Array.isArray(body))throw new Fault('invalid_json','資料格式不正確。',400);
    await new RedisWorkspaceStore().limit('bots:'+principal.id+(operation==='chat'?':chat':':write'),operation==='chat'?20:120,60);
