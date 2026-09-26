@@ -4,9 +4,8 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
-from app.main import create_app
+from app.main import HostAgentService, create_app
 from app.status import normalize_transport_status
-
 
 TOKEN = "test-token-with-at-least-thirty-two-characters-long"
 
@@ -133,6 +132,22 @@ class HostAgentContractTests(unittest.TestCase):
         self.assertEqual(normalize_transport_status(False), "offline")
         self.assertEqual(normalize_transport_status(True, {"host_status": "login_required"}), "login_required")
         self.assertEqual(normalize_transport_status(True, {"host_status": "unknown"}), "error")
+
+    def test_line_webhook_probe_requires_configuration(self):
+        service = HostAgentService.__new__(HostAgentService)
+        with patch("app.main.LINE_CHANNEL_SECRET", ""), patch(
+            "app.main.LINE_CHANNEL_ACCESS_TOKEN", ""
+        ), self.assertRaises(Exception) as raised:
+            service.inspect_line_webhook("", b"{}")
+        self.assertEqual(raised.exception.status_code, 503)
+
+    def test_line_webhook_probe_rejects_bad_signature(self):
+        service = HostAgentService.__new__(HostAgentService)
+        with patch("app.main.LINE_CHANNEL_SECRET", "test-secret"), patch(
+            "app.main.LINE_CHANNEL_ACCESS_TOKEN", "test-token"
+        ), self.assertRaises(Exception) as raised:
+            service.inspect_line_webhook("invalid", b"{}")
+        self.assertEqual(raised.exception.status_code, 400)
 
 
 if __name__ == "__main__":

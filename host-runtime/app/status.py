@@ -2,7 +2,6 @@
 
 from typing import Any
 
-
 HOST_STATUSES = {"offline", "login_required", "ready", "needs_reauth", "error"}
 
 

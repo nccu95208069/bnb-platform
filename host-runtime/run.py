@@ -4,7 +4,6 @@ import os
 
 import uvicorn
 
-
 if __name__ == "__main__":
     bind = os.getenv("HOST_RUNTIME_BIND", "127.0.0.1")
     if bind not in {"127.0.0.1", "::1", "localhost"}:

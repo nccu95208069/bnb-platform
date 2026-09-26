@@ -15,14 +15,18 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from linebot.v3 import WebhookParser
+from linebot.v3.exceptions import InvalidSignatureError
+from playwright.sync_api import BrowserContext, Page, sync_playwright
+from playwright.sync_api import Error as PlaywrightError
 from pydantic import BaseModel, Field
-from playwright.sync_api import BrowserContext, Error as PlaywrightError, Page, sync_playwright
-
 
 AGENT_ID = "bnb-customer-service"
 DISPLAY_NAME = "民宿客服"
 MANAGER_URL = "https://manager.line.biz/"
+LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
+LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
 LOGIN_MARKERS = (
     "log in with line account",
     "log in with business account",
@@ -161,8 +165,32 @@ class BrowserSession:
 class HostAgentService:
     def __init__(self, profile_dir: Path, browser_channel: str | None = "chrome") -> None:
         self.browser = BrowserSession(profile_dir, browser_channel)
-        # Only the BFF/API health check may upgrade this from unknown.
-        self.messaging_api_status = "unknown"
+        self.messaging_api_status = (
+            "configured"
+            if LINE_CHANNEL_SECRET and LINE_CHANNEL_ACCESS_TOKEN
+            else "not_configured"
+        )
+
+    def inspect_line_webhook(self, signature: str, body: bytes) -> dict[str, Any]:
+        """Verify a real webhook signature without retaining or processing the payload."""
+        if not LINE_CHANNEL_SECRET or not LINE_CHANNEL_ACCESS_TOKEN:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"code": "line_messaging_api_not_configured"},
+            )
+        if not signature:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "line_signature_missing"},
+            )
+        try:
+            events = WebhookParser(LINE_CHANNEL_SECRET).parse(body.decode("utf-8"), signature)
+        except (InvalidSignatureError, UnicodeDecodeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={"code": "line_signature_invalid"},
+            ) from exc
+        return {"accepted": True, "event_count": len(events), "processed": False}
 
     def status(self) -> dict[str, Any]:
         host_status, reason, last_verified_at = self.browser.state()
@@ -244,6 +272,14 @@ def create_app(service: HostAgentService | None = None) -> FastAPI:
         if not ok:
             return {"status": "login_required", "verified": False, "reason": reason}
         return {"status": "ready", "verified": True, "reason": reason}
+
+    @app.post("/api/v1/host-agents/bnb-customer-service/line/webhook-check")
+    async def inspect_line_webhook(
+        request: Request,
+        _: None = Depends(require_host_token),
+    ) -> dict[str, Any]:
+        signature = request.headers.get("X-Line-Signature", "")
+        return app.state.host_agent.inspect_line_webhook(signature, await request.body())
 
     @app.post("/api/v1/host-agents/bnb-customer-service/actions")
     def execute_action(
