@@ -53,3 +53,14 @@ Previous production deployment: `dpl_5LfZVmDUCY1PRxyFHtqGFd6sFmZM` (`sweetfun-bc
 ## Owner trial
 
 Sign in with the existing Sweetfun owner account. Choose 分析專家 and 目前訂單 · 唯讀, then ask「依固定框架分析本月訂房狀況」. Choose 隔離測試資料 to try reservation/payment/document changes. Team settings controls bot scope and fixed report templates. Live financial facts are recorded room charges and guest payment flags only; this release does not connect the separate formal settlement ledger.
+
+## Mobile onboarding release — 2026-09-26
+
+- Code: `9e20f17`; production deployment `dpl_HusCXWi5FqQamFUjYZddVsJnovW6` promoted to https://sweetfun-os.vercel.app/bots.
+- Concierge first-run setup detects existing Sweetfun read-only source. Finance and market show progressive setup on first role selection. Per-property goals persist privately and serve as context without widening role permissions.
+- Owner-only import API supports XLSX, UTF-8 CSV/TSV and JSON; public Google Sheet export is a one-time snapshot. Private Sheets should be exported locally and uploaded, not made public.
+- Explicit sheet/header/field mapping, date order, amount basis, full room list; preview-hash confirmation; concurrent replacement protection and idempotent saves. Max 2 MB, 5,000 orders, 12,000 room-nights. Excel formulas ignored. Duplicate/canceled/invalid rows and conflicting room-nights exposed.
+- Only normalized anonymous room-night data persists. Imported source is separate from live and sandbox, read-only, with source/date metadata. Neither live nor imported tool results/history are returned to Gemini. Outside imported coverage, report metrics stay unknown.
+- Integration boundaries: calendar source and fixed booking report are connected. Revenue health currently only offers existing room-charge reconciliation; full original health model is NOT connected. RoomReady and competitor radar have verified product entry points, but no authenticated cross-product data connection or Grok scan trigger. Do not describe links as live integrations. RoomReady requires explicit subject/property mappings; radar needs a working authenticated worker/API.
+- Verification: 45 Bot tests + 168 regression tests passed; lint zero errors (two unchanged warnings); local production build and Vercel build passed. Staged API returned 401 unauthenticated. Mobile 390x844 onboarding rendered and local existing-source setup + finance progressive setup succeeded. Browser file chooser denied upload automation; XLSX parsing and preview/commit/read-only lifecycle covered by automated tests, but full browser upload remains unverified.
+- Production initial setup found 1,630 anonymous live room-night rows with fresh sync. No production booking writes performed. Owner setup intentionally left incomplete so user sees concierge onboarding on next load.
