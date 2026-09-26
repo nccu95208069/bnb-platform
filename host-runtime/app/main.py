@@ -1,245 +1,550 @@
-"""Fail-closed, owner-paired LINE OA host companion API.
+"""Owner-controlled Android emulator companion with bounded UI operations.
 
-This runtime only opens an owner-visible browser session and reports its state.
-No LINE OA actions are implemented yet. In particular, it cannot send guest
-messages or edit OA Manager tags/names.
+The companion talks only to one explicitly selected local ADB serial. It never
+installs apps, enters credentials/OTPs, launches arbitrary shell commands, or
+decides which guest to contact. Each UI mutation requires owner approval and a
+fresh screenshot/UI hierarchy snapshot identifier.
 """
 
 from __future__ import annotations
 
+import asyncio
+import base64
+import hashlib
+import io
 import os
+import re
 import secrets
+import sqlite3
+import subprocess
 import threading
+import time
+import xml.etree.ElementTree as ET
+from contextlib import asynccontextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
-from urllib.parse import urlparse
+from typing import Annotated, Any, Literal
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
-from linebot.v3 import WebhookParser
-from linebot.v3.exceptions import InvalidSignatureError
-from playwright.sync_api import BrowserContext, Page, sync_playwright
-from playwright.sync_api import Error as PlaywrightError
-from pydantic import BaseModel, Field
+from fastapi import Depends, FastAPI, Header, HTTPException, status
+from PIL import Image, UnidentifiedImageError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 AGENT_ID = "bnb-customer-service"
 DISPLAY_NAME = "民宿客服"
-MANAGER_URL = "https://manager.line.biz/"
-LINE_CHANNEL_SECRET = os.getenv("LINE_CHANNEL_SECRET", "")
-LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN", "")
-LOGIN_MARKERS = (
-    "log in with line account",
-    "log in with business account",
-    "login with line account",
-    "LINE account email",
-    "business account email",
-    "以line帳號登入",
-    "以商用帳號登入",
-    "以電子郵件登入",
-    "メールアドレスでログイン",
-)
+LINE_OA_PACKAGE = "com.linecorp.lineoa"
+UNICODE_IME = "com.android.adbkeyboard/.AdbIME"
+UI_ACTIONS = {"tap", "long_press", "input_text", "press_key", "swipe"}
+SAFE_KEYCODES = {"BACK": 4, "ENTER": 66, "DEL": 67, "TAB": 61}
+MAX_TEXT_LENGTH = 500
+MAX_SCREENSHOT_BYTES = 5_000_000
+MAX_RELAY_IMAGE_BYTES = 2_400_000
+MAX_UI_NODES = 300
+LOGIN_MARKERS = ("log in", "sign in", "登入", "ログイン", "login with", "驗證碼")
+SENSITIVE_INPUT_MARKERS = ("password", "passcode", "otp", "2fa", "verification code", "驗證碼", "一次性密碼", "安全碼")
 
 
 def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def capability_state(implementation: str, configuration: str, verification: str) -> dict[str, str]:
-    return {
-        "implementation": implementation,
-        "configuration": configuration,
-        "verification": verification,
-    }
+class UIAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action_id: Annotated[str, StringConstraints(min_length=8, max_length=128)]
+    snapshot_id: Annotated[str, StringConstraints(min_length=16, max_length=128)]
+    action: Literal["tap", "long_press", "input_text", "press_key", "swipe"]
+    x: int | None = Field(default=None, ge=0, le=10000)
+    y: int | None = Field(default=None, ge=0, le=10000)
+    text: str | None = Field(default=None, max_length=MAX_TEXT_LENGTH)
+    key: str | None = None
+    x2: int | None = Field(default=None, ge=0, le=10000)
+    y2: int | None = Field(default=None, ge=0, le=10000)
+    duration_ms: int = Field(default=350, ge=100, le=3000)
+    expected_ui_signals: list[Annotated[str, StringConstraints(min_length=1, max_length=160)]] = Field(default_factory=list, max_length=12)
+    owner_approved: bool
 
 
-class LoginVerifyRequest(BaseModel):
-    owner_confirmed_account: bool
+class PairHostRequest(BaseModel):
+    pairing_code: Annotated[str, StringConstraints(min_length=8, max_length=128)]
+    host_id: Annotated[str, StringConstraints(min_length=8, max_length=128)]
+    property_id: Annotated[str, StringConstraints(min_length=1, max_length=128)]
 
 
-class UnsupportedActionRequest(BaseModel):
-    action_id: str
-    conversation_id: str
-    action: str
-    payload: dict[str, Any] = Field(default_factory=dict)
-    approval_id: str | None = None
+class ActionLedger:
+    """Crash-safe idempotency ledger; uncertain effects are never auto-replayed."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(self.path.parent, 0o700)
+        self.path.touch(mode=0o600, exist_ok=True)
+        os.chmod(self.path, 0o600)
+        with sqlite3.connect(self.path) as db:
+            db.execute(
+                "CREATE TABLE IF NOT EXISTS ui_actions ("
+                "action_id TEXT PRIMARY KEY, payload_hash TEXT NOT NULL, "
+                "state TEXT NOT NULL, result_json TEXT)"
+            )
+
+    def lookup(self, action_id: str, payload_hash: str) -> dict[str, Any] | None:
+        import json
+
+        with sqlite3.connect(self.path, timeout=5) as db:
+            row = db.execute(
+                "SELECT payload_hash, state, result_json FROM ui_actions WHERE action_id=?",
+                (action_id,),
+            ).fetchone()
+            if row:
+                if row[0] != payload_hash:
+                    raise HTTPException(status_code=409, detail={"code": "idempotency_conflict"})
+                if row[1] == "complete":
+                    return json.loads(row[2])
+                raise HTTPException(status_code=409, detail={"code": "action_outcome_uncertain"})
+            return None
+
+    def begin(self, action_id: str, payload_hash: str) -> None:
+        with sqlite3.connect(self.path, timeout=5) as db:
+            db.execute(
+                "INSERT INTO ui_actions(action_id,payload_hash,state) VALUES(?,?,?)",
+                (action_id, payload_hash, "started"),
+            )
+
+    def complete(self, action_id: str, result: dict[str, Any]) -> None:
+        import json
+
+        with sqlite3.connect(self.path, timeout=5) as db:
+            db.execute(
+                "UPDATE ui_actions SET state='complete', result_json=? WHERE action_id=?",
+                (json.dumps(result, ensure_ascii=False), action_id),
+            )
 
 
-class BrowserSession:
-    """Manage one isolated, visible Playwright persistent browser profile."""
+class AdbEmulator:
+    """A small ADB facade that never accepts arbitrary command arguments."""
 
-    def __init__(self, profile_dir: Path, channel: str | None = "chrome") -> None:
-        self.profile_dir = profile_dir
-        self.channel = channel or None
+    def __init__(
+        self, adb_path: str, serial: str, command_timeout: int = 12, ledger: ActionLedger | None = None
+    ) -> None:
+        if not re.fullmatch(r"emulator-[0-9]+", serial):
+            raise ValueError("android_serial_must_be_local_emulator")
+        self.adb_path = adb_path
+        self.serial = serial
+        self.command_timeout = command_timeout
         self._lock = threading.RLock()
-        self._playwright = None
-        self._context: BrowserContext | None = None
-        self._page: Page | None = None
-        self.was_ready = False
-
-    def start_owner_login(self) -> None:
-        with self._lock:
-            self.profile_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-            os.chmod(self.profile_dir.parent, 0o700)
-            os.chmod(self.profile_dir, 0o700)
-            previous_umask = os.umask(0o077)
-            if self._context is None:
-                try:
-                    self._playwright = sync_playwright().start()
-                    kwargs: dict[str, Any] = {
-                        "user_data_dir": str(self.profile_dir),
-                        "headless": False,
-                        "viewport": {"width": 1440, "height": 1000},
-                    }
-                    if self.channel:
-                        kwargs["channel"] = self.channel
-                    self._context = self._playwright.chromium.launch_persistent_context(**kwargs)
-                finally:
-                    os.umask(previous_umask)
-            else:
-                os.umask(previous_umask)
-            pages = self._context.pages
-            self._page = pages[0] if pages else self._context.new_page()
-            self._page.goto(MANAGER_URL, wait_until="domcontentloaded", timeout=30_000)
-            self.was_ready = False
-
-    def state(self) -> tuple[str, str, str | None]:
-        """Return host state, reason and observed timestamp, failing closed."""
-        with self._lock:
-            if self._context is None or self._page is None:
-                return "login_required", "owner_login_required", None
-            try:
-                if self._page.is_closed():
-                    self._page = None
-                    self.was_ready = False
-                    return "needs_reauth", "owner_browser_closed", None
-                parsed = urlparse(self._page.url)
-                if parsed.hostname != "manager.line.biz":
-                    if self.was_ready:
-                        self.was_ready = False
-                        return "needs_reauth", "manager_session_left", None
-                    return "login_required", "owner_login_required", None
-                text = self._page.locator("body").inner_text(timeout=2_000).lower()
-                if any(marker.lower() in text for marker in LOGIN_MARKERS):
-                    had_session = self.was_ready
-                    self.was_ready = False
-                    if had_session:
-                        return "needs_reauth", "manager_login_required", None
-                    return "login_required", "owner_login_required", None
-                if self.was_ready:
-                    return "ready", "owner_session_attested", utc_now()
-                return "login_required", "owner_login_not_verified", None
-            except PlaywrightError:
-                self.was_ready = False
-                return "error", "browser_verification_failed", None
-
-    def verify_owner_login(self, owner_confirmed_account: bool) -> tuple[bool, str]:
-        """Verify manager origin plus owner attestation; never enter credentials."""
-        with self._lock:
-            if not owner_confirmed_account:
-                return False, "owner_confirmation_required"
-            if self._context is None or self._page is None or self._page.is_closed():
-                return False, "owner_browser_unavailable"
-            try:
-                if urlparse(self._page.url).hostname != "manager.line.biz":
-                    return False, "not_on_line_oa_manager"
-                body_text = self._page.locator("body").inner_text(timeout=2_000).lower()
-                if any(marker.lower() in body_text for marker in LOGIN_MARKERS):
-                    return False, "login_screen_detected"
-            except PlaywrightError:
-                return False, "browser_verification_failed"
-            self.was_ready = True
-            return True, "owner_session_attested"
-
-    def close(self) -> None:
-        with self._lock:
-            self.was_ready = False
-            if self._context is not None:
-                self._context.close()
-            if self._playwright is not None:
-                self._playwright.stop()
-            self._context = None
-            self._page = None
-            self._playwright = None
-
-
-class HostAgentService:
-    def __init__(self, profile_dir: Path, browser_channel: str | None = "chrome") -> None:
-        self.browser = BrowserSession(profile_dir, browser_channel)
-        self.messaging_api_status = (
-            "configured"
-            if LINE_CHANNEL_SECRET and LINE_CHANNEL_ACCESS_TOKEN
-            else "not_configured"
+        self._latest_snapshot_id: str | None = None
+        self._latest_snapshot_at = 0.0
+        self._latest_width = 0
+        self._latest_height = 0
+        self._latest_ui_nodes: list[dict[str, Any]] = []
+        self.ledger = ledger or ActionLedger(
+            Path(os.path.expanduser(os.getenv("HOST_RUNTIME_DATA_DIR", "~/.bnb-host-agent")))
+            / "actions.sqlite"
         )
+        self._owner_confirmed = False
+        self._needs_reauth = False
 
-    def inspect_line_webhook(self, signature: str, body: bytes) -> dict[str, Any]:
-        """Verify a real webhook signature without retaining or processing the payload."""
-        if not LINE_CHANNEL_SECRET or not LINE_CHANNEL_ACCESS_TOKEN:
+    def _run(self, *args: str, timeout: int | None = None) -> bytes:
+        try:
+            result = subprocess.run(
+                [self.adb_path, "-s", self.serial, *args],
+                check=False,
+                capture_output=True,
+                timeout=timeout or self.command_timeout,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail={"code": "line_messaging_api_not_configured"},
-            )
-        if not signature:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"code": "line_signature_missing"},
-            )
-        try:
-            events = WebhookParser(LINE_CHANNEL_SECRET).parse(body.decode("utf-8"), signature)
-        except (InvalidSignatureError, UnicodeDecodeError, ValueError) as exc:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={"code": "line_signature_invalid"},
+                detail={"code": "emulator_unavailable"},
             ) from exc
-        return {"accepted": True, "event_count": len(events), "processed": False}
+        if result.returncode:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={"code": "adb_operation_failed"},
+            )
+        return result.stdout
+
+    def _device_properties(self) -> dict[str, str]:
+        output = self._run("shell", "getprop")
+        properties: dict[str, str] = {}
+        for line in output.decode("utf-8", errors="replace").splitlines():
+            if line.startswith("[") and "]: [" in line and line.endswith("]"):
+                key, value = line[1:-1].split("]: [", 1)
+                properties[key] = value[:-1]
+        return properties
+
+    def _connected(self) -> bool:
+        devices = subprocess.run(
+            [self.adb_path, "devices"], capture_output=True, check=False, timeout=self.command_timeout
+        )
+        if devices.returncode:
+            return False
+        return any(
+            line.split("\t", 1) == [self.serial, "device"]
+            for line in devices.stdout.decode("utf-8", errors="replace").splitlines()
+        )
 
     def status(self) -> dict[str, Any]:
-        host_status, reason, last_verified_at = self.browser.state()
+        with self._lock:
+            if not Path(self.adb_path).is_file() or not self._connected():
+                return self._status_payload("offline", "emulator_not_connected")
+            try:
+                props = self._device_properties()
+                package = self._run("shell", "pm", "path", LINE_OA_PACKAGE).decode(
+                    "utf-8", errors="replace"
+                )
+                app_installed = package.strip().startswith("package:")
+                foreground = self._run(
+                    "shell", "dumpsys", "activity", "activities"
+                ).decode("utf-8", errors="replace")
+                in_app = LINE_OA_PACKAGE in foreground and "mResumedActivity" in foreground
+                boot_completed = props.get("sys.boot_completed") == "1"
+                if self._owner_confirmed and in_app:
+                    visible = " ".join(item.get("text", "") for item in self._read_hierarchy_nodes()).lower()
+                    if any(marker in visible for marker in LOGIN_MARKERS):
+                        self._owner_confirmed = False
+                        self._needs_reauth = True
+                state = (
+                    "needs_reauth"
+                    if self._needs_reauth
+                    else "ready"
+                    if boot_completed and app_installed and in_app and self._owner_confirmed
+                    else "login_required"
+                )
+                reason = (
+                    "manager_login_required"
+                    if state == "needs_reauth"
+                    else
+                    "owner_session_attested"
+                    if state == "ready"
+                    else "owner_login_not_attested"
+                    if boot_completed and app_installed and in_app
+                    else "oa_app_not_foreground"
+                    if app_installed
+                    else "oa_app_not_installed"
+                    if boot_completed
+                    else "emulator_booting"
+                )
+                return self._status_payload(
+                    state,
+                    reason,
+                    emulator={
+                        "serial": self.serial,
+                        "device": props.get("ro.product.model"),
+                        "android_release": props.get("ro.build.version.release"),
+                        "boot_completed": boot_completed,
+                        "app_installed": app_installed,
+                        "app_foreground": in_app,
+                    },
+                )
+            except HTTPException:
+                return self._status_payload("error", "emulator_status_failed")
+
+    @staticmethod
+    def _status_payload(
+        host_status: str, reason: str, emulator: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        state = "verified" if host_status == "ready" else "unverified"
+        impl = "implemented"
+        configured = "configured" if host_status == "ready" else "unknown"
         return {
+            "protocol_version": "1.0",
             "agent_id": AGENT_ID,
             "display_name": DISPLAY_NAME,
-            "property_id": os.getenv("BNB_PROPERTY_ID") or None,
             "host_status": host_status,
-            "messaging_api_status": self.messaging_api_status,
+            "messaging_api_status": "not_applicable",
+            "emulator": emulator,
             "capabilities": {
-                "reply_to_guest": capability_state(
-                    "not_implemented", "unknown", "unverified"
-                ),
-                "set_internal_tag": capability_state(
-                    "not_implemented", "not_applicable", "unverified"
-                ),
-                "set_internal_guest_name": capability_state(
-                    "not_implemented", "not_applicable", "unverified"
-                ),
-                "set_oa_tag": capability_state(
-                    "not_implemented", "not_applicable", "unverified"
-                ),
-                "set_oa_guest_name": capability_state(
-                    "not_implemented", "not_applicable", "unverified"
-                ),
+                "read_ui": {"implementation": impl, "configuration": configured, "verification": state},
+                "approved_ui_action": {"implementation": impl, "configuration": configured, "verification": state},
+                "reply_to_guest": {
+                    "implementation": "not_implemented",
+                    "configuration": "not_applicable",
+                    "verification": "unverified",
+                },
+                "set_oa_tag": {
+                    "implementation": "not_implemented",
+                    "configuration": "not_applicable",
+                    "verification": "unverified",
+                },
+                "set_oa_guest_name": {
+                    "implementation": "not_implemented",
+                    "configuration": "not_applicable",
+                    "verification": "unverified",
+                },
             },
-            "last_verified_at": last_verified_at,
+            "last_verified_at": utc_now() if host_status == "ready" else None,
             "reason": reason,
         }
 
-    def start_login(self) -> dict[str, Any]:
+    def read_ui(self) -> dict[str, Any]:
+        with self._lock:
+            state = self.status()
+            if state["host_status"] != "ready":
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail={"code": state["reason"]},
+                )
+            png = self._run("exec-out", "screencap", "-p")
+            if len(png) > MAX_SCREENSHOT_BYTES:
+                raise HTTPException(status_code=413, detail={"code": "screenshot_too_large"})
+            jpeg, width, height = self._compress_screenshot(png)
+            nodes = self._read_hierarchy_nodes()
+            snapshot_id = secrets.token_urlsafe(24)
+            with self._lock:
+                self._latest_snapshot_id = snapshot_id
+                self._latest_snapshot_at = time.monotonic()
+                self._latest_width = width
+                self._latest_height = height
+                self._latest_ui_nodes = nodes
+            return {
+                "snapshot_id": snapshot_id,
+                "observed_at": utc_now(),
+                "width_px": width,
+                "height_px": height,
+                "screenshot_mime_type": "image/jpeg",
+                "screenshot_jpeg_base64": base64.b64encode(jpeg).decode("ascii"),
+                "screenshot_sha256": hashlib.sha256(jpeg).hexdigest(),
+                "ui_nodes": nodes[:MAX_UI_NODES],
+            }
+
+    @staticmethod
+    def _compress_screenshot(png: bytes) -> tuple[bytes, int, int]:
         try:
-            self.browser.start_owner_login()
-        except PlaywrightError as exc:
+            image = Image.open(io.BytesIO(png)).convert("RGB")
+        except (OSError, ValueError, Image.DecompressionBombError, UnidentifiedImageError) as exc:
+            raise HTTPException(status_code=502, detail={"code": "screenshot_invalid"}) from exc
+        image.thumbnail((1440, 1440), Image.Resampling.LANCZOS)
+        width, height = image.size
+        for quality in (76, 66, 56, 46):
+            output = io.BytesIO()
+            image.save(output, format="JPEG", quality=quality, optimize=True, progressive=True)
+            jpeg = output.getvalue()
+            if len(jpeg) <= MAX_RELAY_IMAGE_BYTES:
+                return jpeg, width, height
+        raise HTTPException(status_code=413, detail={"code": "screenshot_compression_limit"})
+
+    def _read_hierarchy_nodes(self) -> list[dict[str, Any]]:
+        temp_path = "/data/local/tmp/sweetfun-ui-hierarchy.xml"
+        self._run("shell", "uiautomator", "dump", temp_path, timeout=20)
+        try:
+            hierarchy = self._run("shell", "cat", temp_path).decode("utf-8", errors="replace")
+        finally:
+            self._run("shell", "rm", "-f", temp_path)
+        hierarchy = hierarchy[hierarchy.find("<?xml") :] if "<?xml" in hierarchy else hierarchy
+        try:
+            root = ET.fromstring(hierarchy)
+        except ET.ParseError as exc:
+            raise HTTPException(status_code=502, detail={"code": "ui_hierarchy_invalid"}) from exc
+        nodes = []
+        for node in root.iter("node"):
+            text = node.attrib.get("text", "")
+            description = node.attrib.get("content-desc", "")
+            resource_id = node.attrib.get("resource-id", "")
+            if not (text or description or resource_id):
+                continue
+            nodes.append(
+                {
+                    "text": text[:300],
+                    "description": description[:300],
+                    "resource_id": resource_id[:300],
+                    "class": node.attrib.get("class", "")[:200],
+                    "clickable": node.attrib.get("clickable") == "true",
+                    "focused": node.attrib.get("focused") == "true",
+                    "password": node.attrib.get("password") == "true",
+                    "bounds": node.attrib.get("bounds", "")[:100],
+                }
+            )
+        return nodes[:500]
+
+    def attest_owner_session(self, confirmed: bool) -> dict[str, str]:
+        with self._lock:
+            if not confirmed:
+                raise HTTPException(status_code=400, detail={"code": "owner_confirmation_required"})
+            current = self.status()
+            if not current.get("emulator", {}).get("app_foreground"):
+                raise HTTPException(status_code=409, detail={"code": "oa_app_not_foreground"})
+            self._owner_confirmed = True
+            self._needs_reauth = False
+            return {"host_status": "ready", "reason": "owner_session_attested"}
+
+    def execute_approved(self, action: UIAction) -> dict[str, Any]:
+        with self._lock:
+            payload_hash = hashlib.sha256(
+                action.model_dump_json(exclude={"owner_approved"}).encode("utf-8")
+            ).hexdigest()
+            prior = self.ledger.lookup(action.action_id, payload_hash)
+            if prior is not None:
+                return prior
+            if not action.owner_approved:
+                raise HTTPException(status_code=403, detail={"code": "owner_approval_required"})
+            if (
+                action.snapshot_id != self._latest_snapshot_id
+                or time.monotonic() - self._latest_snapshot_at > 90
+            ):
+                raise HTTPException(status_code=409, detail={"code": "stale_ui_snapshot"})
+            points = [(action.x, action.y)]
+            if action.action == "swipe":
+                points.append((action.x2, action.y2))
+            if any(
+                x is not None
+                and y is not None
+                and (x >= self._latest_width or y >= self._latest_height)
+                for x, y in points
+            ):
+                raise HTTPException(status_code=422, detail={"code": "coordinates_outside_snapshot"})
+            state = self.status()
+            if state["host_status"] != "ready":
+                raise HTTPException(status_code=409, detail={"code": state["reason"]})
+            previous_nodes = list(self._latest_ui_nodes)
+            if action.action == "input_text":
+                sensitive_focus = any(
+                    node.get("focused")
+                    and (
+                        node.get("password")
+                        or any(
+                            marker in " ".join(
+                                str(node.get(field, "")) for field in ("text", "description", "resource_id")
+                            ).lower()
+                            for marker in SENSITIVE_INPUT_MARKERS
+                        )
+                    )
+                    for node in previous_nodes
+                )
+                if sensitive_focus:
+                    raise HTTPException(
+                        status_code=403,
+                        detail={"code": "credential_entry_owner_only"},
+                    )
+            command: tuple[str, ...]
+            if action.action in {"tap", "long_press"}:
+                if action.x is None or action.y is None:
+                    raise HTTPException(status_code=422, detail={"code": "coordinates_required"})
+                command = (
+                    "shell", "input", "tap" if action.action == "tap" else "swipe",
+                    str(action.x), str(action.y),
+                    *(() if action.action == "tap" else (str(action.x), str(action.y), str(action.duration_ms))),
+                )
+            elif action.action == "input_text":
+                if action.text is None:
+                    raise HTTPException(status_code=422, detail={"code": "text_required"})
+                if any(ord(char) > 127 for char in action.text) or not re.fullmatch(
+                    r"[A-Za-z0-9_./@+ :%-]*", action.text
+                ):
+                    command = self._unicode_input_command(action.text)
+                else:
+                    encoded = action.text.replace("%", "%25").replace(" ", "%s")
+                    command = ("shell", "input", "text", encoded)
+            elif action.action == "press_key":
+                keycode = SAFE_KEYCODES.get((action.key or "").upper())
+                if keycode is None:
+                    raise HTTPException(status_code=422, detail={"code": "key_not_allowlisted"})
+                command = ("shell", "input", "keyevent", str(keycode))
+            elif action.action == "swipe":
+                if None in (action.x, action.y, action.x2, action.y2):
+                    raise HTTPException(status_code=422, detail={"code": "swipe_coordinates_required"})
+                command = (
+                    "shell", "input", "swipe", str(action.x), str(action.y),
+                    str(action.x2), str(action.y2), str(action.duration_ms),
+                )
+            else:
+                raise HTTPException(status_code=422, detail={"code": "action_not_allowlisted"})
+            self.ledger.begin(action.action_id, payload_hash)
+            if command and command[0] == "unicode_broadcast":
+                self._send_unicode_text(command[1], command[2])
+            else:
+                self._run(*command)
+            snapshot = self.read_ui()
+            visible_text = " ".join(
+                item[field]
+                for item in snapshot["ui_nodes"]
+                for field in ("text", "description")
+                if item.get(field)
+            )
+            previous_text = " ".join(
+                item[field]
+                for item in previous_nodes
+                for field in ("text", "description")
+                if item.get(field)
+            )
+            expected = action.expected_ui_signals
+            verified = bool(expected) and all(
+                signal in visible_text and signal not in previous_text for signal in expected
+            )
+            result = {
+                "action_id": action.action_id,
+                "status": "succeeded" if verified else "partial_success",
+                "executed_at": utc_now(),
+                "evidence": [{"snapshot_id": snapshot["snapshot_id"], "screenshot_sha256": snapshot["screenshot_sha256"], "visible_effect_confirmed": verified}],
+                "verified": verified,
+                "next_step": "Visible expected state matched." if verified else "Owner must review the fresh screen; no success is claimed.",
+            }
+            self.ledger.complete(action.action_id, result)
+            return result
+
+    def _unicode_input_command(self, text: str) -> tuple[str, ...]:
+        available = self._run("shell", "ime", "list", "-s").decode("utf-8", errors="replace").splitlines()
+        if UNICODE_IME not in available:
             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail={"code": "owner_browser_unavailable", "message": str(exc)[:160]},
-            ) from exc
-        return {"status": "login_required", "reason": "owner_login_required"}
+                status_code=422,
+                detail={"code": "unicode_ime_not_enabled", "required_ime": UNICODE_IME},
+            )
+        current = self._run("shell", "settings", "get", "secure", "default_input_method").decode("utf-8", errors="replace").strip()
+        if not current or current == "null":
+            raise HTTPException(status_code=409, detail={"code": "current_ime_unknown"})
+        if not re.fullmatch(r"[A-Za-z0-9._/]+", current):
+            raise HTTPException(status_code=409, detail={"code": "current_ime_invalid"})
+        encoded = base64.b64encode(text.encode("utf-8")).decode("ascii")
+        return ("unicode_broadcast", encoded, current)
+
+    def _send_unicode_text(self, encoded: str, current_ime: str) -> None:
+        try:
+            self._run("shell", "ime", "set", UNICODE_IME)
+            self._run("shell", "am", "broadcast", "-a", "ADB_INPUT_B64", "--es", "msg", encoded)
+        finally:
+            self._run("shell", "ime", "set", current_ime)
 
 
-def create_app(service: HostAgentService | None = None) -> FastAPI:
-    app = FastAPI(title="BnB LINE OA Host Agent", version="0.1.0")
-    data_dir = Path(os.path.expanduser(os.getenv("HOST_RUNTIME_DATA_DIR", "~/.bnb-host-agent")))
-    profile_dir = data_dir / "line-oa-profile"
-    app.state.host_agent = service or HostAgentService(
-        profile_dir,
-        os.getenv("HOST_RUNTIME_BROWSER_CHANNEL", "chrome"),
-    )
+def create_app(emulator: AdbEmulator | None = None) -> FastAPI:
+    adb_path = os.path.expanduser(os.getenv("ANDROID_ADB_PATH", "~/Library/Android/sdk/platform-tools/adb"))
+    serial = os.getenv("ANDROID_SERIAL", "emulator-5554")
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        from keyring.errors import KeyringError
+
+        from app.relay import CredentialVault, RelayClient
+
+        task = None
+        host_id = os.getenv("HOST_ID", "")
+        base_url = os.getenv("BFF_BASE_URL", "")
+        if host_id and base_url.startswith("https://"):
+            vault = CredentialVault("sweetfun-os-host-agent", host_id)
+            try:
+                identity = vault.load()
+            except (KeyringError, OSError, RuntimeError, ValidationError):
+                identity = None
+            if identity and identity.token_expires_at > datetime.now(UTC):
+                relay = RelayClient(base_url, identity, app.state.emulator, vault=vault)
+                app.state.credential_vault = vault
+                app.state.relay_identity = identity
+                app.state.relay_client = relay
+                task = __import__("asyncio").create_task(relay.run_forever())
+                app.state.relay_task = task
+        try:
+            yield
+        finally:
+            if app.state.relay_client:
+                await app.state.relay_client.close()
+            if task:
+                task.cancel()
+                with suppress(__import__("asyncio").CancelledError):
+                    await task
+
+    app = FastAPI(title="BnB LINE OA Android Host Agent", version="1.0.0", lifespan=lifespan)
+    app.state.emulator = emulator or AdbEmulator(adb_path, serial)
+    app.state.relay_identity = None
+    app.state.credential_vault = None
+    app.state.relay_client = None
+    app.state.relay_task = None
 
     async def require_host_token(authorization: str | None = Header(default=None)) -> None:
         configured = os.getenv("HOST_RUNTIME_BEARER_TOKEN", "")
@@ -255,44 +560,91 @@ def create_app(service: HostAgentService | None = None) -> FastAPI:
 
     @app.get("/api/v1/host-agents/bnb-customer-service/status")
     def read_status(_: None = Depends(require_host_token)) -> dict[str, Any]:
-        return app.state.host_agent.status()
+        return app.state.emulator.status()
 
-    @app.post("/api/v1/host-agents/bnb-customer-service/login-session")
-    def start_login(_: None = Depends(require_host_token)) -> dict[str, Any]:
-        return app.state.host_agent.start_login()
-
-    @app.post("/api/v1/host-agents/bnb-customer-service/login-session/verify")
-    def verify_login(
-        body: LoginVerifyRequest,
+    @app.post("/api/v1/host-agents/bnb-customer-service/pair")
+    async def pair_host(
+        body: PairHostRequest,
         _: None = Depends(require_host_token),
     ) -> dict[str, Any]:
-        ok, reason = app.state.host_agent.browser.verify_owner_login(
-            body.owner_confirmed_account
-        )
-        if not ok:
-            return {"status": "login_required", "verified": False, "reason": reason}
-        return {"status": "ready", "verified": True, "reason": reason}
+        from app.relay import CredentialVault, PairingClient, RelayClient
 
-    @app.post("/api/v1/host-agents/bnb-customer-service/line/webhook-check")
-    async def inspect_line_webhook(
-        request: Request,
-        _: None = Depends(require_host_token),
-    ) -> dict[str, Any]:
-        signature = request.headers.get("X-Line-Signature", "")
-        return app.state.host_agent.inspect_line_webhook(signature, await request.body())
-
-    @app.post("/api/v1/host-agents/bnb-customer-service/actions")
-    def execute_action(
-        body: UnsupportedActionRequest,
-        _: None = Depends(require_host_token),
-    ) -> dict[str, Any]:
-        del body
+        if app.state.relay_identity:
+            raise HTTPException(status_code=409, detail={"code": "host_already_paired_disconnect_first"})
+        base_url = os.getenv("BFF_BASE_URL", "")
+        if not base_url.startswith("https://"):
+            raise HTTPException(status_code=503, detail={"code": "https_bff_not_configured"})
+        vault = CredentialVault("sweetfun-os-host-agent", body.host_id)
+        client = PairingClient(base_url)
+        try:
+            identity = await client.redeem(body.pairing_code, body.host_id, body.property_id, vault)
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=400, detail={"code": str(exc)}) from exc
+        finally:
+            await client.client.aclose()
+        app.state.relay_identity = identity
+        app.state.credential_vault = vault
+        if app.state.relay_client:
+            if app.state.relay_task:
+                app.state.relay_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await app.state.relay_task
+            await app.state.relay_client.close()
+        relay = RelayClient(base_url, identity, app.state.emulator, vault=vault)
+        app.state.relay_client = relay
+        app.state.relay_task = __import__("asyncio").create_task(relay.run_forever())
         return {
-            "status": "unavailable",
-            "requires_owner": False,
-            "evidence": [],
-            "error_code": "capability_not_implemented",
+            "paired": True,
+            "agent_id": identity.agent_id,
+            "property_id": identity.property_id,
+            "host_id": identity.host_id,
+            "token_expires_at": identity.token_expires_at.isoformat(),
+            "scope": identity.scope,
+            "token_returned": False,
         }
+
+    @app.delete("/api/v1/host-agents/bnb-customer-service/pair")
+    async def disconnect_host(_: None = Depends(require_host_token)) -> dict[str, Any]:
+        import httpx
+
+        if not app.state.relay_client or not app.state.credential_vault:
+            return {"paired": False, "local_token_removed": True, "remote_revoked": True}
+        try:
+            await app.state.relay_client.revoke()
+        except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
+            raise HTTPException(status_code=502, detail={"code": "remote_revocation_failed"}) from exc
+        if app.state.relay_task:
+            app.state.relay_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await app.state.relay_task
+        await app.state.relay_client.close()
+        try:
+            app.state.credential_vault.clear()
+            local_removed = True
+        except RuntimeError:
+            local_removed = False
+        app.state.relay_client = None
+        app.state.relay_identity = None
+        app.state.credential_vault = None
+        return {"paired": False, "local_token_removed": local_removed, "remote_revoked": True}
+
+    @app.get("/api/v1/host-agents/bnb-customer-service/ui")
+    def read_ui(_: None = Depends(require_host_token)) -> dict[str, Any]:
+        return app.state.emulator.read_ui()
+
+    @app.post("/api/v1/host-agents/bnb-customer-service/session/attest")
+    def attest_session(
+        body: dict[str, bool],
+        _: None = Depends(require_host_token),
+    ) -> dict[str, str]:
+        return app.state.emulator.attest_owner_session(body.get("owner_confirmed") is True)
+
+    @app.post("/api/v1/host-agents/bnb-customer-service/ui-actions")
+    def execute_ui_action(
+        body: UIAction,
+        _: None = Depends(require_host_token),
+    ) -> dict[str, Any]:
+        return app.state.emulator.execute_approved(body)
 
     return app
 

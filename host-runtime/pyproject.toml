@@ -1,13 +1,13 @@
 [project]
 name = "bnb-line-oa-host-runtime"
 version = "0.1.0"
-description = "Owner-paired local host companion for LINE OA browser sessions"
+description = "Owner-paired local Android host companion for LINE OA"
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115,<1",
   "uvicorn[standard]>=0.30,<1",
-  "playwright>=1.56,<2",
-  "line-bot-sdk>=3.14,<4",
+  "keyring>=25,<27",
+  "Pillow>=10,<13",
 ]
 
 [project.optional-dependencies]

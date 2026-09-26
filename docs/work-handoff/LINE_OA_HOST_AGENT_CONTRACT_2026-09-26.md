@@ -1,5 +1,12 @@
 # LINE OA Host Agent Contract — 2026-09-26
 
+> **Superseded integration direction:** the owner chose a persistent Android
+> emulator running LINE Official Account App. Do not implement the browser/
+> Messaging API relay proposed in this historical draft. Use
+> [Android Host Relay Protocol 1.0](../ANDROID_HOST_RELAY_PROTOCOL_V1.md) as
+> the current BFF contract. Formal UI remains `os-bots` at
+> `https://sweetfun-os.vercel.app/bots`.
+
 ## Scope and ownership
 
 The `/bots` UI is implemented and deployed by the parallel `bnb BOT` task. This
