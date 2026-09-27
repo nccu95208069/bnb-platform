@@ -48,6 +48,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "keyring" },
     { name = "pillow" },
     { name = "uvicorn", extra = ["standard"] },
@@ -55,14 +56,13 @@ dependencies = [
 
 [package.optional-dependencies]
 test = [
-    { name = "httpx" },
     { name = "ruff" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115,<1" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27,<1" },
+    { name = "httpx", specifier = ">=0.27,<1" },
     { name = "keyring", specifier = ">=25,<27" },
     { name = "pillow", specifier = ">=10,<13" },
     { name = "ruff", marker = "extra == 'test'", specifier = ">=0.8" },

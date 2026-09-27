@@ -41,6 +41,7 @@ MAX_RELAY_IMAGE_BYTES = 2_400_000
 MAX_UI_NODES = 300
 LOGIN_MARKERS = ("log in", "sign in", "登入", "ログイン", "login with", "驗證碼")
 SENSITIVE_INPUT_MARKERS = ("password", "passcode", "otp", "2fa", "verification code", "驗證碼", "一次性密碼", "安全碼")
+PAIRING_PAGE = """<!doctype html><html lang=\"zh-Hant\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>民宿客服主機</title><style>body{font:16px system-ui;max-width:540px;margin:40px auto;padding:0 18px;color:#202124}h1{font-size:24px}label{display:block;margin:16px 0 6px}input{box-sizing:border-box;width:100%;padding:12px;border:1px solid #bbb;border-radius:8px}button{margin-top:18px;padding:12px 18px;border:0;border-radius:8px;background:#222;color:white;font-size:16px}pre{white-space:pre-wrap;background:#f4f4f4;padding:12px;border-radius:8px}small{color:#666}</style><h1>民宿客服主機</h1><p>配對你的專屬 Android 主機。長期 token 僅存於本機鑰匙圈。</p><label>一次性配對碼</label><input id=\"code\" autocomplete=\"one-time-code\" placeholder=\"從 Sweetfun OS 複製\"><label>主機 ID</label><input id=\"host\" value=\"owner-mac-android-emulator\"><label>旅宿 ID</label><input id=\"property\" placeholder=\"從 Sweetfun OS 選擇旅宿\"><button id=\"pair\">配對主機</button><pre id=\"state\">讀取本機狀態中…</pre><small>請確認網址為 http://127.0.0.1:8765。LINE 登入與二階段驗證由你本人在模擬器完成。</small><script>const token=prompt('輸入本機 HOST_RUNTIME_BEARER_TOKEN（只保存在此分頁記憶體）');const out=document.querySelector('#state');async function refresh(){try{const r=await fetch('/api/v1/host-agents/bnb-customer-service/local-state',{headers:{Authorization:'Bearer '+token}});const d=await r.json();out.textContent=JSON.stringify(d,null,2)}catch(e){out.textContent='本機 companion 尚未就緒：'+e}}refresh();document.querySelector('#pair').onclick=async()=>{const r=await fetch('/api/v1/host-agents/bnb-customer-service/pair',{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify({pairing_code:document.querySelector('#code').value,host_id:document.querySelector('#host').value,property_id:document.querySelector('#property').value})});out.textContent=JSON.stringify(await r.json(),null,2);if(r.ok){document.querySelector('#code').value='';refresh()}};</script></html>"""
 
 
 def utc_now() -> str:
@@ -540,6 +541,8 @@ def create_app(emulator: AdbEmulator | None = None) -> FastAPI:
                     await task
 
     app = FastAPI(title="BnB LINE OA Android Host Agent", version="1.0.0", lifespan=lifespan)
+    if emulator is None and not Path(os.path.expanduser(adb_path)).is_file():
+        adb_path = "/usr/bin/false"
     app.state.emulator = emulator or AdbEmulator(adb_path, serial)
     app.state.relay_identity = None
     app.state.credential_vault = None
@@ -557,6 +560,25 @@ def create_app(emulator: AdbEmulator | None = None) -> FastAPI:
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/", include_in_schema=False)
+    async def pairing_page() -> Any:
+        from fastapi.responses import HTMLResponse
+
+        return HTMLResponse(PAIRING_PAGE)
+
+    @app.get("/api/v1/host-agents/bnb-customer-service/local-state")
+    async def local_state(_: None = Depends(require_host_token)) -> dict[str, Any]:
+        identity = app.state.relay_identity
+        return {
+            "paired": identity is not None,
+            "agent_id": identity.agent_id if identity else AGENT_ID,
+            "property_id": identity.property_id if identity else None,
+            "host_id": identity.host_id if identity else os.getenv("HOST_ID") or None,
+            "token_expires_at": identity.token_expires_at.isoformat() if identity else None,
+            "relay_running": bool(app.state.relay_task and not app.state.relay_task.done()),
+            "host_status": app.state.emulator.status(),
+        }
 
     @app.get("/api/v1/host-agents/bnb-customer-service/status")
     def read_status(_: None = Depends(require_host_token)) -> dict[str, Any]:
