@@ -114,6 +114,22 @@ class AndroidHostRuntimeTests(unittest.TestCase):
         self.token_patch.start()
         self.addCleanup(self.token_patch.stop)
 
+    def test_device_property_parser_keeps_single_character_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            emulator = AdbEmulator(
+                "/unused/adb",
+                "emulator-5554",
+                ledger=ActionLedger(Path(directory) / "actions.sqlite"),
+            )
+            with patch.object(
+                emulator,
+                "_run",
+                return_value=b"[sys.boot_completed]: [1]\n[ro.build.version.release]: [15]\n",
+            ):
+                properties = emulator._device_properties()
+        self.assertEqual(properties["sys.boot_completed"], "1")
+        self.assertEqual(properties["ro.build.version.release"], "15")
+
     def test_unauthenticated_status_fails_closed(self):
         response = self.client.get("/api/v1/host-agents/bnb-customer-service/status")
         self.assertEqual(response.status_code, 401)

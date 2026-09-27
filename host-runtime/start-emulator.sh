@@ -13,4 +13,4 @@ if [[ ! -x "$android_emulator_path" ]]; then
   exit 2
 fi
 
-exec "$android_emulator_path" -avd "$avd_name"
+exec "$android_emulator_path" -avd "$avd_name" -no-snapshot -no-metrics -gpu host

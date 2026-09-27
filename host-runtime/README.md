@@ -64,6 +64,30 @@ For Chinese input, the runtime supports the open-source
 manually on the emulator. Without it, non-ASCII input is rejected. No keyboard
 APK is bundled or installed by this runtime.
 
+## Quick start
+
+Start the companion; it creates a private `.env`, generates a local API token,
+and launches the loopback-only server:
+
+```sh
+./start-host.sh
+```
+
+Open `http://127.0.0.1:8765/` for local host status. Once the owner BFF is
+deployed, generate a one-time code from **/bots → 民宿客服 → 連接主機**. In a
+second terminal, run the pairing helper and paste the code at its hidden prompt;
+the code is not echoed, added to shell history, or printed by the helper:
+
+```sh
+./pair-host.sh
+```
+
+The helper reads the local bearer token from `.env`, posts only to loopback,
+and never displays the long-lived host token. The paired credential is stored
+in macOS Keychain. The default property ID is `sweetfun`.
+
+## Manual configuration
+
 Example environment values (never commit `.env`):
 
 ```sh

@@ -169,7 +169,7 @@ class AdbEmulator:
         for line in output.decode("utf-8", errors="replace").splitlines():
             if line.startswith("[") and "]: [" in line and line.endswith("]"):
                 key, value = line[1:-1].split("]: [", 1)
-                properties[key] = value[:-1]
+                properties[key] = value
         return properties
 
     def _connected(self) -> bool:
@@ -189,10 +189,10 @@ class AdbEmulator:
                 return self._status_payload("offline", "emulator_not_connected")
             try:
                 props = self._device_properties()
-                package = self._run("shell", "pm", "path", LINE_OA_PACKAGE).decode(
+                package = self._run("shell", "pm", "list", "packages", LINE_OA_PACKAGE).decode(
                     "utf-8", errors="replace"
                 )
-                app_installed = package.strip().startswith("package:")
+                app_installed = f"package:{LINE_OA_PACKAGE}" in package.splitlines()
                 foreground = self._run(
                     "shell", "dumpsys", "activity", "activities"
                 ).decode("utf-8", errors="replace")
