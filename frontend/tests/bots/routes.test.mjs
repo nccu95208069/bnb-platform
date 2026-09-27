@@ -41,3 +41,12 @@ test('all authenticated member roles are denied the owner-only workspace',async 
   assert.equal((await GET(req,params('state'))).status,403);
  }
 });
+
+test('host relay owner endpoints reject unsigned, cross-origin and member access; host routes reject browser origins',async t=>{
+ configure(t);const relay=await import('../../src/app/api/v1/host-agents/[...path]/route.ts');const ctx=path=>({params:Promise.resolve({path:path.split('/')})});
+ assert.equal((await relay.GET(new NextRequest('https://bots.test/api/v1/host-agents/owner/status'),ctx('owner/status'))).status,401);
+ const req=new NextRequest('https://bots.test/api/v1/host-agents/owner/pairing',{method:'POST',headers:{host:'bots.test',origin:'https://evil.test',cookie:`${OWNER_COOKIE}=${createOwnerSession()}`,'x-csrf-token':'same-origin','content-type':'application/json'},body:'{}'});
+ assert.equal((await relay.POST(req,ctx('owner/pairing'))).status,403);
+ const hostReq=new NextRequest('https://bots.test/api/v1/host-agents/heartbeat',{method:'POST',headers:{origin:'https://bots.test','content-type':'application/json'},body:'{}'});
+ assert.equal((await relay.POST(hostReq,ctx('heartbeat'))).status,403);
+});
