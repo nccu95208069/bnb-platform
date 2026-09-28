@@ -75,3 +75,15 @@ For this change, JavaScript syntax, Python Ruff, frontend ESLint, TypeScript and
 production compilation were checked. No new automated test suite or real guest
 test message was run in this implementation turn. Live activation and receipt of
 a new guest message must be reported separately from compilation success.
+
+## Live activation
+
+- Frontend commit `76e1bc7`; production deployment
+  `dpl_76a6rKGUzaE98Bts72AZeBHWb1Tg`, promoted to `sweetfun-os.vercel.app`.
+- Host commit `de6da04`; original paired host restarted with protocol 1 support,
+  `paired=true`, `relay_running=true`, `ready`.
+- Owner completed the website login. Per the explicit automatic-reply request,
+  enabled the policy for the existing concierge Bot through the owner UI.
+- The UI visibly showed automatic mode enabled and waiting for new messages,
+  with zero replies so far. A new owner-initiated guest message is pending for
+  end-to-end receipt confirmation; activation alone is not delivery evidence.
