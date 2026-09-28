@@ -86,7 +86,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
     }
     return true;
    }
-   const message=notice.kind==='draft'?card(p,notice.draft):{type:'text',text:`${p.name}｜${notice.draft.name}\n${notice.text}\n${notice.draft.reply||''}`};
+   const message=notice.kind==='draft'?card(p,notice.draft):{type:'text',text:`${p.name}｜${notice.draft.name}\n${notice.text}\n${notice.kind==='binding_status'?'':notice.draft.reply||''}`};
    await line(d,'message/push',{to:d.ownerUserId,messages:[message]},notice.id);return true;
   },
   async webhook(channelId,raw,signature,decide,readDrafts){

@@ -65,7 +65,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
     await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===a.id);if(x?.binding_state!=='binding')return;x.binding_state=result.status;x.version++;
      if(result.status==='bound')x.binding=result.identity;
      if(result.status==='stale')x.status='stale';
-     notice(s,x,'status',result.status==='bound'?`訂單已確認，Daili 住宿標記：${result.identity.labels.map(l=>l.label).join('、')}。尚未因本次確認傳送任何訊息。${result.identity.sheet_writeback==='SUCCESS'?'訂單表關聯已更新。':'訂單表回寫待處理。'}`:result.status==='stale'?'訂單或證據已更新，這次沒有綁定，請查看最新卡片。':'訂單確認結果待核對，尚未傳送訊息，請到 Daili 查看。');
+     notice(s,x,'binding_status',result.status==='bound'?`訂單已確認，Daili 住宿標記：${result.identity.labels.map(l=>l.label).join('、')}。尚未因本次確認傳送任何訊息。${result.identity.sheet_writeback==='SUCCESS'?'訂單表關聯已更新。':'訂單表回寫待處理。'}`:result.status==='stale'?'訂單或證據已更新，這次沒有綁定，請查看最新卡片。':'訂單確認結果待核對，尚未傳送訊息，請到 Daili 查看。');
      if(result.status==='bound')notice(s,x);
     });
    }
