@@ -64,3 +64,16 @@ Node syntax, TypeScript, targeted ESLint, Ruff and production builds passed.
 No automated tests or live guest send were requested/run. No guest draft was
 approved by the agent. Actual owner LINE delivery/approval/guest receipt through
 this new adapter still requires a real owner-approved interaction.
+
+## 15:06 owner test follow-up
+
+Owner reported no guest receipt after approval. Actual LINE reply/push returned
+200 for the correct @sweetfuntw OA (@383muqfn is its basic ID). Guest phone receipt
+is still unverified; a screenshot of the guest-facing chat was requested.
+
+Daili had regenerated pre-activation unanswered questions, creating repeated cards.
+Backend 797155c filters source message timestamps and rejects old source approvals.
+OS 9e3f1cd consumes retired IDs and marks those cards stale; the completion message
+now explains LINE acceptance vs phone display and directs the owner to the original
+OA chat. Production OS dpl_2riV6Ef7ZEBv2udNd1BMBxpFSqqC is READY/main alias active.
+No guest messages were sent or approved by the agent during this investigation.
