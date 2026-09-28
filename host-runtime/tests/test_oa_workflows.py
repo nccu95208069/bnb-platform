@@ -145,10 +145,10 @@ class WorkflowTests(unittest.TestCase):
         view = listing(["Synthetic Guest"])
         row = view.conversations()[0][0]
         list(row)[1].set("class", "android.view.View")
-        self.assertEqual(
-            view.conversations()[0][1],
-            {"display_name": "Synthetic Guest", "preview": "Synthetic preview"},
-        )
+        result = view.conversations()[0][1]
+        self.assertEqual(result["display_name"], "Synthetic Guest")
+        self.assertEqual(result["preview"], "Synthetic preview")
+        self.assertEqual(len(result["revision"]), 64)
 
     def test_empty_or_image_name_never_promotes_preview_or_timestamp(self):
         for kind in ("empty", "image", "missing"):
@@ -324,7 +324,8 @@ class WorkflowTests(unittest.TestCase):
             "android.widget.EditText",
             focused="true",
         )
-        node(form, "[960,2209][1060,2317]", clickable="true")
+        # Observed OA layout overlaps editor/send bounds slightly.
+        node(form, "[948,2209][1060,2317]", clickable="true")
         prepared = View(prepared.root)
         after = chat(answer="Approved text")
         with (

@@ -46,12 +46,21 @@ Current rollout and verification (2026-09-28):
   customer name/tag changes or additional messages were used to test this rollout.
 - Tag operations apply an existing account tag only. Create missing tags in LINE
   OA chat settings first. Unknown UI layouts fail closed.
-- Read results include only currently visible text; this is not a full-history
-  ingestion service or unattended auto-reply scheduler.
+- Read results include only currently visible text, not full conversation history.
+  The shared bnb-bot relay now drives automatic replies under the owner's enabled policy.
 - The paired host must stay open on the approved conversation between reading and
   confirming a write. A changed screen/content or expired reference requires a new read.
 
 See [named workflow protocol](../docs/OA_WORKFLOWS_V1.md) for wire shapes and limits.
+
+Automatic-reply acceptance follow-up (2026-09-28): the first owner-initiated live
+message reached Bot planning but sending was blocked by `send_button_unavailable`.
+A no-send diagnostic reproduced the issue: OA's send control overlaps the editor
+edge by two native pixels. The selector now permits a narrow overlap while still
+requiring its centre beyond the editor and a unique enabled control. Temporary
+diagnostic drafts were cleared. All 45 synthetic tests and Ruff passed. The paired
+host was restarted; successful automatic delivery still needs a fresh live message.
+Failures now log only the action and bounded error code, never guest data.
 
 ## Android setup
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import secrets
@@ -510,7 +511,10 @@ class OAWorkflows:
             for n in form.iter("node")
             if visible(n)
             and n.get("clickable") == "true"
-            and bounds(n)[0] >= editor_right
+            # OA's send button overlaps the editor edge by two native pixels.
+            # Keep its centre beyond the editor and allow only a narrow overlap.
+            and bounds(n)[0] >= editor_right - view.width * 0.01
+            and (bounds(n)[0] + bounds(n)[2]) / 2 > editor_right
             and n.get("enabled") != "false"
         ]
         send_button = view.one(send, "send_button_unavailable")
@@ -665,6 +669,11 @@ class OAWorkflows:
             try:
                 verified, after = method(view, ref["name"], payload[field])
             except Exception as exc:
+                code = exc.detail.get("code", "") if isinstance(exc, HTTPException) and isinstance(exc.detail, dict) else "workflow_exception"
+                if not isinstance(code, str) or not re.fullmatch(r"[a-z_]{1,64}", code):
+                    code = "workflow_exception"
+                # Never log the exception message, payload, recipient or draft.
+                logging.getLogger(__name__).warning("OA workflow failed: action=%s code=%s", action, code)
                 self._recover(
                     ref["name"], payload[field], bool(view.named("使用手動聊天"))
                 )
