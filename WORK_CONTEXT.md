@@ -451,3 +451,15 @@ Owner credentials now live in the existing private Redis service at `sweetfun-os
 The browser flow and HTTP checks passed in a separate temporary Redis namespace: setup, verified persistence, new password login, old code/session rejection, current-password requirement, and cross-origin rejection. The owner's production password is not set during verification. Historical deployment URLs require Vercel login. The temporary owner login remains separate from employee/Supabase accounts.
 
 **Password setting shipped:** production deployment `sweetfun-ft1kwgdiy-sweetfuns-projects.vercel.app` is aliased to the existing calendar. Initial credential SET NX and authoritative re-read succeeded using the existing owner code hash; no chosen password was set. Production browser verification confirms the existing owner session still works, `/calendar-password` displays the initial new/confirm fields, and private calendar names and the change-password link still work. Temporary test credential/attempt keys were deleted.
+
+## Customer agent follow-up — 2026-09-28
+
+The owner requests continuing the paired LINE OA host into a simple mobile
+customer workflow. `/bots` now adds guest selection, visible-conversation reading,
+FAQ-bounded reply drafts, optional polishing and exact-recipient/content write
+confirmation for LINE reply, existing-tag assignment and display-name changes.
+This extends the separately authorized customer subsystem; formal booking and
+finance sources remain read-only. See
+`docs/work-handoff/CUSTOMER_WORKFLOWS_2026-09-28.md` for implementation, privacy,
+verification and current UI/host limits. Real guest mutations are not used as
+acceptance tests without a specific target/action authorization.

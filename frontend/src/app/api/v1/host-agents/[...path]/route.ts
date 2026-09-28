@@ -29,7 +29,7 @@ async function handle(req:NextRequest,ctx:{params:Promise<{path:string[]}>}){
   }else if(!owner||path!=='owner/status')throw new RelayError('method_not_allowed',405);
   // Pre-auth pairing attempts are restricted per platform-observed remote IP.
   const identity=owner?principal!.id:req.headers.get('authorization')||req.headers.get('x-vercel-forwarded-for')||'pairing';
-  await limiter.limit('host-relay:'+identity,path==='pairing/redeem'?20:120,60);
+  await limiter.limit('host-relay:'+identity,path==='pairing/redeem'||['owner/customer-polish','owner/customer-suggest'].includes(path)?20:120,60);
   const result=owner?await relay.owner(principal!.id,path.slice(6),body):await relay.host(path,req.headers,body);
   return result===null?new NextResponse(null,{status:204,headers}):NextResponse.json(result,{headers});
  }catch(e){
