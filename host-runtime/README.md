@@ -62,6 +62,16 @@ diagnostic drafts were cleared. All 45 synthetic tests and Ruff passed. The pair
 host was restarted; successful automatic delivery still needs a fresh live message.
 Failures now log only the action and bounded error code, never guest data.
 
+The next automatic reply was delivered and the owner confirmed receipt. Its
+multi-topic answer exposed a second issue: wide outgoing bubbles extend past the
+usual left alignment margin, so the original parser omitted the sent answer and
+reported an unverified write. The parser now requires an adjacent left timestamp
+to recognize such wide outgoing bubbles. Verification also waits for the matching
+bubble, not just an empty editor. The corrected parser read back the already-sent
+answer exactly; no resend was performed. All 47 synthetic tests and Ruff pass.
+The original uncertain receipt remains in the audit history; it is not rewritten
+as a retroactive successful host receipt.
+
 ## Android setup
 
 Use Android Studio to create one Google Play-enabled Android phone AVD and keep

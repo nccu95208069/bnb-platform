@@ -221,6 +221,30 @@ class View:
         if len(layouts) != 1 or not self.title:
             reject("conversation_not_open")
         layout = layouts[0]
+
+        def has_left_timestamp(candidate: ET.Element) -> bool:
+            # Long outgoing bubbles extend left of the normal alignment margin.
+            # Their adjacent timestamp, on the left at the bubble's bottom, is
+            # independent evidence of direction. Do not guess from width alone.
+            left, top, _right, bottom = bounds(candidate)
+            outer = candidate
+            while outer in self.parents and bounds(self.parents[outer]) == bounds(
+                candidate
+            ):
+                outer = self.parents[outer]
+            parent = self.parents.get(outer)
+            if parent is None:
+                return False
+            return any(
+                visible(sibling)
+                and sibling.get("class") == "android.widget.TextView"
+                and re.fullmatch(r"\d{1,2}:\d{2}", text(sibling))
+                and bounds(sibling)[2] <= left
+                and bounds(sibling)[1] >= top
+                and abs(bounds(sibling)[3] - bottom) <= self.width * 0.03
+                for sibling in parent
+            )
+
         groups: dict[ET.Element, dict] = {}
         for node in layout.iter("node"):
             if not visible(node):
@@ -241,7 +265,10 @@ class View:
             bubble, direction, current = None, "unknown", node
             while current is not layout and current in self.parents:
                 left, _top, right, _bottom = bounds(current)
-                if right > self.width * 0.97 and left >= self.width * 0.15:
+                if right > self.width * 0.97 and (
+                    left >= self.width * 0.15
+                    or (left >= self.width * 0.08 and has_left_timestamp(current))
+                ):
                     bubble, direction = current, "outgoing"
                 elif (
                     self.width * 0.10 <= left <= self.width * 0.15
@@ -520,11 +547,23 @@ class OAWorkflows:
         send_button = view.one(send, "send_button_unavailable")
         self._tap(send_button)
         # Never repeat the send tap. A failed readback is an uncertain effect.
-        after = self._wait(lambda v: v.title == name and not text(v.editor()))
         normalize = lambda s: re.sub(r"\s+", "", s)
         old = sum(
             m["direction"] == "outgoing" and normalize(m["text"]) == normalize(value)
             for m in baseline
+        )
+        # Clearing the editor can precede the new bubble's accessible rendering.
+        after = self._wait(
+            lambda v: (
+                v.title == name
+                and not text(v.editor())
+                and sum(
+                    m["direction"] == "outgoing"
+                    and normalize(m["text"]) == normalize(value)
+                    for m in v.messages()
+                )
+                > old
+            )
         )
         new = sum(
             m["direction"] == "outgoing" and normalize(m["text"]) == normalize(value)
@@ -669,11 +708,17 @@ class OAWorkflows:
             try:
                 verified, after = method(view, ref["name"], payload[field])
             except Exception as exc:
-                code = exc.detail.get("code", "") if isinstance(exc, HTTPException) and isinstance(exc.detail, dict) else "workflow_exception"
+                code = (
+                    exc.detail.get("code", "")
+                    if isinstance(exc, HTTPException) and isinstance(exc.detail, dict)
+                    else "workflow_exception"
+                )
                 if not isinstance(code, str) or not re.fullmatch(r"[a-z_]{1,64}", code):
                     code = "workflow_exception"
                 # Never log the exception message, payload, recipient or draft.
-                logging.getLogger(__name__).warning("OA workflow failed: action=%s code=%s", action, code)
+                logging.getLogger(__name__).warning(
+                    "OA workflow failed: action=%s code=%s", action, code
+                )
                 self._recover(
                     ref["name"], payload[field], bool(view.named("使用手動聊天"))
                 )

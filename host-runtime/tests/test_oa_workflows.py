@@ -150,6 +150,35 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(result["preview"], "Synthetic preview")
         self.assertEqual(len(result["revision"]), 64)
 
+    def test_wide_outgoing_bubble_requires_adjacent_left_timestamp(self):
+        view = chat(answer="A long published answer")
+        layout = view.by_id("chat-message-layout")[0]
+        outgoing = list(layout)[1]
+        outgoing.set("bounds", "[112,1700][1060,1850]")
+        next(iter(outgoing)).set("bounds", "[112,1700][1060,1850]")
+        timestamp = list(layout)[2]
+        timestamp.set("bounds", "[21,1813][97,1850]")
+        self.assertEqual(
+            View(view.root).messages()[-1],
+            {"direction": "outgoing", "text": "A long published answer"},
+        )
+        # A wide bubble without a left-side timestamp remains unclassified.
+        timestamp.set("bounds", "[1070,1813][1140,1850]")
+        self.assertNotIn(
+            "A long published answer", [m["text"] for m in View(view.root).messages()]
+        )
+
+    def test_timestamp_for_another_row_cannot_classify_wide_bubble(self):
+        view = chat(answer="A long published answer")
+        layout = view.by_id("chat-message-layout")[0]
+        outgoing = list(layout)[1]
+        outgoing.set("bounds", "[112,1700][1060,1850]")
+        next(iter(outgoing)).set("bounds", "[112,1700][1060,1850]")
+        list(layout)[2].set("bounds", "[21,1200][97,1240]")
+        self.assertNotIn(
+            "A long published answer", [m["text"] for m in View(view.root).messages()]
+        )
+
     def test_empty_or_image_name_never_promotes_preview_or_timestamp(self):
         for kind in ("empty", "image", "missing"):
             with self.subTest(kind=kind):
