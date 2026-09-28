@@ -96,3 +96,7 @@ outside LINE's sendable packages are not guaranteed; limitations are shown expli
 
 No automated tests or live sends were requested/run. Static checks and release health
 are recorded separately; user-visible original media receipt needs a real new upload.
+
+Media release: OS dpl_ozQfYRXdAfSP7ReijJT8QK4uSPDc is promoted to the main domain.
+Daili revision manager-media-50488a1 serves 100%, health/database OK. Build
+3c285801-c67b-456b-abb6-9456c237d259 succeeded. UI shows media notifications enabled.
