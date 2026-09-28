@@ -39,28 +39,27 @@ and attachments require Daili. New-message scan begins at activation and uses a
 rolling 7-day window, bounded pages; drafts expire in 24 hours. Multi-property
 polling rotates order to avoid starving a later property. LINE push quotas apply.
 
-## Release status
+## Production activation — 2026-09-28
 
-- Implementation, Node syntax, TypeScript, targeted ESLint and production Next.js
-  build completed. The first sandboxed build could not download existing Google
-  Fonts; the authorized network-enabled build succeeded.
-- No automated tests or live guest send were requested/run.
-- Credential provisioning, backend/frontend deployment, activation and live owner
-  delivery remain pending. Do not claim the existing emulator pipeline has been
-  switched until this document records production activation.
-- Automatic approval review rejected reading/exporting the whole Cloud Run
-  environment because it may contain secrets. A question asks the owner to
-  authorize only the existing DB credential, dedicated integration User and
-  encrypted production Vercel token. Do not bypass that pending decision.
+Owner explicitly authorized credential provisioning and deployment with
+「同意，完成串接與上線」. Provisioning completed: dedicated MANAGER_BRIDGE
+User, hashed token in Daili DB, sensitive production DAILI_MANAGER_CONNECTION
+in Vercel. Existing user credentials were unchanged; no plaintext secrets saved.
+Only Sweetfun 水芳 is mapped (OS `sweetfun`, Daili
+`fa33f0a8-a09b-48d0-adb2-f69b89c1d22b`). Other properties require explicit mapping.
 
-### Candidate publication
+Daili production traffic is 100% `bnb-reply-copilot-manager-4146b26`.
+Health returns `status=ok,database=ok`. Dedicated credential returned 200 for
+properties and queue, and 403 for unrelated inbox API. Rollback revision is
+`bnb-reply-copilot-local-quote-72c9c09`.
 
-Vercel candidate `dpl_3KNY5b3fzXgrb6cAmnTckUeFqYFF` is READY at
-https://sweetfun-pkf54zkoh-sweetfuns-projects.vercel.app . Main alias inspection
-still resolves to `dpl_FGRwmbmWkQgHRWhULRA5XEQju7n6` (old production).
-Daili candidate `bnb-reply-copilot-manager-4146b26` is ready at 0% traffic;
-its health endpoint returns HTTP 200 and database=ok. Cloud Build
-`2fec0254-fa0e-4ddd-8271-7f2915411b0b` succeeded. Neither integration credential
-nor DAILI_MANAGER_CONNECTION has been provisioned. A new frontend deployment is
-required after adding that production environment value. Credential approval
-question remains unanswered; do not promote or claim activation.
+OS deployment `dpl_BiGdA82AL2tXPXCJNEHphR9R1ykt` was promoted to the main
+https://sweetfun-os.vercel.app alias with the new production connection.
+Owner UI confirms LINE bound and Daili cloud mode. A follow-up release adds
+visible last-sync time; final deployment and synchronization evidence are recorded
+in the local project handoff.
+
+Node syntax, TypeScript, targeted ESLint, Ruff and production builds passed.
+No automated tests or live guest send were requested/run. No guest draft was
+approved by the agent. Actual owner LINE delivery/approval/guest receipt through
+this new adapter still requires a real owner-approved interaction.
