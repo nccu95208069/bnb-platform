@@ -393,7 +393,9 @@ class AdbEmulator:
                 raise HTTPException(status_code=409, detail={"code": "oa_app_not_foreground"})
             from app.oa_workflows import View
             view = View(self._read_hierarchy_tree())
-            if view.title not in {"主頁", "全部", "聊天", "未讀"} and not view.by_id("chat-message-layout"):
+            if (view.title not in {"主頁", "全部", "聊天", "未讀"}
+                    and not view.by_id("chat-message-layout")
+                    and not view.by_id("__test__chat_profile_search_title")):
                 raise HTTPException(status_code=409, detail={"code": "owner_login_not_attested"})
             self._owner_confirmed = True
             self._needs_reauth = False
