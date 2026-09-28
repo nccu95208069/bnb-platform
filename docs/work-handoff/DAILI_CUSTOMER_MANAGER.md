@@ -100,3 +100,23 @@ are recorded separately; user-visible original media receipt needs a real new up
 Media release: OS dpl_ozQfYRXdAfSP7ReijJT8QK4uSPDc is promoted to the main domain.
 Daili revision manager-media-50488a1 serves 100%, health/database OK. Build
 3c285801-c67b-456b-abb6-9456c237d259 succeeded. UI shows media notifications enabled.
+
+
+## Dual stay labels — 2026-09-29
+
+Booking proposals now show evidence, current reservation, full dates and M/D room
+label in both the LINE approval card and workbench. Approval includes the backend
+proposal digest. A separately persisted native-tag job starts only after the
+confirmed binding and accepted guest transmission. One tag job per property is
+advanced at a time. It checks the canonical link before each pre-write stage,
+uses a unique exact name (or exact approved-label prefix), checks the visible
+outgoing confirmation, and requires a verified native result.
+
+Host outage, changed booking, missing visible evidence or uncertain effects are
+reported separately from Daili binding and guest transmission. No message resend
+is used as a tag repair. New date/room tags are staged and saved by the local host
+contact editor; arbitrary new account tags remain unsupported.
+
+Validation: syntax checks and production build/lint. No synthetic tests or guest
+transmissions were run for this change. Native creation awaits the next owner-
+approved live job; UI readback must confirm it before reporting success.

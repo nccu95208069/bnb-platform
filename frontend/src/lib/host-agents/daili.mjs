@@ -1,4 +1,5 @@
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
+import {advanceStayTag,tagStatusText} from './stay-tags.mjs';
 import {customerCrypto} from './customer.mjs';
 const PREFIX='sweetfun-os:daili-manager:v1:',DAY=86400000;
 const MEDIA_START='2026-09-28T09:04:05.000Z';
@@ -20,7 +21,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
  const read=async(owner,p)=>{const k=key(owner,p),raw=await redis(['GET',k]);return raw?vault().open(raw,k):fresh();};
  async function mutate(owner,p,fn){const k=key(owner,p);for(let i=0;i<8;i++){const raw=await redis(['GET',k]),d=raw?vault().open(raw,k):fresh(),result=fn(d);if(await redis(['EVAL',CAS,1,k,raw||'',vault().seal(d,k)])===1)return result;}need(false,'busy');}
  function notice(d,a,kind='draft',text=''){d.notices.push({id:randomUUID(),draft_id:a.id,version:a.version,kind,text,created_at:now()});}
- const project=a=>({id:a.id,name:a.name,question:a.question,reply:a.reply,version:a.version,status:a.status,created_at:a.created_at,expires_at:a.expires_at});
+ const project=a=>({id:a.id,name:a.name,question:a.question,reply:a.reply,version:a.version,status:a.status,identity:a.identity||null,binding:a.binding||null,oa_tag:a.oa_tag||null,created_at:a.created_at,expires_at:a.expires_at});
  async function api(path,body){
   const c=dailiConfig();need(c,'daili_not_configured');
   const r=await fetcher('https://bnb-reply-copilot-2efedcw3vq-de.a.run.app/api/v1/customer-manager/'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+c.token,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{}),redirect:'error',signal:AbortSignal.timeout(22000)});
@@ -54,8 +55,14 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
     if(now()>deadline-24000)break;
     const approved=await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===a.id);if(!s.enabled||x?.status!=='approved'||x.expires_at<=now())return null;if(x.binding_revision!==connection.binding_revision){x.status='awaiting_approval';x.version++;notice(s,x);return null;}x.status='sending';x.sending_at=now();return structuredClone(x);});
     if(!approved)continue;
-    let result;try{result=await api('send',{request_id:approved.send_id,property_id:mapping.daili_property_id,conversation_id:approved.conversation_id,stamp:approved.stamp,suggestion_id:approved.suggestion_id,source_hash:approved.source_hash,text:approved.reply});}catch{result={status:'uncertain'};}
-    await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===approved.id);if(x.status!=='sending')return;x.status=['sent','stale'].includes(result.status)?result.status:'uncertain';x.message_id=result.message_id||null;notice(s,x,'status',x.status==='sent'?'LINE 已接受傳送，請到與原民宿帳號的聊天查看；此回報不代表手機已顯示，若未收到請勿重複核准。':x.status==='stale'?'客人訊息或回覆內容已更新，這次沒有送出，請查看最新草稿。':'傳送結果尚未確認，請在 Daili 查看，勿重複送出。');});
+    let result;try{result=await api('send',{request_id:approved.send_id,property_id:mapping.daili_property_id,conversation_id:approved.conversation_id,stamp:approved.stamp,suggestion_id:approved.suggestion_id,source_hash:approved.source_hash,text:approved.reply,...(approved.identity?{identity_snapshot:approved.identity.snapshot,reservation_id:approved.identity.selected?.reservation_id||null}:{})});}catch{result={status:'uncertain'};}
+    await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===approved.id);if(x.status!=='sending')return;x.status=['sent','stale'].includes(result.status)?result.status:'uncertain';x.message_id=result.message_id||null;
+     if(result.identity?.status==='bound'){
+      x.binding=result.identity;
+      if(x.status==='sent'&&result.identity.labels?.length===1)x.oa_tag={status:'pending',label:result.identity.labels[0].label,read_id:'stay-'+x.send_id,created_at:now()};
+      notice(s,x,'status',`Daili 訂單綁定及住宿標記已儲存：${result.identity.labels.map(l=>l.label).join('、')}。${result.identity.sheet_writeback==='SUCCESS'?'訂單表 LINE 關聯已更新。':'訂單表回寫待處理。'}${x.oa_tag?'LINE 原生標籤等待主機確認。':'LINE 原生標籤尚未處理。'}`);
+     }
+     notice(s,x,'status',x.status==='sent'?'LINE 已接受傳送，請到與原民宿帳號的聊天查看；此回報不代表手機已顯示，若未收到請勿重複核准。':x.status==='stale'?'客人訊息或回覆內容已更新，這次沒有送出，請查看最新草稿。':'傳送結果尚未確認，請在 Daili 查看，勿重複送出。');});
    }
    d=await read(owner,p);
    if(d.enabled&&now()<deadline-24000){
@@ -67,15 +74,26 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
      for(const item of page.items){
       need(item.property_id===mapping.daili_property_id,'daili_scope_mismatch');
       if(s.muted.includes(item.conversation_id)||s.drafts.some(a=>a.conversation_id===item.conversation_id&&['sending','uncertain'].includes(a.status)))continue;
-      const signature=hash(JSON.stringify([item.conversation_id,item.stamp,item.suggestion_id,item.source_hash]));
+      const signature=hash(JSON.stringify([item.conversation_id,item.stamp,item.suggestion_id,item.source_hash,item.identity?.snapshot||null]));
       if(s.drafts.some(a=>a.signature===signature))continue;
       for(const old of s.drafts.filter(a=>a.conversation_id===item.conversation_id&&['awaiting_approval','approved'].includes(a.status)))old.status='stale';
-      const a={id:randomBytes(24).toString('base64url'),signature,conversation_id:item.conversation_id,stamp:item.stamp,suggestion_id:item.suggestion_id,source_hash:item.source_hash,name:String(item.name).slice(0,100),question:String(item.question).slice(0,2000),reply:item.reply.length<=1000?item.reply:'',version:1,status:'awaiting_approval',created_at:now(),expires_at:now()+DAY};
+      const a={id:randomBytes(24).toString('base64url'),signature,conversation_id:item.conversation_id,stamp:item.stamp,suggestion_id:item.suggestion_id,source_hash:item.source_hash,identity:item.identity||null,name:String(item.name).slice(0,100),question:String(item.question).slice(0,2000),reply:item.reply.length<=1000?item.reply:'',version:1,status:'awaiting_approval',created_at:now(),expires_at:now()+DAY};
       s.drafts.push(a);notice(s,a);
      }
      s.offset=page.next_offset;s.last_sync=now();s.error=null;
-     s.drafts=s.drafts.filter(a=>a.created_at>now()-7*DAY||['approved','sending','uncertain'].includes(a.status));
+     s.drafts=s.drafts.filter(a=>a.created_at>now()-7*DAY||['approved','sending','uncertain'].includes(a.status)||(a.oa_tag&&!['verified','needs_attention'].includes(a.oa_tag.status)));
     });
+   }
+   d=await read(owner,p);
+   for(const a of d.drafts.filter(x=>x.oa_tag&&!['verified','needs_attention'].includes(x.oa_tag.status)).slice(0,1)){
+    if(now()>deadline-27000)break;
+    const {createRelay}=await import('./relay.mjs');
+    await advanceStayTag({owner,property:p,draft:a,relay:createRelay(redis,now,{manager}),validate:async()=>{const data=await api('stay-labels?'+new URLSearchParams({property_id:mapping.daili_property_id,check_in:a.binding.labels[0].check_in}));return data.items.some(x=>x.link_id===a.binding.link_id&&x.conversation_id===a.conversation_id&&JSON.stringify(x.labels)===JSON.stringify(a.binding.labels));},save:async patch=>mutate(owner,p,s=>{
+     const x=s.drafts.find(x=>x.id===a.id);if(!x?.oa_tag||x.oa_tag.status!==a.oa_tag.status)return;
+     const oldError=x.oa_tag.error;x.oa_tag={...x.oa_tag,...patch};
+     if(['verified','needs_attention'].includes(patch.status))notice(s,x,'status',tagStatusText(x.oa_tag));
+     else if(patch.error&&patch.error!==oldError)notice(s,x,'status',tagStatusText(x.oa_tag)+' 主機目前尚未就緒。');
+    })});
    }
    d=await read(owner,p);
    if(d.enabled&&now()<deadline-24000&&d.notices.filter(n=>n.kind==='media').length<30){
