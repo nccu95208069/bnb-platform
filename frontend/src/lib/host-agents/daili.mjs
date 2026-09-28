@@ -26,7 +26,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
   need(r.ok,'daili_unavailable',503);return r.json();
  }
  function expire(d){for(const a of d.drafts){if(a.expires_at<=now()&&['awaiting_approval','approved'].includes(a.status))a.status='expired';if(a.status==='sending'&&a.sending_at+90000<now()){a.status='uncertain';notice(d,a,'status','傳送結果尚未確認，請在 Daili 查看，勿重複送出。');}}}
- async function activity(owner,p){need(dailiProperty(owner,p),'daili_not_configured');return mutate(owner,p,d=>{expire(d);return {drafts:d.drafts.map(project),enabled:d.enabled,last_sync:d.last_sync||null,error:d.error||null,source:'daili',muted:d.muted};});}
+ async function activity(owner,p){need(dailiProperty(owner,p),'daili_not_configured');return mutate(owner,p,d=>{expire(d);return {drafts:d.drafts.map(project),enabled:d.enabled,last_sync:d.last_sync||null,error:d.error||null,source:'daili',muted:d.muted.map(id=>({id,name:d.drafts.find(a=>a.conversation_id===id)?.name||'已接手的客人'}))};});}
  async function decide(owner,p,b){need(dailiProperty(owner,p),'daili_not_configured');const binding=await manager.owner(owner,'status');need(binding.bound&&binding.webhook_verified,'manager_not_configured');return mutate(owner,p,d=>{
   expire(d);const a=d.drafts.find(x=>x.id===b.draft_id);need(a,'draft_not_found',404);
   if(b.request_id&&a.last_action_id===b.request_id)return {draft:project(a)};
@@ -37,6 +37,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
   else need(false,'invalid_action');
   a.last_action_id=b.request_id;return {draft:project(a)};
  });}
+ async function resume(owner,p,id){need(dailiProperty(owner,p)&&typeof id==='string','invalid_request');return mutate(owner,p,d=>{need(d.muted.includes(id),'not_found',404);d.muted=d.muted.filter(x=>x!==id);for(const a of d.drafts)if(a.conversation_id===id&&a.status==='dismissed')a.signature='resumed:'+a.id;return {ok:true};});}
  async function toggle(owner,p,enabled){need(dailiProperty(owner,p)&&typeof enabled==='boolean','invalid_request');return mutate(owner,p,d=>{d.enabled=enabled;if(!enabled)for(const a of d.drafts)if(a.status==='approved')a.status='awaiting_approval';return {enabled};});}
  async function sync(owner,p,deadline){
   const mapping=dailiProperty(owner,p);need(mapping,'daili_not_configured');
@@ -84,5 +85,5 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
   }catch(e){await mutate(owner,p,s=>{s.error=e.code||'daili_unavailable';});throw e;}
   finally{await redis(['EVAL',"if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0",1,lease,leaseId]);}
  }
- return {activity,decide,toggle,sync,async run(){const c=dailiConfig();if(!c)return {configured:false};const owner=await redis(['GET','sweetfun-os:customer-manager:v1:route:'+c.channel]);need(owner,'manager_not_configured');const registered=await manager.properties(owner),deadline=now()+50000;const rotation=Math.floor(now()/60000)%c.properties.length;const ordered=[...c.properties.slice(rotation),...c.properties.slice(0,rotation)];for(const p of ordered){need(registered.some(x=>x.id===p.id),'property_not_configured');if(now()<deadline-10000)await sync(owner,p.id,deadline);}return {configured:true};}};
+ return {activity,decide,toggle,resume,sync,async run(){const c=dailiConfig();if(!c)return {configured:false};const owner=await redis(['GET','sweetfun-os:customer-manager:v1:route:'+c.channel]);need(owner,'manager_not_configured');const registered=await manager.properties(owner),deadline=now()+50000;const rotation=Math.floor(now()/60000)%c.properties.length;const ordered=[...c.properties.slice(rotation),...c.properties.slice(0,rotation)];for(const p of ordered){need(registered.some(x=>x.id===p.id),'property_not_configured');if(now()<deadline-10000)await sync(owner,p.id,deadline);}return {configured:true};}};
 }

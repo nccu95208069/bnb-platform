@@ -24,7 +24,7 @@ async function handle(req:NextRequest,ctx:{params:Promise<{path:string[]}>}){
   const principal=await principalFor(req);
   if(!principal)return NextResponse.json({error:'login_required'},{status:401,headers});
   if(principal.role!=='owner')return NextResponse.json({error:'forbidden'},{status:403,headers});
-  if(path.length!==1||!['status','configure','pair-code','unbind','property-add','daili-status','daili-decide','daili-toggle'].includes(path[0]))return NextResponse.json({error:'not_found'},{status:404,headers});
+  if(path.length!==1||!['status','configure','pair-code','unbind','property-add','daili-status','daili-decide','daili-toggle','daili-resume'].includes(path[0]))return NextResponse.json({error:'not_found'},{status:404,headers});
   if(req.headers.get('sec-fetch-site')==='cross-site'||req.method!=='GET'&&(req.headers.get('origin')!==`${req.nextUrl.protocol}//${req.headers.get('host')}`||req.headers.get('x-csrf-token')!=='same-origin'))return NextResponse.json({error:'same_origin_required'},{status:403,headers});
   await limiter.limit('customer-manager:'+principal.id,30,60);
   let body:Record<string,unknown>={};
@@ -36,6 +36,7 @@ async function handle(req:NextRequest,ctx:{params:Promise<{path:string[]}>}){
   const property=String(body.property_id||req.nextUrl.searchParams.get('property_id')||'');
   if(path[0]==='daili-status')return NextResponse.json(await daili.activity(principal.id,property),{headers});
   if(path[0]==='daili-decide')return NextResponse.json(await daili.decide(principal.id,property,body),{headers});
+  if(path[0]==='daili-resume')return NextResponse.json(await daili.resume(principal.id,property,body.conversation_id),{headers});
   if(path[0]==='daili-toggle')return NextResponse.json(await daili.toggle(principal.id,property,body.enabled),{headers});
   if(path[0]==='status'){
    const result=await manager.owner(principal.id,'status');
