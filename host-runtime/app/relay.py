@@ -14,6 +14,8 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 from app.main import AGENT_ID, AdbEmulator, UIAction
+from app.oa_workflows import ACTIONS as OA_ACTIONS
+from app.oa_workflows import validate_payload
 
 PROTOCOL_VERSION = "1.0"
 HEARTBEAT_SECONDS = 15
@@ -218,6 +220,12 @@ def validate_job(job: ClaimedJob, identity: HostIdentity) -> UIAction | None:
         action = UIAction.model_validate(
             {**job.payload, "action_id": job.idempotency_key, "owner_approved": True}
         )
+    elif job.action in OA_ACTIONS:
+        required = "ui:read" if job.action in {"oa_list_conversations", "oa_read_conversation"} else "ui:operate"
+        if required not in identity.scope:
+            raise ValueError("capability_not_allowlisted")
+        validate_payload(job.action, job.payload)
+        action = None
     else:
         raise ValueError("capability_not_allowlisted")
     if not job.approval_id or not job.approval_expires_at:
@@ -307,7 +315,7 @@ class RelayClient:
             sequence=self.sequence,
             nonce=nonce,
             sent_at=datetime.now(UTC),
-            status=self.emulator.status(),
+            status=await asyncio.to_thread(self.emulator.status),
         ).model_dump(mode="json")
         response = await self.client.post(
             f"{self.base_url}/api/v1/host-agents/heartbeat",
@@ -418,8 +426,15 @@ class RelayClient:
         error_code = None
         try:
             action = validate_job(job, self.identity)
-            if job.action == "ui_snapshot":
-                output = self.emulator.read_ui()
+            if job.action in OA_ACTIONS:
+                remaining = min(job.lease_expires_at, job.approval_expires_at) - datetime.now(UTC)
+                output = await asyncio.to_thread(self.emulator.oa.execute, job.action, job.payload, job.idempotency_key, remaining.total_seconds())
+                read = job.action in {"oa_list_conversations", "oa_read_conversation"}
+                status = "succeeded" if read or output.get("verified") is True else "partial_success"
+                error_code = None if status == "succeeded" else "read_back_verification_required"
+                evidence = [ResultEvidence(visible_effect_confirmed=output.get("verified") is True)]
+            elif job.action == "ui_snapshot":
+                output = await asyncio.to_thread(self.emulator.read_ui)
                 evidence = [
                     ResultEvidence(
                         snapshot_id=output["snapshot_id"],
@@ -429,7 +444,7 @@ class RelayClient:
                 status = "succeeded"
             else:
                 assert action is not None
-                outcome = self.emulator.execute_approved(action)
+                outcome = await asyncio.to_thread(self.emulator.execute_approved, action)
                 status = outcome["status"]
                 error_code = None if outcome["verified"] else "read_back_verification_required"
                 evidence = [
@@ -448,7 +463,7 @@ class RelayClient:
         except HTTPException as exc:
             code = exc.detail.get("code", "host_action_failed") if isinstance(exc.detail, dict) else "host_action_failed"
             error_code = code
-            status = "needs_reauth" if code == "owner_login_not_attested" else "owner_required" if code == "stale_ui_snapshot" else "failed"
+            status = "needs_reauth" if code == "owner_login_not_attested" else "owner_required" if code in {"stale_ui_snapshot", "conversation_ref_expired", "conversation_changed", "recipient_changed", "recipient_ambiguous", "recipient_not_visible", "action_outcome_uncertain"} else "failed"
         except (OSError, RuntimeError, KeyError):
             error_code = "ui_action_failed"
         return JobResultRequest(

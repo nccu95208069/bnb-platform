@@ -130,6 +130,22 @@ class AndroidHostRuntimeTests(unittest.TestCase):
         self.assertEqual(properties["sys.boot_completed"], "1")
         self.assertEqual(properties["ro.build.version.release"], "15")
 
+    def test_foreground_detection_accepts_android_15_top_resumed_activity(self):
+        dump = """Hist #0: ActivityRecord{abc u0 com.android.launcher3/.Launcher t1}\n  topResumedActivity=ActivityRecord{def u0 com.linecorp.lineoa/.HomeActivity t2}\n"""
+        self.assertTrue(AdbEmulator._package_is_resumed(dump, "com.linecorp.lineoa"))
+
+    def test_foreground_detection_accepts_legacy_resumed_activity(self):
+        dump = "mResumedActivity: ActivityRecord{def u0 com.linecorp.lineoa/.HomeActivity t2}\n"
+        self.assertTrue(AdbEmulator._package_is_resumed(dump, "com.linecorp.lineoa"))
+
+    def test_foreground_detection_ignores_package_outside_resumed_record(self):
+        dump = """topResumedActivity=ActivityRecord{abc u0 com.android.launcher3/.Launcher t1}\n  mLastPausedActivity: ActivityRecord{def u0 com.linecorp.lineoa/.HomeActivity t2}\n"""
+        self.assertFalse(AdbEmulator._package_is_resumed(dump, "com.linecorp.lineoa"))
+
+    def test_foreground_detection_does_not_match_similar_package_name(self):
+        dump = "topResumedActivity=ActivityRecord{def u0 com.linecorp.lineoa.debug/.HomeActivity t2}\n"
+        self.assertFalse(AdbEmulator._package_is_resumed(dump, "com.linecorp.lineoa"))
+
     def test_unauthenticated_status_fails_closed(self):
         response = self.client.get("/api/v1/host-agents/bnb-customer-service/status")
         self.assertEqual(response.status_code, 401)
@@ -173,6 +189,16 @@ class AndroidHostRuntimeTests(unittest.TestCase):
         self.assertIsNone(validate_job(job, fake_identity()))
         with self.assertRaisesRegex(ValueError, "capability_not_allowlisted"):
             validate_job(job, fake_identity(scope=["ui:operate"]))
+
+    def test_named_workflow_payload_scope_and_approval_are_bound(self):
+        job = fake_job(action="oa_reply", payload={"conversation_ref": "opaque-ref", "display_name": "Synthetic Guest", "text": "Approved"})
+        self.assertIsNone(validate_job(job, fake_identity()))
+        with self.assertRaisesRegex(ValueError, "capability_not_allowlisted"):
+            validate_job(job, fake_identity(scope=["ui:read"]))
+        with self.assertRaisesRegex(ValueError, "owner_approval_payload_mismatch"):
+            validate_job(job.model_copy(update={"payload": {**job.payload, "text": "Altered"}}), fake_identity())
+        with self.assertRaisesRegex(ValueError, "invalid_workflow_payload"):
+            validate_job(fake_job(action="oa_set_name", payload={"conversation_ref": "ref", "display_name": "Synthetic Guest", "new_name": "Valid", "x": 12}), fake_identity())
 
     def test_unicode_input_fails_closed_until_unicode_ime_is_installed(self):
         emulator = object.__new__(__import__("app.main", fromlist=["AdbEmulator"]).AdbEmulator)

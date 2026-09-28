@@ -26,18 +26,32 @@ Implemented locally:
 - Outbound HTTPS pairing, Keychain token storage, 15-second heartbeat,
   long-poll job claim, 90-second lease checks, result acknowledgement and
   remote revocation client.
-- Only `ui_snapshot` and `ui_action` BFF jobs are accepted. Both require a
-  short-lived owner approval matching the job payload hash.
+- Named OA list/read/reply/tag/name workflows plus `ui_snapshot` and `ui_action`
+  require a short-lived owner approval matching the exact job payload hash.
+- Native-resolution accessibility controls, 10-minute single-use conversation
+  references, fresh recipient/content checks, durable write receipts, and read-back
+  verification protect customer writes.
+- Chinese/emoji input in named workflows uses the authenticated Android Emulator
+  clipboard API through Node.js; the previous clipboard is restored.
 
-Not connected/verified yet:
+Current rollout and verification (2026-09-28):
 
-- The BFF endpoints described in [Protocol 1.0](../docs/ANDROID_HOST_RELAY_PROTOCOL_V1.md)
-  do not exist yet; pairing/remote jobs are therefore unconfigured.
-- This Mac has no Android SDK, ADB, or emulator installed. No AVD or real LINE OA
-  account was used. LINE OA App compatibility and login persistence across
-  emulator reboot/update remain unverified.
-- Guest replies, contact-name changes, OA tags and the check-in messaging
-  workflow are not available capabilities yet.
+- A persistent Android 15 Google Play AVD and the local host are configured.
+  The owner completed OA login, host pairing and the cloud connection probe.
+- Named list/read and exact-name search were verified against the owner's existing test conversation.
+  A previously owner-approved exact reply was sent and the owner confirmed receipt.
+  That manual acceptance predates the named-workflow rollout.
+- Reply/name/tag state machines, expiration, ambiguous recipients, changed content,
+  idempotency and crash handling are exercised with synthetic fixtures. No real
+  customer name/tag changes or additional messages were used to test this rollout.
+- Tag operations apply an existing account tag only. Create missing tags in LINE
+  OA chat settings first. Unknown UI layouts fail closed.
+- Read results include only currently visible text; this is not a full-history
+  ingestion service or unattended auto-reply scheduler.
+- The paired host must stay open on the approved conversation between reading and
+  confirming a write. A changed screen/content or expired reference requires a new read.
+
+See [named workflow protocol](../docs/OA_WORKFLOWS_V1.md) for wire shapes and limits.
 
 ## Android setup
 

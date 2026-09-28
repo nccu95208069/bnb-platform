@@ -142,6 +142,8 @@ class AdbEmulator:
         )
         self._owner_confirmed = False
         self._needs_reauth = False
+        from app.oa_workflows import OAWorkflows
+        self.oa = OAWorkflows(self)
 
     def _run(self, *args: str, timeout: int | None = None) -> bytes:
         try:
@@ -196,11 +198,14 @@ class AdbEmulator:
                 foreground = self._run(
                     "shell", "dumpsys", "activity", "activities"
                 ).decode("utf-8", errors="replace")
-                in_app = LINE_OA_PACKAGE in foreground and "mResumedActivity" in foreground
+                in_app = self._package_is_resumed(foreground, LINE_OA_PACKAGE)
                 boot_completed = props.get("sys.boot_completed") == "1"
                 if self._owner_confirmed and in_app:
-                    visible = " ".join(item.get("text", "") for item in self._read_hierarchy_nodes()).lower()
-                    if any(marker in visible for marker in LOGIN_MARKERS):
+                    nodes = self._read_hierarchy_nodes()
+                    # Guest messages are untrusted text, not login-state evidence.
+                    in_chat = any(n["resource_id"] == "chat-message-layout" for n in nodes)
+                    controls = " ".join(n.get("text", "") for n in nodes if n.get("clickable")).lower()
+                    if not in_chat and any(marker in controls for marker in LOGIN_MARKERS):
                         self._owner_confirmed = False
                         self._needs_reauth = True
                 state = (
@@ -240,8 +245,24 @@ class AdbEmulator:
                 return self._status_payload("error", "emulator_status_failed")
 
     @staticmethod
+    def _package_is_resumed(activity_dump: str, package: str) -> bool:
+        """Match the package on the actual resumed-activity record line.
+
+        Android versions expose either mResumedActivity or
+        topResumedActivity. Searching the entire dump can mistake a package
+        mention elsewhere (for example, a task history entry) for the
+        foreground app.
+        """
+        marker = re.compile(r"\b(?:mResumedActivity|topResumedActivity)\s*[:=]")
+        package_name = re.escape(package)
+        package_pattern = re.compile(rf"(?<![\w.]){package_name}(?=/|\s|$)")
+        for line in activity_dump.splitlines():
+            if marker.search(line) and package_pattern.search(line):
+                return True
+        return False
+
     def _status_payload(
-        host_status: str, reason: str, emulator: dict[str, Any] | None = None
+        self, host_status: str, reason: str, emulator: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         state = "verified" if host_status == "ready" else "unverified"
         impl = "implemented"
@@ -274,6 +295,9 @@ class AdbEmulator:
             },
             "last_verified_at": utc_now() if host_status == "ready" else None,
             "reason": reason,
+            "workflow_actions": self.oa.actions if host_status == "ready" else [],
+            "workflow_verification": {a: "verified" if a in self.oa.verified_actions else "unverified" for a in self.oa.actions},
+            "workflow_limits": ["visible_conversations_only", "visible_messages_only", "existing_tags_only", "read_reference_expires_after_10_minutes"],
         }
 
     def read_ui(self) -> dict[str, Any]:
@@ -323,8 +347,8 @@ class AdbEmulator:
                 return jpeg, width, height
         raise HTTPException(status_code=413, detail={"code": "screenshot_compression_limit"})
 
-    def _read_hierarchy_nodes(self) -> list[dict[str, Any]]:
-        temp_path = "/data/local/tmp/sweetfun-ui-hierarchy.xml"
+    def _read_hierarchy_tree(self) -> ET.Element:
+        temp_path = f"/data/local/tmp/sweetfun-ui-{secrets.token_hex(8)}.xml"
         self._run("shell", "uiautomator", "dump", temp_path, timeout=20)
         try:
             hierarchy = self._run("shell", "cat", temp_path).decode("utf-8", errors="replace")
@@ -332,15 +356,18 @@ class AdbEmulator:
             self._run("shell", "rm", "-f", temp_path)
         hierarchy = hierarchy[hierarchy.find("<?xml") :] if "<?xml" in hierarchy else hierarchy
         try:
-            root = ET.fromstring(hierarchy)
+            return ET.fromstring(hierarchy)
         except ET.ParseError as exc:
             raise HTTPException(status_code=502, detail={"code": "ui_hierarchy_invalid"}) from exc
+
+    def _read_hierarchy_nodes(self) -> list[dict[str, Any]]:
+        root = self._read_hierarchy_tree()
         nodes = []
         for node in root.iter("node"):
             text = node.attrib.get("text", "")
             description = node.attrib.get("content-desc", "")
             resource_id = node.attrib.get("resource-id", "")
-            if not (text or description or resource_id):
+            if not (text or description or resource_id or node.attrib.get("class") == "android.widget.EditText"):
                 continue
             nodes.append(
                 {
