@@ -74,7 +74,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
      for(const item of page.items){
       need(item.property_id===mapping.daili_property_id,'daili_scope_mismatch');
       if(s.muted.includes(item.conversation_id)||s.drafts.some(a=>a.conversation_id===item.conversation_id&&['sending','uncertain'].includes(a.status)))continue;
-      const signature=hash(JSON.stringify([item.conversation_id,item.stamp,item.suggestion_id,item.source_hash,item.identity?.snapshot||null]));
+      const signature=hash(JSON.stringify([item.conversation_id,item.stamp,item.suggestion_id,item.source_hash,item.identity?.snapshot||null,...(item.identity?[item.question]:[])]));
       if(s.drafts.some(a=>a.signature===signature))continue;
       for(const old of s.drafts.filter(a=>a.conversation_id===item.conversation_id&&['awaiting_approval','approved'].includes(a.status)))old.status='stale';
       const a={id:randomBytes(24).toString('base64url'),signature,conversation_id:item.conversation_id,stamp:item.stamp,suggestion_id:item.suggestion_id,source_hash:item.source_hash,identity:item.identity||null,name:String(item.name).slice(0,100),question:String(item.question).slice(0,2000),reply:item.reply.length<=1000?item.reply:'',version:1,status:'awaiting_approval',created_at:now(),expires_at:now()+DAY};
