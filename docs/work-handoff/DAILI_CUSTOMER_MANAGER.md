@@ -77,3 +77,22 @@ OS 9e3f1cd consumes retired IDs and marks those cards stale; the completion mess
 now explains LINE acceptance vs phone display and directs the owner to the original
 OA chat. Production OS dpl_2riV6Ef7ZEBv2udNd1BMBxpFSqqC is READY/main alias active.
 No guest messages were sent or approved by the agent during this investigation.
+
+## Complete image / sticker relay
+
+Owner explicitly requested guest media in their bound manager LINE chat. A separate
+FIFO feed starts 2026-09-28 09:04:05 UTC (or the integration activation time if later),
+forwards each image/sticker independently of the current draft, and records a stable
+LINE retry UUID before any owner push. Muted conversations, pause and unbinding are
+honored. After 24 hours an ambiguous media notification is replaced with an explicit
+notice to inspect the original conversation; the image is not blindly retransmitted.
+
+Photos are native LINE image messages with complete original bytes and a thumbnail.
+Oversized photos use a 24-hour full-image link. URLs are single-image signed capabilities;
+credentials never enter LINE URLs or the browser. Native supported stickers preserve
+package/sticker ID. Other ordinary stickers may show the exact public LINE STORE
+static artwork with a clear label. Custom text, arranged stickers, animation/audio
+outside LINE's sendable packages are not guaranteed; limitations are shown explicitly.
+
+No automated tests or live sends were requested/run. Static checks and release health
+are recorded separately; user-visible original media receipt needs a real new upload.

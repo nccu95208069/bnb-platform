@@ -16,7 +16,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
  async function line(d,path,body,retryKey){
   const res=await fetcher('https://api.line.me/v2/bot/'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+d.accessToken,'Content-Type':'application/json',...(retryKey?{'X-Line-Retry-Key':retryKey}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(8000)});
   if(res.status===409&&retryKey&&res.headers.get('x-line-accepted-request-id'))return {};
-  need(res.ok,'line_api_unavailable',502);return res.status===204?{}:res.json();
+  if(!res.ok){const e=new Error('line_api_unavailable');e.code='line_api_unavailable';e.status=502;e.providerStatus=res.status;throw e;}return res.status===204?{}:res.json();
  }
  function card(property,draft){
   const labels={awaiting_approval:'等待核准',approved:'已核准，等待重新核對',checking:'正在重新核對',sending:'正在送出',sent:'已送出',stale:'已失效',uncertain:'結果待確認',expired:'已過期',dismissed:'已交由你處理'};
@@ -60,6 +60,31 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
   async notify({owner,property,notice}){
    const d=await read(owner),p=d.properties.find(p=>p.id===property);
    if(!d.accessToken||!d.ownerUserId||!d.webhookVerified||!p)return false;
+   if(notice.kind==='media'){
+    const a=notice.attachment,m=notice.media;
+    const time=new Date(m.occurred_at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'});
+    const header=`${p.name}｜${m.name}\n客人${m.kind==='image'?'圖片':'貼圖'} · ${time}`;
+    let messages=[{type:'text',text:header}];
+    if(a.kind==='image'){
+     const valid=url=>{try{const u=new URL(url);return u.origin==='https://bnb-reply-copilot-2efedcw3vq-de.a.run.app'&&u.pathname.startsWith('/api/v1/customer-manager/image/');}catch{return false;}};
+     need(valid(a.original_url)&&valid(a.preview_url),'invalid_media',502);
+     if(a.native)messages.push({type:'image',originalContentUrl:a.original_url,previewImageUrl:a.preview_url});
+     else messages.push({type:'text',text:'圖片超過 LINE 轉傳大小限制，點此查看完整原圖（連結有效 24 小時）：\n'+a.original_url});
+    }else if(a.kind==='sticker_image'){
+     need(/^https:\/\/stickershop\.line-scdn\.net\/stickershop\/v1\/sticker\/[0-9]{1,20}\/android\/sticker\.png$/.test(a.url),'invalid_sticker_media',502);
+     messages[0].text+='\n'+a.note;
+     messages.push({type:'image',originalContentUrl:a.url,previewImageUrl:a.url});
+    }else if(a.kind==='sticker')messages.push(a.message);
+    else messages.push({type:'text',text:clip(a.reason||'媒體暫時無法提供，請查看原對話。',1500)});
+    try{await line(d,'message/push',{to:d.ownerUserId,messages},notice.id);}
+    catch(e){
+     // A definite validation rejection means none of the batch was accepted.
+     // Never fall back after timeouts/5xx, which may already have delivered.
+     if(e.providerStatus!==400)throw e;
+     await line(d,'message/push',{to:d.ownerUserId,messages:[{type:'text',text:header+'\nLINE 不支援轉傳這份原始媒體，請查看原對話。'}]},notice.id);
+    }
+    return true;
+   }
    const message=notice.kind==='draft'?card(p,notice.draft):{type:'text',text:`${p.name}｜${notice.draft.name}\n${notice.text}\n${notice.draft.reply||''}`};
    await line(d,'message/push',{to:d.ownerUserId,messages:[message]},notice.id);return true;
   },

@@ -1,6 +1,7 @@
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {customerCrypto} from './customer.mjs';
 const PREFIX='sweetfun-os:daili-manager:v1:',DAY=86400000;
+const MEDIA_START='2026-09-28T09:04:05.000Z';
 const CAS="if (redis.call('GET',KEYS[1]) or '')~=ARGV[1] then return 0 end; redis.call('SET',KEYS[1],ARGV[2]); return 1";
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const need=(ok,code,status=409)=>{if(!ok){const e=new Error(code);e.code=code;e.status=status;throw e;}};
@@ -23,10 +24,10 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
  async function api(path,body){
   const c=dailiConfig();need(c,'daili_not_configured');
   const r=await fetcher('https://bnb-reply-copilot-2efedcw3vq-de.a.run.app/api/v1/customer-manager/'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+c.token,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{}),redirect:'error',signal:AbortSignal.timeout(22000)});
-  need(r.ok,'daili_unavailable',503);return r.json();
+  if(!r.ok){const e=new Error('daili_unavailable');e.code='daili_unavailable';e.status=503;e.upstreamStatus=r.status;throw e;}return r.json();
  }
  function expire(d){for(const a of d.drafts){if(a.expires_at<=now()&&['awaiting_approval','approved'].includes(a.status))a.status='expired';if(a.status==='sending'&&a.sending_at+90000<now()){a.status='uncertain';notice(d,a,'status','傳送結果尚未確認，請在 Daili 查看，勿重複送出。');}}}
- async function activity(owner,p){need(dailiProperty(owner,p),'daili_not_configured');return mutate(owner,p,d=>{expire(d);return {drafts:d.drafts.map(project),enabled:d.enabled,last_sync:d.last_sync||null,error:d.error||null,source:'daili',muted:d.muted.map(id=>({id,name:d.drafts.find(a=>a.conversation_id===id)?.name||'已接手的客人'}))};});}
+ async function activity(owner,p){need(dailiProperty(owner,p),'daili_not_configured');return mutate(owner,p,d=>{expire(d);return {drafts:d.drafts.map(project),enabled:d.enabled,last_sync:d.last_sync||null,error:d.error||null,source:'daili',media_enabled:true,media_sync:d.media_sync||null,media_pending:d.notices.filter(n=>n.kind==='media').length,muted:d.muted.map(id=>({id,name:d.drafts.find(a=>a.conversation_id===id)?.name||'已接手的客人'}))};});}
  async function decide(owner,p,b){need(dailiProperty(owner,p),'daili_not_configured');const binding=await manager.owner(owner,'status');need(binding.bound&&binding.webhook_verified,'manager_not_configured');return mutate(owner,p,d=>{
   expire(d);const a=d.drafts.find(x=>x.id===b.draft_id);need(a,'draft_not_found',404);
   if(b.request_id&&a.last_action_id===b.request_id)return {draft:project(a)};
@@ -77,7 +78,35 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
     });
    }
    d=await read(owner,p);
+   if(d.enabled&&now()<deadline-24000&&d.notices.filter(n=>n.kind==='media').length<30){
+    const since=new Date(Math.max(Date.parse(MEDIA_START),Date.parse(dailiConfig().starts_at))).toISOString();
+    const cursor=d.media_cursor||{at:since,id:''};
+    const feed=await api('attachments?'+new URLSearchParams({property_id:mapping.daili_property_id,since,after:cursor.at,after_id:cursor.id,limit:'10'}));
+    await mutate(owner,p,s=>{
+     if(!s.enabled)return;
+     for(const item of feed.items){
+      if(!s.muted.includes(item.conversation_id))s.notices.push({id:randomUUID(),expired_notice_id:randomUUID(),kind:'media',media:item,created_at:now()});
+      s.media_cursor={at:item.created_at,id:item.id};
+     }
+     s.media_sync=now();
+    });
+   }
+   d=await read(owner,p);
    for(const n of d.notices.slice(0,5)){
+    if(n.kind==='media'){
+     if(now()>deadline-31000)break;
+     const latest=await read(owner,p);if(!latest.enabled)break;
+     if(!latest.muted.includes(n.media.conversation_id)){
+      const expired=n.created_at+DAY<now();let attachment;
+      if(expired)attachment={kind:'unavailable',reason:'這則媒體通知已逾 24 小時；為避免重複轉傳，請回民宿原對話查看。'};
+      else try{attachment=await api('attachment/'+encodeURIComponent(n.media.id)+'?'+new URLSearchParams({property_id:mapping.daili_property_id}));}
+      catch(e){if(e.upstreamStatus!==404)throw e;attachment={kind:'unavailable',reason:'這則媒體已無法取得，請回民宿原對話查看。'};}
+      if(!await manager.notify({owner,property:p,notice:{...n,id:expired?n.expired_notice_id:n.id,attachment}}))break;
+     }
+     await mutate(owner,p,s=>{s.notices=s.notices.filter(x=>x.id!==n.id);});
+     continue;
+    }
+
     if(now()>deadline-9000)break;
     const latest=await read(owner,p),a=latest.drafts.find(x=>x.id===n.draft_id);
     const obsolete=!a||a.version!==n.version||(n.kind==='draft'&&a.status!=='awaiting_approval')||n.created_at+DAY<now();
