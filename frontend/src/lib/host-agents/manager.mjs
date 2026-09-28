@@ -20,9 +20,10 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
  }
  function card(property,draft){
   const labels={awaiting_approval:'等待核准',approved:'已核准，等待重新核對',checking:'正在重新核對',sending:'正在送出',sent:'已送出',stale:'已失效',uncertain:'結果待確認',expired:'已過期',dismissed:'已交由你處理'};
-  const message=`${property.name}｜${draft.name}\n${labels[draft.status]||draft.status}\n客人訊息${draft.question.length>700?'（節錄）':''}：\n${clip(draft.question,700)}\n\n${draft.identity?.summary?clip(draft.identity.summary,900)+'\n\n':''}${draft.reply?'建議回覆：\n'+draft.reply:'這個問題需要你判斷，請修改回覆或自行接手。'}`;
-  const actions=draft.status==='awaiting_approval'?[
-   ...(draft.reply?[{label:draft.identity?.selected?'核准綁定並送出':'核准送出',a:'approve'}]:[]),{label:'修改回覆',a:'edit'},{label:'自行接手',a:'takeover'}
+  const message=`${property.name}｜${draft.name}\n${labels[draft.status]||draft.status}\n客人訊息${draft.question.length>700?'（節錄）':''}：\n${clip(draft.question,700)}\n\n${draft.binding?'訂單已確認：'+draft.binding.labels.map(l=>l.label).join('、')+'（Daili）\n\n':draft.identity?.summary?clip(draft.identity.summary,900)+'\n\n':''}${draft.reply?'建議回覆：\n'+draft.reply:'這個問題需要你判斷，請修改回覆或自行接手。'}`;
+  const actions=['awaiting_approval','sent'].includes(draft.status)&&!['requested','binding','uncertain'].includes(draft.binding_state)?[
+   ...(draft.identity?.selected&&!draft.binding?[{label:'確認訂單（不傳訊息）',a:'bind'}]:[]),
+   ...(draft.status==='awaiting_approval'?[...(draft.reply?[{label:'核准送出訊息',a:'approve'}]:[]),{label:'修改回覆',a:'edit'},{label:'自行接手',a:'takeover'}]:[])
   ].map(x=>({type:'button',style:x.a==='approve'?'primary':'secondary',action:{type:'postback',label:x.label,data:new URLSearchParams({a:x.a,p:property.id,d:draft.id,v:String(draft.version)}).toString()}})):[];
   return {type:'flex',altText:clip(`${property.name}｜${draft.name}：${labels[draft.status]||draft.status}`,400),contents:{type:'bubble',body:{type:'box',layout:'vertical',contents:[{type:'text',text:message,wrap:true,size:'sm'}]},...(actions.length?{footer:{type:'box',layout:'vertical',spacing:'sm',contents:actions}}:{})}};
  }
@@ -120,9 +121,9 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
         await mutate(owner,s=>{s.editFocus={property:p,id,version,until:now()+600000};});
         reply={type:'text',text:`請輸入「${current.properties.find(x=>x.id===p).name}｜${draft.name}」的新回覆。\n只會更新草稿，仍需再次按「核准送出」。輸入「取消修改」可退出。`};
        }else{
-        need(['approve','takeover'].includes(a),'invalid_action');
+        need(['approve','bind','takeover'].includes(a),'invalid_action');
         await decide(owner,p,{draft_id:id,version,action:a,request_id:eventId});
-        reply={type:'text',text:a==='approve'?'已收到核准，會重新核對客人的最新訊息再送出；完成後向你回報。':'已交由你處理，這位客人的後續訊息暫停整理。可在工作台恢復。'};
+        reply={type:'text',text:a==='bind'?'已收到訂單確認，會核對後建立 Daili 關聯與住宿標記；這個操作不會傳訊息給客人。':a==='approve'?'已收到核准，會重新核對客人的最新訊息再送出；完成後向你回報。':'已交由你處理，這位客人的後續訊息暫停整理。可在工作台恢復。'};
        }
       }else if(value==='取消修改'){
        await mutate(owner,s=>{delete s.editFocus;});reply={type:'text',text:'已取消修改，原草稿保留。'};
