@@ -27,12 +27,12 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
  }
  function expire(d){for(const a of d.drafts){if(a.expires_at<=now()&&['awaiting_approval','approved'].includes(a.status))a.status='expired';if(a.status==='sending'&&a.sending_at+90000<now()){a.status='uncertain';notice(d,a,'status','傳送結果尚未確認，請在 Daili 查看，勿重複送出。');}}}
  async function activity(owner,p){need(dailiProperty(owner,p),'daili_not_configured');return mutate(owner,p,d=>{expire(d);return {drafts:d.drafts.map(project),enabled:d.enabled,last_sync:d.last_sync||null,error:d.error||null,source:'daili',muted:d.muted};});}
- async function decide(owner,p,b){need(dailiProperty(owner,p),'daili_not_configured');return mutate(owner,p,d=>{
+ async function decide(owner,p,b){need(dailiProperty(owner,p),'daili_not_configured');const binding=await manager.owner(owner,'status');need(binding.bound&&binding.webhook_verified,'manager_not_configured');return mutate(owner,p,d=>{
   expire(d);const a=d.drafts.find(x=>x.id===b.draft_id);need(a,'draft_not_found',404);
   if(b.request_id&&a.last_action_id===b.request_id)return {draft:project(a)};
   need(a.version===b.version&&a.status==='awaiting_approval'&&a.expires_at>now(),'draft_changed');
   if(b.action==='edit'){need(typeof b.text==='string'&&b.text.trim()&&b.text.length<=1000&&!/[\u0000-\u0009\u000b-\u001f\u007f]/.test(b.text),'invalid_customer_input');a.reply=b.text.trim();a.edited=true;a.version++;notice(d,a);}
-  else if(b.action==='approve'){need(d.enabled,'automation_paused');need(a.reply.trim(),'reply_required');a.status='approved';a.approved_at=now();a.send_id=randomUUID();}
+  else if(b.action==='approve'){need(d.enabled,'automation_paused');need(a.reply.trim(),'reply_required');a.status='approved';a.binding_revision=binding.binding_revision;a.approved_at=now();a.send_id=randomUUID();}
   else if(b.action==='takeover'){a.status='dismissed';if(!d.muted.includes(a.conversation_id))d.muted.push(a.conversation_id);}
   else need(false,'invalid_action');
   a.last_action_id=b.request_id;return {draft:project(a)};
@@ -50,7 +50,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
    d=await read(owner,p);
    for(const a of d.drafts.filter(x=>x.status==='approved')){
     if(now()>deadline-24000)break;
-    const approved=await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===a.id);if(!s.enabled||x?.status!=='approved'||x.expires_at<=now())return null;x.status='sending';x.sending_at=now();return structuredClone(x);});
+    const approved=await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===a.id);if(!s.enabled||x?.status!=='approved'||x.expires_at<=now())return null;if(x.binding_revision!==connection.binding_revision){x.status='awaiting_approval';x.version++;notice(s,x);return null;}x.status='sending';x.sending_at=now();return structuredClone(x);});
     if(!approved)continue;
     let result;try{result=await api('send',{request_id:approved.send_id,property_id:mapping.daili_property_id,conversation_id:approved.conversation_id,stamp:approved.stamp,suggestion_id:approved.suggestion_id,source_hash:approved.source_hash,text:approved.reply});}catch{result={status:'uncertain'};}
     await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===approved.id);if(x.status!=='sending')return;x.status=['sent','stale'].includes(result.status)?result.status:'uncertain';x.message_id=result.message_id||null;notice(s,x,'status',x.status==='sent'?'已由原民宿帳號送出，LINE 已接受。':x.status==='stale'?'客人訊息或回覆內容已更新，這次沒有送出，請查看最新草稿。':'傳送結果尚未確認，請在 Daili 查看，勿重複送出。');});

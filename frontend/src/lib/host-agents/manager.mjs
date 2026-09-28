@@ -12,7 +12,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
  const empty=owner=>({owner,properties:[{id:'sweetfun',name:'水芳民宿',oa_id:'@sweetfuntw'}]});
  const read=async owner=>{const raw=await redis(['GET',key(owner)]);return raw?vault().open(raw,key(owner)):empty(owner);};
  async function mutate(owner,fn){for(let i=0;i<8;i++){const raw=await redis(['GET',key(owner)]),d=raw?vault().open(raw,key(owner)):empty(owner),result=await fn(d);if(await redis(['EVAL',CAS,1,key(owner),raw||'',vault().seal(d,key(owner))])===1)return result;}need(false,'busy',409);}
- const safe=d=>({channel_id:channel(d.owner),configured:!!d.accessToken,name:d.name||'客服經理',basic_id:d.basicId||'',bound:!!d.ownerUserId,webhook_verified:!!d.webhookVerified,properties:d.properties});
+ const safe=d=>({channel_id:channel(d.owner),configured:!!d.accessToken,name:d.name||'客服經理',basic_id:d.basicId||'',bound:!!d.ownerUserId,binding_revision:d.bindingRevision||0,webhook_verified:!!d.webhookVerified,properties:d.properties});
  async function line(d,path,body,retryKey){
   const res=await fetcher('https://api.line.me/v2/bot/'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+d.accessToken,'Content-Type':'application/json',...(retryKey?{'X-Line-Retry-Key':retryKey}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(8000)});
   if(res.status===409&&retryKey&&res.headers.get('x-line-accepted-request-id'))return {};
@@ -39,6 +39,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
     need(typeof b.channel_secret==='string'&&/^[a-fA-F0-9]{32}$/.test(b.channel_secret),'invalid_channel_secret');
     const info=await line({accessToken:b.access_token},'info');need(/^U[a-f0-9]{32}$/.test(info.userId||''),'invalid_channel');
     const result=await mutate(owner,d=>{
+     if(d.botUserId!==info.userId||d.channelSecret!==b.channel_secret)d.bindingRevision=(d.bindingRevision||0)+1;
      if(d.botUserId!==info.userId){delete d.ownerUserId;delete d.editFocus;delete d.pairHash;delete d.webhookVerified;}
      if(d.channelSecret!==b.channel_secret)delete d.webhookVerified;
      d.accessToken=b.access_token;d.channelSecret=b.channel_secret;d.botUserId=info.userId;d.name=info.displayName;d.basicId=info.basicId;
@@ -53,7 +54,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
     await redis(['SET',PREFIX+'route:'+channel(owner),owner]);
     return {command:'綁定 '+code,expires_at:now()+600000};
    }
-   if(operation==='unbind')return mutate(owner,d=>{delete d.ownerUserId;delete d.editFocus;delete d.pairHash;return safe(d);});
+   if(operation==='unbind')return mutate(owner,d=>{d.bindingRevision=(d.bindingRevision||0)+1;delete d.ownerUserId;delete d.editFocus;delete d.pairHash;return safe(d);});
    need(false,'not_found',404);
   },
   async notify({owner,property,notice}){
@@ -83,7 +84,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
      const value=event.type==='message'&&event.message?.type==='text'?event.message.text.trim():'';
      const pairing=/^綁定 ([a-f0-9]{32})$/.exec(value);
      if(pairing){
-      await mutate(owner,s=>{need(s.pairHash===hash(pairing[1])&&s.pairExpires>now(),'pairing_expired',409);s.ownerUserId=event.source.userId;delete s.pairHash;delete s.editFocus;});
+      await mutate(owner,s=>{need(s.pairHash===hash(pairing[1])&&s.pairExpires>now(),'pairing_expired',409);s.bindingRevision=(s.bindingRevision||0)+1;s.ownerUserId=event.source.userId;delete s.pairHash;delete s.editFocus;});
       reply={type:'text',text:'已連接客服經理。新訊息會整理成草稿交給你核准；你也可以傳「待辦」查看目前待處理項目。'};
      }else if(current.ownerUserId===event.source.userId){
       if(event.type==='postback'){
