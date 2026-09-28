@@ -91,6 +91,19 @@ Knowledge/booking/finance access is not expanded by this manager channel.
 
 ## Validation status
 
+### Production publication — 2026-09-28
+
+- Implementation commit `fe0c8cb` is pushed on `codex/sweetfun-bots` (draft PR #24).
+- Deployment `dpl_FGRwmbmWkQgHRWhULRA5XEQju7n6` built successfully and was
+  promoted to `https://sweetfun-os.vercel.app`.
+- The authenticated `/customer-manager` page visibly renders the existing
+  Sweetfun property, an empty review queue and the unconnected manager account.
+- The existing paired local host was restarted; its relay is running. The
+  runtime reports `owner_login_not_attested` after restart. Monitoring remains
+  paused. Confirm the intended logged-in OA before attesting and enabling it.
+- The owner has not yet specified the management OA. Channel configuration,
+  webhook setup, owner binding and live approval-flow acceptance remain pending.
+
 Implementation adds no speculative live guest sends. Static syntax, TypeScript,
 ESLint and production build checks are recorded in the task. No new automated test
 suite was run in this implementation turn. Real LINE management-card delivery,
