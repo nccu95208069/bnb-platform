@@ -56,16 +56,49 @@ not provide availability, prices, refunds, payment accounts or access codes.
 
 ## Verification
 
-- 62 Bot/relay/API tests and 168 existing regression tests passed.
+- 63 Bot/relay/API tests and 168 existing regression tests passed.
 - Lint: no errors; two existing calendar unused-variable warnings.
 - Local production build and staged Vercel cloud build passed.
 - Isolated browser fixture verified list/read, reply preview/confirm, tag
   preview/confirm, rename preview/confirm and FAQ draft rendering. Phone viewport
   checked; no console errors. Fixture sends no real LINE messages.
 - Candidate unauthenticated host owner/status returns 401.
-- Host task reports 39 passing workflow tests + Ruff, with real read-only
+- Host task reports 45 passing workflow tests + Ruff, with real read-only
   list/read verified. Host source and commit are maintained in the separate
   `line-oa-host-runtime` worktree/task.
 
 Production final deployment and signed-in read/draft acceptance are recorded
 below after completion.
+
+## Signed-in production acceptance
+
+On deployment `dpl_6U4PZpaRz3rbvPBhV33ivRJXV6mU`, the signed-in owner UI
+successfully read the real host's visible conversation list and the designated
+test conversation. Selecting its check-in question produced a real Gemini-backed,
+FAQ-bounded draft; the preview showed the intended recipient and exact draft.
+The preview was dismissed without sending. Browser error log was empty.
+
+A list row with a nontext name exposed a parser issue (message preview promoted
+to display name). Automatic deployment review blocked promoting the final input
+validation patch until the host parser is repaired and rechecked. This is a host
+parsing issue, not an authorization to override review or send a test message.
+
+## Final release and resolved parser issue
+
+The host parser was corrected in `e537caa`, tested (45 tests + Ruff), and
+restarted. Production read-only verification returned 8 visible rows without
+promoting message previews into names; the designated conversation read and
+real Gemini check-in draft succeeded again. The earlier automatic-review
+blocker is resolved, and release approval subsequently passed.
+
+Frontend code `e612861` was promoted successfully to
+https://sweetfun-os.vercel.app/bots as deployment
+`dpl_6bpfpXUHiDtTGRGhH5RmmTfSaq6b` on 2026-09-28. Vercel reports Ready.
+The final release includes aligned host input limits, explicit uncertain-write
+outcome messaging, and visible draft/polish progress. Reloading the production
+page showed the customer workspace and connected host with no browser errors.
+
+PRs: frontend #24 and host #25 in nccu95208069/bnb-platform.
+No new live reply, tag, or rename was issued during final acceptance. The owner
+must preview and confirm those actions. Leave the paired computer/runtime and
+Android emulator running for phone access.
