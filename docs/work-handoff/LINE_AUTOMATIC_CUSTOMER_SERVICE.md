@@ -87,3 +87,19 @@ a new guest message must be reported separately from compilation success.
 - The UI visibly showed automatic mode enabled and waiting for new messages,
   with zero replies so far. A new owner-initiated guest message is pending for
   end-to-end receipt confirmation; activation alone is not delivery evidence.
+
+## Live acceptance follow-up
+
+The first automatic attempt reached Bot planning but stopped before send because
+the native send control overlapped the editor boundary. Host commit `cd8bf62`
+corrected that selector. A subsequent owner-initiated test automatically sent the
+published knowledge answer and the owner explicitly confirmed receipt.
+
+The delivery initially appeared as unverified: the answer covered multiple topics,
+and its wide outgoing bubble fell outside the parser's original alignment rule.
+The host now uses a same-row left timestamp to identify that layout and waits for
+the matching outgoing bubble as well as the cleared composer. Read-only inspection
+with the corrected parser matched the already-sent answer exactly. No manual
+replacement or duplicate message was sent. All 47 host synthetic tests and Ruff
+passed. The historic unverified event/counter is retained; resolving the attention
+item only permits future messages and does not manufacture a successful receipt.
