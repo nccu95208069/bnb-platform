@@ -55,9 +55,10 @@ properties and queue, and 403 for unrelated inbox API. Rollback revision is
 
 OS deployment `dpl_BiGdA82AL2tXPXCJNEHphR9R1ykt` was promoted to the main
 https://sweetfun-os.vercel.app alias with the new production connection.
-Owner UI confirms LINE bound and Daili cloud mode. A follow-up release adds
-visible last-sync time; final deployment and synchronization evidence are recorded
-in the local project handoff.
+Final OS release `dpl_2mUqwosWSR2wpNgfMmW2bihiDaGB` (UI commit `787958c`)
+is READY and aliased to the main site. Owner UI confirms LINE bound, Daili cloud
+mode, successful last sync at **2026-09-28 14:45:36 Asia/Taipei**, and zero pending
+drafts. Visible last-sync time is now available to the owner.
 
 Node syntax, TypeScript, targeted ESLint, Ruff and production builds passed.
 No automated tests or live guest send were requested/run. No guest draft was
