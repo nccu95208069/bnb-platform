@@ -201,7 +201,19 @@ class View:
         preview = text(preview_node)
         if not preview:
             preview = " ".join(text(n) for n in preview_node.iter("node") if text(n))
-        return {"display_name": name, "preview": preview[:200]}
+        # Relative timestamps ("yesterday") change without any new message.
+        # Only preview content can trigger background processing of a known row.
+        revision = digest(
+            [
+                name,
+                preview,
+                [
+                    (n.get("text", ""), n.get("content-desc", ""))
+                    for n in preview_node.iter("node")
+                ],
+            ]
+        )
+        return {"display_name": name, "preview": preview[:200], "revision": revision}
 
     def messages(self) -> list[dict]:
         layouts = self.by_id("chat-message-layout")
@@ -214,7 +226,9 @@ class View:
                 continue
             value = text(node)
             if node.get("class") == "android.widget.Image":
-                value = clean(node.get("content-desc", ""))
+                value = (
+                    clean(node.get("content-desc", "")) or "[非文字訊息，需人工確認]"
+                )
             elif node.get("class") != "android.widget.TextView":
                 continue
             if (
@@ -286,6 +300,7 @@ class OAWorkflows:
         self.refs: dict[str, dict] = {}
         self.ambiguous_names: set[str] = set()
         self.deadline = 0.0
+        self.before_commit = None
 
     def _alive(self) -> None:
         if time.monotonic() >= self.deadline:
@@ -479,6 +494,15 @@ class OAWorkflows:
             m for m in baseline if m["direction"] == "incoming"
         ][-3:]:
             reject("conversation_changed")
+        if self.before_commit:
+            self.before_commit()
+            view = self._view()
+            if view.title != name or text(view.editor()) != clean(value):
+                reject("recipient_changed")
+            if [m for m in view.messages() if m["direction"] == "incoming"][-3:] != [
+                m for m in baseline if m["direction"] == "incoming"
+            ][-3:]:
+                reject("conversation_changed")
         form = view.one(view.by_id("form"))
         editor_right = bounds(view.editor())[2]
         send = [
@@ -489,18 +513,10 @@ class OAWorkflows:
             and bounds(n)[0] >= editor_right
             and n.get("enabled") != "false"
         ]
-        self._tap(view.one(send, "send_button_unavailable"))
+        send_button = view.one(send, "send_button_unavailable")
+        self._tap(send_button)
         # Never repeat the send tap. A failed readback is an uncertain effect.
-        after = self._wait(
-            lambda v: (
-                not v.by_id("editor")
-                or not any(
-                    text(n)
-                    for n in v.nodes
-                    if n.get("class") == "android.widget.EditText"
-                )
-            )
-        )
+        after = self._wait(lambda v: v.title == name and not text(v.editor()))
         normalize = lambda s: re.sub(r"\s+", "", s)
         old = sum(
             m["direction"] == "outgoing" and normalize(m["text"]) == normalize(value)
@@ -594,10 +610,16 @@ class OAWorkflows:
             pass  # Preserve the original failure and never retry the commit action.
 
     def execute(
-        self, action: str, payload: dict, action_id: str, seconds_left: float
+        self,
+        action: str,
+        payload: dict,
+        action_id: str,
+        seconds_left: float,
+        before_commit=None,
     ) -> dict:
         validate_payload(action, payload)
         with self.emulator._lock:
+            self.before_commit = before_commit
             self.deadline = time.monotonic() + min(seconds_left, 80)
             if not self.emulator._owner_confirmed or self.emulator._needs_reauth:
                 reject("owner_login_not_attested")

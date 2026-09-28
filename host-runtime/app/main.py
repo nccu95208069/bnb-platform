@@ -296,6 +296,7 @@ class AdbEmulator:
             "last_verified_at": utc_now() if host_status == "ready" else None,
             "reason": reason,
             "workflow_actions": self.oa.actions if host_status == "ready" else [],
+            "automation_protocol": 1,
             "workflow_verification": {a: "verified" if a in self.oa.verified_actions else "unverified" for a in self.oa.actions},
             "workflow_limits": ["visible_conversations_only", "visible_messages_only", "existing_tags_only", "read_reference_expires_after_10_minutes"],
         }
@@ -390,6 +391,10 @@ class AdbEmulator:
             current = self.status()
             if not current.get("emulator", {}).get("app_foreground"):
                 raise HTTPException(status_code=409, detail={"code": "oa_app_not_foreground"})
+            from app.oa_workflows import View
+            view = View(self._read_hierarchy_tree())
+            if view.title not in {"主頁", "全部", "聊天", "未讀"} and not view.by_id("chat-message-layout"):
+                raise HTTPException(status_code=409, detail={"code": "owner_login_not_attested"})
             self._owner_confirmed = True
             self._needs_reauth = False
             return {"host_status": "ready", "reason": "owner_session_attested"}

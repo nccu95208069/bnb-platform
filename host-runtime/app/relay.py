@@ -113,6 +113,7 @@ class ClaimedJob(ProtocolModel):
     approval_id: str | None = None
     approval_expires_at: datetime | None = None
     approval_action_sha256: str | None = None
+    automation: dict[str, str] | None = None
 
 
 class HostIdentity(ProtocolModel):
@@ -220,6 +221,10 @@ def validate_job(job: ClaimedJob, identity: HostIdentity) -> UIAction | None:
         action = UIAction.model_validate(
             {**job.payload, "action_id": job.idempotency_key, "owner_approved": True}
         )
+    elif job.action == "session_attest":
+        if "ui:operate" not in identity.scope or job.payload != {"owner_confirmed": True} or job.automation:
+            raise ValueError("capability_not_allowlisted")
+        action = None
     elif job.action in OA_ACTIONS:
         required = "ui:read" if job.action in {"oa_list_conversations", "oa_read_conversation"} else "ui:operate"
         if required not in identity.scope:
@@ -228,6 +233,12 @@ def validate_job(job: ClaimedJob, identity: HostIdentity) -> UIAction | None:
         action = None
     else:
         raise ValueError("capability_not_allowlisted")
+    if job.automation and (
+        job.action not in {"oa_list_conversations", "oa_read_conversation", "oa_reply"}
+        or set(job.automation) != {"policy_id", "bot_id", "bot_version"}
+        or job.automation["policy_id"] != job.approval_id
+    ):
+        raise ValueError("automation_scope_mismatch")
     if not job.approval_id or not job.approval_expires_at:
         raise ValueError("owner_approval_required")
     if job.approval_expires_at <= datetime.now(UTC):
@@ -291,7 +302,7 @@ class RelayClient:
         self.identity = identity
         self.emulator = emulator
         self.vault = vault
-        self.client = client or httpx.AsyncClient(timeout=httpx.Timeout(25.0))
+        self.client = client or httpx.AsyncClient(timeout=httpx.Timeout(45.0))
         self.sequence = identity.last_sequence
         self._stop = asyncio.Event()
 
@@ -426,9 +437,15 @@ class RelayClient:
         error_code = None
         try:
             action = validate_job(job, self.identity)
-            if job.action in OA_ACTIONS:
+            if job.action == "session_attest":
+                output = await asyncio.to_thread(self.emulator.attest_owner_session, True)
+                status = "succeeded"
+            elif job.action in OA_ACTIONS:
                 remaining = min(job.lease_expires_at, job.approval_expires_at) - datetime.now(UTC)
-                output = await asyncio.to_thread(self.emulator.oa.execute, job.action, job.payload, job.idempotency_key, remaining.total_seconds())
+                guard = (lambda: self.automation_permit(job)) if job.automation else None
+                if guard:
+                    await asyncio.to_thread(guard)
+                output = await asyncio.to_thread(self.emulator.oa.execute, job.action, job.payload, job.idempotency_key, remaining.total_seconds(), guard)
                 read = job.action in {"oa_list_conversations", "oa_read_conversation"}
                 status = "succeeded" if read or output.get("verified") is True else "partial_success"
                 error_code = None if status == "succeeded" else "read_back_verification_required"
@@ -482,6 +499,22 @@ class RelayClient:
 
     def stop(self) -> None:
         self._stop.set()
+
+    def automation_permit(self, job: ClaimedJob) -> None:
+        """Revalidate the owner's standing policy immediately before a send."""
+        nonce = secrets.token_urlsafe(24)
+        body = {"protocol_version": PROTOCOL_VERSION, "host_id": self.identity.host_id,
+                "agent_id": self.identity.agent_id, "property_id": self.identity.property_id,
+                "nonce": nonce, "job_id": job.job_id, "lease_id": job.lease_id}
+        try:
+            response = httpx.post(f"{self.base_url}/api/v1/host-agents/automation/permit",
+                                  headers=self._headers(nonce), json=body, timeout=10)
+            response.raise_for_status()
+            receipt = response.json()
+            if receipt.get("nonce") != nonce or receipt.get("job_id") != job.job_id or receipt.get("allowed") is not True:
+                raise ValueError("invalid_permit")
+        except (httpx.HTTPError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail={"code": "automation_paused"}) from exc
 
     async def close(self) -> None:
         self.stop()

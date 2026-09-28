@@ -79,3 +79,25 @@ The BFF separately encrypts short-lived customer workflow payloads/results and
 exposes them only to the owner. Generic probe snapshots remain redacted/discarded.
 This does not implement unattended guest messaging, a full inbox sync or a new
 knowledge source. Draft generation and owner confirmation belong to `/bots`.
+
+## Automatic reply extension (2026-09-28)
+
+The owner has now requested automatic replies connected to the shared bnb-bot
+workspace. `automation_protocol:1` advertises support. Optional job metadata
+`automation:{policy_id,bot_id,bot_version}` distinguishes a standing owner policy
+from a manual per-message approval. The policy covers list/read/reply only.
+
+Automatic jobs preserve the exact payload hash, single-use conversation reference,
+lease and durable idempotency checks. The host calls the authenticated
+`automation/permit` endpoint before execution and again immediately before sending;
+then it rechecks recipient, incoming messages, composer text and current controls.
+The BFF checks policy revocation and the current shared Bot/knowledge version.
+
+List rows expose a content-only revision to drive the server-side background
+state machine. Relative timestamp changes cannot trigger old-message replies.
+The owner UI's recovery button can issue a manually approved `session_attest`
+job after the owner completes LINE login/2FA; a recognized logged-in OA page is
+required. Existing app storage and pairing credentials remain in place.
+
+The previous acceptance section remains historical: automatic sending must be
+verified separately with a new owner-initiated guest message after enablement.
