@@ -606,7 +606,8 @@ class OAWorkflows:
             return True, self._back(profile)
         self._tap(row)
         tags = self._wait(lambda v: v.title == "編輯標籤")
-        # Only existing tags; global tag creation is a separate account-level action.
+        # Preserve every existing selection. New stay labels are created only
+        # inside this reviewed contact editor, never through account settings.
         heading = tags.one(tags.named("現有標籤"))
         matching = [
             n
@@ -616,9 +617,36 @@ class OAWorkflows:
         ]
         clickable = [n for n in matching if n.get("clickable") == "true"]
         if not matching:
-            reject("tag_not_available")
-        self._tap(tags.one(clickable or matching))
-        tags = self._wait(lambda v: v.title == "編輯標籤")
+            # The LINE editor stages a new chip on Enter; Save applies it.
+            # Restrict creation to the approved M/D room format. Other labels
+            # retain the existing-tags-only behavior.
+            if not re.fullmatch(
+                r"(?:[1-9]|1[0-2])/(?:[1-9]|[12][0-9]|3[01]) [A-Za-z0-9-]{1,12}", value
+            ):
+                reject("tag_not_available")
+            if text(tags.editor()):
+                reject("tag_editor_not_empty")
+            tags = self._paste(tags, value)
+            if tags.title != "編輯標籤" or text(tags.editor()) != value:
+                reject("tag_editor_changed")
+            self._alive()
+            self.emulator._run("shell", "input", "keyevent", "66")
+            tags = self._wait(lambda v: v.title == "編輯標籤" and not text(v.editor()))
+            heading = tags.one(tags.named("現有標籤"))
+            staged = [
+                n
+                for n in tags.nodes
+                if bounds(n)[3] <= bounds(heading)[1]
+                and n.get("class") != "android.widget.EditText"
+                and clean(text(n)).rstrip("×✕ ") == value
+            ]
+            if not staged:
+                reject("tag_creation_unverified")
+        else:
+            self._tap(tags.one(clickable or matching))
+            tags = self._wait(lambda v: v.title == "編輯標籤")
+        if self.before_commit:
+            self.before_commit()
         self._tap(tags.control("儲存"))
         profile = self._wait(lambda v: v.title == "基本檔案")
         saved_rows = [

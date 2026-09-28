@@ -298,7 +298,7 @@ class AdbEmulator:
             "workflow_actions": self.oa.actions if host_status == "ready" else [],
             "automation_protocol": 1,
             "workflow_verification": {a: "verified" if a in self.oa.verified_actions else "unverified" for a in self.oa.actions},
-            "workflow_limits": ["visible_conversations_only", "visible_messages_only", "existing_tags_only", "read_reference_expires_after_10_minutes"],
+            "workflow_limits": ["visible_conversations_only", "visible_messages_only", "new_stay_tags_require_verified_editor", "read_reference_expires_after_10_minutes"],
         }
 
     def read_ui(self) -> dict[str, Any]:
