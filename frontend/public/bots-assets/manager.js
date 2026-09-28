@@ -1,0 +1,42 @@
+const $=s=>document.querySelector(s),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let state,properties=[],loading=false;
+const errors={login_required:'請先登入。',invalid_channel_token:'請核對 Channel access token。',invalid_channel_secret:'請核對 Channel secret。',line_api_unavailable:'無法連接 LINE，請核對金鑰及服務狀態。',manager_not_configured:'請先連接客服經理帳號。',invalid_property:'請填寫民宿名稱與英文代號。',invalid_oa_id:'官方帳號 ID 請以 @ 開頭。',property_exists:'這間民宿或帳號已加入。',draft_changed:'草稿已有新版本，請更新查看。',draft_expired:'草稿已失效，沒有送出。',reply_required:'請先填寫回覆，再核准。',automation_paused:'請先啟用這間民宿的監控。',host_offline:'請先開啟這間民宿的主機。',line_login_required:'請先在主機登入這間民宿的 LINE。',not_paired:'請先配對這間民宿的主機。',job_in_progress:'主機正在處理，請稍後再試。',busy:'正在儲存，請稍後再試。'};
+function toast(text){$('#notice').textContent=text;$('#notice').style.display='block';setTimeout(()=>$('#notice').style.display='none',5000);}
+async function request(base,path,body){const r=await fetch(base+path,{method:body?'POST':'GET',headers:{'Content-Type':'application/json','X-CSRF-Token':'same-origin'},...(body?{body:JSON.stringify(body)}:{})});const d=await r.json();if(r.status===401){location.assign('/calendar-access?next=/customer-manager');throw Error('請先登入。');}if(!r.ok)throw Error(errors[d.error]||'暫時無法完成，請稍後再試。');return d;}
+const manager=(path,body)=>request('/api/v1/customer-manager/',path,body);
+const host=(p,path,body)=>request('/api/v1/host-agents/owner/',path+(body?'':'?property_id='+encodeURIComponent(p)),body?{...body,property_id:p}:undefined);
+const statuses={awaiting_approval:'等待核准',approved:'已核准，等待核對',checking:'重新核對中',sending:'傳送中',sent:'已送出',stale:'對話已更新，草稿失效',expired:'草稿已過期',uncertain:'結果待確認，請勿重送',dismissed:'你已接手'};
+function render(){
+ const configured=state.configured,url=location.origin+'/api/v1/customer-manager/webhook/'+state.channel_id;
+ const recent=properties.flatMap(p=>(p.activity?.drafts||[]).filter(d=>d.status==='sent').map(d=>({...d,propertyName:p.name}))).sort((a,b)=>b.created_at-a.created_at).slice(0,10);
+ const drafts=properties.flatMap(p=>(p.activity?.drafts||[]).filter(d=>['awaiting_approval','approved','checking','sending','uncertain'].includes(d.status)).map(d=>({...d,property:p.id,propertyName:p.name})));
+ $('#manager').innerHTML=`<section><h2>你的 LINE 管理入口</h2><p><b>${esc(state.name)}</b> <span class="badge">${!configured?'尚未連接':!state.bound?'等待綁定你的 LINE':state.webhook_verified?'已綁定，可接收草稿':'等待 LINE 連線'}</span></p><p class="note">每則客人回覆都需要你核准。你可在 LINE 或此頁修改、核准與接手。</p><div class="actions"><button data-action="configure">${configured?'更新帳號連線':'連接客服經理 LINE'}</button>${configured?'<button class="secondary" data-action="pair">產生業主綁定碼</button>':''}${state.bound?'<button class="secondary" data-action="unbind">解除我的 LINE 綁定</button>':''}</div>${configured?`<p>在 LINE Developers 貼上以下 Webhook URL，開啟 Use webhook，並按 Verify：</p><code>${esc(url)}</code><p class="note">先產生綁定碼、加 ${esc(state.basic_id)} 為好友，再把綁定指令傳給它。只接受你的私人對話，不接受群組核准。</p>`:''}</section><section><h2>管理的民宿</h2><div class="grid">${properties.map(p=>`<article><h3>${esc(p.name)}</h3><small>${esc(p.oa_id)} · ${esc(p.id)}</small><p>${p.error?'連線暫時無法讀取':!p.host?.paired?'尚未配對主機':p.host?.host_status==='ready'?(p.host.automation?.enabled?'監控中，回覆須核准':'監控已暫停'):'等待主機連線或 LINE 登入'}</p>${p.host?.automation?.notification_status==='retrying'?'<p class="warning">LINE 通知暫時失敗，草稿保留在此頁，系統會重試。</p>':''}<div class="actions"><button data-toggle="${esc(p.id)}" ${p.host?.host_status!=='ready'&&!p.host?.automation?.enabled?'disabled':''}>${p.host?.automation?.enabled?'暫停監控':'開始監控'}</button><a class="button" href="/bots?customer_property=${encodeURIComponent(p.id)}">主機與客服知識</a></div></article>`).join('')}</div><p class="note">每間民宿使用獨立的 LINE 登入環境與主機配對，可放在同一台電腦的不同模擬器。初次啟用從新訊息開始，不補發舊對話。</p><button class="secondary" data-action="property">新增民宿</button></section><section><h2>待你處理 · ${drafts.length}</h2>${drafts.map(d=>`<article><span class="badge">${esc(statuses[d.status])}</span><h3>${esc(d.propertyName)}｜${esc(d.name)}</h3><p>客人訊息</p><blockquote>${esc(d.question)}</blockquote><p>建議回覆 · 第 ${d.version} 版</p><blockquote>${esc(d.reply||'需要你判斷，請修改回覆或自行接手。')}</blockquote>${d.status==='awaiting_approval'?`<div class="actions"><button data-decision="approve" data-property="${esc(d.property)}" data-draft="${esc(d.id)}" data-version="${d.version}" ${!d.reply?'disabled':''}>核准送出</button><button class="secondary" data-decision="edit" data-property="${esc(d.property)}" data-draft="${esc(d.id)}" data-version="${d.version}">修改回覆</button><button class="secondary" data-decision="takeover" data-property="${esc(d.property)}" data-draft="${esc(d.id)}" data-version="${d.version}">自行接手</button></div>`:''}</article>`).join('')||'<p class="note">目前沒有待處理草稿。</p>'}<button class="secondary" data-action="refresh">更新</button></section>${recent.length?'<section><h2>最近已送出</h2>'+recent.map(d=>`<article><h3>${esc(d.propertyName)}｜${esc(d.name)}</h3><blockquote>${esc(d.reply)}</blockquote></article>`).join('')+'</section>':''}`;
+}
+async function refresh(){if(loading)return;loading=true;try{state=await manager('status');properties=await Promise.all(state.properties.map(async p=>{try{const s=await host(p.id,'status');return {...p,host:s,activity:s.paired?await host(p.id,'automation-events',{}):null};}catch{return {...p,error:true};}}));render();}catch(e){toast(e.message)}finally{loading=false;}}
+function modal(html){$('#dialog').innerHTML=html+'<p><button class="secondary" id="close">關閉</button></p>';$('#dialog').showModal();$('#close').onclick=()=>$('#dialog').close();}
+async function action(button){
+ const kind=button.dataset.action,p=button.dataset.toggle;
+ if(p){await host(p,'automation-set',{enabled:!properties.find(x=>x.id===p).host.automation?.enabled,bot_id:properties.find(x=>x.id===p).host.automation?.bot_id||'concierge'});await refresh();return;}
+ if(button.dataset.decision){
+  const {decision,property,draft,version}=button.dataset,b={draft_id:draft,version:Number(version),action:decision,request_id:crypto.randomUUID()};
+  if(decision==='edit'){
+   const original=properties.find(p=>p.id===property).activity.drafts.find(d=>d.id===draft);
+   modal(`<h2>修改回覆</h2><p>${esc(original.name)} · 儲存後仍需核准</p><form id="edit"><textarea name="text" maxlength="1000" required>${esc(original.reply)}</textarea><button>儲存草稿</button></form>`);
+   $('#edit').onsubmit=async e=>{e.preventDefault();try{await host(property,'automation-decide',{...b,text:new FormData(e.target).get('text')});$('#dialog').close();await refresh();}catch(e){toast(e.message)}};return;
+  }
+  await host(property,'automation-decide',b);toast(decision==='approve'?'已核准，主機會再次核對後送出。':'已交由你接手。');await refresh();return;
+ }
+ if(kind==='refresh')return refresh();
+ if(kind==='configure'){
+  modal(`<h2>連接客服經理 LINE</h2><p>填入「客服經理」帳號的 Messaging API 資料。金鑰會加密保存，只供這個工作台使用。</p><form id="configure"><label>Channel secret<input name="channel_secret" type="password" autocomplete="off" required></label><label>Channel access token<input name="access_token" type="password" autocomplete="off" required></label><button>連接帳號</button></form>`);
+  $('#configure').onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector('button');b.disabled=true;try{await manager('configure',Object.fromEntries(new FormData(e.target)));e.target.reset();$('#dialog').close();await refresh();}catch(e){toast(e.message);b.disabled=false}};
+ }else if(kind==='pair'){
+  const d=await manager('pair-code',{});modal(`<h2>綁定你的 LINE</h2><p>加入 ${esc(state.basic_id)} 為好友，從你自己的 LINE 私人對話傳送以下指令。有效時間 10 分鐘。</p><code>${esc(d.command)}</code><p>持有此碼的人可以成為核准者，請勿轉傳。</p>`);
+ }else if(kind==='unbind'){await manager('unbind',{});await refresh();}
+ else if(kind==='property'){
+  modal(`<h2>新增民宿</h2><form id="property"><label>民宿名稱<input name="name" required maxlength="80"></label><label>英文代號<input name="id" pattern="[a-z0-9][a-z0-9_-]{0,49}" placeholder="例如 second-bnb" required></label><label>這間民宿的 LINE 官方帳號 ID<input name="oa_id" placeholder="@example" required></label><button>新增</button></form>`);
+  $('#property').onsubmit=async e=>{e.preventDefault();try{await manager('property-add',Object.fromEntries(new FormData(e.target)));$('#dialog').close();await refresh();}catch(e){toast(e.message)}};
+ }
+}
+document.addEventListener('click',async e=>{const b=e.target.closest('[data-action],[data-toggle],[data-decision]');if(!b||b.disabled)return;b.disabled=true;try{await action(b)}catch(e){toast(e.message)}finally{b.disabled=false;}});
+await refresh();setInterval(()=>{if(!$('#dialog').open)refresh();},20000);

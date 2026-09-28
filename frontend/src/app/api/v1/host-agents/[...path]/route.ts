@@ -1,6 +1,7 @@
 import {NextRequest,NextResponse} from 'next/server';
 import {principalFor} from '@/lib/workspace-auth/session';
 import {redisCommand,RedisWorkspaceStore} from '@/lib/workspace-auth/store';
+import {createManager} from '@/lib/host-agents/manager.mjs';
 import {guestBridge} from '@/lib/bots/guest-bridge';
 import {createRelay,RelayError} from '@/lib/host-agents/relay.mjs';
 export const runtime='nodejs';
@@ -10,7 +11,7 @@ const headers={'Cache-Control':'private, no-store','Vary':'Cookie, Authorization
 async function handle(req:NextRequest,ctx:{params:Promise<{path:string[]}>}){
  try{
   const path=(await ctx.params).path.join('/'),owner=path.startsWith('owner/');
-  const relay=createRelay(redisCommand,()=>Date.now(),{guest:guestBridge}),limiter=new RedisWorkspaceStore();
+  const relay=createRelay(redisCommand,()=>Date.now(),{guest:guestBridge,manager:createManager(redisCommand)}),limiter=new RedisWorkspaceStore();
   let principal;
   if(owner){
    principal=await principalFor(req);if(!principal)throw new RelayError('login_required',401);if(principal.role!=='owner')throw new RelayError('forbidden',403);
@@ -19,7 +20,7 @@ async function handle(req:NextRequest,ctx:{params:Promise<{path:string[]}>}){
    if(req.method!=='POST')throw new RelayError('method_not_allowed',405);
    if(req.headers.get('origin'))throw new RelayError('host_only',403);
   }
-  let body={};
+  let body:Record<string,unknown>={property_id:req.nextUrl.searchParams.get('property_id')||'sweetfun'};
   if(req.method==='POST'){
    if(!req.headers.get('content-type')?.startsWith('application/json'))throw new RelayError('json_required',415);
    const max=path.endsWith('/result')?3800000:path==='owner/automation-knowledge'?60000:16000;

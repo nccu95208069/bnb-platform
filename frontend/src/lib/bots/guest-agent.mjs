@@ -4,15 +4,15 @@ import {createHash} from 'node:crypto';
 
 // Guest-facing execution of an existing workspace Bot. Internal operational
 // documents and owner-only business tools never become guest answer sources.
-export function guestConfig(s,botId='concierge'){
+export function guestConfig(s,botId='concierge',property='sweetfun'){
  const bot=s.get('bots',botId);
  if(!bot?.active||bot.role!=='concierge')throw Error('customer_bot_unavailable');
- const knowledge=s.get('guestKnowledge','sweetfun')||{id:'sweetfun',version:1,entries:Object.entries(FAQ).map(([id,v])=>({id,title:v.topic,answer:v.reply,source:FAQ_SOURCE}))};
- const config={bot_id:bot.id,bot_name:bot.name,mission:bot.mission,bot_version:bot.version,knowledge};
+ const knowledge=s.get('guestKnowledge',property)||{id:property,version:1,entries:Object.entries(property==='sweetfun'?FAQ:{}).map(([id,v])=>({id,title:v.topic,answer:v.reply,source:FAQ_SOURCE}))};
+ const config={property,bot_id:bot.id,bot_name:bot.name,mission:bot.mission,bot_version:bot.version,knowledge};
  return {...config,version:createHash('sha256').update(JSON.stringify(config)).digest('hex')};
 }
-export function saveGuestKnowledge(s,input){
- const old=guestConfig(s).knowledge;
+export function saveGuestKnowledge(s,input,property='sweetfun'){
+ const old=guestConfig(s,'concierge',property).knowledge;
  if(input.version!==old.version)throw Error('knowledge_changed');
  if(!Array.isArray(input.entries)||input.entries.length>50)throw Error('invalid_customer_input');
  const entries=input.entries.map((e,i)=>{
@@ -20,8 +20,8 @@ export function saveGuestKnowledge(s,input){
   if(e.source&&!/^https:\/\//.test(e.source))throw Error('invalid_customer_input');
   return {id:'knowledge-'+i,title:e.title.trim(),answer:e.answer.trim(),source:e.source};
  });
- const value={id:'sweetfun',version:old.version+1,entries};
- s.put('guestKnowledge',value);s.audit({actor:'owner',tool:'customer.knowledge',property:'sweetfun',status:'saved',version:value.version});return value;
+ const value={id:property,version:old.version+1,entries};
+ s.put('guestKnowledge',value);s.audit({actor:'owner',tool:'customer.knowledge',property,status:'saved',version:value.version});return value;
 }
 export async function runGuestAgent(config,{messages,memory=[]},fetcher=fetch){
  if(!Array.isArray(messages)||!messages.length||messages.at(-1).direction!=='incoming')throw Error('incoming_message_required');
@@ -38,7 +38,7 @@ export async function runGuestAgent(config,{messages,memory=[]},fetcher=fetch){
  const entries=[...new Set(plan.topics)].map(id=>config.knowledge.entries.find(e=>e.id===id));
  if(entries.some(e=>!e))throw Error('invalid_model_output');
  const handoff=plan.handoff||(!entries.length&&plan.social==='none');
- const reply=handoff?'您好，您的問題已轉交民宿業主確認，確認後會再回覆您。':entries.length?'您好，'+entries.map(e=>e.answer).join(''):plan.social==='thanks'?'不客氣，祝您有愉快的一天！':'您好，歡迎詢問水芳民宿，有什麼可以幫您的呢？';
+ const reply=handoff?'您好，您的問題已轉交民宿業主確認，確認後會再回覆您。':entries.length?'您好，'+entries.map(e=>e.answer).join(''):plan.social==='thanks'?'不客氣，祝您有愉快的一天！':'您好，有什麼可以幫您的呢？';
  if(reply.length>1000)throw Error('invalid_model_output');
  return {reply,needs_owner:handoff,bot_id:config.bot_id,bot_version:config.version,topics:entries.map(e=>e.id),sources:entries.filter(e=>e.source).map(e=>({url:e.source})),usage:{input:body.usageMetadata?.promptTokenCount||0,output:body.usageMetadata?.candidatesTokenCount||0}};
 }

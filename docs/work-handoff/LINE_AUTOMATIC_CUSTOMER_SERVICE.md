@@ -1,5 +1,9 @@
 # Automatic LINE customer service — 2026-09-28
 
+> Superseded by the owner-approved LINE manager flow in
+> [LINE_CUSTOMER_MANAGER.md](LINE_CUSTOMER_MANAGER.md). Direct automatic guest
+> sending is disabled; the history below describes the earlier rollout.
+
 The latest owner instruction supersedes the earlier per-message confirmation-only
 rollout: implement automatic replies driven by the existing bnb-bot workspace.
 
