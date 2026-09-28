@@ -54,13 +54,15 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
     const approved=await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===a.id);if(!s.enabled||x?.status!=='approved'||x.expires_at<=now())return null;if(x.binding_revision!==connection.binding_revision){x.status='awaiting_approval';x.version++;notice(s,x);return null;}x.status='sending';x.sending_at=now();return structuredClone(x);});
     if(!approved)continue;
     let result;try{result=await api('send',{request_id:approved.send_id,property_id:mapping.daili_property_id,conversation_id:approved.conversation_id,stamp:approved.stamp,suggestion_id:approved.suggestion_id,source_hash:approved.source_hash,text:approved.reply});}catch{result={status:'uncertain'};}
-    await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===approved.id);if(x.status!=='sending')return;x.status=['sent','stale'].includes(result.status)?result.status:'uncertain';x.message_id=result.message_id||null;notice(s,x,'status',x.status==='sent'?'已由原民宿帳號送出，LINE 已接受。':x.status==='stale'?'客人訊息或回覆內容已更新，這次沒有送出，請查看最新草稿。':'傳送結果尚未確認，請在 Daili 查看，勿重複送出。');});
+    await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===approved.id);if(x.status!=='sending')return;x.status=['sent','stale'].includes(result.status)?result.status:'uncertain';x.message_id=result.message_id||null;notice(s,x,'status',x.status==='sent'?'LINE 已接受傳送，請到與原民宿帳號的聊天查看；此回報不代表手機已顯示，若未收到請勿重複核准。':x.status==='stale'?'客人訊息或回覆內容已更新，這次沒有送出，請查看最新草稿。':'傳送結果尚未確認，請在 Daili 查看，勿重複送出。');});
    }
    d=await read(owner,p);
    if(d.enabled&&now()<deadline-24000){
     const page=await api('queue?'+new URLSearchParams({property_id:mapping.daili_property_id,since:new Date(Math.max(Date.parse(dailiConfig().starts_at),now()-7*DAY)).toISOString(),offset:String(d.offset||0),limit:'5'}));
     await mutate(owner,p,s=>{
      if(!s.enabled)return;
+     const retired=new Set(page.retired_suggestion_ids||[]);
+     for(const old of s.drafts)if(retired.has(old.suggestion_id)&&['awaiting_approval','approved'].includes(old.status))old.status='stale';
      for(const item of page.items){
       need(item.property_id===mapping.daili_property_id,'daili_scope_mismatch');
       if(s.muted.includes(item.conversation_id)||s.drafts.some(a=>a.conversation_id===item.conversation_id&&['sending','uncertain'].includes(a.status)))continue;
