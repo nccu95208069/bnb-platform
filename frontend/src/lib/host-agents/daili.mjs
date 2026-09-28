@@ -27,7 +27,8 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
   const r=await fetcher('https://bnb-reply-copilot-2efedcw3vq-de.a.run.app/api/v1/customer-manager/'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+c.token,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{}),redirect:'error',signal:AbortSignal.timeout(22000)});
   if(!r.ok){const e=new Error('daili_unavailable');e.code='daili_unavailable';e.status=503;e.upstreamStatus=r.status;throw e;}return r.json();
  }
- function expire(d){for(const a of d.drafts){if(a.expires_at<=now()&&['awaiting_approval','approved'].includes(a.status))a.status='expired';if(a.status==='sending'&&a.sending_at+90000<now()){a.status='uncertain';notice(d,a,'status','傳送結果尚未確認，請在 Daili 查看，勿重複送出。');}}}
+ const sameSource=(a,b)=>a.conversation_id===b.conversation_id&&a.stamp===b.stamp&&a.suggestion_id===b.suggestion_id&&a.source_hash===b.source_hash;
+ function expire(d){for(const a of d.drafts){if(!a.identity&&['awaiting_approval','approved'].includes(a.status)&&d.drafts.some(b=>b.status==='sent'&&!b.identity&&sameSource(a,b)))a.status='stale';if(a.expires_at<=now()&&['awaiting_approval','approved'].includes(a.status))a.status='expired';if(a.status==='sending'&&a.sending_at+90000<now()){a.status='uncertain';notice(d,a,'status','傳送結果尚未確認，請在 Daili 查看，勿重複送出。');}}}
  async function activity(owner,p){need(dailiProperty(owner,p),'daili_not_configured');return mutate(owner,p,d=>{expire(d);return {drafts:d.drafts.map(project),enabled:d.enabled,last_sync:d.last_sync||null,error:d.error||null,source:'daili',media_enabled:true,media_sync:d.media_sync||null,media_pending:d.notices.filter(n=>n.kind==='media').length,muted:d.muted.map(id=>({id,name:d.drafts.find(a=>a.conversation_id===id)?.name||'已接手的客人'}))};});}
  async function decide(owner,p,b){need(dailiProperty(owner,p),'daili_not_configured');const binding=await manager.owner(owner,'status');need(binding.bound&&binding.webhook_verified,'manager_not_configured');return mutate(owner,p,d=>{
   expire(d);const a=d.drafts.find(x=>x.id===b.draft_id);need(a,'draft_not_found',404);
@@ -74,8 +75,8 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
      for(const item of page.items){
       need(item.property_id===mapping.daili_property_id,'daili_scope_mismatch');
       if(s.muted.includes(item.conversation_id)||s.drafts.some(a=>a.conversation_id===item.conversation_id&&['sending','uncertain'].includes(a.status)))continue;
-      const signature=hash(JSON.stringify([item.conversation_id,item.stamp,item.suggestion_id,item.source_hash,item.identity?.snapshot||null,...(item.identity?[item.question]:[])]));
-      if(s.drafts.some(a=>a.signature===signature))continue;
+      const signature=hash(JSON.stringify([item.conversation_id,item.stamp,item.suggestion_id,item.source_hash,...(item.identity?[item.identity.snapshot,item.question]:[])]));
+      if(s.drafts.some(a=>a.signature===signature||(!item.identity&&!a.identity&&sameSource(a,item))))continue;
       for(const old of s.drafts.filter(a=>a.conversation_id===item.conversation_id&&['awaiting_approval','approved'].includes(a.status)))old.status='stale';
       const a={id:randomBytes(24).toString('base64url'),signature,conversation_id:item.conversation_id,stamp:item.stamp,suggestion_id:item.suggestion_id,source_hash:item.source_hash,identity:item.identity||null,name:String(item.name).slice(0,100),question:String(item.question).slice(0,2000),reply:item.reply.length<=1000?item.reply:'',version:1,status:'awaiting_approval',created_at:now(),expires_at:now()+DAY};
       s.drafts.push(a);notice(s,a);
