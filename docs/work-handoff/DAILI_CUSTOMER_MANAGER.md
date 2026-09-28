@@ -52,3 +52,15 @@ polling rotates order to avoid starving a later property. LINE push quotas apply
   environment because it may contain secrets. A question asks the owner to
   authorize only the existing DB credential, dedicated integration User and
   encrypted production Vercel token. Do not bypass that pending decision.
+
+### Candidate publication
+
+Vercel candidate `dpl_3KNY5b3fzXgrb6cAmnTckUeFqYFF` is READY at
+https://sweetfun-pkf54zkoh-sweetfuns-projects.vercel.app . Main alias inspection
+still resolves to `dpl_FGRwmbmWkQgHRWhULRA5XEQju7n6` (old production).
+Daili candidate `bnb-reply-copilot-manager-4146b26` is ready at 0% traffic;
+its health endpoint returns HTTP 200 and database=ok. Cloud Build
+`2fec0254-fa0e-4ddd-8271-7f2915411b0b` succeeded. Neither integration credential
+nor DAILI_MANAGER_CONNECTION has been provisioned. A new frontend deployment is
+required after adding that production environment value. Credential approval
+question remains unanswered; do not promote or claim activation.
