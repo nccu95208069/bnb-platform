@@ -1,4 +1,5 @@
 import {createAutomation} from './automation.mjs';
+import {dailiProperty} from './daili.mjs';
 import {randomBytes,createHash} from 'node:crypto';
 import {suggestReply} from './suggest.mjs';
 import {polishReply} from './polish.mjs';
@@ -64,6 +65,7 @@ export function createRelay(redis,now=()=>Date.now(),options={}){
  async owner(owner,operation,b={}){
   const prop=b.property_id||'sweetfun';await property(owner,prop);const key='host:'+binding(owner,prop);
   if(operation==='status')return status(await get(key));
+  if(dailiProperty(owner,prop)&&['automation-decide','automation-set'].includes(operation)&&b.enabled!==false)throw new RelayError('daili_managed',409);
   if(operation.startsWith('automation-')){const result=await auto.command(key,operation,b);if(result!==undefined)return result;}
   if(operation==='session-resume'){need(b.owner_confirmed===true,'confirmation_required',409);return mutate(key,r=>{need(r&&!r.revoked,'not_paired',409);need(r.lastSeen&&now()-Date.parse(r.lastSeen)<60000,'host_offline',409);need(!r.jobs.some(j=>['queued','leased'].includes(j.status)&&Date.parse(j.approval_expires_at)>now()),'job_in_progress',409);const payload={owner_confirmed:true},j={job_id:opaque(),idempotency_key:'resume-'+opaque(),agent_id:AGENT,property_id:r.property,action:'session_attest',payload,approval_id:opaque(),approval_expires_at:iso(now()+300000),approval_action_sha256:hash(canonical({agent_id:AGENT,property_id:r.property,action:'session_attest',payload})),status:'queued',created_at:iso()};r.jobs.push(j);return {job_id:j.job_id,status:j.status};});}
   if(operation==='pairing'){
@@ -135,11 +137,11 @@ export function createRelay(redis,now=()=>Date.now(),options={}){
    return mutate(key,r=>{current(r,tokenHash);need(b.sequence>r.sequence,'stale_sequence',409);r.sequence=b.sequence;r.lastSeen=iso();r.status=clean;return receipt(b,{host_id:r.hostId,sequence:r.sequence,accepted:true,server_time:iso()})});
   }
   if(path==='disconnect')return mutate(key,r=>{current(r,tokenHash);r.revoked=true;r.jobs=[];return receipt(b,{revoked:true})});
-  if(path==='automation/permit'){const r=await get(key);current(r,tokenHash);const j=r.jobs.find(j=>j.job_id===b.job_id&&j.lease_id===b.lease_id&&j.status==='leased');need(j&&Date.parse(j.lease_expires_at)>now(),'lease_expired',409);await auto.permit(r,j);return receipt(b,{allowed:true,job_id:j.job_id});}
+  if(path==='automation/permit'){const r=await get(key);current(r,tokenHash);need(!dailiProperty(r.owner,r.property),'daili_managed',409);const j=r.jobs.find(j=>j.job_id===b.job_id&&j.lease_id===b.lease_id&&j.status==='leased');need(j&&Date.parse(j.lease_expires_at)>now(),'lease_expired',409);await auto.permit(r,j);return receipt(b,{allowed:true,job_id:j.job_id});}
   if(path==='jobs/claim'){
    need(Number.isInteger(b.wait_seconds)&&b.wait_seconds>=0&&b.wait_seconds<=20,'invalid_wait');
    need(Array.isArray(b.capabilities)&&b.capabilities.includes('ui:read'),'capability_missing',403);
-   const deadline=Date.now()+b.wait_seconds*1000;await auto.tick(key);do{const claimed=await mutate(key,async r=>{current(r,tokenHash);if(!r.lastSeen||now()-Date.parse(r.lastSeen)>60000)return null;
+   const deadline=Date.now()+b.wait_seconds*1000;const before=await get(key);if(dailiProperty(before.owner,before.property)){await mutate(key,r=>{if(r.automation)r.automation.enabled=false;for(const j of r.jobs)if(j.automation&&j.status==='queued'){j.status='blocked';j.error_code='daili_managed';}});}else await auto.tick(key);do{const claimed=await mutate(key,async r=>{current(r,tokenHash);if(!r.lastSeen||now()-Date.parse(r.lastSeen)>60000)return null;
     if(r.jobs.some(j=>j.status==='leased'&&Date.parse(j.lease_expires_at)>now()))return null;
     const j=r.jobs.find(j=>['queued','leased'].includes(j.status)&&Date.parse(j.approval_expires_at)>now());if(!j)return null;if(WRITE_ACTIONS.includes(j.action)&&!b.capabilities.includes('ui:operate'))return null;
     if(j.automation){try{await auto.permit(r,j);}catch(e){j.status='blocked';j.error_code=e.code||'customer_bot_unavailable';await auto.ingest(r,j,'blocked',null,j.error_code);return null;}}

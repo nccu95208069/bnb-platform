@@ -1,5 +1,6 @@
 {
   "crons": [
+    { "path": "/api/cron/daili-manager", "schedule": "* * * * *" },
     { "path": "/api/cron/sheet-monitor/sweetfun", "schedule": "* * * * *" },
     { "path": "/api/cron/sheet-monitor/offland", "schedule": "* * * * *" }
   ]
