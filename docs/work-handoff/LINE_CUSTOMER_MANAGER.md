@@ -104,11 +104,29 @@ Knowledge/booking/finance access is not expanded by this manager channel.
 - The owner has not yet specified the management OA. Channel configuration,
   webhook setup, owner binding and live approval-flow acceptance remain pending.
 
+### LINE connection and monitor activation — 2026-09-28
+
+- Owner created the separate management OA `@165mesjn` (客服經理), enabled its
+  Messaging API under `bnbplatformai`, and explicitly authorized the integration.
+- Channel credentials were entered through the owner UI and encrypted by the
+  application. No secrets or owner LINE user identifiers are recorded here.
+- LINE Webhook Verify returned Success; Use webhook is enabled. The management
+  OA's default auto-reply is disabled to avoid interfering with manager commands.
+- Owner sent the short-lived binding command from their private LINE. The owner
+  workbench confirms 已綁定，可接收草稿.
+- The existing `SweetfunLINEOA` emulator was restarted without wiping data. Owner
+  confirmed the property OA was open; local session attestation returned ready.
+- The Sweetfun monitor was enabled through the owner workbench, which confirms
+  監控中，回覆須核准. The host and emulator must remain running and awake.
+- New-message draft delivery, editing, explicit approval and verified guest
+  delivery still need a fresh owner-initiated live acceptance message. No guest
+  reply was approved or sent by the agent during setup.
+
 Implementation adds no speculative live guest sends. Static syntax, TypeScript,
 ESLint and production build checks are recorded in the task. No new automated test
 suite was run in this implementation turn. Real LINE management-card delivery,
-owner editing/approval and guest delivery require the chosen management account
-and owner binding; do not claim those live steps before they occur.
+owner editing/approval and guest delivery remain unverified; do not claim those
+live steps before they occur.
 
 References:
 - https://developers.line.biz/en/docs/messaging-api/verify-webhook-signature/
