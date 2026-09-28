@@ -25,7 +25,7 @@ export function customerOutput(action,value){
  if(!value||typeof value!=='object')throw Error('invalid_customer_result');
  const stamp=v=>typeof v==='string'&&Number.isFinite(Date.parse(v))?v:null;
  const limitations=Array.isArray(value.limitations)?value.limitations.slice(0,5).filter(x=>typeof x==='string').map(x=>x.slice(0,300)):[];
- if(action==='oa_list_conversations')return {conversations:(Array.isArray(value.conversations)?value.conversations:[]).slice(0,50).map(c=>({display_name:text(c.display_name,100),...(typeof c.preview==='string'?{preview:c.preview.slice(0,500)}:{})})),observed_at:stamp(value.observed_at),limitations};
+ if(action==='oa_list_conversations')return {conversations:(Array.isArray(value.conversations)?value.conversations:[]).slice(0,50).map(c=>({display_name:text(c.display_name,100),...(typeof c.revision==='string'&&/^[a-f0-9]{64}$/.test(c.revision)?{revision:c.revision}:{}),...(typeof c.preview==='string'?{preview:c.preview.slice(0,500)}:{})})),observed_at:stamp(value.observed_at),limitations};
  if(action==='oa_read_conversation')return {conversation_ref:text(value.conversation_ref,128),display_name:text(value.display_name,100),messages:(Array.isArray(value.messages)?value.messages:[]).slice(-60).map(m=>({text:typeof m.text==='string'?m.text.slice(0,4000):'',direction:['incoming','outgoing','unknown'].includes(m.direction)?m.direction:'unknown'})),tags:(Array.isArray(value.tags)?value.tags:[]).filter(x=>typeof x==='string').slice(0,30).map(x=>x.slice(0,40)),observed_at:stamp(value.observed_at),expires_at:stamp(value.expires_at),limitations};
  return {verified:value.verified===true,...(value.conversation?{conversation:customerOutput('oa_read_conversation',value.conversation)}:{}),limitations};
 }

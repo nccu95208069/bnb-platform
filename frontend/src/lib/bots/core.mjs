@@ -17,7 +17,7 @@ export function context(s,botId,property,dataset='sandbox'){
  if(dataset==='live'&&property!=='sweetfun')fail('not_configured','正式來源目前只開放水芳訂單。',409);
  return {bot,property,dataset,preferences:s.get('onboarding',property+':'+bot.role)};
 }
-export function authorize(c,tool){if(!roles[c.bot.role].tools.includes(tool)||!c.bot.tools.includes(tool))fail('forbidden','這個 Bot 沒有使用此工具的權限。',403);if(c.dataset!=='sandbox'&&!['overview','orders.list','availability','finance.summary','reports.booking','calculate','organize','delegate'].includes(tool))fail('readonly_source','正式資料唯讀；請切換隔離測試資料進行新增、修改、取消、收款及文件操作。',403);}
+export function authorize(c,tool){if(!roles[c.bot.role].tools.includes(tool)||!c.bot.tools.includes(tool))fail('forbidden','這個 Bot 沒有使用此工具的權限。',403);if(c.dataset!=='sandbox'&&!['guest.handoffs','overview','orders.list','availability','finance.summary','reports.booking','calculate','organize','delegate'].includes(tool))fail('readonly_source','正式資料唯讀；請切換隔離測試資料進行新增、修改、取消、收款及文件操作。',403);}
 function scoped(s,kind,id,c){const v=s.get(kind,id);if(!v||v.property!==c.property)fail('not_found','找不到這個據點的紀錄。',404);return v;}
 function docPermit(c,d,mode){const list=mode==='read'?c.bot.read:c.bot.write;if(!list.includes(d.category)||!(mode==='read'?roles[c.bot.role].read:roles[c.bot.role].write).includes(d.category))fail('forbidden','此文件不在 Bot 的授權範圍。',403);if(d.dataset!==c.dataset)fail('readonly_source','此資料來源不允許這項操作。',403);}
 function version(v,a){if(a.version!==v.version)fail('version_conflict','資料已更新，請重新讀取後再操作。',409);}
@@ -53,7 +53,8 @@ export function execute(s,c,tool,a={},key=uid('op')){
  const run=()=>{
  if(mutate){const old=s.db.prepare('SELECT * FROM effects WHERE key=?').get(key);if(old){if(old.fingerprint!==fingerprint)fail('idempotency_conflict','同一操作識別碼不可用於不同內容。',409);return JSON.parse(old.result);}}
  let out,mutationBefore=null;const changed=(kind,v)=>{mutationBefore=s.get(kind,v.id);return s.put(kind,{...v,version:(v.version||0)+1,updatedAt:new Date().toISOString()});};
- if(tool==='calculate')out=calculate(a.expression);
+ if(tool==='guest.handoffs')out={kind:'table',title:'LINE 客服待處理',rows:(s.get('guestEvents','sweetfun')?.events||[]).filter(e=>e.property===c.property&&e.botId===c.bot.id&&e.status==='needs_owner').slice(-50),note:'請在民宿客服頁查看對話並接手。'};
+ else if(tool==='calculate')out=calculate(a.expression);
  else if(tool==='organize'){need(Array.isArray(a.rows)&&a.rows.length<=200&&a.rows.every(x=>x&&typeof x==='object'&&!Array.isArray(x)),'提供最多 200 列物件。');need(JSON.stringify(a.rows).length<=25000,'資料過長。');let rows=structuredClone(a.rows);if(a.sortBy)rows.sort((x,y)=>typeof x[a.sortBy]==='number'&&typeof y[a.sortBy]==='number'?x[a.sortBy]-y[a.sortBy]:String(x[a.sortBy]??'').localeCompare(String(y[a.sortBy]??''),'zh-TW'));out={kind:'table',title:'資料整理',rows,groups:a.groupBy?Object.fromEntries([...new Set(rows.map(x=>String(x[a.groupBy]??'未分類')))].map(k=>[k,rows.filter(x=>String(x[a.groupBy]??'未分類')===k).length])):null};}
  else if(tool==='overview')out={kind:'overview',title:'營運工作概況',activeOrders:all(s,'orders',c).filter(x=>x.status==='active').length,openTasks:all(s,'tasks',c).filter(x=>x.status!=='done'),source:'隔離測試資料'};
  else if(tool==='tasks.list')out={kind:'table',title:'營運任務',rows:all(s,'tasks',c)};

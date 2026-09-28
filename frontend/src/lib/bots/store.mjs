@@ -6,7 +6,9 @@ export function openStore(snapshot=null){
  if(data.schema!==1||!data.objects||!Array.isArray(data.audit)||!data.effects)throw Error('STORE_INVALID');
  const copy=v=>v==null?null:structuredClone(v);
  const s={all(kind){return Object.values(data.objects[kind]||{}).map(copy)},get(kind,id){return copy(Object.hasOwn(data.objects[kind]||{},id)?data.objects[kind][id]:null)},put(kind,v){data.objects[kind]??={};data.objects[kind][v.id]=copy(v);return v},audit(v){data.audit.push({seq:(data.audit.at(-1)?.seq||0)+1,at:new Date().toISOString(),...copy(v)});data.audit=data.audit.slice(-500)},audits(){return copy(data.audit.slice(-150).reverse())},tx(fn){const before=copy(data);try{return fn()}catch(e){data=before;throw e}},close(){},snapshot(){return copy(data)},db:{prepare(sql){if(sql==='SELECT * FROM effects WHERE key=?')return {get(key){return copy(Object.hasOwn(data.effects,key)?data.effects[key]:null)}};if(sql==='INSERT INTO effects VALUES(?,?,?)')return {run(key,fingerprint,result){if(data.effects[key])throw Error('DUPLICATE_EFFECT');data.effects[key]={key,fingerprint,result}}};throw Error('UNSUPPORTED_QUERY')}}};
- if(!s.get('meta','seed'))seed(s);return s;
+ if(!s.get('meta','seed'))seed(s);
+ if(!s.get('meta','guest-bridge-v1')){for(const b of s.all('bots'))if(b.role==='concierge'&&!b.tools.includes('guest.handoffs'))s.put('bots',{...b,tools:[...b.tools,'guest.handoffs'],version:b.version+1});s.put('meta',{id:'guest-bridge-v1'});}
+ return s;
 }
 export const uid=(prefix)=>prefix+'-'+randomUUID().slice(0,8);
 export const today=()=>new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Taipei'});
