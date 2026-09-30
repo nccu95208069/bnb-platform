@@ -243,4 +243,21 @@ message. It is separate from batch approval of suggested replies.
 
 This is a button implementation; no existing guest todo was cleared during
 development or rollout. No automated tests or live guest/bulk actions were run.
-Static checks and production deployment are recorded below after rollout.
+JavaScript syntax, scoped ESLint, TypeScript and whitespace checks passed.
+
+Rollout: source 3fc37ac0d2b3c64a33f2b107eb27dd0e7dc59b3c, Vercel
+dpl_VGgVcphU9zCWu6nPtk2vgh3Z495Z (READY). The cloud Next.js production build
+completed in 26 seconds, including TypeScript. Promoted at approximately 18:39
+Asia/Taipei on 2026-09-30; inspection of https://sweetfun-os.vercel.app resolves
+to this deployment. Backend remains manager-inbox-fa0c19f, with no schema or
+secret changes. Actual LINE button use and bulk resolution remain unperformed
+during rollout. The normal manager cron at 18:39:36 Asia/Taipei returned HTTP 200
+on this deployment; the two existing sheet-monitor schedules also returned 200.
+No errors appeared in this initial runtime sample. These observations do not
+constitute a bulk action or phone-button test.
+
+Previous frontend: dpl_FjyWFnKrkhVceY8j9G6zBCjdneED. If a bulk operation has
+already started, retain bulk-worker support until it completes: the previous
+version can still execute the saved no-reply requests but cannot preserve the
+new aggregate progress/reporting behavior. Public source push remains pending
+the existing explicit publication approval.
