@@ -56,7 +56,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
   else if(b.action==='snooze'||b.action==='unsnooze'){need(a.contract_version===3,'refresh_required');a.snoozed_until=b.action==='snooze'?now()+3600000:null;a.version++;}
   else if(b.action==='takeover'){a.status='dismissed';if(!d.muted.includes(a.conversation_id))d.muted.push(a.conversation_id);}
   else need(false,'invalid_action');
-  a.last_action_id=b.request_id;a.last_action_type=b.action;a.last_action_version=b.version;a.last_action_snapshot=a.inbox_snapshot||a.signature;return {draft:project(a)};
+  a.last_action_id=b.request_id;a.last_action_type=b.action;a.last_action_version=b.version;a.last_action_snapshot=a.inbox_snapshot||a.signature;a.last_action_at=now();return {draft:project(a)};
  });}
  async function context(owner,p,id,before){need(dailiProperty(owner,p),'daili_not_configured');const d=await read(owner,p),a=d.drafts.find(x=>x.id===id);need(a,'draft_not_found',404);return api('conversation?'+new URLSearchParams({property_id:dailiProperty(owner,p).daili_property_id,conversation_id:a.conversation_id,...(before?{before}: {})}));}
  async function review(owner,p,refs){
@@ -140,7 +140,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
       s.drafts.push(a);notice(s,a);
      }
      s.offset=page.next_offset;s.last_sync=now();s.error=null;
-     s.drafts=s.drafts.filter(a=>a.created_at>now()-7*DAY||['awaiting_approval','dismiss_requested','approved','sending','uncertain'].includes(a.status)||['requested','binding','uncertain'].includes(a.binding_state));
+     s.drafts=s.drafts.filter(a=>Math.max(a.created_at||0,a.last_action_at||0,a.approved_at||0,a.sending_at||0,a.binding_at||0)>now()-7*DAY||['awaiting_approval','dismiss_requested','approved','sending','uncertain'].includes(a.status)||['requested','binding','uncertain'].includes(a.binding_state));
     });
    }
    d=await read(owner,p);
