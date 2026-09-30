@@ -207,3 +207,40 @@ checks and the cloud Next.js production build passed. No automated tests, live
 LINE actions, guest sends or booking actions were performed. Backend remains
 manager-inbox-fa0c19f without database changes. Public source push is still
 awaiting the existing explicit publication approval.
+
+## Mark all current todos handled
+
+Owner decision (2026-09-30): provide one operation to mark all reply todos handled,
+across every category and page. This includes snoozed todos and sends no guest
+message. It is separate from batch approval of suggested replies.
+
+- “全部標為已處理” appears in the overview and each category's page controls.
+  It opens a count by property/category, then “確認全部已處理”. Cancel removes an
+  unconfirmed operation; canceling a previously confirmed card shows its progress.
+- The confirmation captures all currently synchronized eligible draft IDs and
+  versions, not just the current five-card page. New messages, new drafts and
+  changed versions are not silently swept into the operation. In-progress or
+  uncertain booking operations and legacy unsupported drafts remain excluded,
+  with their count disclosed. Future guest input remains enabled.
+- Manager state stores the immutable property groups and sender-validated owner
+  binding revision. The confirmation expires after ten minutes; confirmed
+  progress remains available for a day. Each property atomically enqueues its
+  entire captured group with a stable bulk token. Repeated taps resume/report
+  that same group. Partial admission offers “繼續清理” without claiming completion.
+- Existing leased workers and the minute cron execute the established backend
+  no-reply operation with a stable request ID and exact inbox snapshot. The
+  backend records the owner's resolution against specific pending obligations.
+  This does not mute conversations, delete chat history, confirm bookings or send
+  suggestions. Backend snapshot conflicts retain the changed conversation.
+- Durable per-item outcomes distinguish pending, closed and retained. Unknown
+  failures retry the same backend request after a delay, with attempted items
+  moved behind untouched items. Definite rejections restore the local pending
+  draft. Bulk work rechecks the current owner binding before each backend call.
+- Completion is one summary per affected property instead of one receipt per
+  guest. Summary retries use immutable LINE push payloads and existing retry
+  IDs. The overview and progress card show outstanding work. Rebinding cancels
+  remaining old-revision decisions rather than applying them to the new binding.
+
+This is a button implementation; no existing guest todo was cleared during
+development or rollout. No automated tests or live guest/bulk actions were run.
+Static checks and production deployment are recorded below after rollout.

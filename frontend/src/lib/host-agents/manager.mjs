@@ -1,6 +1,6 @@
 import {createHash,createHmac,timingSafeEqual,randomBytes,randomUUID} from 'node:crypto';
 import {customerCrypto} from './customer.mjs';
-import {PAGE_SIZE,action,button,text,categories,overview,visible,bucket,pageMessages,inboxCard,statusCard,quickNav} from './manager-inbox.mjs';
+import {PAGE_SIZE,action,button,text,categories,overview,visible,bucket,pageMessages,inboxCard,statusCard,clearStatusCard,quickNav} from './manager-inbox.mjs';
 import {menuImage} from './manager-menu-image.mjs';
 const PREFIX='sweetfun-os:customer-manager:v1:',DAY=86400,MENU_VERSION=4;
 const CAS="if (redis.call('GET',KEYS[1]) or '')~=ARGV[1] then return 0 end; redis.call('SET',KEYS[1],ARGV[2]); return 1";
@@ -31,13 +31,14 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
   return {type:'flex',altText:clip(`${property.name}｜${draft.name}：${labels[draft.status]||draft.status}`,400),contents:{type:'bubble',body:{type:'box',layout:'vertical',contents:[{type:'text',text:message,wrap:true,size:'sm'}]},...(actions.length?{footer:{type:'box',layout:'vertical',spacing:'sm',contents:actions}}:{})}};
  }
  async function inbox(owner,readDrafts){
-  const state=await read(owner),rows=[],warnings=[],times=[];
+  const state=await read(owner),rows=[],warnings=[],times=[],failures=[],clears={};
   await Promise.all(state.properties.map(async property=>{
-   try{const result=await readDrafts(owner,property.id);for(const draft of result.drafts)if(visible(draft))rows.push({property,draft});if(result.last_sync)times.push(result.last_sync);if(result.error||!result.enabled)warnings.push(`${property.name}：${!result.enabled?'整理已暫停':'同步待恢復'}`);}
-   catch(e){if(e.code!=='not_paired')warnings.push(`${property.name}：暫時無法讀取`);}
+   try{const result=await readDrafts(owner,property.id);clears[property.id]=result.clear_batches||[];for(const draft of result.drafts)if(visible(draft))rows.push({property,draft});if(result.last_sync)times.push(result.last_sync);if(result.error||!result.enabled)warnings.push(`${property.name}：${!result.enabled?'整理已暫停':'同步待恢復'}`);}
+   catch(e){if(e.code!=='not_paired'){failures.push(property.id);warnings.push(`${property.name}：暫時無法讀取`);}}
   }));
   rows.sort((a,b)=>(a.draft.created_at||0)-(b.draft.created_at||0));
-  return {rows,now:now(),warning:warnings.join('；'),refreshedAt:times.length?Math.min(...times):null};
+  const clearing=Object.entries(state.clears||{}).filter(([,b])=>b.confirmed&&b.until>now()&&b.revision===(state.bindingRevision||0)).map(([token,b])=>({token,count:Object.entries(b.groups).reduce((total,[p,refs])=>total+(clears[p]?.find(x=>x.token===token)?.pending??refs.length),0)})).find(b=>b.count>0)||null;
+  return {rows,clears,clearing,failures,now:now(),warning:warnings.join('；'),refreshedAt:times.length?Math.min(...times):null};
  }
  async function openInbox(owner,category,readDrafts,reviewCards){
   need(Object.hasOwn(categories,category),'invalid_action');
@@ -76,6 +77,48 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
   }
   const final=(await read(owner)).batches[token],accepted=final.results.filter(x=>x==='accepted').length;
   return {type:'text',text:`已接受 ${accepted} 筆${work.mode==='approve'?'核准，重新核對後逐位送出':'不用回覆的決定'}。${final.results.length>accepted?`\n${final.results.length-accepted} 筆狀態已變，請重新查看。`:''}`};
+ }
+ async function clearPreview(owner,readDrafts,revision){
+  const data=await inbox(owner,readDrafts);need(!data.failures.length,'inbox_unavailable',503);
+  const rows=data.rows.filter(({draft})=>draft.contract_version===3&&draft.expires_at>now()&&!['requested','binding','uncertain'].includes(draft.binding_state));
+  const excluded=data.rows.length-rows.length;
+  if(!rows.length&&data.clearing)return clearStatus(owner,data.clearing.token,readDrafts,revision);
+  if(!rows.length)return {type:'text',text:excluded?`目前 ${excluded} 筆待辦正在處理或需重新整理，暫時無法結案。`:'目前沒有需要清理的待辦。',quickReply:quickNav()};
+  const token=randomBytes(12).toString('hex'),groups={};
+  for(const {property,draft} of rows)(groups[property.id]||=[]).push({id:draft.id,v:draft.version});
+  await mutate(owner,d=>{
+   need((d.bindingRevision||0)===revision,'binding_changed',409);
+   const keep=Object.entries(d.clears||{}).filter(([,b])=>b.until>now());
+   d.clears=Object.fromEntries([...keep.filter(([,b])=>b.confirmed),...keep.filter(([,b])=>!b.confirmed).slice(-19)]);
+   d.clears[token]={groups,total:rows.length,excluded,revision,until:now()+600000,confirmed:false};
+  });
+  const counts=Object.fromEntries(['ready','decision','no_reply','snoozed'].map(c=>[c,rows.filter(({draft})=>bucket(draft,now())===c).length]));
+  return {type:'flex',altText:`確認全部標為已處理：${rows.length} 筆`,contents:{type:'bubble',body:{type:'box',layout:'vertical',spacing:'md',contents:[text(`全部 ${rows.length} 筆標為已處理？`,{size:'lg',weight:'bold'}),...Object.keys(groups).map(p=>text(`${rows.find(row=>row.property.id===p).property.name}：${groups[p].length} 筆`)),text(Object.entries(counts).map(([c,n])=>`${categories[c]} ${n} 筆`).join('\n')),text('包含所有分類、所有分頁與稍後處理。這次不會傳送任何訊息給客人。'),text('以這次確認清單為準；新增訊息或內容已更新的項目會保留。',{size:'xs'}),...(excluded?[text(`另有 ${excluded} 筆正在處理或需重新整理，暫時保留。`,{size:'xs'})]:[]),...(data.warning?[text(data.warning,{size:'xs'})]:[])]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:[button('確認全部已處理',{a:'clear_confirm',t:token},true),button('取消',{a:'clear_cancel',t:token})]}},quickReply:quickNav()};
+ }
+ async function clearStatus(owner,token,readDrafts,revision){
+  const b=(await read(owner)).clears?.[token];need(b?.confirmed&&b.until>now()&&b.revision===revision,'view_expired');
+  const data=await inbox(owner,readDrafts);
+  const counts={closed:0,changed:0,pending:0,unaccepted:0};
+  for(const [p,refs] of Object.entries(b.groups)){
+   const result=data.clears[p]?.find(x=>x.token===token);
+   if(result){counts.closed+=result.closed;counts.changed+=result.changed;counts.pending+=result.pending;}
+   else counts.unaccepted+=refs.length;
+  }
+  return clearStatusCard({token,total:b.total,excluded:b.excluded,...counts,warning:data.failures.length?'部分進度暫時無法讀取，可稍後查看或按「繼續清理」重試。':counts.unaccepted?'部分待辦尚待受理，請按「繼續清理」。':counts.pending&&data.warning?'部分處理暫未完成，系統會自動重試。':''});
+ }
+ async function confirmClear(owner,token,decide,readDrafts,revision){
+  const work=await mutate(owner,d=>{
+   const b=d.clears?.[token];need(b&&b.until>now()&&b.revision===revision&&(d.bindingRevision||0)===revision,'view_expired');
+   need(Object.keys(b.groups).every(p=>d.properties.some(x=>x.id===p)),'invalid_property');
+   if(!b.confirmed){b.confirmed=true;b.until=now()+DAY*1000;}return structuredClone(b);
+  });
+  // One atomic property write enqueues every captured item. Retries reuse the
+  // same token; the leased worker and cron finish them beyond request limits.
+  for(const [p,items] of Object.entries(work.groups)){
+   try{await decide(owner,p,{action:'clear_all',token,items});}
+   catch(e){if(!e.status||e.status>=500||e.code==='busy')break;throw e;}
+  }
+  return clearStatus(owner,token,readDrafts,revision);
  }
  return {
   properties:async owner=>(await read(owner)).properties,
@@ -130,6 +173,9 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
   async notify({owner,property,notice}){
    const d=await read(owner),p=d.properties.find(p=>p.id===property);
    if(!d.accessToken||!d.ownerUserId||!d.webhookVerified||!p)return false;
+   if(notice.kind==='clear_summary'){
+    await line(d,'message/push',{to:d.ownerUserId,messages:[clearStatusCard({...notice.clear,property:p.name})]},notice.id);return true;
+   }
    if(notice.kind==='media'){
     const a=notice.attachment,m=notice.media;
     const time=new Date(m.occurred_at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'});
@@ -209,6 +255,13 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
        else if(a==='page')reply=await showPage(owner,q.get('t'),Number(q.get('n')),readDrafts,queueReview);
        else if(a==='batch_preview')reply=await batchPreview(owner,q,readDrafts);
        else if(a==='batch_confirm')reply=await confirmBatch(owner,q.get('t'),eventId,boundDecide);
+       else if(a==='clear_preview')reply=await clearPreview(owner,readDrafts,current.bindingRevision||0);
+       else if(a==='clear_confirm')reply=await confirmClear(owner,q.get('t'),boundDecide,readDrafts,current.bindingRevision||0);
+       else if(a==='clear_status')reply=await clearStatus(owner,q.get('t'),readDrafts,current.bindingRevision||0);
+       else if(a==='clear_cancel'){
+        const canceled=await mutate(owner,s=>{const b=s.clears?.[q.get('t')];need(b?.revision===(current.bindingRevision||0),'view_expired');if(b.confirmed)return false;delete s.clears[q.get('t')];return true;});
+        reply=canceled?{type:'text',text:'已取消，待辦保留。'}:await clearStatus(owner,q.get('t'),readDrafts,current.bindingRevision||0);
+       }
        else if(a==='cancel_edit'){await mutate(owner,s=>{delete s.editFocus;});reply={type:'text',text:'已取消修改，原草稿保留。'};}
        else {
        need(current.properties.some(x=>x.id===p)&&typeof id==='string'&&/^[\w-]{32}$/.test(id)&&Number.isSafeInteger(version),'invalid_action');

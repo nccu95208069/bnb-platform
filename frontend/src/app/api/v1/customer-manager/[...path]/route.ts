@@ -16,7 +16,7 @@ async function handle(req:NextRequest,ctx:{params:Promise<{path:string[]}>}){
   const scheduled=new Set<string>();
   const decide=async(owner:string,property:string,body:Record<string,unknown>)=>{
    const result=await daili.decide(owner,property,body);
-   if(['approve','bind','no_reply'].includes(String(body.action))&&!scheduled.has(property)){
+   if(['approve','bind','no_reply','clear_all'].includes(String(body.action))&&!scheduled.has(property)){
     scheduled.add(property);
     after(async()=>{
      const deadline=Math.min(requestDeadline,Date.now()+45000);

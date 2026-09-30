@@ -8,6 +8,11 @@ const clip=(value,n)=>String(value||'').slice(0,n);
 export const action=(label,params,extra={})=>({type:'postback',label,data:new URLSearchParams(params).toString(),displayText:clip(label,300),...extra});
 export const button=(label,params,primary=false,extra={})=>({type:'button',style:primary?'primary':'secondary',height:'sm',action:action(label,params,extra)});
 export const text=(value,extra={})=>({type:'text',text:String(value||'—'),wrap:true,size:'sm',...extra});
+export const clearButton=()=>button('全部標為已處理',{a:'clear_preview'});
+export function clearStatusCard({token,total,closed=0,changed=0,pending=0,unaccepted=0,excluded=0,property='',warning=''}){
+ const remaining=pending+unaccepted,title=unaccepted?'待辦清理尚未完成':pending?'正在清空待辦':changed||excluded?'待辦清理完成，部分保留':'本次待辦已標為已處理';
+ return {type:'flex',altText:`${property?property+'｜':''}${title}`,contents:{type:'bubble',body:{type:'box',layout:'vertical',spacing:'md',contents:[text(property||'全部標為已處理',{weight:'bold'}),text(title,{size:'lg',weight:'bold',color:'#176B54'}),text(`本次共 ${total} 筆\n已處理 ${closed} 筆${pending?'\n核對中 '+pending+' 筆':''}${unaccepted?'\n待繼續確認 '+unaccepted+' 筆':''}${changed?'\n本次未結案，保留 '+changed+' 筆':''}${excluded?'\n另有 '+excluded+' 筆暫時無法結案，仍保留':''}`),...(warning?[text(warning,{size:'xs',color:'#AA5500'})]:[]),...(changed?[text('保留項目請更新待辦重新查看。',{size:'xs'})]:[]),text('這次操作不會傳送訊息給客人。之後的新訊息仍會列入待辦。',{size:'xs'})]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:[...(unaccepted?[button('繼續清理',{a:'clear_confirm',t:token},true)]:[]),...(remaining?[button('查看清理進度',{a:'clear_status',t:token})]:[]),button('更新待辦總覽',{a:'inbox',c:'all'})]}},quickReply:quickNav()};
+}
 export function quickNav(){return {items:['all','ready','decision','no_reply','snoozed'].map(c=>({type:'action',action:action(categories[c],{a:'inbox',c})}))};}
 export function bucket(draft,now){return draft.snoozed_until>now?'snoozed':draft.category||(!draft.reply?'decision':'ready');}
 export function visible(draft){return draft.status==='awaiting_approval';}
@@ -26,16 +31,17 @@ export function statusCard(property,draft,{duplicate=false,note='',binding=false
  const params={p:property.id,d:draft.id,v:String(draft.version)};
  return {type:'flex',altText:clip(`${property.name}｜${draft.name}：${title}`,400),contents:{type:'bubble',body:{type:'box',layout:'vertical',spacing:'md',contents:[text(`${property.name}｜${draft.name}`,{weight:'bold'}),text(title,{size:'lg',weight:'bold',color:'#176B54'}),...(duplicate?[text('已收到過這個操作，以下是目前狀態。',{size:'xs'})]:[]),text(detail),...(note?[text(clip(note,1200),{size:'xs'})]:[])]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:[button(draft.status==='awaiting_approval'?'查看最新卡片':'查看進度',{...params,a:'status'}),button('更新待辦總覽',{a:'inbox',c:'all'})]}},quickReply:quickNav()};
 }
-export function overview(rows,{now=Date.now(),warning='',refreshedAt=null}={}){
+export function overview(rows,{now=Date.now(),warning='',refreshedAt=null,clearing=null}={}){
  const counts=Object.fromEntries(Object.keys(categories).map(k=>[k,0]));
  for(const {draft} of rows)if(visible(draft)){const c=bucket(draft,now);counts[c]++;if(c!=='snoozed')counts.all++;}
  const updated=refreshedAt?new Date(refreshedAt).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',hour:'2-digit',minute:'2-digit'}):'尚未同步';
  return {type:'flex',altText:`客服待辦：${counts.all} 位待處理，${counts.snoozed} 位稍後處理`,contents:{type:'bubble',body:{type:'box',layout:'vertical',spacing:'md',contents:[
   text('客服待辦',{size:'xl',weight:'bold'}),text(`${counts.all} 位客人待處理`,{size:'lg'}),
+  ...(clearing?[text(`本次清理尚有 ${clearing.count} 筆待確認，可查看進度。`)]:[]),
   ...['ready','decision','no_reply','snoozed'].map(c=>text(`${categories[c]}　${counts[c]} 位`)),
   text(`依已同步資料整理 · ${updated}`,{size:'xs',color:'#777777'}),
   ...(warning?[text(warning,{size:'xs',color:'#AA5500'})]:[]),
- ]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:['ready','decision','no_reply','snoozed'].map(c=>button(`${categories[c]}（${counts[c]}）`,{a:'inbox',c},c==='ready'))}},quickReply:quickNav()};
+ ]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:[...['ready','decision','no_reply','snoozed'].map(c=>button(`${categories[c]}（${counts[c]}）`,{a:'inbox',c},c==='ready')),...(clearing?[button('查看清理進度',{a:'clear_status',t:clearing.token})]:[]),clearButton()]}},quickReply:quickNav()};
 }
 export function inboxCard(property,draft){
  const params={p:property.id,d:draft.id,v:String(draft.version)};
@@ -83,6 +89,7 @@ export function pageMessages(rows,{token,page,total,category,pageSize=PAGE_SIZE,
  if(available&&category==='ready'&&rows.every(({draft})=>draft.reply&&draft.category==='ready'))controls.push(button('本組全部核准',{a:'batch_preview',t:token,n:String(page),r:renderToken}));
  if(available&&category==='no_reply'&&rows.every(({draft})=>draft.category==='no_reply'))controls.push(button('本組都不用回',{a:'batch_preview',t:token,n:String(page),r:renderToken,mode:'no_reply'}));
  controls.push(button('更新待辦總覽',{a:'inbox',c:'all'}));
+ controls.push(clearButton());
  const navigation={type:'flex',altText:'待辦分組操作',contents:{type:'bubble',size:'mega',body:{type:'box',layout:'vertical',contents:[text(rows.length?`左右滑動查看本組 ${rows.length} 位客人${result.length>1?'（分成 '+result.length+' 排卡片）':''}。`:'本組已處理，請查看下一組或更新總覽。'),text(`第 ${page+1} 組，共 ${Math.max(1,Math.ceil(total/pageSize))} 組`,{size:'xs'})]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:controls}},quickReply:quickNav()};
  if(result.length<5)result.push(navigation);
  else{

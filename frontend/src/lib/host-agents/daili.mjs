@@ -20,6 +20,14 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
  const read=async(owner,p)=>{const k=key(owner,p),raw=await redis(['GET',k]);return raw?vault().open(raw,k):fresh();};
  async function mutate(owner,p,fn){const k=key(owner,p);for(let i=0;i<8;i++){const raw=await redis(['GET',k]),d=raw?vault().open(raw,k):fresh(),result=fn(d);if(await redis(['EVAL',CAS,1,k,raw||'',vault().seal(d,k)])===1)return result;}need(false,'busy');}
  function notice(d,a,kind='draft',text=''){d.notices.push({id:randomUUID(),draft_id:a.id,version:a.version,kind,text,created_at:now(),...(['status','binding_status'].includes(kind)?{draft:structuredClone(project(a))}:{})});}
+ const clearSummary=b=>({token:b.token,total:b.total,closed:Object.values(b.results).filter(x=>x==='closed').length,changed:Object.values(b.results).filter(x=>x==='changed').length,pending:Object.values(b.results).filter(x=>x==='pending').length});
+ function finishClears(d){
+  for(const b of Object.values(d.clearBatches||{}))if(!b.completed_at&&!Object.values(b.results).includes('pending')){
+   b.completed_at=now();d.notices.push({id:randomUUID(),kind:'clear_summary',clear:clearSummary(b),created_at:now()});
+  }
+  d.clearBatches=Object.fromEntries(Object.entries(d.clearBatches||{}).filter(([,b])=>!b.completed_at||b.completed_at>now()-7*DAY));
+ }
+ function clearResult(d,a,result){const batch=d.clearBatches?.[a.clear_batch_id],pending=batch?.results[a.id]==='pending';if(pending)batch.results[a.id]=result;delete a.clear_batch_id;return pending;}
  const project=a=>({contract_version:a.contract_version,conversation_id:a.conversation_id,category:a.category,questions:a.questions,manual_reason:a.manual_reason,message_count:a.message_count,prior_reply:a.prior_reply,snoozed_until:a.snoozed_until||null,edit_needs_review:!!a.edit_needs_review,edited:!!a.edited,id:a.id,name:a.name,question:a.question,reply:a.reply,version:a.version,status:a.status,identity:a.identity||null,binding:a.binding||null,binding_state:a.binding_state||null,created_at:a.created_at,expires_at:a.expires_at});
  async function api(path,body){
   const c=dailiConfig();need(c,'daili_not_configured');
@@ -37,10 +45,27 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
   let d=await read(owner,p);const before=JSON.stringify(d);expire(d);
   // Ordinary inbox reads do not need another read + encrypted CAS write.
   if(JSON.stringify(d)!==before)d=await mutate(owner,p,s=>{expire(s);return s;});
-  return {drafts:d.drafts.map(project),enabled:d.enabled,last_sync:d.last_sync||null,error:d.error||null,source:'daili',media_enabled:true,media_sync:d.media_sync||null,media_pending:d.notices.filter(n=>n.kind==='media').length,muted:d.muted.map(id=>({id,name:d.drafts.find(a=>a.conversation_id===id)?.name||'已接手的客人'}))};
+  return {drafts:d.drafts.map(project),clear_batches:Object.values(d.clearBatches||{}).map(clearSummary),enabled:d.enabled,last_sync:d.last_sync||null,error:d.error||null,source:'daili',media_enabled:true,media_sync:d.media_sync||null,media_pending:d.notices.filter(n=>n.kind==='media').length,muted:d.muted.map(id=>({id,name:d.drafts.find(a=>a.conversation_id===id)?.name||'已接手的客人'}))};
  }
  async function decide(owner,p,b){need(dailiProperty(owner,p),'daili_not_configured');const binding=await manager.owner(owner,'status');need(binding.bound&&binding.webhook_verified,'manager_not_configured');need(b.owner_binding_revision===undefined||b.owner_binding_revision===binding.binding_revision,'binding_changed');return mutate(owner,p,d=>{
-  expire(d);const a=d.drafts.find(x=>x.id===b.draft_id);need(a,'draft_not_found',404);
+  expire(d);
+  if(b.action==='clear_all'){
+   need(/^[a-f0-9]{24}$/.test(b.token||'')&&Array.isArray(b.items)&&b.items.length>0&&b.items.length<=10000&&b.items.every(x=>x&&typeof x.id==='string'&&/^[\w-]{32}$/.test(x.id)&&Number.isSafeInteger(x.v)&&x.v>0)&&new Set(b.items.map(x=>x.id)).size===b.items.length,'invalid_action');
+   const signature=hash(JSON.stringify(b.items));d.clearBatches||={};
+   const previous=d.clearBatches[b.token];
+   if(previous){need(previous.signature===signature&&previous.binding_revision===binding.binding_revision,'draft_changed');return {clear:clearSummary(previous),duplicate:true};}
+   const batch={token:b.token,signature,binding_revision:binding.binding_revision,total:b.items.length,results:{},created_at:now()};
+   for(const ref of b.items){
+    const a=d.drafts.find(x=>x.id===ref.id);
+    if(!a||a.version!==ref.v||a.status!=='awaiting_approval'||a.contract_version!==3||a.expires_at<=now()||['requested','binding','uncertain'].includes(a.binding_state)){batch.results[ref.id]='changed';continue;}
+    a.status='dismiss_requested';a.decision_id=randomUUID();a.binding_revision=binding.binding_revision;a.clear_batch_id=b.token;
+    delete a.dismiss_retry_at;delete a.dismiss_attempt_at;
+    a.last_action_id=`clear:${b.token}:${a.id}`;a.last_action_type='clear_all';a.last_action_version=a.version;a.last_action_snapshot=a.inbox_snapshot;a.last_action_at=now();
+    batch.results[a.id]='pending';
+   }
+   d.clearBatches[b.token]=batch;finishClears(d);return {clear:clearSummary(batch)};
+  }
+  const a=d.drafts.find(x=>x.id===b.draft_id);need(a,'draft_not_found',404);
   if(b.request_id&&a.last_action_id===b.request_id)return {draft:project(a),duplicate:true};
   const sameAction=a.last_action_type===b.action&&a.last_action_version===b.version&&a.last_action_snapshot===(a.inbox_snapshot||a.signature);
   // Repeated taps report the persisted result. They never claim/send again.
@@ -81,11 +106,25 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
    let d=await read(owner,p);const connection=await manager.owner(owner,'status');if(!connection.bound||!connection.webhook_verified)return;
    await mutate(owner,p,s=>{expire(s);});
    d=await read(owner,p);
-   for(const a of d.drafts.filter(x=>x.status==='dismiss_requested')){
+   const dismissals=d.drafts.filter(x=>x.status==='dismiss_requested'&&(!x.clear_batch_id||!(x.dismiss_retry_at>now()))).sort((a,b)=>(a.dismiss_attempt_at||0)-(b.dismiss_attempt_at||0));
+   for(const a of dismissals){
     if(now()>deadline-24000)break;
-    if(a.binding_revision!==connection.binding_revision){await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===a.id);if(x?.status==='dismiss_requested'){x.status='awaiting_approval';x.version++;}});continue;}
-    const result=await api('no-reply',{request_id:a.decision_id,property_id:mapping.daili_property_id,conversation_id:a.conversation_id,inbox_snapshot:a.inbox_snapshot});
-    await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===a.id);if(x?.status!=='dismiss_requested')return;x.status=result.status==='dismissed'?'dismissed':'stale';x.version++;notice(s,x,'status',x.status==='dismissed'?'這次待辦已結案，沒有傳訊息；客人之後有新訊息仍會整理。':'客人有新訊息或內容已更新，保留待辦，請重新查看。');});
+    const decisionConnection=a.clear_batch_id?await manager.owner(owner,'status'):connection;
+    if(!decisionConnection.bound||!decisionConnection.webhook_verified||a.binding_revision!==decisionConnection.binding_revision){await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===a.id);if(x?.status==='dismiss_requested'){x.status='awaiting_approval';x.version++;clearResult(s,x,'changed');finishClears(s);}});continue;}
+    let result;
+    try{result=await api('no-reply',{request_id:a.decision_id,property_id:mapping.daili_property_id,conversation_id:a.conversation_id,inbox_snapshot:a.inbox_snapshot});}
+    catch(e){
+     if(!a.clear_batch_id)throw e;
+     // A single unavailable conversation must not starve the entire bulk job.
+     // Unknown outcomes retain the same backend request ID for safe recovery.
+     await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===a.id);if(x?.status!=='dismiss_requested'||x.decision_id!==a.decision_id)return;
+      if([400,403,404,409,422].includes(e.upstreamStatus)){x.status='awaiting_approval';x.version++;clearResult(s,x,'changed');finishClears(s);}
+      else{x.dismiss_attempt_at=now();x.dismiss_retry_at=now()+60000;s.error='daili_unavailable';}
+     });continue;
+    }
+    await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===a.id);if(x?.status!=='dismiss_requested')return;x.status=result.status==='dismissed'?'dismissed':'stale';x.version++;
+     if(!clearResult(s,x,x.status==='dismissed'?'closed':'changed'))notice(s,x,'status',x.status==='dismissed'?'這次待辦已結案，沒有傳訊息；客人之後有新訊息仍會整理。':'客人有新訊息或內容已更新，保留待辦，請重新查看。');finishClears(s);
+    });
    }
    d=await read(owner,p);
    for(const a of d.drafts.filter(x=>x.binding_state==='requested')){
@@ -160,6 +199,11 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
    d=await read(owner,p);
    const notices=d.notices.filter(n=>!actionsOnly||n.kind!=='media').sort((a,b)=>Number(a.kind==='media')-Number(b.kind==='media'));
    for(const n of notices.slice(0,5)){
+    if(n.kind==='clear_summary'){
+     if(now()>deadline-9000)break;
+     if(n.created_at+DAY>=now()&&!await manager.notify({owner,property:p,notice:n}))break;
+     await mutate(owner,p,s=>{s.notices=s.notices.filter(x=>x.id!==n.id);});continue;
+    }
     if(n.kind==='media'){
      if(now()>deadline-31000)break;
      const latest=await read(owner,p);if(!latest.enabled)break;
