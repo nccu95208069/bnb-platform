@@ -27,13 +27,13 @@ test('expired and missing IG deadlines cannot offer single or batch approval',()
  assert.equal(sendBlocked({...base(),channel_kind:'line',reply_deadline:null}),false);
 });
 
-function setup(t){
+function setup(t,{queuePage}={}){
  const names=['DAILI_MANAGER_CONNECTION','CALENDAR_OWNER_SESSION_SECRET'];
  const before=Object.fromEntries(names.map(n=>[n,process.env[n]]));
  t.after(()=>{for(const n of names)if(before[n]===undefined)delete process.env[n];else process.env[n]=before[n];});
  process.env.CALENDAR_OWNER_SESSION_SECRET='synthetic-secret-'.repeat(5);
  process.env.DAILI_MANAGER_CONNECTION=JSON.stringify({channel:hash('manager:synthetic-owner').slice(0,32),token:'synthetic-token-'.repeat(3),starts_at:'2026-01-01T00:00:00Z',properties:[{id:property.id,daili_property_id:propertyId}]});
- let time=Date.now();const values=new Map(),sends=[];
+ let time=Date.now();const values=new Map(),sends=[],queueOffsets=[];
  const redis=async([op,...a])=>{
   if(op==='GET')return values.get(a[0])||null;
   if(op==='SET'){if(a.includes('NX')&&values.has(a[0]))return null;values.set(a[0],a[1]);return 'OK';}
@@ -47,15 +47,25 @@ function setup(t){
  const item={...base(),property_id:propertyId,conversation_id:'20000000-0000-4000-8000-000000000002',stamp:'s'.repeat(64),source_hash:hash('下午三點。'),inbox_snapshot:'a'.repeat(64),suggestion_ids:[],messages:[]};
  const fetcher=async(url,options)=>({ok:true,json:async()=>{
   const path=new URL(url).pathname;
-  if(path.endsWith('/queue'))return {items:[item],next_offset:0};
+  if(path.endsWith('/queue')){const offset=Number(new URL(url).searchParams.get('offset'));queueOffsets.push(offset);return queuePage?queuePage({offset,item,call:queueOffsets.length}):{items:[item],next_offset:0};}
   if(path.endsWith('/attachments'))return {items:[]};
   if(path.endsWith('/send')){sends.push(JSON.parse(options.body));return {status:'sent',message_id:'synthetic-message'};}
   throw Error('unexpected API path');
  }});
  const manager={owner:async()=>({bound:true,webhook_verified:true,binding_revision:1}),notify:async()=>true};
  const daili=createDaili(redis,manager,{now:()=>time,fetcher});
- return {daili,item,sends,advance:ms=>time+=ms,sync:()=>daili.sync('synthetic-owner',property.id,time+50000),activity:()=>daili.activity('synthetic-owner',property.id),decide:b=>daili.decide('synthetic-owner',property.id,b)};
+ return {daili,item,sends,queueOffsets,advance:ms=>time+=ms,sync:()=>daili.sync('synthetic-owner',property.id,time+50000),activity:()=>daili.activity('synthetic-owner',property.id),decide:b=>daili.decide('synthetic-owner',property.id,b)};
 }
+
+test('IG messages settling during the first poll are picked up before the older queue finishes',async t=>{
+ const f=setup(t,{queuePage:({offset,item,call})=>({items:offset===0&&call>1?[item]:[],next_offset:offset===0?3:0})});
+ await f.sync();assert.equal((await f.activity()).drafts.length,0);
+ f.advance(31000);await f.sync();
+ assert.deepEqual(f.queueOffsets,[0,0,3]);
+ const [draft]=(await f.activity()).drafts;
+ assert.equal(draft.channel_kind,'instagram');assert.equal(draft.status,'awaiting_approval');
+ assert.equal(f.sends.length,0);
+});
 
 test('IG byte limit and owner approval are enforced in persisted bridge state',async t=>{
  const f=setup(t);await f.sync();let [draft]=(await f.activity()).drafts;

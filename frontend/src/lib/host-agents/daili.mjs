@@ -150,8 +150,12 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
      notice(s,x,'status',x.status==='sent'?`${x.channel_kind==='instagram'?'Instagram':'LINE'} 已接受傳送，請到與原民宿帳號的聊天查看；此回報不代表客人已讀，若未收到請勿重複核准。`:x.status==='stale'?'客人訊息或回覆內容已更新，這次沒有送出，請查看最新草稿。':'傳送結果尚未確認，請在原對話或 Daili 查看，勿重複送出。');if(x.status==='sent'&&x.identity?.selected&&!x.binding)notice(s,x);});
    }
    d=await read(owner,p);
-   if(!actionsOnly&&d.enabled&&now()<deadline-34000){
-    const page=await api('queue?'+new URLSearchParams({property_id:mapping.daili_property_id,since:dailiConfig().starts_at,offset:String(d.offset||0),limit:'3',contract_version:'3'}));
+   const backlogOffset=d.offset||0;
+   // Recheck new messages after the backend's burst-settling interval while
+   // continuing the older queue. Each bounded request reserves dispatch time.
+   for(const offset of backlogOffset?[0,backlogOffset]:[0]){
+    if(actionsOnly||!d.enabled||now()>=deadline-34000)break;
+    const page=await api('queue?'+new URLSearchParams({property_id:mapping.daili_property_id,since:dailiConfig().starts_at,offset:String(offset),limit:'3',contract_version:'3'}));
     await mutate(owner,p,s=>{
      if(!s.enabled)return;
      const retired=new Set(page.retired_suggestion_ids||[]);
@@ -179,7 +183,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
       const a={contract_version:2,id:randomBytes(24).toString('base64url'),signature,conversation_id:item.conversation_id,stamp:item.stamp,suggestion_id:item.suggestion_id,source_hash:item.source_hash,identity:item.identity||null,name:String(item.name).slice(0,100),question:String(item.question).slice(0,2000),reply:item.reply.length<=1000?item.reply:'',version:1,status:'awaiting_approval',created_at:now(),expires_at:now()+DAY};
       s.drafts.push(a);notice(s,a);
      }
-     s.offset=page.next_offset;s.last_sync=now();s.error=null;
+     s.offset=offset===0&&backlogOffset?backlogOffset:page.next_offset;s.last_sync=now();s.error=null;
      s.drafts=s.drafts.filter(a=>Math.max(a.created_at||0,a.last_action_at||0,a.approved_at||0,a.sending_at||0,a.binding_at||0)>now()-7*DAY||['awaiting_approval','dismiss_requested','approved','sending','uncertain'].includes(a.status)||['requested','binding','uncertain'].includes(a.binding_state));
     });
    }

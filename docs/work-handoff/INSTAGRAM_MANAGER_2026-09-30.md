@@ -1,8 +1,8 @@
 # Instagram customer-manager cards
 
 Status: frontend and compatible backend deployed; Meta is published and the IG
-callback/account subscriptions are active. Live POSTs arrive, but signature
-validation is currently rejecting them; no IG card has been verified. A bounded daily credential renewal
+callback/account subscriptions are active. The Instagram Login signing secret was
+corrected and real Meta redelivery now succeeds; no IG card has yet been verified. A bounded daily credential renewal
 job is enabled; its first real provider refresh remains pending.
 
 The existing Daili bridge accepts provider metadata from the authenticated backend
@@ -33,9 +33,9 @@ The backend migration, encrypted credential registration and rollout completed.
 Existing LINE counts were unchanged, and the IG table is private. The IG flag is
 enabled on the verified backend callback revision. Meta publication, callback
 verification and minimal `messages,message_edit` subscriptions are complete.
-The owner sent the requested test DM; delivery attempts currently fail the backend
-signature check. No outgoing guest messages were sent. Correcting this credential
-configuration, verified token renewal and an observed IG card remain outstanding.
+The owner sent the requested test DM. Using the Instagram Login app's own secret
+resolved the signature failure; Meta redelivery returned 200. No outgoing guest
+messages were sent. Verified token renewal and an observed IG card remain outstanding.
 Historical DM import is not implemented; the existing backlog was not synchronized.
 
 Do not push this branch to the public repository until the existing publication
@@ -72,5 +72,16 @@ by that grant; the one-use loopback handoff completed without logging the value.
 The manager UI confirms the property's monitoring and owner LINE binding are active.
 Meta now exposes existing conversations through a bounded metadata read, but history
 import remains unimplemented. Incoming receipt and any owner-approved outgoing
-message still require real end-to-end observation. Password reauthentication is
-pending in Meta to inspect Instagram Login's separate app secret.
+message still require real end-to-end observation. The owner completed the required
+Meta password reauthentication; its private secret transfer is complete.
+
+## Latest-message polling
+
+The first successful test delivery was followed by a poll during the backend's
+30-second burst-settling interval. The bridge then advanced through older pages,
+delaying the new card until the next full pass. Each sync now reads the newest
+page first and, if enough execution time remains, one older page. The older-page
+cursor is retained when only the newest page fits. Requests remain bounded and
+owner approval is unchanged. A synthetic IG regression covers a message becoming
+ready on the second poll, with zero sends; all five IG manager tests passed.
+JavaScript syntax and scoped ESLint passed. Deployment is pending.
