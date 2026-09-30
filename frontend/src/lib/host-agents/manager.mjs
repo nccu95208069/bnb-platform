@@ -1,8 +1,8 @@
 import {createHash,createHmac,timingSafeEqual,randomBytes,randomUUID} from 'node:crypto';
 import {customerCrypto} from './customer.mjs';
-import {PAGE_SIZE,action,button,text,categories,overview,visible,bucket,pageMessages,inboxCard,quickNav} from './manager-inbox.mjs';
+import {PAGE_SIZE,action,button,text,categories,overview,visible,bucket,pageMessages,inboxCard,statusCard,quickNav} from './manager-inbox.mjs';
 import {menuImage} from './manager-menu-image.mjs';
-const PREFIX='sweetfun-os:customer-manager:v1:',DAY=86400;
+const PREFIX='sweetfun-os:customer-manager:v1:',DAY=86400,MENU_VERSION=4;
 const CAS="if (redis.call('GET',KEYS[1]) or '')~=ARGV[1] then return 0 end; redis.call('SET',KEYS[1],ARGV[2]); return 1";
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const need=(ok,code,status=400)=>{if(!ok){const e=new Error(code);e.code=code;e.status=status;throw e;}};
@@ -14,9 +14,9 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
  const empty=owner=>({owner,properties:[{id:'sweetfun',name:'水芳民宿',oa_id:'@sweetfuntw'}]});
  const read=async owner=>{const raw=await redis(['GET',key(owner)]);return raw?vault().open(raw,key(owner)):empty(owner);};
  async function mutate(owner,fn){for(let i=0;i<8;i++){const raw=await redis(['GET',key(owner)]),d=raw?vault().open(raw,key(owner)):empty(owner),result=await fn(d);if(await redis(['EVAL',CAS,1,key(owner),raw||'',vault().seal(d,key(owner))])===1)return result;}need(false,'busy',409);}
- const safe=d=>({channel_id:channel(d.owner),configured:!!d.accessToken,name:d.name||'客服經理',basic_id:d.basicId||'',bound:!!d.ownerUserId,binding_revision:d.bindingRevision||0,webhook_verified:!!d.webhookVerified,menu_ready:d.inboxMenuRevision===(d.bindingRevision||0)&&!!d.inboxMenuId,inbox_version:3,menu_note:d.inboxMenuNote||null,properties:d.properties});
- async function line(d,path,body,retryKey){
-  const res=await fetcher('https://api.line.me/v2/bot/'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+d.accessToken,'Content-Type':'application/json',...(retryKey?{'X-Line-Retry-Key':retryKey}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(8000)});
+ const safe=d=>({channel_id:channel(d.owner),configured:!!d.accessToken,name:d.name||'客服經理',basic_id:d.basicId||'',bound:!!d.ownerUserId,binding_revision:d.bindingRevision||0,webhook_verified:!!d.webhookVerified,menu_ready:d.inboxMenuVersion===MENU_VERSION&&d.inboxMenuRevision===(d.bindingRevision||0)&&!!d.inboxMenuId,inbox_version:3,menu_note:d.inboxMenuNote||null,properties:d.properties});
+ async function line(d,path,body,retryKey,timeout=8000){
+  const res=await fetcher('https://api.line.me/v2/bot/'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+d.accessToken,'Content-Type':'application/json',...(retryKey?{'X-Line-Retry-Key':retryKey}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(timeout)});
   if(res.status===409&&retryKey&&res.headers.get('x-line-accepted-request-id'))return {};
   if(!res.ok){const e=new Error('line_api_unavailable');e.code='line_api_unavailable';e.status=502;e.providerStatus=res.status;throw e;}return res.status===204?{}:res.json();
  }
@@ -27,15 +27,15 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
   const actions=['awaiting_approval','sent'].includes(draft.status)&&!['requested','binding','uncertain'].includes(draft.binding_state)?[
    ...(draft.identity?.selected&&!draft.binding?[{label:'確認訂單（不傳訊息）',a:'bind'}]:[]),
    ...(draft.status==='awaiting_approval'?[...(draft.reply?[{label:'核准送出訊息',a:'approve'}]:[]),{label:'修改回覆',a:'edit'},{label:'自行接手',a:'takeover'}]:[])
-  ].map(x=>({type:'button',style:x.a==='approve'?'primary':'secondary',action:{type:'postback',label:x.label,data:new URLSearchParams({a:x.a,p:property.id,d:draft.id,v:String(draft.version)}).toString()}})):[];
+  ].map(x=>({type:'button',style:x.a==='approve'?'primary':'secondary',action:action(x.label,{a:x.a,p:property.id,d:draft.id,v:String(draft.version)},{displayText:clip(`${draft.name}｜${x.label}`,300)})})):[];
   return {type:'flex',altText:clip(`${property.name}｜${draft.name}：${labels[draft.status]||draft.status}`,400),contents:{type:'bubble',body:{type:'box',layout:'vertical',contents:[{type:'text',text:message,wrap:true,size:'sm'}]},...(actions.length?{footer:{type:'box',layout:'vertical',spacing:'sm',contents:actions}}:{})}};
  }
  async function inbox(owner,readDrafts){
   const state=await read(owner),rows=[],warnings=[],times=[];
-  for(const property of state.properties){
+  await Promise.all(state.properties.map(async property=>{
    try{const result=await readDrafts(owner,property.id);for(const draft of result.drafts)if(visible(draft))rows.push({property,draft});if(result.last_sync)times.push(result.last_sync);if(result.error||!result.enabled)warnings.push(`${property.name}：${!result.enabled?'整理已暫停':'同步待恢復'}`);}
    catch(e){if(e.code!=='not_paired')warnings.push(`${property.name}：暫時無法讀取`);}
-  }
+  }));
   rows.sort((a,b)=>(a.draft.created_at||0)-(b.draft.created_at||0));
   return {rows,now:now(),warning:warnings.join('；'),refreshedAt:times.length?Math.min(...times):null};
  }
@@ -44,14 +44,15 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
   const data=await inbox(owner,readDrafts);
   if(category==='all')return overview(data.rows,data);
   const rows=data.rows.filter(({draft})=>bucket(draft,now())===category),token=randomBytes(12).toString('hex');
-  await mutate(owner,d=>{d.views=Object.fromEntries(Object.entries(d.views||{}).filter(([,v])=>v.until>now()).slice(-19));d.views[token]={category,until:now()+DAY*1000,items:rows.map(({property,draft})=>({p:property.id,id:draft.id})),pages:{}};});
-  return showPage(owner,token,0,readDrafts,reviewCards);
+  const view={category,until:now()+DAY*1000,items:rows.map(({property,draft})=>({p:property.id,id:draft.id})),pages:{0:rows.slice(0,PAGE_SIZE).map(({property,draft})=>({p:property.id,id:draft.id,v:draft.version}))}};
+  await mutate(owner,d=>{d.views=Object.fromEntries(Object.entries(d.views||{}).filter(([,v])=>v.until>now()).slice(-19));d.views[token]=view;});
+  return showPage(owner,token,0,readDrafts,reviewCards,{view,data});
  }
- async function showPage(owner,token,page,readDrafts,reviewCards){
+ async function showPage(owner,token,page,readDrafts,reviewCards,cached){
   need(/^[a-f0-9]{24}$/.test(token||'')&&Number.isSafeInteger(page)&&page>=0,'invalid_action');
-  const state=await read(owner),view=state.views?.[token];need(view&&view.until>now()&&page<Math.max(1,Math.ceil(view.items.length/PAGE_SIZE)),'view_expired');
-  const data=await inbox(owner,readDrafts),rows=view.items.slice(page*PAGE_SIZE,page*PAGE_SIZE+PAGE_SIZE).flatMap(ref=>data.rows.filter(row=>row.property.id===ref.p&&row.draft.id===ref.id));
-  await mutate(owner,d=>{if(d.views?.[token])d.views[token].pages[page]=rows.map(({property,draft})=>({p:property.id,id:draft.id,v:draft.version}));});
+  const view=cached?.view||(await read(owner)).views?.[token];need(view&&view.until>now()&&page<Math.max(1,Math.ceil(view.items.length/PAGE_SIZE)),'view_expired');
+  const data=cached?.data||await inbox(owner,readDrafts),rows=view.items.slice(page*PAGE_SIZE,page*PAGE_SIZE+PAGE_SIZE).flatMap(ref=>data.rows.filter(row=>row.property.id===ref.p&&row.draft.id===ref.id));
+  if(!cached)await mutate(owner,d=>{if(d.views?.[token])d.views[token].pages[page]=rows.map(({property,draft})=>({p:property.id,id:draft.id,v:draft.version}));});
   if(reviewCards)for(const property of new Set(rows.filter(r=>r.draft.contract_version===3).map(r=>r.property.id)))await reviewCards(owner,property,rows.filter(r=>r.property.id===property).map(r=>({id:r.draft.id,v:r.draft.version})));
   return pageMessages(rows,{token,page,total:view.items.length,category:view.category});
  }
@@ -77,13 +78,13 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
  return {
   properties:async owner=>(await read(owner)).properties,
   async ensureMenu(owner){
-   const d=await read(owner);if(!d.ownerUserId||!d.accessToken||!d.webhookVerified||d.inboxMenuId&&d.inboxMenuRevision===(d.bindingRevision||0))return;
+   const d=await read(owner);if(!d.ownerUserId||!d.accessToken||!d.webhookVerified||safe(d).menu_ready)return;
    const lease=key(owner)+':menu-lease',claim=randomUUID();let claimed=false,stage='lease';
    try{
     claimed=await redis(['SET',lease,claim,'NX','EX',45])==='OK';
     if(!claimed){await mutate(owner,s=>{s.inboxMenuNote='選單正在由另一個整理作業處理，稍後會自動完成。';});return;}
     stage='list';
-    const name='客服經理・待辦 v3',existing=await line(d,'richmenu/list');
+    const name='客服經理・待辦 v'+MENU_VERSION,existing=await line(d,'richmenu/list');
     let menu=existing.richmenus?.find(m=>m.name===name),hasImage=false;
     if(menu){stage='image-check';const content=await fetcher(`https://api-data.line.me/v2/bot/richmenu/${menu.richMenuId}/content`,{headers:{Authorization:'Bearer '+d.accessToken},signal:AbortSignal.timeout(8000)});hasImage=content.ok;need(content.ok||content.status===404,'menu_unavailable',503);await content.body?.cancel();}
     stage='create';if(!menu)menu=await line(d,'richmenu',{size:{width:2500,height:843},selected:true,name,chatBarText:'客服待辦',areas:['all','ready','decision','snoozed'].map((c,i)=>({bounds:{x:i*625,y:0,width:625,height:843},action:action(categories[c],{a:'inbox',c})}))});
@@ -92,7 +93,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
     const current=await read(owner);need(current.bindingRevision===d.bindingRevision&&current.ownerUserId===d.ownerUserId,'binding_changed');
     stage='link';await line(d,`user/${d.ownerUserId}/richmenu/${menu.richMenuId}`,{});
     stage='verify';const linked=await line(d,`user/${d.ownerUserId}/richmenu`);need(linked.richMenuId===menu.richMenuId,'menu_unavailable',503);
-    await mutate(owner,s=>{if(s.bindingRevision===d.bindingRevision){s.inboxMenuRevision=d.bindingRevision||0;s.inboxMenuId=menu.richMenuId;delete s.inboxMenuNote;}});
+    await mutate(owner,s=>{if(s.bindingRevision===d.bindingRevision){s.inboxMenuRevision=d.bindingRevision||0;s.inboxMenuVersion=MENU_VERSION;s.inboxMenuId=menu.richMenuId;delete s.inboxMenuNote;}});
    }catch(e){console.warn('manager_menu_setup',stage,e.code||e.name||'unavailable',e.providerStatus||0);await mutate(owner,s=>{s.inboxMenuNote=`LINE 選單${({lease:'排程',list:'讀取',create:'建立','image-check':'圖片讀取',upload:'圖片上傳',link:'連接',verify:'確認'})[stage]||'準備'}暫時失敗${e.providerStatus?'（'+e.providerStatus+'）':''}，系統會自動重試。`;}).catch(()=>{});throw e;}finally{if(claimed)await redis(['EVAL',"if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0",1,lease,claim]);}
   },
   async owner(owner,operation,b={}){
@@ -152,7 +153,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
     }
     return true;
    }
-   const message=notice.kind==='draft'?card(p,notice.draft):{type:'text',text:`${p.name}｜${notice.draft.name}\n${notice.text}\n${notice.kind==='binding_status'||notice.draft.status==='dismissed'?'':notice.draft.reply||''}`};
+   const message=notice.kind==='draft'?card(p,notice.draft):statusCard(p,notice.draft,{note:notice.text,binding:notice.kind==='binding_status'});
    await line(d,'message/push',{to:d.ownerUserId,messages:[message]},notice.id);return true;
   },
   async digest(owner,readDrafts){
@@ -170,7 +171,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
     await mutate(owner,d=>{if(d.digestPending?.id===pending.id){d.digestSignature=pending.signature;d.digestSentAt=now();delete d.digestPending;}});
    }finally{await redis(['EVAL',"if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0",1,lease,claim]);}
   },
-  async webhook(channelId,raw,signature,decide,readDrafts,getContext,reviewCards){
+  async webhook(channelId,raw,signature,decide,readDrafts,getContext,reviewCards,afterReply){
    need(/^[a-f0-9]{32}$/.test(channelId),'not_found',404);
    const owner=await redis(['GET',PREFIX+'route:'+channelId]);need(owner,'not_found',404);
    const d=await read(owner);need(d.channelSecret,'manager_not_configured',409);
@@ -178,14 +179,17 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
    need(typeof signature==='string'&&signature.length===expected.length&&timingSafeEqual(Buffer.from(expected),Buffer.from(signature)),'invalid_signature',401);
    let body;try{body=JSON.parse(raw)}catch{need(false,'invalid_json');}
    need(body&&typeof body==='object'&&body.destination===d.botUserId&&Array.isArray(body.events)&&body.events.length<=20,'invalid_webhook');
-   await mutate(owner,s=>{s.webhookVerified=now();});
+   if(!d.webhookVerified)await mutate(owner,s=>{if(s.channelSecret===d.channelSecret)s.webhookVerified=now();});
    for(const event of body.events){
     if(event.source?.type!=='user'||!/^U[a-f0-9]{32}$/.test(event.source.userId||''))continue;
     const eventId=event.webhookEventId;need(typeof eventId==='string'&&eventId.length<100,'invalid_event');
     const eventKey=PREFIX+'event:'+hash(channelId+'|'+eventId);
-    if(await redis(['GET',eventKey])==='done')continue;
     // Fence concurrent delivery; a failed request is retried after this short lease.
-    if(await redis(['SET',eventKey,'working','NX','EX',60])!=='OK')need(false,'event_busy',503);
+    const claimed=await redis(['EVAL',"local v=redis.call('GET',KEYS[1]); if v=='done' then return 2 end; if v then return 0 end; redis.call('SET',KEYS[1],'working','EX',60); return 1",1,eventKey]);
+    if(claimed===2)continue;need(claimed===1,'event_busy',503);
+    const loading=d.ownerUserId===event.source.userId&&event.replyToken?line(d,'chat/loading/start',{chatId:d.ownerUserId,loadingSeconds:20},undefined,1500).catch(()=>{}):Promise.resolve();
+    const reviews=[],queueReview=reviewCards?(...args)=>{reviews.push(()=>reviewCards(...args));}:null;
+    let actionRef=null;
     try{
      let current=await read(owner),reply=null;
      const value=event.type==='message'&&event.message?.type==='text'?event.message.text.trim():'';
@@ -196,14 +200,22 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
      }else if(current.ownerUserId===event.source.userId){
       if(event.type==='postback'){
        const q=new URLSearchParams(event.postback?.data||''),a=q.get('a'),p=q.get('p'),id=q.get('d'),version=Number(q.get('v'));
-       if(a==='inbox')reply=await openInbox(owner,q.get('c')||'all',readDrafts,reviewCards);
-       else if(a==='page')reply=await showPage(owner,q.get('t'),Number(q.get('n')),readDrafts,reviewCards);
+       if(a==='inbox')reply=await openInbox(owner,q.get('c')||'all',readDrafts,queueReview);
+       else if(a==='page')reply=await showPage(owner,q.get('t'),Number(q.get('n')),readDrafts,queueReview);
        else if(a==='batch_preview')reply=await batchPreview(owner,q,readDrafts);
        else if(a==='batch_confirm')reply=await confirmBatch(owner,q.get('t'),eventId,decide);
        else if(a==='cancel_edit'){await mutate(owner,s=>{delete s.editFocus;});reply={type:'text',text:'已取消修改，原草稿保留。'};}
        else {
        need(current.properties.some(x=>x.id===p)&&typeof id==='string'&&/^[\w-]{32}$/.test(id)&&Number.isSafeInteger(version),'invalid_action');
-       if(a==='context'){
+       actionRef={p,id,a};
+       if(a==='status'){
+        const rows=await readDrafts(owner,p),draft=rows.drafts.find(x=>x.id===id);need(draft,'draft_not_found',404);
+        reply=[statusCard(current.properties.find(x=>x.id===p),draft)];
+        if(draft.status==='awaiting_approval'&&!['requested','binding','uncertain'].includes(draft.binding_state)){
+         reply.push(card(current.properties.find(x=>x.id===p),draft));
+         if(draft.contract_version===3&&queueReview)queueReview(owner,p,[{id:draft.id,v:draft.version}]);
+        }
+       }else if(a==='context'){
         need(getContext,'context_unavailable');const result=await getContext(owner,p,id,q.get('before'));
         const full=result.messages.map(m=>`${m.role==='CUSTOMER'?'客人':m.role==='OWNER'?'民宿':'自動訊息'} · ${new Date(m.at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'})}\n${m.text}`).join('\n\n');
         const chars=[...full];reply=[];for(let pos=0;pos<chars.length;pos+=4000)reply.push({type:'text',text:chars.slice(pos,pos+4000).join('')});
@@ -216,8 +228,11 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
        }else{
         need(['approve','bind','takeover','no_reply','snooze','unsnooze'].includes(a),'invalid_action');
         const result=await decide(owner,p,{draft_id:id,version,action:a,request_id:eventId});
-        reply={type:'text',text:a==='bind'?'已收到訂單確認，會核對後建立 Daili 關聯；不會傳訊息給客人。':a==='approve'?'已收到核准，重新核對最新訊息後送出；完成後向你回報。':a==='no_reply'?'已收到「這次不用回」，核對後結案；客人之後有新訊息仍會整理。':a==='snooze'?'已延後 1 小時，隨時可按「稍後處理」找回。':a==='unsnooze'?'已恢復到待辦。':'已交由你處理，這位客人的後續訊息暫停整理。'};
-        if(a==='unsnooze')reply=[reply,card(current.properties.find(x=>x.id===p),result.draft)];
+        reply=statusCard(current.properties.find(x=>x.id===p),result.draft,{duplicate:!!result.duplicate,binding:a==='bind',note:a==='takeover'?'已交由你處理，這位客人的後續訊息暫停整理。':a==='unsnooze'?'已恢復到待辦。':''});
+        if(a==='unsnooze'){
+         reply=[reply,card(current.properties.find(x=>x.id===p),result.draft)];
+         if(result.draft.contract_version===3&&queueReview)queueReview(owner,p,[{id:result.draft.id,v:result.draft.version}]);
+        }
        }
        }
       }else if(value==='取消修改'){
@@ -227,17 +242,39 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
        const result=await decide(owner,focus.property,{draft_id:focus.id,version:focus.version,action:'edit',text:value,request_id:eventId});
        await mutate(owner,s=>{if(s.editFocus?.id===focus.id&&s.editFocus?.version===focus.version)delete s.editFocus;});
        reply=[{type:'text',text:'草稿已更新，請查看並按「核准送出」。'},card(current.properties.find(x=>x.id===focus.property),result.draft)];
-      }else if(['待辦','待辦總覽'].includes(value))reply=await openInbox(owner,'all',readDrafts,reviewCards);
+       if(result.draft.contract_version===3&&queueReview)queueReview(owner,focus.property,[{id:result.draft.id,v:result.draft.version}]);
+      }else if(['待辦','待辦總覽'].includes(value))reply=await openInbox(owner,'all',readDrafts,queueReview);
       else if(value)reply={type:'text',text:'按下方「待辦總覽」查看分類，再左右滑動卡片處理。需要修改草稿時才需輸入文字。'};
      }
      current=await read(owner);
-     if(reply&&event.replyToken){const messages=Array.isArray(reply)?reply:[reply];messages.at(-1).quickReply||=quickNav();await line(current,'message/reply',{replyToken:event.replyToken,messages});}
+     await loading;
+     if(reply&&event.replyToken){
+      need(current.ownerUserId===event.source.userId,'binding_changed',409);
+      const messages=Array.isArray(reply)?reply:[reply];messages.at(-1).quickReply||=quickNav();await line(current,'message/reply',{replyToken:event.replyToken,messages});
+      // Read evidence is captured only after LINE accepts the exact shown cards.
+      // Backend work cannot delay the initial card reply.
+      if(reviews.length){const work=async()=>{for(const job of reviews)try{await job();}catch(e){console.warn('manager_review_deferred',e.code||'unavailable');}};if(afterReply)afterReply(work);else await work();}
+     }
      await redis(['SET',eventKey,'done','EX',DAY*7]);
     }catch(e){
-     if(e.status&&e.status<500){
-      if(event.replyToken)await line(await read(owner),'message/reply',{replyToken:event.replyToken,messages:[{type:'text',text:'這個操作已處理或內容有更新。請按「待辦總覽」取得最新內容；已受理的送出會另外回報結果。',quickReply:quickNav()}]}).catch(()=>{});
-      await redis(['SET',eventKey,'done','EX',DAY*7]);
-     }else{await redis(['DEL',eventKey]);throw e;}
+     await loading;
+     // Keep transient failure redelivery, including partially accepted batches.
+     if(!e.status||e.status>=500){await redis(['DEL',eventKey]);throw e;}
+     if(event.replyToken)try{
+      const current=await read(owner);
+      if(current.ownerUserId===event.source.userId){
+       const reasons={automation_paused:'目前已暫停整理，請恢復後再操作。',view_expired:'這組待辦已過期，請更新待辦總覽。',edit_expired:'修改已逾時，請重新打開卡片修改。',already_processed:'這組操作已受理，完成後會回報。',invalid_customer_input:'草稿內容不符合格式，請縮短至 1,000 字內後重試。'};
+       let message={type:'text',text:reasons[e.code]||'這張卡片的內容或狀態已更新，請查看最新待辦。',quickReply:quickNav()};
+       if(actionRef&&current.properties.some(x=>x.id===actionRef.p)){
+        if(['draft_changed','binding_in_progress'].includes(e.code)){
+         const rows=await readDrafts(owner,actionRef.p),draft=rows.drafts.find(x=>x.id===actionRef.id);
+         if(draft)message=statusCard(current.properties.find(x=>x.id===actionRef.p),draft,{note:'原卡片的內容或狀態已更新，這次沒有新增操作。',binding:actionRef.a==='bind'});
+        }else message.quickReply={items:[{type:'action',action:action('查看進度',{a:'status',p:actionRef.p,d:actionRef.id,v:'0'})},...quickNav().items]};
+       }
+       await line(current,'message/reply',{replyToken:event.replyToken,messages:[message]});
+      }
+     }catch{/* A rejected old action is not reapplied on redelivery. */}
+     await redis(['SET',eventKey,'done','EX',DAY*7]);
     }
    }
    return {ok:true};

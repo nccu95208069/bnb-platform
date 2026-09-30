@@ -2,12 +2,22 @@
 export const PAGE_SIZE=3;
 export const categories={all:'待辦總覽',ready:'草稿已備妥',decision:'需要你決定',no_reply:'建議不用回',snoozed:'稍後處理'};
 const clip=(value,n)=>String(value||'').slice(0,n);
-export const action=(label,params,extra={})=>({type:'postback',label,data:new URLSearchParams(params).toString(),...extra});
+export const action=(label,params,extra={})=>({type:'postback',label,data:new URLSearchParams(params).toString(),displayText:clip(label,300),...extra});
 export const button=(label,params,primary=false,extra={})=>({type:'button',style:primary?'primary':'secondary',height:'sm',action:action(label,params,extra)});
 export const text=(value,extra={})=>({type:'text',text:String(value||'—'),wrap:true,size:'sm',...extra});
 export function quickNav(){return {items:['all','ready','decision','no_reply','snoozed'].map(c=>({type:'action',action:action(categories[c],{a:'inbox',c})}))};}
 export function bucket(draft,now){return draft.snoozed_until>now?'snoozed':draft.category||(!draft.reply?'decision':'ready');}
 export function visible(draft){return draft.status==='awaiting_approval';}
+export function statusCard(property,draft,{duplicate=false,note='',binding=false}={}){
+ const states={approved:['已受理，等待核對送出','完成後會再回報，無需重複核准。'],sending:['正在核對並送出','完成後會再回報，無需重複核准。'],sent:['LINE 已接受傳送','請到民宿原對話查看；此狀態不代表客人已讀。'],dismiss_requested:['已受理，正在核對結案','這次不用回覆的決定已記錄，完成後會再回報。'],dismissed:['這次已結案','沒有因這次結案傳送訊息。'],stale:['內容已更新','請更新待辦，重新查看最新內容。'],expired:['這張卡片已過期','請更新待辦，查看最新內容。'],uncertain:['傳送結果待確認','請到民宿原對話或 Daili 核對，勿重複送出。']};
+ let [title,detail]=states[draft.status]||['仍待你處理','可查看最新卡片繼續處理。'];
+ if(draft.status==='awaiting_approval'&&draft.snoozed_until>Date.now())[title,detail]=['已延後 1 小時','可從「稍後處理」找回，隨時恢復處理。'];
+ if(['requested','binding','uncertain'].includes(draft.binding_state)||binding){
+  [title,detail]=({requested:['已受理，等待確認訂單','本次操作只確認訂單，不會傳訊息給客人。'],binding:['正在確認訂單','本次操作只確認訂單，不會傳訊息給客人。'],bound:['訂單已確認','本次確認沒有傳訊息；回覆仍需另外核准。'],stale:['訂單內容已更新','請更新待辦，重新查看訂單資料。'],uncertain:['訂單確認結果待核對','請到 Daili 查看；本次確認沒有傳訊息。']})[draft.binding_state]||[title,detail];
+ }
+ const params={p:property.id,d:draft.id,v:String(draft.version)};
+ return {type:'flex',altText:clip(`${property.name}｜${draft.name}：${title}`,400),contents:{type:'bubble',body:{type:'box',layout:'vertical',spacing:'md',contents:[text(`${property.name}｜${draft.name}`,{weight:'bold'}),text(title,{size:'lg',weight:'bold',color:'#176B54'}),...(duplicate?[text('已收到過這個操作，以下是目前狀態。',{size:'xs'})]:[]),text(detail),...(note?[text(clip(note,1200),{size:'xs'})]:[])]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:[button(draft.status==='awaiting_approval'?'查看最新卡片':'查看進度',{...params,a:'status'}),button('更新待辦總覽',{a:'inbox',c:'all'})]}},quickReply:quickNav()};
+}
 export function overview(rows,{now=Date.now(),warning='',refreshedAt=null}={}){
  const counts=Object.fromEntries(Object.keys(categories).map(k=>[k,0]));
  for(const {draft} of rows)if(visible(draft)){const c=bucket(draft,now);counts[c]++;if(c!=='snoozed')counts.all++;}
@@ -35,15 +45,16 @@ export function inboxCard(property,draft){
   ...(draft.reply?[text('建議回覆',{weight:'bold'}),text(draft.reply)]:[text('可修改草稿、選擇這次不用回，或稍後處理。')]),
  ];
  const actions=[];
- if(pending&&!locked&&draft.reply)actions.push(button('核准送出',{...params,a:'approve'},true));
+ const tap=(label)=>({displayText:clip(`${draft.name}｜${label}`,300)});
+ if(pending&&!locked&&draft.reply)actions.push(button('核准送出',{...params,a:'approve'},true,tap('核准送出')));
  const prefill=draft.reply&&[...draft.reply].length<=300?{inputOption:'openKeyboard',fillInText:draft.reply}:{inputOption:'openKeyboard'};
  if(pending&&!locked){
- actions.push(button('修改草稿',{...params,a:'edit'},false,prefill));
- if(draft.contract_version===3){actions.push(button('這次不用回',{...params,a:'no_reply'}));
- actions.push(button(draft.snoozed_until>Date.now()?'恢復處理':'稍後 1 小時',{...params,a:draft.snoozed_until>Date.now()?'unsnooze':'snooze'}));}
+ actions.push(button('修改草稿',{...params,a:'edit'},false,{...tap('修改草稿'),...prefill}));
+ if(draft.contract_version===3){actions.push(button('這次不用回',{...params,a:'no_reply'},false,tap('這次不用回')));
+ actions.push(button(draft.snoozed_until>Date.now()?'恢復處理':'稍後 1 小時',{...params,a:draft.snoozed_until>Date.now()?'unsnooze':'snooze'},false,tap(draft.snoozed_until>Date.now()?'恢復處理':'稍後 1 小時')));}
  }
  actions.push(button('查看對話',{...params,a:'context'}));
- if(['awaiting_approval','sent'].includes(draft.status)&&!locked&&draft.identity?.selected&&!draft.binding)actions.push(button('確認訂單（不傳訊息）',{...params,a:'bind'}));
+ if(['awaiting_approval','sent'].includes(draft.status)&&!locked&&draft.identity?.selected&&!draft.binding)actions.push(button('確認訂單（不傳訊息）',{...params,a:'bind'},false,tap('確認訂單（不傳訊息）')));
  return {type:'bubble',size:'mega',body:{type:'box',layout:'vertical',spacing:'sm',contents:body},footer:{type:'box',layout:'vertical',spacing:'sm',contents:actions}};
 }
 export function pageMessages(rows,{token,page,total,category}){

@@ -90,3 +90,46 @@ GET confirms the menu linked to the bound owner. Production crons on the newer
 menu setup deployment at 10:17:36, 10:18:36 and 10:19:36 returned HTTP 200.
 The menu setup now reports a durable, sanitized stage/status note if installation
 fails; successful linking clears it. No production environment was downloaded.
+
+## Follow-up: immediate button feedback
+
+The owner reported slow button responses and uncertainty about whether a tap
+succeeded. LINE Messaging API cannot edit an already delivered Flex message in
+place. The accepted implementation improves feedback inside the same LINE chat:
+
+- Newly generated postback buttons use `displayText`, so the client immediately
+  displays the selected operation. This text does not claim server acceptance.
+- A signed webhook from the bound owner starts LINE's best-effort loading
+  animation, with a 1.5-second request timeout. LINE only shows this animation in
+  supported mobile clients while the one-to-one chat is open.
+- Persisted actions receive a status card with a progress button. Accepted,
+  sending, sent, closed, snoozed, binding and uncertain outcomes are distinct.
+  Completion notifications also use status cards. No acceptance message claims
+  the guest has received or read the reply.
+- Repeated taps on the same action/version/snapshot return the saved current
+  state. They do not create another send or booking operation. Changed cards
+  return the current state and require a fresh review.
+- Ordinary draft reads avoid unnecessary CAS writes; property reads run together.
+  The initial category page reuses its fetched data and writes view membership
+  and exact displayed versions together.
+- Owner-read evidence is captured after LINE accepts the displayed cards, via
+  Next.js `after`. Only exact versions and complete visible source messages are
+  retained. A very fast approval may precede this background evidence capture;
+  missing evidence remains unknown and is never fabricated.
+- Saved approve/bind/no-reply actions trigger the existing worker after the
+  response. This pass skips queue/media fetching, uses the same property lease
+  and existing immutable backend claims, and retries a busy lease only within
+  the request budget. The minute cron remains durable recovery. Completion
+  notices are prioritized over media. An explicit no-reply decision can finish
+  while general draft scanning is paused; paused send/bind gates stay enforced.
+- Pausing invalidates any queued approval version before a future reapproval.
+- Rich menu v4 adds immediate client tap text. Old delivered cards remain
+  immutable; the owner should open the menu again to fetch new cards.
+
+No schema, credentials, auto-approval, guest channel or booking/send separation
+changes. Transient webhook failures retain LINE redelivery and persisted batch
+progress. Public source publication remains separately awaiting authorization.
+
+Validation: JavaScript syntax, scoped ESLint, TypeScript and whitespace checks.
+No tests or synthetic guest sends were run. Production build/readiness will be
+recorded below after rollout; actual phone tap timing is not yet observed.
