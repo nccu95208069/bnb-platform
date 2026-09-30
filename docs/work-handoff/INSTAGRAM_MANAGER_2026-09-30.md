@@ -1,6 +1,7 @@
 # Instagram customer-manager cards
 
-Status: local implementation; deployment pending.
+Status: frontend and compatible backend deployed; IG receipt remains disabled
+pending Meta readiness, privacy/contact settings and token-lifecycle work.
 
 The existing Daili bridge accepts provider metadata from the authenticated backend
 queue. IG cards identify the source, show the reply deadline, and warn that history
@@ -21,10 +22,16 @@ Changed modules:
 - `frontend/src/lib/host-agents/manager-inbox.mjs`
 - `frontend/src/lib/host-agents/manager.mjs`
 
-JavaScript syntax, scoped ESLint and the Next.js production build passed. No tests
-or external message sends were run. The integration is not live, and historical
-DM import and token renewal are still operational follow-up work. Backend deployment,
-credential registration and Meta webhook/application readiness are required.
+JavaScript syntax, scoped ESLint, 4 synthetic IG manager tests and the Next.js
+production build passed. Frontend code `f034ac9` was deployed and promoted as
+`dpl_9G6u4wUNTWWKV9V9ufRHPzo3Z1kJ`. Anonymous manager page/API checks confirmed
+login redirection and 401 rejection; deployment protection remains enabled.
+
+The backend migration, encrypted credential registration and rollout completed.
+Existing LINE counts were unchanged, and the IG table is private. The global IG
+flag is still off. No external guest messages were sent. Meta publication/webhook
+activation, verified token renewal and observed IG receipt remain outstanding.
+Historical DM import is not implemented; the existing backlog was not synchronized.
 
 Do not push this branch to the public repository until the existing publication
 approval is resolved. The unrelated LINE OA handoff document is outside this change.
