@@ -18,7 +18,9 @@ async function handle(req:NextRequest,ctx:{params:Promise<{path:string[]}>}){
    const relay=createRelay(redisCommand,()=>Date.now(),{guest:guestBridge,manager});
    const result=await manager.webhook(path[1],raw,req.headers.get('x-line-signature'),
     (owner:string,property:string,body:Record<string,unknown>)=>dailiProperty(owner,property)?daili.decide(owner,property,body):relay.owner(owner,'automation-decide',{...body,property_id:property}),
-    (owner:string,property:string)=>dailiProperty(owner,property)?daili.activity(owner,property):relay.owner(owner,'automation-events',{property_id:property}));
+    (owner:string,property:string)=>dailiProperty(owner,property)?daili.activity(owner,property):relay.owner(owner,'automation-events',{property_id:property}),
+    (owner:string,property:string,id:string,before:string|null)=>daili.context(owner,property,id,before),
+    (owner:string,property:string,refs:{id:string;v:number}[])=>daili.review(owner,property,refs));
    return NextResponse.json(result,{headers});
   }
   const principal=await principalFor(req);
