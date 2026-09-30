@@ -200,12 +200,15 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
       await mutate(owner,s=>{need(s.pairHash===hash(pairing[1])&&s.pairExpires>now(),'pairing_expired',409);s.bindingRevision=(s.bindingRevision||0)+1;s.ownerUserId=event.source.userId;delete s.pairHash;delete s.editFocus;});
       reply={type:'text',text:'已連接客服經理。按下「待辦總覽」查看分類，再用卡片按鈕處理；同一位客人的連續訊息會合併整理。'};
      }else if(current.ownerUserId===event.source.userId){
+      // Bind every decision in this event, including each batch item, to the
+      // owner connection that authenticated its LINE sender.
+      const boundDecide=(actor,property,body)=>decide(actor,property,{...body,owner_binding_revision:current.bindingRevision||0});
       if(event.type==='postback'){
        const q=new URLSearchParams(event.postback?.data||''),a=q.get('a'),p=q.get('p'),id=q.get('d'),version=Number(q.get('v'));
        if(a==='inbox')reply=await openInbox(owner,q.get('c')||'all',readDrafts,queueReview);
        else if(a==='page')reply=await showPage(owner,q.get('t'),Number(q.get('n')),readDrafts,queueReview);
        else if(a==='batch_preview')reply=await batchPreview(owner,q,readDrafts);
-       else if(a==='batch_confirm')reply=await confirmBatch(owner,q.get('t'),eventId,decide);
+       else if(a==='batch_confirm')reply=await confirmBatch(owner,q.get('t'),eventId,boundDecide);
        else if(a==='cancel_edit'){await mutate(owner,s=>{delete s.editFocus;});reply={type:'text',text:'已取消修改，原草稿保留。'};}
        else {
        need(current.properties.some(x=>x.id===p)&&typeof id==='string'&&/^[\w-]{32}$/.test(id)&&Number.isSafeInteger(version),'invalid_action');
@@ -229,7 +232,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
         reply={type:'text',text:`修改「${current.properties.find(x=>x.id===p).name}｜${draft.name}」的回覆。\n送出到這裡只會儲存草稿，還需要按「核准送出」才會傳給客人。`,quickReply:{items:[{type:'action',action:action('取消修改',{a:'cancel_edit'})}]}};
        }else{
         need(['approve','bind','takeover','no_reply','snooze','unsnooze'].includes(a),'invalid_action');
-        const result=await decide(owner,p,{draft_id:id,version,action:a,request_id:eventId});
+        const result=await boundDecide(owner,p,{draft_id:id,version,action:a,request_id:eventId});
         reply=statusCard(current.properties.find(x=>x.id===p),result.draft,{duplicate:!!result.duplicate,binding:a==='bind',note:a==='takeover'?'已交由你處理，這位客人的後續訊息暫停整理。':a==='unsnooze'?'已恢復到待辦。':''});
         if(a==='unsnooze'){
          reply=[reply,card(current.properties.find(x=>x.id===p),result.draft)];
@@ -241,7 +244,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
        await mutate(owner,s=>{delete s.editFocus;});reply={type:'text',text:'已取消修改，原草稿保留。'};
       }else if(current.editFocus&&value&&!['待辦','待辦總覽'].includes(value)){
        const focus=current.editFocus;need(focus.until>now(),'edit_expired',409);
-       const result=await decide(owner,focus.property,{draft_id:focus.id,version:focus.version,action:'edit',text:value,request_id:eventId});
+       const result=await boundDecide(owner,focus.property,{draft_id:focus.id,version:focus.version,action:'edit',text:value,request_id:eventId});
        await mutate(owner,s=>{if(s.editFocus?.id===focus.id&&s.editFocus?.version===focus.version)delete s.editFocus;});
        reply=[{type:'text',text:'草稿已更新，請查看並按「核准送出」。'},card(current.properties.find(x=>x.id===focus.property),result.draft)];
        if(result.draft.contract_version===3&&queueReview)queueReview(owner,focus.property,[{id:result.draft.id,v:result.draft.version}]);

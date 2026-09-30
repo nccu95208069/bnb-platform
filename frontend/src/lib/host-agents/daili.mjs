@@ -39,7 +39,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
   if(JSON.stringify(d)!==before)d=await mutate(owner,p,s=>{expire(s);return s;});
   return {drafts:d.drafts.map(project),enabled:d.enabled,last_sync:d.last_sync||null,error:d.error||null,source:'daili',media_enabled:true,media_sync:d.media_sync||null,media_pending:d.notices.filter(n=>n.kind==='media').length,muted:d.muted.map(id=>({id,name:d.drafts.find(a=>a.conversation_id===id)?.name||'已接手的客人'}))};
  }
- async function decide(owner,p,b){need(dailiProperty(owner,p),'daili_not_configured');const binding=await manager.owner(owner,'status');need(binding.bound&&binding.webhook_verified,'manager_not_configured');return mutate(owner,p,d=>{
+ async function decide(owner,p,b){need(dailiProperty(owner,p),'daili_not_configured');const binding=await manager.owner(owner,'status');need(binding.bound&&binding.webhook_verified,'manager_not_configured');need(b.owner_binding_revision===undefined||b.owner_binding_revision===binding.binding_revision,'binding_changed');return mutate(owner,p,d=>{
   expire(d);const a=d.drafts.find(x=>x.id===b.draft_id);need(a,'draft_not_found',404);
   if(b.request_id&&a.last_action_id===b.request_id)return {draft:project(a),duplicate:true};
   const sameAction=a.last_action_type===b.action&&a.last_action_version===b.version&&a.last_action_snapshot===(a.inbox_snapshot||a.signature);

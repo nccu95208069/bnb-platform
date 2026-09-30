@@ -12,6 +12,16 @@
 
 ## Findings 與修正
 
+### P1：處理中的舊 LINE 事件可能跨越重新綁定邊界
+
+- 位置：`frontend/src/lib/host-agents/manager.mjs` 的 webhook 與
+  `frontend/src/lib/host-agents/daili.mjs` 的 `decide`。
+- 情境：事件先驗證舊 LINE 業主，之後帳號解除並重新綁定；較晚執行的
+  單筆或批次操作若只讀取當下綁定狀態，可能被蓋上新的綁定版本。
+- 修正：所有 LINE 決定都攜帶驗證寄件人當時的 binding revision，Daili
+  寫入前要求一致。若重新綁定發生在該次讀取之後，操作仍保存舊 revision，
+  由原有 worker 比對阻擋傳送。業主網頁另由登入 session 驗證。
+
 ### P1：舊批次按鈕可能讀到後來重繪頁面的版本
 
 - 位置：`frontend/src/lib/host-agents/manager.mjs`，`showPage`、`batchPreview`。
