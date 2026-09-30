@@ -1,7 +1,8 @@
 # Instagram customer-manager cards
 
 Status: frontend and compatible backend deployed; IG receipt remains disabled
-pending Meta readiness, privacy/contact settings and token-lifecycle work.
+pending Meta readiness and observed receipt. A bounded daily credential renewal
+job is enabled; its first real provider refresh remains pending.
 
 The existing Daili bridge accepts provider metadata from the authenticated backend
 queue. IG cards identify the source, show the reply deadline, and warn that history
@@ -35,3 +36,20 @@ Historical DM import is not implemented; the existing backlog was not synchroniz
 
 Do not push this branch to the public repository until the existing publication
 approval is resolved. The unrelated LINE OA handoff document is outside this change.
+
+## Approved public policy publication
+
+The owner supplied the public support contact and approved the exact privacy and
+data-deletion draft. Static pages `frontend/public/privacy.html` and
+`frontend/public/data-deletion.html` were deployed in `dpl_CmHho2vFtt8zm1eEBLENnpvb83Cb`
+(code `4c2531d`), with anonymous HTTP 200 from the primary production domain
+`https://sweetfun-os.vercel.app`.
+
+Meta still rejected the deletion URL and its Sharing Debugger reported HTTP 403.
+Vercel showed no custom rules or active bot protection; its one denied request
+concerned a different deployment hostname. Explicit crawler rules for only the
+two policy pages were deployed in `dpl_G1uGGEaX4RYrwMqqCoYcT23TDvhu` (code
+`6e5f61d`); build, TypeScript and public robots readback passed. This did not
+resolve Meta's 403. No firewall, authentication or deployment protection was
+disabled. The same approved pages are being served by the existing backend to
+provide an independently reachable policy endpoint.
