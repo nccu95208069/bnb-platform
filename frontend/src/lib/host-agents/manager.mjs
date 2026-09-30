@@ -14,7 +14,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
  const empty=owner=>({owner,properties:[{id:'sweetfun',name:'水芳民宿',oa_id:'@sweetfuntw'}]});
  const read=async owner=>{const raw=await redis(['GET',key(owner)]);return raw?vault().open(raw,key(owner)):empty(owner);};
  async function mutate(owner,fn){for(let i=0;i<8;i++){const raw=await redis(['GET',key(owner)]),d=raw?vault().open(raw,key(owner)):empty(owner),result=await fn(d);if(await redis(['EVAL',CAS,1,key(owner),raw||'',vault().seal(d,key(owner))])===1)return result;}need(false,'busy',409);}
- const safe=d=>({channel_id:channel(d.owner),configured:!!d.accessToken,name:d.name||'客服經理',basic_id:d.basicId||'',bound:!!d.ownerUserId,binding_revision:d.bindingRevision||0,webhook_verified:!!d.webhookVerified,menu_ready:d.inboxMenuRevision===d.bindingRevision&&!!d.inboxMenuId,inbox_version:3,properties:d.properties});
+ const safe=d=>({channel_id:channel(d.owner),configured:!!d.accessToken,name:d.name||'客服經理',basic_id:d.basicId||'',bound:!!d.ownerUserId,binding_revision:d.bindingRevision||0,webhook_verified:!!d.webhookVerified,menu_ready:d.inboxMenuRevision===(d.bindingRevision||0)&&!!d.inboxMenuId,inbox_version:3,properties:d.properties});
  async function line(d,path,body,retryKey){
   const res=await fetcher('https://api.line.me/v2/bot/'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+d.accessToken,'Content-Type':'application/json',...(retryKey?{'X-Line-Retry-Key':retryKey}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(8000)});
   if(res.status===409&&retryKey&&res.headers.get('x-line-accepted-request-id'))return {};
@@ -77,20 +77,21 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
  return {
   properties:async owner=>(await read(owner)).properties,
   async ensureMenu(owner){
-   const d=await read(owner);if(!d.ownerUserId||!d.accessToken||!d.webhookVerified||d.inboxMenuRevision===d.bindingRevision)return;
+   const d=await read(owner);if(!d.ownerUserId||!d.accessToken||!d.webhookVerified||d.inboxMenuId&&d.inboxMenuRevision===(d.bindingRevision||0))return;
    const lease=key(owner)+':menu-lease',claim=randomUUID();if(await redis(['SET',lease,claim,'NX','EX',45])!=='OK')return;
+   let stage='list';
    try{
     const name='客服經理・待辦 v3',existing=await line(d,'richmenu/list');
     let menu=existing.richmenus?.find(m=>m.name===name),hasImage=false;
-    if(menu){const content=await fetcher(`https://api-data.line.me/v2/bot/richmenu/${menu.richMenuId}/content`,{headers:{Authorization:'Bearer '+d.accessToken},signal:AbortSignal.timeout(8000)});hasImage=content.ok;need(content.ok||content.status===404,'menu_unavailable',503);await content.body?.cancel();}
-    if(!menu)menu=await line(d,'richmenu',{size:{width:2500,height:843},selected:true,name,chatBarText:'客服待辦',areas:['all','ready','decision','snoozed'].map((c,i)=>({bounds:{x:i*625,y:0,width:625,height:843},action:action(categories[c],{a:'inbox',c})}))});
-    if(!hasImage){const uploaded=await fetcher(`https://api-data.line.me/v2/bot/richmenu/${menu.richMenuId}/content`,{method:'POST',headers:{Authorization:'Bearer '+d.accessToken,'Content-Type':'image/png'},body:menuImage,signal:AbortSignal.timeout(8000)});
-    need(uploaded.ok,'menu_unavailable',503);}
+    if(menu){stage='image-check';const content=await fetcher(`https://api-data.line.me/v2/bot/richmenu/${menu.richMenuId}/content`,{headers:{Authorization:'Bearer '+d.accessToken},signal:AbortSignal.timeout(8000)});hasImage=content.ok;need(content.ok||content.status===404,'menu_unavailable',503);await content.body?.cancel();}
+    stage='create';if(!menu)menu=await line(d,'richmenu',{size:{width:2500,height:843},selected:true,name,chatBarText:'客服待辦',areas:['all','ready','decision','snoozed'].map((c,i)=>({bounds:{x:i*625,y:0,width:625,height:843},action:action(categories[c],{a:'inbox',c})}))});
+    if(!hasImage){stage='upload';const uploaded=await fetcher(`https://api-data.line.me/v2/bot/richmenu/${menu.richMenuId}/content`,{method:'POST',headers:{Authorization:'Bearer '+d.accessToken,'Content-Type':'image/png'},body:menuImage,signal:AbortSignal.timeout(8000)});
+    if(!uploaded.ok){const e=new Error('menu_upload_failed');e.code='menu_upload_failed';e.providerStatus=uploaded.status;throw e;}}
     const current=await read(owner);need(current.bindingRevision===d.bindingRevision&&current.ownerUserId===d.ownerUserId,'binding_changed');
-    await line(d,`user/${d.ownerUserId}/richmenu/${menu.richMenuId}`,{});
-    const linked=await line(d,`user/${d.ownerUserId}/richmenu`);need(linked.richMenuId===menu.richMenuId,'menu_unavailable',503);
-    await mutate(owner,s=>{if(s.bindingRevision===d.bindingRevision){s.inboxMenuRevision=d.bindingRevision;s.inboxMenuId=menu.richMenuId;}});
-   }finally{await redis(['EVAL',"if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0",1,lease,claim]);}
+    stage='link';await line(d,`user/${d.ownerUserId}/richmenu/${menu.richMenuId}`,{});
+    stage='verify';const linked=await line(d,`user/${d.ownerUserId}/richmenu`);need(linked.richMenuId===menu.richMenuId,'menu_unavailable',503);
+    await mutate(owner,s=>{if(s.bindingRevision===d.bindingRevision){s.inboxMenuRevision=d.bindingRevision||0;s.inboxMenuId=menu.richMenuId;}});
+   }catch(e){console.warn('manager_menu_setup',stage,e.code||e.name||'unavailable',e.providerStatus||0);throw e;}finally{await redis(['EVAL',"if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0",1,lease,claim]);}
   },
   async owner(owner,operation,b={}){
    if(operation==='status')return safe(await read(owner));
