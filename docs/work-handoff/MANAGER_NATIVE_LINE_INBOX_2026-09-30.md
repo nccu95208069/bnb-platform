@@ -133,3 +133,20 @@ progress. Public source publication remains separately awaiting authorization.
 Validation: JavaScript syntax, scoped ESLint, TypeScript and whitespace checks.
 No tests or synthetic guest sends were run. Production build/readiness will be
 recorded below after rollout; actual phone tap timing is not yet observed.
+
+### Feedback rollout
+
+- Source: b4402af50178d6052e41c360f70a76b161ed651a.
+- Vercel: dpl_14hPPebHk9ECcJ9z3QeodroTLkYY, READY; cloud production build
+  completed successfully, including Next.js compilation and TypeScript.
+- Promoted at approximately 11:23 Asia/Taipei to https://sweetfun-os.vercel.app.
+- Production owner page and authenticated manager status/draft reads returned
+  HTTP 200 on this deployment. No guest send or booking action was invoked.
+- The normal manager cron at 11:24:36 Asia/Taipei returned HTTP 200. The owner
+  page then reported latest sync 11:24:48 and “LINE 待辦選單已就緒”, which now
+  requires the v4 menu plus a successful LINE GET of the owner-specific link.
+- No errors appeared in the initial deployment log sample. These are operational
+  observations; no real or simulated LINE approval/button test was performed.
+- Backend remains manager-inbox-fa0c19f; there is no database migration.
+- Rollback for this feedback-only change: promote the previous frontend
+  dpl_MeyCpx1su6dzxR677Ce6wqpncep2. Keep the current backend revision.
