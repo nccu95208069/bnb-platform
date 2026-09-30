@@ -49,3 +49,44 @@ No test suite, synthetic guest send, real booking confirmation or guest approval
 was performed. Cloud build and production rollout evidence will be recorded after
 completion. Previous production: backend manager-review-f5c06e0 and frontend
 Vercel dpl_CyNRetghqvFwYik4RuBsR9sfCYf4 (source 30150e3).
+
+## Production rollout — 2026-09-30
+
+- Backend source: fa0c19fab6ff2b5d1ea1c2858417290479f71c44.
+- Cloud Build: a09bce4e-d758-4749-b7d2-1791b3d1f4df, asia-east1, SUCCESS.
+- Image: sha256:803ee3e123b8561f3bf66fdc6249bdb87dfc516fcbae81262589c380a073092f.
+- Cloud Run: bnb-reply-copilot-manager-inbox-fa0c19f, Ready=True, 100% traffic.
+- Candidate and production health: HTTP 200, status=ok, database=ok.
+- Candidate runtime spec matched previous production except image.
+- Frontend source: 610759dd9acf71654e5edd3bcf36dcb3f0f38cef (native inbox
+  implementation 9f572cb5c97a909d7e9b12c60c526675ac9ad614 plus menu readiness,
+  legacy binding normalization, and durable installation diagnostics).
+- Vercel: dpl_MeyCpx1su6dzxR677Ce6wqpncep2, READY, assigned to
+  https://sweetfun-os.vercel.app. Earlier same-inbox deployment
+  dpl_97Dr2cnZ3Kikz8Li3MepuG6bgu9Q was superseded for menu setup/status updates.
+- Ordinary production contract-3 queue at 02:08:36 UTC: HTTP 200, 19.85 seconds.
+  Production manager cron at 10:08:36 Asia/Taipei: HTTP 200. No backend ERROR
+  entries observed after startup/promotion at the time of this check.
+- Removed only the superseded manager-review-f5c06e0 zero-traffic tag; retained
+  its revision for rollback, with unrelated service tags unchanged.
+
+Rollback: restore Cloud Run traffic to bnb-reply-copilot-manager-review-f5c06e0
+and promote frontend dpl_CyNRetghqvFwYik4RuBsR9sfCYf4 together. That restores the
+previous separate booking/message workflow. No migration or secret rollback.
+
+These are deployment/readiness and ordinary-traffic observations, not an
+end-to-end guest-send test. No guest approval or synthetic message was performed.
+Existing long/clipped messages and older receipts without read evidence remain
+explicit owner-review cases.
+
+Backend source is pushed to existing private PR 121. Frontend source is committed
+locally; public GitHub push to existing PR 24 awaits explicit owner authorization
+after automatic approval review rejected that separate publication step. The
+production deployment itself is complete and does not depend on the GitHub push.
+
+Final owner-page observation at approximately 10:23 Asia/Taipei: “LINE 待辦選單已就緒”
+and latest successful sync at 10:22:47. This status is persisted only after LINE
+GET confirms the menu linked to the bound owner. Production crons on the newer
+menu setup deployment at 10:17:36, 10:18:36 and 10:19:36 returned HTTP 200.
+The menu setup now reports a durable, sanitized stage/status note if installation
+fails; successful linking clears it. No production environment was downloaded.
