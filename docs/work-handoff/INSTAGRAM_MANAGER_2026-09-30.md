@@ -1,7 +1,7 @@
 # Instagram customer-manager cards
 
-Status: frontend and compatible backend deployed; IG receipt remains disabled
-pending Meta readiness and observed receipt. A bounded daily credential renewal
+Status: frontend and compatible backend deployed; the IG callback backend is ready,
+with Meta publication/subscription and observed receipt still pending. A bounded daily credential renewal
 job is enabled; its first real provider refresh remains pending.
 
 The existing Daili bridge accepts provider metadata from the authenticated backend
@@ -29,8 +29,8 @@ production build passed. Frontend code `f034ac9` was deployed and promoted as
 login redirection and 401 rejection; deployment protection remains enabled.
 
 The backend migration, encrypted credential registration and rollout completed.
-Existing LINE counts were unchanged, and the IG table is private. The global IG
-flag is still off. No external guest messages were sent. Meta publication/webhook
+Existing LINE counts were unchanged, and the IG table is private. The IG flag is enabled on the verified backend callback revision, but Meta is
+not yet published/subscribed, so live receipt has not been observed. No external guest messages were sent. Meta publication/webhook
 activation, verified token renewal and observed IG receipt remain outstanding.
 Historical DM import is not implemented; the existing backlog was not synchronized.
 
@@ -52,9 +52,18 @@ two policy pages were deployed in `dpl_G1uGGEaX4RYrwMqqCoYcT23TDvhu` (code
 `6e5f61d`); build, TypeScript and public robots readback passed. This did not
 resolve Meta's 403. No firewall, authentication or deployment protection was
 disabled. The same approved pages are also served by the existing backend; Meta returned
-HTTP 200 for both. Exact replacement URLs are awaiting the additional approval
-required by automatic approval review before the Meta settings can be saved.
+HTTP 200 for both. The owner approved the exact replacement URLs. Meta saved both and the contact
+email; a full reload confirmed persistence. Publication readiness reports all
+required basic settings complete. Own-business development may skip advanced App
+Review according to the Instagram setup notice. This exception does not cover
+onboarding other businesses.
 
 The crawler experiment was reverted in `faa3e9b`, deployed as
 `dpl_GmFqki1sQ8c8q38jzXDgNNsXriLR`; the original crawler behavior is restored.
 Production build and TypeScript passed. The two public policy pages remain.
+
+The remaining owner confirmation concerns the local transfer of the existing
+webhook verification value into Meta and publication/message subscriptions. The
+local readable handoff was blocked by automatic approval review before execution;
+no workaround was attempted. Incoming receipt and any owner-approved outgoing
+message still require real end-to-end observation.
