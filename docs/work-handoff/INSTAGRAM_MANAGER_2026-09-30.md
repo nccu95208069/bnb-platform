@@ -2,7 +2,8 @@
 
 Status: frontend and compatible backend deployed; Meta is published and the IG
 callback/account subscriptions are active. The Instagram Login signing secret was
-corrected and real Meta redelivery now succeeds; no IG card has yet been verified. A bounded daily credential renewal
+corrected and real Meta redelivery now succeeds. The test's incoming question and
+draft are verified in the manager, waiting for owner approval. A bounded daily credential renewal
 job is enabled; its first real provider refresh remains pending.
 
 The existing Daili bridge accepts provider metadata from the authenticated backend
@@ -35,7 +36,7 @@ enabled on the verified backend callback revision. Meta publication, callback
 verification and minimal `messages,message_edit` subscriptions are complete.
 The owner sent the requested test DM. Using the Instagram Login app's own secret
 resolved the signature failure; Meta redelivery returned 200. No outgoing guest
-messages were sent. Verified token renewal and an observed IG card remain outstanding.
+messages were sent. Verified token renewal and owner-approved outgoing delivery remain outstanding.
 Historical DM import is not implemented; the existing backlog was not synchronized.
 
 Do not push this branch to the public repository until the existing publication
@@ -71,8 +72,8 @@ publication/message subscriptions. The earlier automatic review block was resolv
 by that grant; the one-use loopback handoff completed without logging the value.
 The manager UI confirms the property's monitoring and owner LINE binding are active.
 Meta now exposes existing conversations through a bounded metadata read, but history
-import remains unimplemented. Incoming receipt and any owner-approved outgoing
-message still require real end-to-end observation. The owner completed the required
+import remains unimplemented. Incoming receipt and the manager review card are
+observed; an owner-approved outgoing reply remains unverified. The owner completed the required
 Meta password reauthentication; its private secret transfer is complete.
 
 ## Latest-message polling
@@ -84,4 +85,13 @@ page first and, if enough execution time remains, one older page. The older-page
 cursor is retained when only the newest page fits. Requests remain bounded and
 owner approval is unchanged. A synthetic IG regression covers a message becoming
 ready on the second poll, with zero sends; all five IG manager tests passed.
-JavaScript syntax and scoped ESLint passed. Deployment is pending.
+JavaScript syntax and scoped ESLint passed. Code `f2227f8` was built with TypeScript
+and all 48 pages, deployed as `dpl_DfgLEKhs2ug8QJx8hkS5qX9r3ppX`, and promoted.
+Inspecting the owner's `sweetfun-os.vercel.app` domain resolves to that deployment.
+The unauthenticated manager API still returns `login_required`; deployment
+protection was preserved. No public Git repository push was made.
+
+The first new cron run returned 200 at 16:49 UTC. The real IG test question and
+checkout-time draft are now visible under Sweetfun with an enabled approval
+button. Owner approval for that specific test reply is pending. No guest message
+was sent by the agent, and the older inbox was not imported.
