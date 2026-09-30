@@ -321,7 +321,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
      if(event.replyToken)try{
       const current=await read(owner);
       if(current.ownerUserId===event.source.userId){
-       const reasons={automation_paused:'目前已暫停整理，請恢復後再操作。',view_expired:'這組待辦已更新，請重新打開分類查看，再使用新卡片的按鈕。',edit_expired:'修改已逾時，請重新打開卡片修改。',already_processed:'這組操作已受理，完成後會回報。',invalid_customer_input:'草稿內容不符合格式，請縮短至 1,000 字內後重試。',line_card_too_large:'這組卡片內容超過 LINE 顯示上限，請先使用「查看對話」閱讀內容。',busy:'目前操作較多，這次尚未確認完成，請查看最新卡片後再操作。'};
+       const reasons={instagram_reply_window_closed:'IG 的 24 小時回覆期限已過，請至 Instagram 原對話處理。',instagram_text_too_long:'IG 回覆上限為 1,000 UTF-8 位元組，約 330 個中文字；請縮短草稿。',automation_paused:'目前已暫停整理，請恢復後再操作。',view_expired:'這組待辦已更新，請重新打開分類查看，再使用新卡片的按鈕。',edit_expired:'修改已逾時，請重新打開卡片修改。',already_processed:'這組操作已受理，完成後會回報。',invalid_customer_input:'草稿內容不符合格式，請縮短至 1,000 字內後重試。',line_card_too_large:'這組卡片內容超過 LINE 顯示上限，請先使用「查看對話」閱讀內容。',busy:'目前操作較多，這次尚未確認完成，請查看最新卡片後再操作。'};
        let message={type:'text',text:reasons[e.code]||'這張卡片的內容或狀態已更新，請查看最新待辦。',quickReply:quickNav()};
        if(actionRef&&current.properties.some(x=>x.id===actionRef.p)){
         if(['draft_changed','binding_in_progress'].includes(e.code)){

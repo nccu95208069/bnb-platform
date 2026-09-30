@@ -14,7 +14,8 @@ export function clearStatusCard({token,total,closed=0,changed=0,pending=0,unacce
  return {type:'flex',altText:`${property?property+'｜':''}${title}`,contents:{type:'bubble',body:{type:'box',layout:'vertical',spacing:'md',contents:[text(property||'全部標為已處理',{weight:'bold'}),text(title,{size:'lg',weight:'bold',color:'#176B54'}),text(`本次共 ${total} 筆\n已處理 ${closed} 筆${pending?'\n核對中 '+pending+' 筆':''}${unaccepted?'\n待繼續確認 '+unaccepted+' 筆':''}${changed?'\n本次未結案，保留 '+changed+' 筆':''}${excluded?'\n另有 '+excluded+' 筆暫時無法結案，仍保留':''}`),...(warning?[text(warning,{size:'xs',color:'#AA5500'})]:[]),...(changed?[text('保留項目請更新待辦重新查看。',{size:'xs'})]:[]),text('這次操作不會傳送訊息給客人。之後的新訊息仍會列入待辦。',{size:'xs'})]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:[...(unaccepted?[button('繼續清理',{a:'clear_confirm',t:token},true)]:[]),...(remaining?[button('查看清理進度',{a:'clear_status',t:token})]:[]),button('更新待辦總覽',{a:'inbox',c:'all'})]}},quickReply:quickNav()};
 }
 export function quickNav(){return {items:['all','ready','decision','no_reply','snoozed'].map(c=>({type:'action',action:action(categories[c],{a:'inbox',c})}))};}
-export function bucket(draft,now){return draft.snoozed_until>now?'snoozed':draft.category||(!draft.reply?'decision':'ready');}
+export function sendBlocked(draft,now=Date.now()){return !!draft.send_blocked||(draft.channel_kind==='instagram'&&!(Date.parse(draft.reply_deadline)>now));}
+export function bucket(draft,now){return draft.snoozed_until>now?'snoozed':sendBlocked(draft,now)?'decision':draft.category||(!draft.reply?'decision':'ready');}
 export function visible(draft){return draft.status==='awaiting_approval';}
 export function questionTopics(questions=[]){
  // Summaries can be route labels shared by several distinct obligations.
@@ -24,6 +25,8 @@ export function questionTopics(questions=[]){
 export function statusCard(property,draft,{duplicate=false,note='',binding=false}={}){
  const states={approved:['已受理，等待核對送出','完成後會再回報，無需重複核准。'],sending:['正在核對並送出','完成後會再回報，無需重複核准。'],sent:['LINE 已接受傳送','請到民宿原對話查看；此狀態不代表客人已讀。'],dismiss_requested:['已受理，正在核對結案','這次不用回覆的決定已記錄，完成後會再回報。'],dismissed:['這次已結案','沒有因這次結案傳送訊息。'],stale:['內容已更新','請更新待辦，重新查看最新內容。'],expired:['這張卡片已過期','請更新待辦，查看最新內容。'],uncertain:['傳送結果待確認','請到民宿原對話或 Daili 核對，勿重複送出。']};
  let [title,detail]=states[draft.status]||['仍待你處理','可查看最新卡片繼續處理。'];
+ if(draft.channel_kind==='instagram'&&draft.status==='sent')title='Instagram 已接受傳送';
+ if(draft.channel_kind==='instagram'&&draft.status==='awaiting_approval'&&sendBlocked(draft))[title,detail]=['IG 回覆期限已過','請至 Instagram 原對話處理；客人有新訊息後可重新整理回覆。'];
  if(draft.status==='awaiting_approval'&&draft.snoozed_until>Date.now())[title,detail]=['已延後 1 小時','可從「稍後處理」找回，隨時恢復處理。'];
  if(['requested','binding','uncertain'].includes(draft.binding_state)||binding){
   [title,detail]=({requested:['已受理，等待確認訂單','本次操作只確認訂單，不會傳訊息給客人。'],binding:['正在確認訂單','本次操作只確認訂單，不會傳訊息給客人。'],bound:['訂單已確認','本次確認沒有傳訊息；回覆仍需另外核准。'],stale:['訂單內容已更新','請更新待辦，重新查看訂單資料。'],uncertain:['訂單確認結果待核對','請到 Daili 查看；本次確認沒有傳訊息。']})[draft.binding_state]||[title,detail];
@@ -48,7 +51,10 @@ export function inboxCard(property,draft){
  const topics=questionTopics(draft.questions),summary=topics.map((q,i)=>`${i+1}. ${q}`).join('\n');
  const locked=['requested','binding','uncertain'].includes(draft.binding_state),pending=draft.status==='awaiting_approval';
  const status=locked?'訂單確認處理中，請等候結果':draft.status==='sent'?'訊息已送出':draft.snoozed_until>Date.now()?'稍後處理':categories[draft.category]||'待處理';
- const body=[text(`${property.name}｜${draft.name}`,{weight:'bold',size:'md'}),text(status,{color:'#657080'}),
+ const blocked=sendBlocked(draft);
+ const body=[text(`${property.name}｜${draft.channel_kind==='instagram'?'IG · ':''}${draft.name}`,{weight:'bold',size:'md'}),text(status,{color:'#657080'}),
+  ...(draft.channel_kind==='instagram'?[text(blocked?'IG 的 24 小時回覆期限已過，請至 Instagram 原對話處理。':`IG 可回覆至 ${new Date(draft.reply_deadline).toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}`,{size:'xs',color:blocked?'#AA5500':'#777777'})]:[]),
+  ...(draft.history_partial?[text('IG 歷史紀錄可能不完整；附件請至 Instagram 查看。',{size:'xs',color:'#777777'})]:[]),
   text(`客人訊息（合併 ${draft.message_count||1} 則）`,{weight:'bold'}),text(clip(draft.question,650)+(draft.question?.length>650?'\n…按「查看對話」閱讀全文':'')),
   ...(topics.length?[text('待確認主題',{weight:'bold'}),text(clip(summary,650)),...(topics.length<draft.questions.length?[text('相同主題已合併顯示。',{size:'xs',color:'#777777'})]:[])]:[]),
   ...(draft.prior_reply?[text('之前已送出',{weight:'bold'}),text(clip(draft.prior_reply,500))]:[]),
@@ -60,7 +66,7 @@ export function inboxCard(property,draft){
  ];
  const actions=[];
  const tap=(label)=>({displayText:clip(`${draft.name}｜${label}`,300)});
- if(pending&&!locked&&draft.reply)actions.push(button('核准送出',{...params,a:'approve'},true,tap('核准送出')));
+ if(pending&&!locked&&!blocked&&draft.reply)actions.push(button('核准送出',{...params,a:'approve'},true,tap('核准送出')));
  const prefill=draft.reply&&[...draft.reply].length<=300?{inputOption:'openKeyboard',fillInText:draft.reply}:{inputOption:'openKeyboard'};
  if(pending&&!locked){
  actions.push(button('修改草稿',{...params,a:'edit'},false,{...tap('修改草稿'),...prefill}));
@@ -86,7 +92,7 @@ export function pageMessages(rows,{token,page,total,category,pageSize=PAGE_SIZE,
  if(page>0)controls.push(button('上一組',{a:'page',t:token,n:String(page-1)}));
  if((page+1)*pageSize<total)controls.push(button('下一組',{a:'page',t:token,n:String(page+1)},true));
  const available=renderToken&&rows.length&&rows.every(({draft})=>draft.contract_version===3&&draft.status==='awaiting_approval'&&!['requested','binding','uncertain'].includes(draft.binding_state));
- if(available&&category==='ready'&&rows.every(({draft})=>draft.reply&&draft.category==='ready'))controls.push(button('本組全部核准',{a:'batch_preview',t:token,n:String(page),r:renderToken}));
+ if(available&&category==='ready'&&rows.every(({draft})=>draft.reply&&draft.category==='ready'&&!sendBlocked(draft)))controls.push(button('本組全部核准',{a:'batch_preview',t:token,n:String(page),r:renderToken}));
  if(available&&category==='no_reply'&&rows.every(({draft})=>draft.category==='no_reply'))controls.push(button('本組都不用回',{a:'batch_preview',t:token,n:String(page),r:renderToken,mode:'no_reply'}));
  controls.push(button('更新待辦總覽',{a:'inbox',c:'all'}));
  controls.push(clearButton());

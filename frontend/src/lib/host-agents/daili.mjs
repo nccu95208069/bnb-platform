@@ -28,7 +28,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
   d.clearBatches=Object.fromEntries(Object.entries(d.clearBatches||{}).filter(([,b])=>!b.completed_at||b.completed_at>now()-7*DAY));
  }
  function clearResult(d,a,result){const batch=d.clearBatches?.[a.clear_batch_id],pending=batch?.results[a.id]==='pending';if(pending)batch.results[a.id]=result;delete a.clear_batch_id;return pending;}
- const project=a=>({contract_version:a.contract_version,conversation_id:a.conversation_id,category:a.category,questions:a.questions,manual_reason:a.manual_reason,message_count:a.message_count,prior_reply:a.prior_reply,snoozed_until:a.snoozed_until||null,edit_needs_review:!!a.edit_needs_review,edited:!!a.edited,id:a.id,name:a.name,question:a.question,reply:a.reply,version:a.version,status:a.status,identity:a.identity||null,binding:a.binding||null,binding_state:a.binding_state||null,created_at:a.created_at,expires_at:a.expires_at});
+ const project=a=>({contract_version:a.contract_version,channel_kind:a.channel_kind||'line',history_partial:!!a.history_partial,reply_deadline:a.reply_deadline||null,send_blocked:a.send_blocked||null,conversation_id:a.conversation_id,category:a.category,questions:a.questions,manual_reason:a.manual_reason,message_count:a.message_count,prior_reply:a.prior_reply,snoozed_until:a.snoozed_until||null,edit_needs_review:!!a.edit_needs_review,edited:!!a.edited,id:a.id,name:a.name,question:a.question,reply:a.reply,version:a.version,status:a.status,identity:a.identity||null,binding:a.binding||null,binding_state:a.binding_state||null,created_at:a.created_at,expires_at:a.expires_at});
  async function api(path,body){
   const c=dailiConfig();need(c,'daili_not_configured');
   const r=await fetcher('https://bnb-reply-copilot-2efedcw3vq-de.a.run.app/api/v1/customer-manager/'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+c.token,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{}),redirect:'error',signal:AbortSignal.timeout(path.startsWith('queue?')?32000:22000)});
@@ -36,6 +36,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
  }
  const sameSource=(a,b)=>a.conversation_id===b.conversation_id&&a.stamp===b.stamp&&a.suggestion_id===b.suggestion_id&&a.source_hash===b.source_hash;
  function expire(d){for(const a of d.drafts){
+  if(a.channel_kind==='instagram'&&['awaiting_approval','approved'].includes(a.status)&&!(Date.parse(a.reply_deadline)>now())&&!a.send_blocked){a.send_blocked='INSTAGRAM_REPLY_WINDOW_CLOSED';a.category='decision';a.version++;if(a.status==='approved'){a.status='awaiting_approval';notice(d,a,'status','IG 的 24 小時回覆期限已過，這次沒有送出，請到 Instagram 原對話處理。');}}
   if(a.oa_tag&&!['verified','needs_attention','disabled'].includes(a.oa_tag.status))a.oa_tag.status='disabled';
   if(a.identity&&![2,3].includes(a.contract_version)&&['awaiting_approval','approved'].includes(a.status)){a.status='stale';a.version++;}
   if(a.binding_state==='binding'&&a.binding_at+90000<now()){a.binding_state='uncertain';notice(d,a,'status','訂單確認結果待核對，尚未傳送訊息，請到 Daili 查看。');}
@@ -74,9 +75,9 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
   const editingUpdated=b.action==='edit'&&a.contract_version===3&&a.status==='awaiting_approval'&&b.version<a.version;
   need((a.version===b.version||editingUpdated)&&(a.status==='awaiting_approval'||(b.action==='bind'&&a.status==='sent'))&&a.expires_at>now(),'draft_changed');
   need(!['requested','binding','uncertain'].includes(a.binding_state),'binding_in_progress');
-  if(b.action==='edit'){need(typeof b.text==='string'&&b.text.trim()&&b.text.length<=1000&&!/[\u0000-\u0009\u000b-\u001f\u007f]/.test(b.text),'invalid_customer_input');a.reply=b.text.trim();a.edited=true;a.edit_needs_review=editingUpdated;a.version++;if(a.contract_version!==3)notice(d,a);}
+  if(b.action==='edit'){need(typeof b.text==='string'&&b.text.trim()&&b.text.length<=1000&&!/[\u0000-\u0009\u000b-\u001f\u007f]/.test(b.text),'invalid_customer_input');need(a.channel_kind!=='instagram'||Buffer.byteLength(b.text.trim(),'utf8')<=1000,'instagram_text_too_long');a.reply=b.text.trim();a.edited=true;a.edit_needs_review=editingUpdated;a.version++;if(a.contract_version!==3)notice(d,a);}
   else if(b.action==='bind'){need(d.enabled,'automation_paused');need(a.identity?.selected&&!a.binding,'booking_confirmation_unavailable');a.binding_state='requested';a.bind_id=randomUUID();a.bind_owner_revision=binding.binding_revision;a.version++;}
-  else if(b.action==='approve'){need(d.enabled,'automation_paused');need(a.reply.trim(),'reply_required');a.status='approved';a.binding_revision=binding.binding_revision;a.approved_at=now();a.send_id=randomUUID();}
+  else if(b.action==='approve'){need(d.enabled,'automation_paused');need(a.reply.trim(),'reply_required');need(a.channel_kind!=='instagram'||(!a.send_blocked&&Date.parse(a.reply_deadline)>now()),'instagram_reply_window_closed');need(a.channel_kind!=='instagram'||Buffer.byteLength(a.reply,'utf8')<=1000,'instagram_text_too_long');a.status='approved';a.binding_revision=binding.binding_revision;a.approved_at=now();a.send_id=randomUUID();}
   else if(b.action==='no_reply'){need(a.contract_version===3,'refresh_required');a.status='dismiss_requested';a.decision_id=randomUUID();a.binding_revision=binding.binding_revision;}
   else if(b.action==='snooze'||b.action==='unsnooze'){need(a.contract_version===3,'refresh_required');a.snoozed_until=b.action==='snooze'?now()+3600000:null;a.version++;}
   else if(b.action==='takeover'){a.status='dismissed';if(!d.muted.includes(a.conversation_id))d.muted.push(a.conversation_id);}
@@ -135,7 +136,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
     await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===a.id);if(x?.binding_state!=='binding')return;x.binding_state=result.status;x.version++;
      if(result.status==='bound')x.binding=result.identity;
      if(result.status==='stale')x.status='stale';
-     notice(s,x,'binding_status',result.status==='bound'?`訂單已確認，Daili 住宿標記：${result.identity.labels.map(l=>l.label).join('、')}。尚未因本次確認傳送任何訊息。${result.identity.sheet_writeback==='SUCCESS'?'訂單表關聯已更新。':'訂單表回寫待處理。'}`:result.status==='stale'?'訂單或證據已更新，這次沒有綁定，請查看最新卡片。':'訂單確認結果待核對，尚未傳送訊息，請到 Daili 查看。');
+     notice(s,x,'binding_status',result.status==='bound'?`訂單已確認，Daili 住宿標記：${result.identity.labels.map(l=>l.label).join('、')}。尚未因本次確認傳送任何訊息。${result.identity.sheet_writeback==='SUCCESS'?'訂單表關聯已更新。':result.identity.sheet_writeback==='SKIPPED'?'IG 對話已完成系統內訂單關聯。':'訂單表回寫待處理。'}`:result.status==='stale'?'訂單或證據已更新，這次沒有綁定，請查看最新卡片。':'訂單確認結果待核對，尚未傳送訊息，請到 Daili 查看。');
      if(result.status==='bound')notice(s,x);
     });
    }
@@ -146,7 +147,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
     if(!approved)continue;
     let result;try{result=await api('send',{request_id:approved.send_id,property_id:mapping.daili_property_id,conversation_id:approved.conversation_id,stamp:approved.stamp,suggestion_id:approved.suggestion_id,source_hash:approved.source_hash,text:approved.reply,contract_version:approved.contract_version||2,...(approved.contract_version===3?{inbox_snapshot:approved.inbox_snapshot,suggestion_ids:approved.suggestion_ids||[],send_context_id:approved.send_context_id||null}:{}),...(approved.identity?{identity_snapshot:approved.identity.snapshot,reservation_id:approved.identity.selected?.reservation_id||null,...(approved.binding?.request_id?{binding_request_id:approved.binding.request_id}:{})}:{})});}catch{result={status:'uncertain'};}
     await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===approved.id);if(x.status!=='sending')return;x.status=['sent','stale'].includes(result.status)?result.status:'uncertain';x.message_id=result.message_id||null;
-     notice(s,x,'status',x.status==='sent'?'LINE 已接受傳送，請到與原民宿帳號的聊天查看；此回報不代表手機已顯示，若未收到請勿重複核准。':x.status==='stale'?'客人訊息或回覆內容已更新，這次沒有送出，請查看最新草稿。':'傳送結果尚未確認，請在 Daili 查看，勿重複送出。');if(x.status==='sent'&&x.identity?.selected&&!x.binding)notice(s,x);});
+     notice(s,x,'status',x.status==='sent'?`${x.channel_kind==='instagram'?'Instagram':'LINE'} 已接受傳送，請到與原民宿帳號的聊天查看；此回報不代表客人已讀，若未收到請勿重複核准。`:x.status==='stale'?'客人訊息或回覆內容已更新，這次沒有送出，請查看最新草稿。':'傳送結果尚未確認，請在原對話或 Daili 查看，勿重複送出。');if(x.status==='sent'&&x.identity?.selected&&!x.binding)notice(s,x);});
    }
    d=await read(owner,p);
    if(!actionsOnly&&d.enabled&&now()<deadline-34000){
@@ -162,7 +163,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
       if(s.muted.includes(item.conversation_id)||s.drafts.some(a=>a.conversation_id===item.conversation_id&&['sending','uncertain','dismiss_requested'].includes(a.status)))continue;
       if(item.contract_version===3){
        const old=s.drafts.find(a=>a.conversation_id===item.conversation_id&&a.contract_version===3&&['awaiting_approval','approved','stale'].includes(a.status));
-       if(old?.inbox_snapshot===item.inbox_snapshot&&['awaiting_approval','approved'].includes(old.status))continue;
+       if(old?.inbox_snapshot===item.inbox_snapshot&&['awaiting_approval','approved'].includes(old.status)){old.name=item.name;continue;}
        if(s.drafts.some(a=>a.conversation_id===item.conversation_id&&['requested','binding','uncertain'].includes(a.binding_state)))continue;
        const keepEdit=old?.edited,previousReply=old?.reply;
        for(const previous of s.drafts)if(previous!==old&&previous.conversation_id===item.conversation_id&&['awaiting_approval','approved'].includes(previous.status))previous.status='stale';
