@@ -19,7 +19,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
  const fresh=()=>({enabled:true,drafts:[],notices:[],muted:[],offset:0});
  const read=async(owner,p)=>{const k=key(owner,p),raw=await redis(['GET',k]);return raw?vault().open(raw,k):fresh();};
  async function mutate(owner,p,fn){const k=key(owner,p);for(let i=0;i<8;i++){const raw=await redis(['GET',k]),d=raw?vault().open(raw,k):fresh(),result=fn(d);if(await redis(['EVAL',CAS,1,k,raw||'',vault().seal(d,k)])===1)return result;}need(false,'busy');}
- function notice(d,a,kind='draft',text=''){d.notices.push({id:randomUUID(),draft_id:a.id,version:a.version,kind,text,created_at:now()});}
+ function notice(d,a,kind='draft',text=''){d.notices.push({id:randomUUID(),draft_id:a.id,version:a.version,kind,text,created_at:now(),...(['status','binding_status'].includes(kind)?{draft:structuredClone(project(a))}:{})});}
  const project=a=>({contract_version:a.contract_version,conversation_id:a.conversation_id,category:a.category,questions:a.questions,manual_reason:a.manual_reason,message_count:a.message_count,prior_reply:a.prior_reply,snoozed_until:a.snoozed_until||null,edit_needs_review:!!a.edit_needs_review,edited:!!a.edited,id:a.id,name:a.name,question:a.question,reply:a.reply,version:a.version,status:a.status,identity:a.identity||null,binding:a.binding||null,binding_state:a.binding_state||null,created_at:a.created_at,expires_at:a.expires_at});
  async function api(path,body){
   const c=dailiConfig();need(c,'daili_not_configured');
@@ -176,9 +176,12 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
 
     if(now()>deadline-9000)break;
     const latest=await read(owner,p),a=latest.drafts.find(x=>x.id===n.draft_id);
-    const obsolete=!a||a.version!==n.version||(n.kind==='draft'&&a.status!=='awaiting_approval'&&!(a.status==='sent'&&a.identity?.selected&&!a.binding))||n.created_at+DAY<now();
+    // Completion receipts describe the completed operation, even if the owner
+    // has already moved the current card to a later version. Freeze retry data.
+    const receipt=n.draft||(a?project(a):null);
+    const obsolete=!receipt||(!n.draft&&a?.version!==n.version)||(n.kind==='draft'&&a?.status!=='awaiting_approval'&&!(a?.status==='sent'&&a.identity?.selected&&!a.binding))||n.created_at+DAY<now();
     if(n.kind==='draft'&&!(a?.status==='sent'&&a.identity?.selected&&!a.binding)){await mutate(owner,p,s=>{s.notices=s.notices.filter(x=>x.id!==n.id);});continue;}
-    if(!obsolete&&!await manager.notify({owner,property:p,notice:{...n,draft:project(a)}}))break;
+    if(!obsolete&&!await manager.notify({owner,property:p,notice:{...n,draft:receipt}}))break;
     await mutate(owner,p,s=>{s.notices=s.notices.filter(x=>x.id!==n.id);});
    }
   }catch(e){await mutate(owner,p,s=>{s.error=e.code||'daili_unavailable';});throw e;}

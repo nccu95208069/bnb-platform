@@ -1,5 +1,8 @@
 // Native LINE chat presentation. No URI actions or webview navigation.
-export const PAGE_SIZE=3;
+export const PAGE_SIZE=5;
+const CAROUSEL_BYTES=48000,BUBBLE_BYTES=30000;
+const jsonBytes=value=>Buffer.byteLength(JSON.stringify(value),'utf8');
+const fit=(ok)=>{if(!ok){const e=new Error('line_card_too_large');e.code='line_card_too_large';e.status=400;throw e;}};
 export const categories={all:'待辦總覽',ready:'草稿已備妥',decision:'需要你決定',no_reply:'建議不用回',snoozed:'稍後處理'};
 const clip=(value,n)=>String(value||'').slice(0,n);
 export const action=(label,params,extra={})=>({type:'postback',label,data:new URLSearchParams(params).toString(),displayText:clip(label,300),...extra});
@@ -62,16 +65,31 @@ export function inboxCard(property,draft){
  if(['awaiting_approval','sent'].includes(draft.status)&&!locked&&draft.identity?.selected&&!draft.binding)actions.push(button('確認訂單（不傳訊息）',{...params,a:'bind'},false,tap('確認訂單（不傳訊息）')));
  return {type:'bubble',size:'mega',body:{type:'box',layout:'vertical',spacing:'sm',contents:body},footer:{type:'box',layout:'vertical',spacing:'sm',contents:actions}};
 }
-export function pageMessages(rows,{token,page,total,category}){
+export function pageMessages(rows,{token,page,total,category,pageSize=PAGE_SIZE,renderToken}){
  const result=[];
- if(rows.length)result.push({type:'flex',altText:`${categories[category]} · 第 ${page+1} 組`,contents:{type:'carousel',contents:rows.map(({property,draft})=>inboxCard(property,draft))}});
+ // Keep five guests in the logical page, splitting only the LINE payload when
+ // necessary. Never truncate the reply the owner is being asked to approve.
+ fit(rows.length<=PAGE_SIZE);
+ for(const {property,draft} of rows){
+  const bubble=inboxCard(property,draft);fit(jsonBytes(bubble)<=BUBBLE_BYTES);
+  const last=result.at(-1);
+  if(last&&jsonBytes({type:'carousel',contents:[...last.contents.contents,bubble]})<=CAROUSEL_BYTES)last.contents.contents.push(bubble);
+  else result.push({type:'flex',altText:`${categories[category]} · 第 ${page+1} 組`,contents:{type:'carousel',contents:[bubble]}});
+ }
  const controls=[];
  if(page>0)controls.push(button('上一組',{a:'page',t:token,n:String(page-1)}));
- if((page+1)*PAGE_SIZE<total)controls.push(button('下一組',{a:'page',t:token,n:String(page+1)},true));
- const available=rows.length&&rows.every(({draft})=>draft.contract_version===3&&!['requested','binding','uncertain'].includes(draft.binding_state));
- if(available&&rows.every(({draft})=>draft.reply&&draft.category==='ready'))controls.push(button('本組全部核准',{a:'batch_preview',t:token,n:String(page)}));
- if(available&&rows.every(({draft})=>draft.category==='no_reply'))controls.push(button('本組都不用回',{a:'batch_preview',t:token,n:String(page),mode:'no_reply'}));
+ if((page+1)*pageSize<total)controls.push(button('下一組',{a:'page',t:token,n:String(page+1)},true));
+ const available=renderToken&&rows.length&&rows.every(({draft})=>draft.contract_version===3&&draft.status==='awaiting_approval'&&!['requested','binding','uncertain'].includes(draft.binding_state));
+ if(available&&category==='ready'&&rows.every(({draft})=>draft.reply&&draft.category==='ready'))controls.push(button('本組全部核准',{a:'batch_preview',t:token,n:String(page),r:renderToken}));
+ if(available&&category==='no_reply'&&rows.every(({draft})=>draft.category==='no_reply'))controls.push(button('本組都不用回',{a:'batch_preview',t:token,n:String(page),r:renderToken,mode:'no_reply'}));
  controls.push(button('更新待辦總覽',{a:'inbox',c:'all'}));
- result.push({type:'flex',altText:'待辦分組操作',contents:{type:'bubble',body:{type:'box',layout:'vertical',contents:[text(rows.length?`左右滑動查看本組 ${rows.length} 位客人。`:'本組已處理，請查看下一組或更新總覽。'),text(`第 ${page+1} 組，共 ${Math.max(1,Math.ceil(total/PAGE_SIZE))} 組`,{size:'xs'})]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:controls}},quickReply:quickNav()});
+ const navigation={type:'flex',altText:'待辦分組操作',contents:{type:'bubble',size:'mega',body:{type:'box',layout:'vertical',contents:[text(rows.length?`左右滑動查看本組 ${rows.length} 位客人${result.length>1?'（分成 '+result.length+' 排卡片）':''}。`:'本組已處理，請查看下一組或更新總覽。'),text(`第 ${page+1} 組，共 ${Math.max(1,Math.ceil(total/pageSize))} 組`,{size:'xs'})]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:controls}},quickReply:quickNav()};
+ if(result.length<5)result.push(navigation);
+ else{
+  // Reply accepts at most five message objects. The last group has one guest
+  // bubble in this case, leaving room for the separate navigation bubble.
+  const last=result.at(-1);last.contents.contents.push(navigation.contents);last.quickReply=navigation.quickReply;
+  fit(jsonBytes(last.contents)<=CAROUSEL_BYTES);
+ }
  return result;
 }

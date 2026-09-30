@@ -10,7 +10,7 @@ message transmission stay separate; native OA tagging/emulator work is deferred.
 ## Interaction
 - Owner-specific bottom rich menu and quick replies open a category overview.
 - Categories: drafts ready, owner decision, suggested no reply, snoozed.
-- Swipe groups of three guest cards, with stable next/previous paging.
+- Swipe groups of five guest cards, with stable next/previous paging.
 - Approve, edit, no reply for this turn, snooze one hour, resume, read conversation.
 - Batch approval/no reply is offered only for a homogeneous displayed group;
   a separate confirmation binds the exact displayed draft versions.
@@ -182,3 +182,17 @@ build and TypeScript passed. No backend, database or rich menu change was needed
 The actual refreshed LINE card remains an owner-visible follow-up; no live LINE
 action was invoked during rollout. Previous frontend
 dpl_14hPPebHk9ECcJ9z3QeodroTLkYY remains the rollback point.
+
+## Five-card pages and code review
+
+The owner requested five guest cards per group across all categories, followed
+by code review of the recent changes. New category views now use page size 5.
+Payloads are packed by actual UTF-8 JSON size and can span multiple carousel
+messages while retaining the five guests and complete approval text. Old views
+retain their original page size until the owner opens a category again.
+
+Review fixes bind batch controls to the exact rendered page token, preserve
+completion receipt snapshots across subsequent draft versions, and keep paging
+and batch controls consistent with category changes. See
+[the review report](MANAGER_REVIEW_2026-09-30.md) for findings, fixes and limits.
+Backend scan batch size is independent of UI pagination and remains unchanged.

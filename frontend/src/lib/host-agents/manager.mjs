@@ -43,30 +43,32 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
   need(Object.hasOwn(categories,category),'invalid_action');
   const data=await inbox(owner,readDrafts);
   if(category==='all')return overview(data.rows,data);
-  const rows=data.rows.filter(({draft})=>bucket(draft,now())===category),token=randomBytes(12).toString('hex');
-  const view={category,until:now()+DAY*1000,items:rows.map(({property,draft})=>({p:property.id,id:draft.id})),pages:{0:rows.slice(0,PAGE_SIZE).map(({property,draft})=>({p:property.id,id:draft.id,v:draft.version}))}};
+  const rows=data.rows.filter(({draft})=>bucket(draft,now())===category),token=randomBytes(12).toString('hex'),renderToken=randomBytes(12).toString('hex');
+  const view={category,pageSize:PAGE_SIZE,until:now()+DAY*1000,items:rows.map(({property,draft})=>({p:property.id,id:draft.id})),pages:{0:{renderToken,items:rows.slice(0,PAGE_SIZE).map(({property,draft})=>({p:property.id,id:draft.id,v:draft.version}))}}};
   await mutate(owner,d=>{d.views=Object.fromEntries(Object.entries(d.views||{}).filter(([,v])=>v.until>now()).slice(-19));d.views[token]=view;});
   return showPage(owner,token,0,readDrafts,reviewCards,{view,data});
  }
  async function showPage(owner,token,page,readDrafts,reviewCards,cached){
   need(/^[a-f0-9]{24}$/.test(token||'')&&Number.isSafeInteger(page)&&page>=0,'invalid_action');
-  const view=cached?.view||(await read(owner)).views?.[token];need(view&&view.until>now()&&page<Math.max(1,Math.ceil(view.items.length/PAGE_SIZE)),'view_expired');
-  const data=cached?.data||await inbox(owner,readDrafts),rows=view.items.slice(page*PAGE_SIZE,page*PAGE_SIZE+PAGE_SIZE).flatMap(ref=>data.rows.filter(row=>row.property.id===ref.p&&row.draft.id===ref.id));
-  if(!cached)await mutate(owner,d=>{if(d.views?.[token])d.views[token].pages[page]=rows.map(({property,draft})=>({p:property.id,id:draft.id,v:draft.version}));});
+  const view=cached?.view||(await read(owner)).views?.[token],pageSize=view?.pageSize||3;
+  need(view&&[3,PAGE_SIZE].includes(pageSize)&&view.until>now()&&page<Math.max(1,Math.ceil(view.items.length/pageSize)),'view_expired');
+  const data=cached?.data||await inbox(owner,readDrafts),rows=view.items.slice(page*pageSize,page*pageSize+pageSize).flatMap(ref=>data.rows.filter(row=>row.property.id===ref.p&&row.draft.id===ref.id&&bucket(row.draft,now())===view.category));
+  const renderToken=cached?view.pages[page].renderToken:randomBytes(12).toString('hex');
+  if(!cached)await mutate(owner,d=>{need(d.views?.[token]?.until>now(),'view_expired');d.views[token].pages[page]={renderToken,items:rows.map(({property,draft})=>({p:property.id,id:draft.id,v:draft.version}))};});
   if(reviewCards)for(const property of new Set(rows.filter(r=>r.draft.contract_version===3).map(r=>r.property.id)))await reviewCards(owner,property,rows.filter(r=>r.property.id===property).map(r=>({id:r.draft.id,v:r.draft.version})));
-  return pageMessages(rows,{token,page,total:view.items.length,category:view.category});
+  return pageMessages(rows,{token,page,total:view.items.length,category:view.category,pageSize,renderToken});
  }
  async function batchPreview(owner,q,readDrafts){
-  const state=await read(owner),view=state.views?.[q.get('t')],page=Number(q.get('n')),refs=view?.pages?.[page],mode=q.get('mode')==='no_reply'?'no_reply':'approve';
-  need(view?.until>now()&&refs?.length&&refs.length<=5,'view_expired');
+  const state=await read(owner),view=state.views?.[q.get('t')],page=Number(q.get('n')),shown=view?.pages?.[page],refs=shown?.items,mode=q.get('mode')==='no_reply'?'no_reply':'approve';
+  need(view?.until>now()&&shown?.renderToken===q.get('r')&&refs?.length&&refs.length<=PAGE_SIZE,'view_expired');
   const data=await inbox(owner,readDrafts),rows=refs.map(ref=>data.rows.find(row=>row.property.id===ref.p&&row.draft.id===ref.id&&row.draft.version===ref.v));
   need(rows.every(row=>row&&bucket(row.draft,now())===(mode==='approve'?'ready':'no_reply')),'draft_changed');
   const token=randomBytes(12).toString('hex');
-  await mutate(owner,d=>{d.batches=Object.fromEntries(Object.entries(d.batches||{}).filter(([,b])=>b.until>now()).slice(-9));d.batches[token]={items:refs,mode,until:now()+600000,results:[],bindingRevision:d.bindingRevision};});
+  await mutate(owner,d=>{d.batches=Object.fromEntries(Object.entries(d.batches||{}).filter(([,b])=>b.until>now()).slice(-9));d.batches[token]={displayVersion:2,items:refs,mode,until:now()+600000,results:[],bindingRevision:d.bindingRevision};});
   return {type:'flex',altText:'確認本組操作',contents:{type:'bubble',body:{type:'box',layout:'vertical',spacing:'md',contents:[text(mode==='approve'?`送出這 ${rows.length} 位客人剛才顯示的各自草稿？`:`這 ${rows.length} 位客人這次都不用回？`,{weight:'bold'}),...rows.map(row=>text(`${row.property.name}｜${row.draft.name}`)),text('內容有更新的項目會跳過，保留給你重新確認。',{size:'xs'})]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:[button(mode==='approve'?'確認送出':'確認不用回',{a:'batch_confirm',t:token},true),button('返回總覽',{a:'inbox',c:'all'})]}}};
  }
  async function confirmBatch(owner,token,eventId,decide){
-  const work=await mutate(owner,d=>{const b=d.batches?.[token];need(b&&b.until>now()&&b.bindingRevision===d.bindingRevision,'view_expired');need(!b.claim||b.claim===eventId,'already_processed');b.claim=eventId;return structuredClone(b);});
+  const work=await mutate(owner,d=>{const b=d.batches?.[token];need(b?.displayVersion===2&&b.until>now()&&b.bindingRevision===d.bindingRevision,'view_expired');need(!b.claim||b.claim===eventId,'already_processed');b.claim=eventId;return structuredClone(b);});
   for(let i=work.results.length;i<work.items.length;i++){
    const ref=work.items[i];let result;
    try{await decide(owner,ref.p,{draft_id:ref.id,version:ref.v,action:work.mode,request_id:`${eventId}:${i}`});result='accepted';}catch(e){if(!e.status||e.status>=500)throw e;result='changed';}
@@ -263,7 +265,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
      if(event.replyToken)try{
       const current=await read(owner);
       if(current.ownerUserId===event.source.userId){
-       const reasons={automation_paused:'目前已暫停整理，請恢復後再操作。',view_expired:'這組待辦已過期，請更新待辦總覽。',edit_expired:'修改已逾時，請重新打開卡片修改。',already_processed:'這組操作已受理，完成後會回報。',invalid_customer_input:'草稿內容不符合格式，請縮短至 1,000 字內後重試。'};
+       const reasons={automation_paused:'目前已暫停整理，請恢復後再操作。',view_expired:'這組待辦已更新，請重新打開分類查看，再使用新卡片的按鈕。',edit_expired:'修改已逾時，請重新打開卡片修改。',already_processed:'這組操作已受理，完成後會回報。',invalid_customer_input:'草稿內容不符合格式，請縮短至 1,000 字內後重試。',line_card_too_large:'這組卡片內容超過 LINE 顯示上限，請先使用「查看對話」閱讀內容。',busy:'目前操作較多，這次尚未確認完成，請查看最新卡片後再操作。'};
        let message={type:'text',text:reasons[e.code]||'這張卡片的內容或狀態已更新，請查看最新待辦。',quickReply:quickNav()};
        if(actionRef&&current.properties.some(x=>x.id===actionRef.p)){
         if(['draft_changed','binding_in_progress'].includes(e.code)){
