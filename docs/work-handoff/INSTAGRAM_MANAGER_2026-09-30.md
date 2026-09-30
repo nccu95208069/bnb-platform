@@ -1,7 +1,8 @@
 # Instagram customer-manager cards
 
-Status: frontend and compatible backend deployed; the IG callback backend is ready,
-with Meta publication/subscription and observed receipt still pending. A bounded daily credential renewal
+Status: frontend and compatible backend deployed; Meta is published and the IG
+callback/account subscriptions are active. Live POSTs arrive, but signature
+validation is currently rejecting them; no IG card has been verified. A bounded daily credential renewal
 job is enabled; its first real provider refresh remains pending.
 
 The existing Daili bridge accepts provider metadata from the authenticated backend
@@ -29,9 +30,12 @@ production build passed. Frontend code `f034ac9` was deployed and promoted as
 login redirection and 401 rejection; deployment protection remains enabled.
 
 The backend migration, encrypted credential registration and rollout completed.
-Existing LINE counts were unchanged, and the IG table is private. The IG flag is enabled on the verified backend callback revision, but Meta is
-not yet published/subscribed, so live receipt has not been observed. No external guest messages were sent. Meta publication/webhook
-activation, verified token renewal and observed IG receipt remain outstanding.
+Existing LINE counts were unchanged, and the IG table is private. The IG flag is
+enabled on the verified backend callback revision. Meta publication, callback
+verification and minimal `messages,message_edit` subscriptions are complete.
+The owner sent the requested test DM; delivery attempts currently fail the backend
+signature check. No outgoing guest messages were sent. Correcting this credential
+configuration, verified token renewal and an observed IG card remain outstanding.
 Historical DM import is not implemented; the existing backlog was not synchronized.
 
 Do not push this branch to the public repository until the existing publication
@@ -62,8 +66,11 @@ The crawler experiment was reverted in `faa3e9b`, deployed as
 `dpl_GmFqki1sQ8c8q38jzXDgNNsXriLR`; the original crawler behavior is restored.
 Production build and TypeScript passed. The two public policy pages remain.
 
-The remaining owner confirmation concerns the local transfer of the existing
-webhook verification value into Meta and publication/message subscriptions. The
-local readable handoff was blocked by automatic approval review before execution;
-no workaround was attempted. Incoming receipt and any owner-approved outgoing
-message still require real end-to-end observation.
+The owner explicitly approved the local verification-value transfer and Meta
+publication/message subscriptions. The earlier automatic review block was resolved
+by that grant; the one-use loopback handoff completed without logging the value.
+The manager UI confirms the property's monitoring and owner LINE binding are active.
+Meta now exposes existing conversations through a bounded metadata read, but history
+import remains unimplemented. Incoming receipt and any owner-approved outgoing
+message still require real end-to-end observation. Password reauthentication is
+pending in Meta to inspect Instagram Login's separate app secret.
