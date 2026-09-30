@@ -193,6 +193,17 @@ retain their original page size until the owner opens a category again.
 
 Review fixes bind batch controls to the exact rendered page token, preserve
 completion receipt snapshots across subsequent draft versions, and keep paging
-and batch controls consistent with category changes. See
+and batch controls consistent with category changes. LINE actions also retain
+the sender-validated owner binding revision, and recently completed old drafts
+remain available based on their latest action time. See
 [the review report](MANAGER_REVIEW_2026-09-30.md) for findings, fixes and limits.
 Backend scan batch size is independent of UI pagination and remains unchanged.
+
+Rollout: final source e345ef593c699405e1aba0d076ba37282dae759b, Vercel
+dpl_FjyWFnKrkhVceY8j9G6zBCjdneED (READY), promoted at approximately 12:00
+Asia/Taipei on 2026-09-30. Inspection of https://sweetfun-os.vercel.app resolves
+to this deployment. JavaScript syntax, scoped ESLint, TypeScript, whitespace
+checks and the cloud Next.js production build passed. No automated tests, live
+LINE actions, guest sends or booking actions were performed. Backend remains
+manager-inbox-fa0c19f without database changes. Public source push is still
+awaiting the existing explicit publication approval.

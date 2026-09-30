@@ -83,11 +83,21 @@
 
 ## 檢查與限制
 
-JavaScript 語法、scoped ESLint、TypeScript、diff whitespace 檢查與雲端
-production build 的結果於部署時記錄。此次要求為 code review，未新增或
+JavaScript 語法、scoped ESLint、TypeScript、diff whitespace 檢查均通過；
+雲端 production build 亦通過 Next.js 編譯與 TypeScript。此次要求為 code review，未新增或
 執行自動化測試，亦未核准真實客人訊息或訂單作為測試。
 
 已知保守行為：快速核准可能早於非同步讀取證據回寫；此時保留未知覆蓋，
 不把未證明已讀/已回答的歷史問題自動結案。單張超過 LINE 上限的異常資料
 會明確拒絕顯示，避免以被截短的回覆取得核准。實際手機卡片與傳送流程
 未在本次操作。
+
+## 正式部署
+
+- 最終程式碼：`e345ef593c699405e1aba0d076ba37282dae759b`，包含本次 6 項修正。
+- Vercel：`dpl_FjyWFnKrkhVceY8j9G6zBCjdneED`，狀態 READY。
+- 2026-09-30 約 12:00（Asia/Taipei）完成 promote，重新查詢
+  `https://sweetfun-os.vercel.app` 已解析到此部署。
+- 後端仍為 `manager-inbox-fa0c19f`，無資料庫 migration。
+- 每個分類重新開啟後即使用最多 5 張；舊 LINE 卡片及其分頁保留舊頁數。
+- 正式建置與網域切換已確認；手機點擊、真實客人傳送及訂單操作未於本次測試。
