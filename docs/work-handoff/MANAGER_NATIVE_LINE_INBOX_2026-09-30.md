@@ -174,3 +174,11 @@ the existing menu.
 
 Validation uses syntax, ESLint, TypeScript and production build checks. No tests,
 guest messages or booking actions are used for this change.
+
+Rollout: source e7f85959b15a10308f00dadec7008ec87d287ef3, Vercel
+dpl_8UzWTvbLsiz8RgSDqE2364ZTw3p3 (READY), promoted to
+https://sweetfun-os.vercel.app at approximately 11:36 Asia/Taipei. Cloud Next.js
+build and TypeScript passed. No backend, database or rich menu change was needed.
+The actual refreshed LINE card remains an owner-visible follow-up; no live LINE
+action was invoked during rollout. Previous frontend
+dpl_14hPPebHk9ECcJ9z3QeodroTLkYY remains the rollback point.
