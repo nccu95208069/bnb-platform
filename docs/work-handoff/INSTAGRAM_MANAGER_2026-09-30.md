@@ -51,5 +51,10 @@ concerned a different deployment hostname. Explicit crawler rules for only the
 two policy pages were deployed in `dpl_G1uGGEaX4RYrwMqqCoYcT23TDvhu` (code
 `6e5f61d`); build, TypeScript and public robots readback passed. This did not
 resolve Meta's 403. No firewall, authentication or deployment protection was
-disabled. The same approved pages are being served by the existing backend to
-provide an independently reachable policy endpoint.
+disabled. The same approved pages are also served by the existing backend; Meta returned
+HTTP 200 for both. Exact replacement URLs are awaiting the additional approval
+required by automatic approval review before the Meta settings can be saved.
+
+The crawler experiment was reverted in `faa3e9b`, deployed as
+`dpl_GmFqki1sQ8c8q38jzXDgNNsXriLR`; the original crawler behavior is restored.
+Production build and TypeScript passed. The two public policy pages remain.
