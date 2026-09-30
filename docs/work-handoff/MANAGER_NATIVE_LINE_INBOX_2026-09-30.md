@@ -150,3 +150,27 @@ recorded below after rollout; actual phone tap timing is not yet observed.
 - Backend remains manager-inbox-fa0c19f; there is no database migration.
 - Rollback for this feedback-only change: promote the previous frontend
   dpl_MeyCpx1su6dzxR677Ce6wqpncep2. Keep the current backend revision.
+
+## Follow-up: repeated question labels
+
+The owner's screenshot showed repeated price/card/payment labels within one guest
+card. Code inspection found that `manager_inbox.inbox_item` projects every pending
+obligation's `request_summary`, while ACTIVE V2 obligations use the route's
+`operator_name` as that summary. Several distinct tracking records can therefore
+share an identical label. The LINE renderer previously numbered each label as a
+separate question, overstating what the label itself establishes.
+
+The card now groups identical labels after Unicode/whitespace normalization and
+calls the section “待確認主題”. It also explains when same-topic labels were
+combined. This applies immediately to new cards generated from existing cached
+drafts, without waiting for each conversation to be rescanned. Different labels
+remain separate; there is no fuzzy merge of dates, rooms, payments or requests.
+
+This is presentation grouping, not a database reconciliation: underlying pending
+IDs, source references, approval snapshots and no-reply targets are preserved.
+It does not mark old or uncertain questions as answered merely because labels
+match. Previously delivered LINE cards are immutable and must be refreshed via
+the existing menu.
+
+Validation uses syntax, ESLint, TypeScript and production build checks. No tests,
+guest messages or booking actions are used for this change.

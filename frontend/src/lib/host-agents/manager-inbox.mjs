@@ -8,6 +8,11 @@ export const text=(value,extra={})=>({type:'text',text:String(value||'—'),wrap
 export function quickNav(){return {items:['all','ready','decision','no_reply','snoozed'].map(c=>({type:'action',action:action(categories[c],{a:'inbox',c})}))};}
 export function bucket(draft,now){return draft.snoozed_until>now?'snoozed':draft.category||(!draft.reply?'decision':'ready');}
 export function visible(draft){return draft.status==='awaiting_approval';}
+export function questionTopics(questions=[]){
+ // Summaries can be route labels shared by several distinct obligations.
+ // Group labels for presentation only; approval still binds every original ID.
+ return [...new Set((Array.isArray(questions)?questions:[]).filter(q=>typeof q==='string').map(q=>q.normalize('NFKC').replace(/\s+/gu,' ').trim()).filter(Boolean))];
+}
 export function statusCard(property,draft,{duplicate=false,note='',binding=false}={}){
  const states={approved:['已受理，等待核對送出','完成後會再回報，無需重複核准。'],sending:['正在核對並送出','完成後會再回報，無需重複核准。'],sent:['LINE 已接受傳送','請到民宿原對話查看；此狀態不代表客人已讀。'],dismiss_requested:['已受理，正在核對結案','這次不用回覆的決定已記錄，完成後會再回報。'],dismissed:['這次已結案','沒有因這次結案傳送訊息。'],stale:['內容已更新','請更新待辦，重新查看最新內容。'],expired:['這張卡片已過期','請更新待辦，查看最新內容。'],uncertain:['傳送結果待確認','請到民宿原對話或 Daili 核對，勿重複送出。']};
  let [title,detail]=states[draft.status]||['仍待你處理','可查看最新卡片繼續處理。'];
@@ -31,12 +36,12 @@ export function overview(rows,{now=Date.now(),warning='',refreshedAt=null}={}){
 }
 export function inboxCard(property,draft){
  const params={p:property.id,d:draft.id,v:String(draft.version)};
- const summary=draft.questions?.length?draft.questions.map((q,i)=>`${i+1}. ${q}`).join('\n'):draft.question;
+ const topics=questionTopics(draft.questions),summary=topics.map((q,i)=>`${i+1}. ${q}`).join('\n');
  const locked=['requested','binding','uncertain'].includes(draft.binding_state),pending=draft.status==='awaiting_approval';
  const status=locked?'訂單確認處理中，請等候結果':draft.status==='sent'?'訊息已送出':draft.snoozed_until>Date.now()?'稍後處理':categories[draft.category]||'待處理';
  const body=[text(`${property.name}｜${draft.name}`,{weight:'bold',size:'md'}),text(status,{color:'#657080'}),
   text(`客人訊息（合併 ${draft.message_count||1} 則）`,{weight:'bold'}),text(clip(draft.question,650)+(draft.question?.length>650?'\n…按「查看對話」閱讀全文':'')),
-  ...(draft.questions?.length?[text('待處理問題',{weight:'bold'}),text(clip(summary,650))]:[]),
+  ...(topics.length?[text('待確認主題',{weight:'bold'}),text(clip(summary,650)),...(topics.length<draft.questions.length?[text('相同主題已合併顯示。',{size:'xs',color:'#777777'})]:[])]:[]),
   ...(draft.prior_reply?[text('之前已送出',{weight:'bold'}),text(clip(draft.prior_reply,500))]:[]),
   ...(draft.edit_needs_review?[text('客人有補充；已保留你的修改，請重新核對。',{color:'#AA5500'})]:[]),
   ...(draft.identity?.summary?[text(clip(draft.identity.summary,700))]:[]),
