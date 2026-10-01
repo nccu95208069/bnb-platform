@@ -105,7 +105,13 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
   if(await redis(['SET',lease,leaseId,'NX','EX',70])!=='OK')return {busy:true};
   try{
    let d=await read(owner,p);const connection=await manager.owner(owner,'status');if(!connection.bound||!connection.webhook_verified)return;
-   await mutate(owner,p,s=>{expire(s);});
+   await mutate(owner,p,s=>{expire(s);
+    // The backend revalidates the saved review before applying it. Recover
+    // unchanged local decisions now rather than waiting for a full queue scan.
+    for(const x of s.drafts)if(x.contract_version===3&&['awaiting_approval','stale'].includes(x.status)&&['no_reply','clear_all'].includes(x.last_action_type)&&x.last_action_at&&x.last_action_snapshot===x.inbox_snapshot&&x.dismiss_recovery_snapshot!==x.inbox_snapshot&&x.binding_revision===connection.binding_revision&&!['requested','binding','uncertain'].includes(x.binding_state)){
+     x.status='dismiss_requested';x.decision_id||=randomUUID();x.dismiss_recovery_snapshot=x.inbox_snapshot;delete x.dismiss_retry_at;
+    }
+   });
    d=await read(owner,p);
    const dismissals=d.drafts.filter(x=>x.status==='dismiss_requested'&&(!x.clear_batch_id||!(x.dismiss_retry_at>now()))).sort((a,b)=>(a.dismiss_attempt_at||0)-(b.dismiss_attempt_at||0));
    for(const a of dismissals){
@@ -169,11 +175,6 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
       if(s.muted.includes(item.conversation_id)||s.drafts.some(a=>a.conversation_id===item.conversation_id&&['sending','uncertain','dismiss_requested'].includes(a.status)))continue;
       if(item.contract_version===3){
        const old=s.drafts.find(a=>a.conversation_id===item.conversation_id&&a.contract_version===3&&['awaiting_approval','approved','stale'].includes(a.status));
-       // Recover a previously rejected owner decision once, only while its
-       // exact reviewed snapshot and owner binding are still unchanged.
-       if(old&&['awaiting_approval','stale'].includes(old.status)&&['no_reply','clear_all'].includes(old.last_action_type)&&old.last_action_at&&old.last_action_snapshot===item.inbox_snapshot&&old.dismiss_recovery_snapshot!==item.inbox_snapshot&&old.binding_revision===connection.binding_revision&&!['requested','binding','uncertain'].includes(old.binding_state)){
-        old.status='dismiss_requested';old.decision_id||=randomUUID();old.dismiss_recovery_snapshot=item.inbox_snapshot;delete old.dismiss_retry_at;continue;
-       }
        if(old?.inbox_snapshot===item.inbox_snapshot&&['awaiting_approval','approved'].includes(old.status)){old.name=item.name;continue;}
        if(s.drafts.some(a=>a.conversation_id===item.conversation_id&&['requested','binding','uncertain'].includes(a.binding_state)))continue;
        const keepEdit=old?.edited,previousReply=old?.reply;
