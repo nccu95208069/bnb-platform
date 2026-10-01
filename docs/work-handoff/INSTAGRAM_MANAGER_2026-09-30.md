@@ -3,8 +3,10 @@
 Status: frontend and compatible backend deployed; Meta is published and the IG
 callback/account subscriptions are active. The Instagram Login signing secret was
 corrected and real Meta redelivery now succeeds. The test's incoming question and
-draft are verified in the manager, waiting for owner approval. A bounded daily credential renewal
-job is enabled; its first real provider refresh remains pending.
+draft are verified in the manager. Subsequent read-only inspection confirms the
+original draft has one successful Instagram send receipt; do not send it again.
+A bounded daily credential renewal job is enabled; its first real provider
+refresh remains pending.
 
 The existing Daili bridge accepts provider metadata from the authenticated backend
 queue. IG cards identify the source, show the reply deadline, and warn that history
@@ -95,3 +97,11 @@ The first new cron run returned 200 at 16:49 UTC. The real IG test question and
 checkout-time draft are now visible under Sweetfun with an enabled approval
 button. Owner approval for that specific test reply is pending. No guest message
 was sent by the agent, and the older inbox was not imported.
+
+## Outgoing receipt follow-up (2026-10-01)
+
+Read-only inspection now confirms one `SENT` owner message for the original IG
+test at `2026-10-01T01:50:29.450722Z`, with an Instagram provider message ID and
+text matching the original checkout draft. The manager displays completed
+activity. No duplicate approval/send was performed by the agent. Do not resend
+if the earlier conversational approval question receives a late answer.
