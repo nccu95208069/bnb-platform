@@ -406,3 +406,15 @@ editing on the individual draft when the owner needs it and reduce screen space.
 Scoped ESLint, JavaScript syntax and whitespace checks passed. The new menu
 artwork was rendered and visually inspected. No automated tests or live guest
 button actions were run. Production build and rollout are recorded below.
+
+Production rollout completed: source abe47a97d0373ea44a75f84fc61dbaa3d17c7f1b,
+Vercel `dpl_7TUcEoEtHKpcnF4FywHvKJBB6Jva`,
+https://sweetfun-ltaz6xcf3-sweetfuns-projects.vercel.app. The cloud Next.js build
+passed in 21 seconds, including TypeScript and 48 static pages. Candidate
+inspection was Ready; promotion succeeded and independent inspection of
+https://sweetfun-os.vercel.app resolved to this release at approximately 23:53
+Asia/Taipei on 2026-10-01. A passive initial log read showed the normal Sweetfun
+sheet-monitor request returning 200; the manager cron had not appeared in that
+initial sample, so phone delivery/menu linkage is not inferred from it. The
+existing manager cron installs menu v5 and delivers the version-3 overview.
+No guest send, bulk resolution or database migration was performed by rollout.
