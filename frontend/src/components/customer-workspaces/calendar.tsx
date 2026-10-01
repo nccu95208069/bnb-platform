@@ -1,0 +1,675 @@
+"use client";
+import { useRef, useState } from "react";
+import type { WorkspaceView } from "@/lib/customer-workspaces/types";
+import { Modal } from "./modal";
+import { api, button, field, plusDays, secondary, today } from "./client";
+export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
+  const [data, setData] = useState(initial),
+    [start, setStart] = useState(today()),
+    [propertyId, setPropertyId] = useState(initial.properties[0]?.id ?? "");
+  const [creating, setCreating] = useState(false),
+    [selected, setSelected] = useState(""),
+    [highlight, setHighlight] = useState(""),
+    [error, setError] = useState("");
+  const property = data.properties.find((p) => p.id === propertyId),
+    days = Array.from({ length: 7 }, (_, i) => plusDays(start, i));
+  const [checkIn, setCheckIn] = useState(start),
+    [nights, setNights] = useState(1),
+    [roomIds, setRoomIds] = useState<string[]>([]);
+  const [guestName, setGuestName] = useState(""),
+    [total, setTotal] = useState(""),
+    [paid, setPaid] = useState(""),
+    [paymentKind, setPaymentKind] = useState("none"),
+    [method, setMethod] = useState(""),
+    [receivedAt, setReceivedAt] = useState(""),
+    [contact, setContact] = useState(""),
+    [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false),
+    [uncertain, setUncertain] = useState(false);
+  const pending = useRef<Record<string, unknown> | null>(null);
+  const key = useRef("");
+  const canWrite = ["owner", "admin", "housekeeper"].includes(data.role),
+    checkOut = plusDays(checkIn, nights);
+  const active = data.bookings.filter(
+    (b) => b.propertyId === propertyId && b.status !== "cancelled",
+  );
+  const picked = data.bookings.find((b) => b.id === selected);
+  const occupied = (roomId: string) =>
+    active.some(
+      (b) =>
+        b.roomIds.includes(roomId) &&
+        b.checkIn < checkOut &&
+        checkIn < b.checkOut,
+    );
+  function open(date = start, roomId?: string) {
+    if (!property) return;
+    setCheckIn(date);
+    setNights(1);
+    setRoomIds(
+      property.kind === "villa"
+        ? property.villaRoomIds
+        : roomId
+          ? [roomId]
+          : [],
+    );
+    setGuestName("");
+    setTotal("");
+    setPaid("");
+    setPaymentKind("none");
+    setContact("");
+    setNotes("");
+    setMethod("");
+    const local = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 16);
+    setReceivedAt(local);
+    setError("");
+    setUncertain(false);
+    pending.current = null;
+    key.current = crypto.randomUUID();
+    setCreating(true);
+  }
+  async function refresh() {
+    try {
+      setData(
+        await api<WorkspaceView>(`/api/customer-workspaces/${data.slug}`),
+      );
+      setError("房況已重新載入，請核對後建立。");
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!property || busy) return;
+    setBusy(true);
+    setError("");
+    pending.current ??= {
+      requestKey: key.current,
+      version: data.version,
+      propertyId,
+      checkIn,
+      checkOut,
+      roomIds,
+      guestName,
+      total: total === "" ? null : Number(total),
+      contact,
+      notes,
+      payment:
+        paymentKind === "none"
+          ? null
+          : {
+              kind: paymentKind,
+              amount: paid === "" ? null : Number(paid),
+              method,
+              receivedAt: new Date(receivedAt).toISOString(),
+            },
+    };
+    try {
+      const result = await api<{ workspace: WorkspaceView; bookingId: string }>(
+        `/api/customer-workspaces/${data.slug}`,
+        "POST",
+        pending.current,
+      );
+      setData(result.workspace);
+      setHighlight(result.bookingId);
+      setSelected(result.bookingId);
+      setStart(checkIn);
+      setCreating(false);
+      pending.current = null;
+      setUncertain(false);
+    } catch (e) {
+      setError((e as Error).message);
+      if (
+        e instanceof Error &&
+        "status" in e &&
+        typeof e.status === "number" &&
+        e.status < 500
+      ) {
+        pending.current = null;
+        setUncertain(false);
+      } else setUncertain(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <main className="min-h-dvh bg-stone-50 p-4 text-slate-800 sm:p-8">
+      <div className="mx-auto max-w-6xl">
+        <header className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <a href="/start" className="text-sm text-teal-800 underline">
+              我的旅宿
+            </a>
+            <h1 className="mt-2 text-2xl font-semibold">{data.name}</h1>
+            <p className="mt-1 text-sm text-slate-500">
+              房況日曆 · 訂房保存在此工作區
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              className={secondary}
+              onClick={async () => {
+                try {
+                  await api("/api/customer-session", "DELETE", {});
+                  location.assign("/start");
+                } catch (e) {
+                  setError((e as Error).message);
+                }
+              }}
+            >
+              登出
+            </button>
+            {canWrite && (
+              <button
+                className={`${button} hidden sm:block`}
+                onClick={() => open()}
+              >
+                ＋新增訂房
+              </button>
+            )}
+          </div>
+        </header>
+        {data.properties.length > 1 && (
+          <label className="mt-5 block">
+            目前旅宿
+            <select
+              className={field}
+              value={propertyId}
+              onChange={(e) => setPropertyId(e.target.value)}
+            >
+              {data.properties.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <div className="my-6 flex flex-wrap items-center gap-2">
+          <button
+            aria-label="上一週"
+            className={secondary}
+            onClick={() => setStart(plusDays(start, -7))}
+          >
+            ←
+          </button>
+          <input
+            aria-label="日曆起始日期"
+            className="rounded-xl border p-2"
+            type="date"
+            value={start}
+            min="2000-01-01"
+            max="2100-12-24"
+            onChange={(e) => e.target.value && setStart(e.target.value)}
+          />
+          <button
+            aria-label="下一週"
+            className={secondary}
+            onClick={() => setStart(plusDays(start, 7))}
+          >
+            →
+          </button>
+          <button className={secondary} onClick={() => setStart(today())}>
+            今天
+          </button>
+          <button className={secondary} onClick={refresh}>
+            重新載入
+          </button>
+        </div>
+        <div className="overflow-x-auto rounded-2xl border bg-white">
+          <div className="min-w-[720px]">
+            <div className="grid grid-cols-[100px_repeat(7,minmax(0,1fr))] border-b bg-stone-100">
+              <span className="p-3 text-sm">房間</span>
+              {days.map((day) => (
+                <button
+                  disabled={!canWrite}
+                  key={day}
+                  className="border-l p-3 text-sm hover:bg-teal-50"
+                  onClick={() => open(day)}
+                >
+                  {day.slice(5)}
+                  <span className="mt-1 block text-xs text-teal-800">
+                    {canWrite ? "＋訂房" : ""}
+                  </span>
+                </button>
+              ))}
+            </div>
+            {property?.rooms.map((room) => (
+              <div
+                key={room.id}
+                className="grid grid-cols-[100px_minmax(0,1fr)] border-b last:border-0"
+              >
+                <div className="p-4 text-sm font-medium">{room.name}</div>
+                <div className="relative grid min-h-20 grid-cols-7">
+                  {days.map((day) => (
+                    <button
+                      key={day}
+                      disabled={!canWrite}
+                      aria-label={`${room.name} ${day} 新增訂房`}
+                      onClick={() => open(day, room.id)}
+                      className="col-span-1 row-start-1 border-l hover:bg-teal-50"
+                    />
+                  ))}
+                  {active
+                    .filter(
+                      (b) =>
+                        b.roomIds.includes(room.id) &&
+                        b.checkIn < plusDays(start, 7) &&
+                        start < b.checkOut,
+                    )
+                    .map((b) => {
+                      const first = Math.max(
+                        0,
+                        Math.round(
+                          (Date.parse(b.checkIn) - Date.parse(start)) /
+                            86400000,
+                        ),
+                      );
+                      const end = Math.min(
+                        7,
+                        Math.round(
+                          (Date.parse(b.checkOut) - Date.parse(start)) /
+                            86400000,
+                        ),
+                      );
+                      return (
+                        <button
+                          key={b.id}
+                          onClick={() => setSelected(b.id)}
+                          style={{
+                            gridColumn: `${first + 1} / ${end + 1}`,
+                            gridRow: 1,
+                          }}
+                          className={`z-10 m-1 self-center overflow-hidden rounded-lg p-2 text-left text-sm ${highlight === b.id ? "bg-teal-800 text-white ring-2 ring-teal-400" : "bg-teal-100 text-teal-950"}`}
+                        >
+                          <span className="block truncate font-medium">
+                            {b.guestName || "未填姓名"}
+                          </span>
+                          <span className="block truncate text-xs">
+                            {b.checkIn.slice(5)} → {b.checkOut.slice(5)}
+                            {b.roomIds.length > 1
+                              ? ` · ${b.roomIds.length} 房`
+                              : ""}
+                          </span>
+                        </button>
+                      );
+                    })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <p className="mt-3 text-sm text-slate-500">
+          每格代表當晚住宿，退房當日可接下一筆訂房。手機可左右滑動查看。
+        </p>
+        {!active.length && (
+          <p className="my-10 text-center text-slate-500">
+            還沒有訂房。點日期或「＋」開始登記。
+          </p>
+        )}
+        {canWrite && (
+          <button
+            aria-label="新增訂房"
+            className={`${button} fixed bottom-6 right-5 z-20 h-14 w-14 rounded-full p-0 text-3xl shadow-lg sm:hidden`}
+            onClick={() => open()}
+          >
+            ＋
+          </button>
+        )}
+        {error && !creating && (
+          <p role="status" className="mt-5 rounded-xl bg-amber-50 p-4">
+            {error}
+          </p>
+        )}
+        {picked && !creating && (
+          <Modal label="訂房詳情" onClose={() => setSelected("")}>
+            <div className="max-h-[90dvh] w-full max-w-lg overflow-auto rounded-2xl bg-white p-6">
+              <div className="flex justify-between">
+                <h2 className="text-xl font-semibold">
+                  {picked.guestName || "未填姓名"}
+                </h2>
+                <button className={secondary} onClick={() => setSelected("")}>
+                  關閉
+                </button>
+              </div>
+              <p className="mt-5">
+                {picked.checkIn} → {picked.checkOut}
+              </p>
+              <p className="mt-2">
+                {property?.rooms
+                  .filter((r) => picked.roomIds.includes(r.id))
+                  .map((r) => r.name)
+                  .join("、")}
+              </p>
+              {data.role !== "viewer_no_price" && (
+                <>
+                  <p className="mt-4">
+                    整筆房費：
+                    {picked.total === null
+                      ? "尚未登記"
+                      : `$${picked.total.toLocaleString()}`}
+                  </p>
+                  <p>
+                    旅宿實收：
+                    {picked.payments.length
+                      ? `$${picked.payments.reduce((sum, p) => sum + p.amount, 0).toLocaleString()}`
+                      : "尚未登記"}
+                  </p>
+                  {picked.payments.map((p) => (
+                    <p key={p.id} className="mt-2 text-sm text-slate-500">
+                      {new Date(p.receivedAt).toLocaleString("zh-TW")} ·{" "}
+                      {p.method || "未填付款方式"} · ${p.amount}
+                    </p>
+                  ))}
+                  {picked.notes && (
+                    <p className="mt-4 whitespace-pre-wrap">{picked.notes}</p>
+                  )}
+                  {picked.contact && (
+                    <p className="mt-2">聯絡方式：{picked.contact}</p>
+                  )}
+                </>
+              )}
+              <p className="mt-4 text-sm text-slate-500">通知客人：尚未通知</p>
+              <p className="mt-2 break-all text-xs text-slate-400">
+                訂單 {picked.id}
+              </p>
+            </div>
+          </Modal>
+        )}
+        {creating && property && (
+          <Modal
+            label="新增訂房"
+            locked={busy || uncertain}
+            onClose={() => setCreating(false)}
+          >
+            <form
+              onSubmit={submit}
+              className="max-h-[95dvh] w-full max-w-xl overflow-auto rounded-2xl bg-white p-5 sm:p-7"
+            >
+              <div className="mb-5 flex items-center justify-between">
+                <h2 className="text-xl font-semibold">新增訂房</h2>
+                <button
+                  type="button"
+                  disabled={busy || uncertain}
+                  className={secondary}
+                  onClick={() => setCreating(false)}
+                >
+                  關閉
+                </button>
+              </div>
+              <fieldset disabled={busy || uncertain} className="space-y-5">
+                <label className="block">
+                  入住日期
+                  <input
+                    type="date"
+                    required
+                    min="2000-01-01"
+                    max="2100-12-30"
+                    className={field}
+                    value={checkIn}
+                    onChange={(e) =>
+                      e.target.value && setCheckIn(e.target.value)
+                    }
+                  />
+                </label>
+                <div>
+                  <p className="mb-2">住幾晚</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {[1, 2, 3].map((n) => (
+                      <button
+                        type="button"
+                        aria-pressed={nights === n}
+                        key={n}
+                        className={nights === n ? button : secondary}
+                        onClick={() => setNights(n)}
+                      >
+                        {n} 晚
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      aria-label="減少一晚"
+                      className={secondary}
+                      onClick={() => setNights(Math.max(1, nights - 1))}
+                    >
+                      −
+                    </button>
+                    <input
+                      aria-label="晚數"
+                      type="number"
+                      min={1}
+                      max={366}
+                      value={nights}
+                      className="w-16 rounded-xl border p-2"
+                      onChange={(e) =>
+                        setNights(
+                          Math.max(
+                            1,
+                            Math.min(366, Number(e.target.value) || 1),
+                          ),
+                        )
+                      }
+                    />
+                    <button
+                      type="button"
+                      aria-label="增加一晚"
+                      className={secondary}
+                      onClick={() => setNights(Math.min(366, nights + 1))}
+                    >
+                      ＋
+                    </button>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-600">
+                    退房：{checkOut}
+                  </p>
+                </div>
+                <div>
+                  <p className="mb-2">房間（可複選）</p>
+                  <div className="flex flex-wrap gap-2">
+                    {property.kind !== "rooms" && (
+                      <button
+                        type="button"
+                        className={
+                          property.villaRoomIds.every((id) =>
+                            roomIds.includes(id),
+                          )
+                            ? button
+                            : secondary
+                        }
+                        disabled={property.villaRoomIds.some(occupied)}
+                        onClick={() => setRoomIds(property.villaRoomIds)}
+                      >
+                        整棟
+                        {property.villaRoomIds.some(occupied)
+                          ? " · 已有訂房"
+                          : ""}
+                      </button>
+                    )}
+                    {property.kind !== "villa" &&
+                      property.rooms.map((r) => (
+                        <button
+                          type="button"
+                          key={r.id}
+                          disabled={occupied(r.id)}
+                          aria-pressed={roomIds.includes(r.id)}
+                          className={
+                            roomIds.includes(r.id) ? button : secondary
+                          }
+                          onClick={() =>
+                            setRoomIds(
+                              roomIds.includes(r.id)
+                                ? roomIds.filter((id) => id !== r.id)
+                                : [...roomIds, r.id],
+                            )
+                          }
+                        >
+                          {r.name}
+                          {occupied(r.id) ? " · 已售" : ""}
+                        </button>
+                      ))}
+                  </div>
+                </div>
+                <label className="block">
+                  旅客稱呼（選填）
+                  <input
+                    className={field}
+                    value={guestName}
+                    maxLength={100}
+                    onChange={(e) => setGuestName(e.target.value)}
+                  />
+                </label>
+                <details className="rounded-xl border p-3">
+                  <summary className="cursor-pointer font-medium">
+                    ＋登記房費／已收款
+                  </summary>
+                  <div className="mt-4 space-y-4">
+                    <label className="block">
+                      整筆房費（全部房間、全部晚數合計）
+                      <input
+                        className={field}
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={total}
+                        placeholder="未記錄"
+                        onChange={(e) => setTotal(e.target.value)}
+                      />
+                    </label>
+                    <label className="block">
+                      旅宿實際收款
+                      <select
+                        className={field}
+                        value={paymentKind}
+                        onChange={(e) => setPaymentKind(e.target.value)}
+                      >
+                        <option value="none">尚未登記</option>
+                        <option value="deposit">收訂金</option>
+                        <option value="full">收全額</option>
+                        <option value="balance">收尾款</option>
+                        <option value="other">其他費用</option>
+                      </select>
+                    </label>
+                    {paymentKind !== "none" && (
+                      <>
+                        <p className="text-sm text-slate-500">
+                          記錄旅宿已收到的款項；OTA
+                          顯示客人已付款不代表旅宿已入帳。
+                        </p>
+                        <label className="block">
+                          實收金額
+                          <input
+                            className={field}
+                            required
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={paid}
+                            onChange={(e) => setPaid(e.target.value)}
+                          />
+                        </label>
+                        <label className="block">
+                          收款時間
+                          <input
+                            className={field}
+                            required
+                            type="datetime-local"
+                            value={receivedAt}
+                            onChange={(e) => setReceivedAt(e.target.value)}
+                          />
+                        </label>
+                        <label className="block">
+                          付款方式（選填）
+                          <input
+                            className={field}
+                            value={method}
+                            maxLength={100}
+                            placeholder="例如：轉帳、現金"
+                            onChange={(e) => setMethod(e.target.value)}
+                          />
+                        </label>
+                      </>
+                    )}
+                  </div>
+                </details>
+                <details className="rounded-xl border p-3">
+                  <summary className="cursor-pointer font-medium">
+                    ＋聯絡方式／備註
+                  </summary>
+                  <label className="mt-4 block">
+                    聯絡方式
+                    <input
+                      className={field}
+                      value={contact}
+                      maxLength={200}
+                      onChange={(e) => setContact(e.target.value)}
+                    />
+                  </label>
+                  <label className="mt-4 block">
+                    備註
+                    <textarea
+                      className={field}
+                      value={notes}
+                      maxLength={2000}
+                      onChange={(e) => setNotes(e.target.value)}
+                    />
+                  </label>
+                </details>
+              </fieldset>
+              <div className="sticky -bottom-5 z-10 -mx-5 mt-5 border-t bg-white px-5 pb-5 pt-3 sm:-bottom-7 sm:-mx-7 sm:px-7 sm:pb-7">
+                <div className="rounded-xl bg-teal-50 p-4 text-sm">
+                  <p className="font-semibold">
+                    {property.name} ·{" "}
+                    {property.rooms
+                      .filter((r) => roomIds.includes(r.id))
+                      .map((r) => r.name)
+                      .join("、") || "請選房間"}
+                  </p>
+                  <p className="mt-1">
+                    {checkIn} 入住 → {checkOut} 退房 · {nights} 晚
+                  </p>
+                </div>
+                {error && (
+                  <p role="alert" className="mt-4 text-sm text-red-800">
+                    {error}
+                  </p>
+                )}
+                {uncertain && (
+                  <p className="mt-3 text-sm text-amber-800">
+                    結果尚待確認，請重試同一筆操作，系統不會重複建立。
+                  </p>
+                )}
+                <div className="mt-5 flex gap-2">
+                  <button
+                    className={`${button} flex-1`}
+                    disabled={
+                      busy ||
+                      !roomIds.length ||
+                      (!uncertain && roomIds.some(occupied))
+                    }
+                  >
+                    {busy
+                      ? "建立中…"
+                      : uncertain
+                        ? "重試並核對結果"
+                        : "建立訂房"}
+                  </button>
+                  {!uncertain && (
+                    <button
+                      type="button"
+                      className={secondary}
+                      disabled={busy}
+                      onClick={refresh}
+                    >
+                      更新房況
+                    </button>
+                  )}
+                </div>
+              </div>
+            </form>
+          </Modal>
+        )}
+      </div>
+    </main>
+  );
+}
