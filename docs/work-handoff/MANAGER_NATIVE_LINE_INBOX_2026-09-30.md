@@ -343,8 +343,10 @@ cards therefore remained stale until the owner requested a new overview.
   all-snoozed queues can now update automatically.
 - Background changes are coalesced at one-minute intervals by the existing
   cron. After-action processing requests an updated digest when runtime remains,
-  without the background throttle. It still skips an identical overview. If a
-  worker runs out of time, the next scheduled pass can finish the refresh.
+  without the background throttle. It still skips an identical overview. The
+  scheduled run reserves ten seconds for overview delivery so queue/media work
+  cannot continually consume its dispatch budget. If an action worker runs out
+  of time, the next scheduled pass can finish the refresh.
 - Push retries preserve the same saved payload and retry ID; owner revision
   changes invalidate pending pushes. Missing property reads do not generate a
   misleading authoritative empty-inbox push. The action gates, confirmation
