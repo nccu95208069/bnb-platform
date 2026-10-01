@@ -123,8 +123,10 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
       else{x.dismiss_attempt_at=now();x.dismiss_retry_at=now()+60000;s.error='daili_unavailable';}
      });continue;
     }
-    await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===a.id);if(x?.status!=='dismiss_requested')return;x.status=result.status==='dismissed'?'dismissed':'stale';x.version++;
-     if(!clearResult(s,x,x.status==='dismissed'?'closed':'changed'))notice(s,x,'status',x.status==='dismissed'?'這次待辦已結案，沒有傳訊息；客人之後有新訊息仍會整理。':'客人有新訊息或內容已更新，保留待辦，請重新查看。');finishClears(s);
+    await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===a.id);if(x?.status!=='dismiss_requested')return;x.status=result.status==='dismissed'?'dismissed':result.status==='blocked'?'awaiting_approval':'stale';x.version++;
+     if(result.status==='blocked')x.dismiss_recovery_snapshot=x.inbox_snapshot;
+     const note=result.status==='blocked'?(result.reason==='MANAGER_REVIEW_INCOMPLETE'?'這筆待辦尚未結案：目前卡片未涵蓋所有待確認內容，請先查看完整對話。':'這筆待辦尚未結案：內部紀錄需要修復，已保留待辦；不必重複點擊。'):x.status==='dismissed'?'這次待辦已結案，沒有傳訊息；客人之後有新訊息仍會整理。':'客人有新訊息或內容已更新，保留待辦，請重新查看。';
+     if(!clearResult(s,x,x.status==='dismissed'?'closed':'changed'))notice(s,x,'status',note);finishClears(s);
     });
    }
    d=await read(owner,p);
@@ -167,6 +169,11 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
       if(s.muted.includes(item.conversation_id)||s.drafts.some(a=>a.conversation_id===item.conversation_id&&['sending','uncertain','dismiss_requested'].includes(a.status)))continue;
       if(item.contract_version===3){
        const old=s.drafts.find(a=>a.conversation_id===item.conversation_id&&a.contract_version===3&&['awaiting_approval','approved','stale'].includes(a.status));
+       // Recover a previously rejected owner decision once, only while its
+       // exact reviewed snapshot and owner binding are still unchanged.
+       if(old&&['awaiting_approval','stale'].includes(old.status)&&['no_reply','clear_all'].includes(old.last_action_type)&&old.last_action_at&&old.last_action_snapshot===item.inbox_snapshot&&old.dismiss_recovery_snapshot!==item.inbox_snapshot&&old.binding_revision===connection.binding_revision&&!['requested','binding','uncertain'].includes(old.binding_state)){
+        old.status='dismiss_requested';old.decision_id||=randomUUID();old.dismiss_recovery_snapshot=item.inbox_snapshot;delete old.dismiss_retry_at;continue;
+       }
        if(old?.inbox_snapshot===item.inbox_snapshot&&['awaiting_approval','approved'].includes(old.status)){old.name=item.name;continue;}
        if(s.drafts.some(a=>a.conversation_id===item.conversation_id&&['requested','binding','uncertain'].includes(a.binding_state)))continue;
        const keepEdit=old?.edited,previousReply=old?.reply;
