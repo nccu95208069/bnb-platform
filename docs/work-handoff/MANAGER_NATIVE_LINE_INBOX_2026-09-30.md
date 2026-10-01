@@ -261,3 +261,33 @@ already started, retain bulk-worker support until it completes: the previous
 version can still execute the saved no-reply requests but cannot preserve the
 new aggregate progress/reporting behavior. Public source push remains pending
 the existing explicit publication approval.
+
+## Separate LINE / IG handled actions and clearer snooze — 2026-10-01
+
+Latest owner request adds independent LINE and IG bulk handled actions and a
+visible “稍後處理” option.
+
+- The overview and category page controls now show “LINE 全部標為已處理” and
+  “IG 全部標為已處理”, alongside the existing all-channel action. Each opens a
+  confirmation with the selected channel and its property/category counts.
+- A captured bulk operation persists its channel with the immutable draft IDs,
+  versions and owner binding revision. The admission service validates the
+  channel and each draft's channel, and rejects token reuse with a different
+  channel. Older operations without channel metadata remain all-channel;
+  older drafts without channel metadata remain LINE. Channel information is
+  retained in progress, retry and completion receipts. The overview can show
+  progress for independent operations at the same time.
+- As with the existing all-channel action, each channel action includes all its
+  categories, pages and snoozed drafts. This scope is stated in the confirmation.
+  New/changed items remain outside the captured operation. Processing continues
+  through the existing durable no-reply path and sends no guest messages.
+- Individual draft cards label snooze “稍後處理（1 小時）”. This retains the
+  existing one-hour behavior pending any different owner preference. The result
+  shows the scheduled recovery time in Asia/Taipei and adds a direct “恢復處理”
+  button. The existing “稍後處理” category remains available in the overview,
+  quick navigation and persistent LINE menu. New guest input can restore a
+  snoozed conversation earlier, as before.
+
+JavaScript syntax, scoped ESLint and whitespace checks passed. Automated tests
+and real guest/bulk actions were not run. No schema, secret, or Cloud Run change
+is needed. Rollout status is recorded below after the production build.

@@ -1,4 +1,5 @@
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
+import {validChannel,matchesChannel} from './manager-channels.mjs';
 import {customerCrypto} from './customer.mjs';
 const PREFIX='sweetfun-os:daili-manager:v1:',DAY=86400000,DISMISS_RECOVERY_VERSION=3;
 const MEDIA_START='2026-09-28T09:04:05.000Z';
@@ -20,7 +21,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
  const read=async(owner,p)=>{const k=key(owner,p),raw=await redis(['GET',k]);return raw?vault().open(raw,k):fresh();};
  async function mutate(owner,p,fn){const k=key(owner,p);for(let i=0;i<8;i++){const raw=await redis(['GET',k]),d=raw?vault().open(raw,k):fresh(),result=fn(d);if(await redis(['EVAL',CAS,1,k,raw||'',vault().seal(d,k)])===1)return result;}need(false,'busy');}
  function notice(d,a,kind='draft',text=''){d.notices.push({id:randomUUID(),draft_id:a.id,version:a.version,kind,text,created_at:now(),...(['status','binding_status'].includes(kind)?{draft:structuredClone(project(a))}:{})});}
- const clearSummary=b=>({token:b.token,total:b.total,closed:Object.values(b.results).filter(x=>x==='closed').length,changed:Object.values(b.results).filter(x=>x==='changed').length,pending:Object.values(b.results).filter(x=>x==='pending').length});
+ const clearSummary=b=>({token:b.token,channel:b.channel||'all',total:b.total,closed:Object.values(b.results).filter(x=>x==='closed').length,changed:Object.values(b.results).filter(x=>x==='changed').length,pending:Object.values(b.results).filter(x=>x==='pending').length});
  function finishClears(d){
   for(const b of Object.values(d.clearBatches||{}))if(!b.completed_at&&!Object.values(b.results).includes('pending')){
    b.completed_at=now();d.notices.push({id:randomUUID(),kind:'clear_summary',clear:clearSummary(b),created_at:now()});
@@ -51,14 +52,15 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
  async function decide(owner,p,b){need(dailiProperty(owner,p),'daili_not_configured');const binding=await manager.owner(owner,'status');need(binding.bound&&binding.webhook_verified,'manager_not_configured');need(b.owner_binding_revision===undefined||b.owner_binding_revision===binding.binding_revision,'binding_changed');return mutate(owner,p,d=>{
   expire(d);
   if(b.action==='clear_all'){
+   const channel=b.channel??'all';need(validChannel(channel),'invalid_action');
    need(/^[a-f0-9]{24}$/.test(b.token||'')&&Array.isArray(b.items)&&b.items.length>0&&b.items.length<=10000&&b.items.every(x=>x&&typeof x.id==='string'&&/^[\w-]{32}$/.test(x.id)&&Number.isSafeInteger(x.v)&&x.v>0)&&new Set(b.items.map(x=>x.id)).size===b.items.length,'invalid_action');
    const signature=hash(JSON.stringify(b.items));d.clearBatches||={};
    const previous=d.clearBatches[b.token];
-   if(previous){need(previous.signature===signature&&previous.binding_revision===binding.binding_revision,'draft_changed');return {clear:clearSummary(previous),duplicate:true};}
-   const batch={token:b.token,signature,binding_revision:binding.binding_revision,total:b.items.length,results:{},created_at:now()};
+   if(previous){need(previous.signature===signature&&(previous.channel||'all')===channel&&previous.binding_revision===binding.binding_revision,'draft_changed');return {clear:clearSummary(previous),duplicate:true};}
+   const batch={token:b.token,channel,signature,binding_revision:binding.binding_revision,total:b.items.length,results:{},created_at:now()};
    for(const ref of b.items){
     const a=d.drafts.find(x=>x.id===ref.id);
-    if(!a||a.version!==ref.v||a.status!=='awaiting_approval'||a.contract_version!==3||a.expires_at<=now()||['requested','binding','uncertain'].includes(a.binding_state)){batch.results[ref.id]='changed';continue;}
+    if(!a||!matchesChannel(a,channel)||a.version!==ref.v||a.status!=='awaiting_approval'||a.contract_version!==3||a.expires_at<=now()||['requested','binding','uncertain'].includes(a.binding_state)){batch.results[ref.id]='changed';continue;}
     a.status='dismiss_requested';a.decision_id=randomUUID();a.binding_revision=binding.binding_revision;a.clear_batch_id=b.token;
     delete a.dismiss_retry_at;delete a.dismiss_attempt_at;
     a.last_action_id=`clear:${b.token}:${a.id}`;a.last_action_type='clear_all';a.last_action_version=a.version;a.last_action_snapshot=a.inbox_snapshot;a.last_action_at=now();
