@@ -292,7 +292,8 @@ JavaScript syntax, scoped ESLint and whitespace checks passed. Automated tests
 and real guest/bulk actions were not run. No schema, secret, or Cloud Run change
 is needed. Rollout status is recorded below after the production build.
 
-Rollout currently blocked: source de50a52c79c4229be63ad1026d3a2958a62a70de.
+Initial rollout approval gate (resolved below): source
+de50a52c79c4229be63ad1026d3a2958a62a70de.
 The restricted network attempt did not reach Vercel. Automatic approval review
 then rejected the production deployment because it required explicit approval
 for this feature deployment to the existing Vercel destination. No new
@@ -307,3 +308,17 @@ network-enabled local build completed successfully. This build does not deploy
 or alter the live service. Production deployment remains pending explicit
 approval following the automatic review rejection above. No automated tests
 or live LINE button actions were run for this change.
+
+
+Production rollout completed after the owner explicitly replied “同意部署到既有
+正式站”. The prepared frontend source de50a52 was deployed as
+`dpl_6GJ5BedFfBo5ZWMy3WYmxrEfsHPa`,
+https://sweetfun-2c182v6o2-sweetfuns-projects.vercel.app. The Vercel production
+build passed in 20 seconds including TypeScript and 48 static pages. Deployment
+inspection reported Ready before promotion. Promotion succeeded, and a fresh
+inspection of https://sweetfun-os.vercel.app resolved to this exact Ready
+deployment at 23:25 Asia/Taipei on 2026-10-01. This resolves the approval gate
+above. Existing Cloud Run backend, database schema and secrets are unchanged.
+No guest messages or bulk handled actions were executed during rollout. Native
+LINE card interaction remains untested; the owner can tap “待辦總覽” to obtain
+new cards, since previously delivered LINE messages retain their old buttons.
