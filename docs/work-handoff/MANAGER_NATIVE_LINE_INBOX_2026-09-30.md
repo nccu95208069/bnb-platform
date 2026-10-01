@@ -368,3 +368,41 @@ this exact Ready deployment at approximately 23:40 Asia/Taipei, 2026-10-01.
 The first request-log read had no entries yet; no successful phone delivery or
 live button acceptance is claimed from that observation. No guest actions or
 data migrations were performed. Cloud Run and production secrets are unchanged.
+
+## One compact inbox — 2026-10-01
+
+Latest owner decision supersedes the earlier category and snooze design: remove
+“稍後處理” and “建議不用回”; merge “草稿已備妥” and “需要你決定”; keep manual
+editing on the individual draft when the owner needs it and reduce screen space.
+
+- A single “待辦清單” contains every awaiting-approval draft. Existing snoozed
+  and no-reply-category items remain visible in that list; nothing is dismissed
+  merely by removing its former category. Ready/decision distinctions remain
+  internal data and no longer create separate pages or status lines.
+- The compact overview shows one total plus LINE/IG counts, one list button and
+  a side-by-side pair of channel-specific handled buttons. It omits category
+  counts and the redundant all-channel shortcut; previously delivered all-channel
+  confirmation buttons remain valid under their existing scope/version checks.
+- Drafts keep the full proposed reply, source warnings and relevant booking
+  context. Common actions are arranged in two columns: approve, edit, mark
+  handled and view conversation. Optional booking confirmation has its own row.
+  “標為已處理” uses the existing durable no-reply operation and sends no message.
+  Snooze/resume buttons are removed. The pagination control is shorter and no
+  longer repeats the global bulk buttons.
+- Old category links and old category page controls open the combined list.
+  Old snooze/resume postbacks also open the combined list instead of creating
+  new deferred work. Legacy snooze metadata is ignored by list visibility and
+  overview notifications; no state migration or bulk resolution is performed.
+- The persistent LINE menu v5 has three areas: the combined inbox, LINE handled
+  and IG handled. The latter two open the existing confirmation preview. The
+  menu asset is rendered from the new tracked SVG source; menu upload/link is
+  checked by the existing owner-scoped menu installation workflow.
+- Overview presentation version 3 triggers automatic delivery of the compact
+  overview. Existing immediate action receipts/overview refresh, one-minute
+  change notifications, payload-size limits and rendered-card approval evidence
+  remain in place. Bulk approval still requires every displayed item to have a
+  ready, sendable draft and the same captured version.
+
+Scoped ESLint, JavaScript syntax and whitespace checks passed. The new menu
+artwork was rendered and visually inspected. No automated tests or live guest
+button actions were run. Production build and rollout are recorded below.

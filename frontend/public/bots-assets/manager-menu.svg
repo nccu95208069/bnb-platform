@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2500" height="843" viewBox="0 0 2500 843">
+  <rect width="2500" height="843" fill="#F3F6F8"/>
+  <rect x="20" y="28" width="960" height="787" rx="38" fill="#0D7964"/>
+  <rect x="1020" y="28" width="710" height="787" rx="38" fill="#FFFFFF"/>
+  <rect x="1770" y="28" width="710" height="787" rx="38" fill="#FFFFFF"/>
+  <g font-family="Arial Unicode MS, sans-serif" text-anchor="middle">
+    <text x="500" y="412" fill="#FFFFFF" font-size="92">待辦清單</text>
+    <text x="500" y="516" fill="#C7E8DF" font-size="44">查看訊息・直接處理</text>
+    <text x="1375" y="370" fill="#173E39" font-size="78">LINE</text>
+    <text x="1375" y="490" fill="#173E39" font-size="68">全部已處理</text>
+    <text x="2125" y="370" fill="#173E39" font-size="78">IG</text>
+    <text x="2125" y="490" fill="#173E39" font-size="68">全部已處理</text>
+  </g>
+</svg>

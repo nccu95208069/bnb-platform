@@ -1,9 +1,9 @@
 import {createHash,createHmac,timingSafeEqual,randomBytes,randomUUID} from 'node:crypto';
 import {customerCrypto} from './customer.mjs';
-import {PAGE_SIZE,action,button,text,categories,overview,visible,bucket,pageMessages,inboxCard,statusCard,clearStatusCard,quickNav} from './manager-inbox.mjs';
+import {PAGE_SIZE,action,button,text,overview,visible,normalizeCategory,sendBlocked,pageMessages,inboxCard,statusCard,clearStatusCard,quickNav} from './manager-inbox.mjs';
 import {clearLabels,channelLabel,validChannel,matchesChannel} from './manager-channels.mjs';
 import {menuImage} from './manager-menu-image.mjs';
-const PREFIX='sweetfun-os:customer-manager:v1:',DAY=86400,MENU_VERSION=4,INBOX_PRESENTATION_VERSION=2;
+const PREFIX='sweetfun-os:customer-manager:v1:',DAY=86400,MENU_VERSION=5,INBOX_PRESENTATION_VERSION=3;
 const CAS="if (redis.call('GET',KEYS[1]) or '')~=ARGV[1] then return 0 end; redis.call('SET',KEYS[1],ARGV[2]); return 1";
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const need=(ok,code,status=400)=>{if(!ok){const e=new Error(code);e.code=code;e.status=status;throw e;}};
@@ -43,10 +43,9 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
  }
  async function inboxSnapshot(owner,readDrafts){
   const data=await inbox(owner,readDrafts);
-  // Include snoozed/empty states, elapsed snoozes, progress and presentation
-  // changes. A sync timestamp alone must not create another notification.
+  // Track the single inbox, progress and presentation changes. A sync timestamp alone must not create another notification.
   const signature=hash(JSON.stringify([INBOX_PRESENTATION_VERSION,data.revision,
-   data.rows.map(({property,draft})=>[property.id,draft.id,draft.version,bucket(draft,data.now),draft.snoozed_until||0]).sort(),
+   data.rows.map(({property,draft})=>[property.id,draft.id,draft.version,draft.channel_kind||'line']).sort(),
    data.clearings.map(b=>[b.token,b.channel,b.count]).sort(),data.warning]));
   return {message:overview(data.rows,data),signature,revision:data.revision,complete:!data.failures.length};
  }
@@ -55,10 +54,10 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
   await mutate(owner,d=>{if((d.bindingRevision||0)===snapshot.revision){d.digestSignature=snapshot.signature;d.digestSentAt=now();}});
  }
  async function openInbox(owner,category,readDrafts,reviewCards){
-  need(Object.hasOwn(categories,category),'invalid_action');
+  category=normalizeCategory(category);need(category,'invalid_action');
   const data=await inbox(owner,readDrafts);
   if(category==='all')return overview(data.rows,data);
-  const rows=data.rows.filter(({draft})=>bucket(draft,now())===category),token=randomBytes(12).toString('hex'),renderToken=randomBytes(12).toString('hex');
+  const rows=data.rows,token=randomBytes(12).toString('hex'),renderToken=randomBytes(12).toString('hex');
   const view={category,pageSize:PAGE_SIZE,until:now()+DAY*1000,items:rows.map(({property,draft})=>({p:property.id,id:draft.id})),pages:{0:{renderToken,items:rows.slice(0,PAGE_SIZE).map(({property,draft})=>({p:property.id,id:draft.id,v:draft.version}))}}};
   await mutate(owner,d=>{d.views=Object.fromEntries(Object.entries(d.views||{}).filter(([,v])=>v.until>now()).slice(-19));d.views[token]=view;});
   return showPage(owner,token,0,readDrafts,reviewCards,{view,data});
@@ -67,7 +66,8 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
   need(/^[a-f0-9]{24}$/.test(token||'')&&Number.isSafeInteger(page)&&page>=0,'invalid_action');
   const view=cached?.view||(await read(owner)).views?.[token],pageSize=view?.pageSize||3;
   need(view&&[3,PAGE_SIZE].includes(pageSize)&&view.until>now()&&page<Math.max(1,Math.ceil(view.items.length/pageSize)),'view_expired');
-  const data=cached?.data||await inbox(owner,readDrafts),rows=view.items.slice(page*pageSize,page*pageSize+pageSize).flatMap(ref=>data.rows.filter(row=>row.property.id===ref.p&&row.draft.id===ref.id&&bucket(row.draft,now())===view.category));
+  if(view.category!=='pending')return openInbox(owner,'pending',readDrafts,reviewCards);
+  const data=cached?.data||await inbox(owner,readDrafts),rows=view.items.slice(page*pageSize,page*pageSize+pageSize).flatMap(ref=>data.rows.filter(row=>row.property.id===ref.p&&row.draft.id===ref.id));
   const renderToken=cached?view.pages[page].renderToken:randomBytes(12).toString('hex');
   if(!cached)await mutate(owner,d=>{need(d.views?.[token]?.until>now(),'view_expired');d.views[token].pages[page]={renderToken,items:rows.map(({property,draft})=>({p:property.id,id:draft.id,v:draft.version}))};});
   if(reviewCards)for(const property of new Set(rows.filter(r=>r.draft.contract_version===3).map(r=>r.property.id)))await reviewCards(owner,property,rows.filter(r=>r.property.id===property).map(r=>({id:r.draft.id,v:r.draft.version})));
@@ -77,7 +77,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
   const state=await read(owner),view=state.views?.[q.get('t')],page=Number(q.get('n')),shown=view?.pages?.[page],refs=shown?.items,mode=q.get('mode')==='no_reply'?'no_reply':'approve';
   need(view?.until>now()&&shown?.renderToken===q.get('r')&&refs?.length&&refs.length<=PAGE_SIZE,'view_expired');
   const data=await inbox(owner,readDrafts),rows=refs.map(ref=>data.rows.find(row=>row.property.id===ref.p&&row.draft.id===ref.id&&row.draft.version===ref.v));
-  need(rows.every(row=>row&&bucket(row.draft,now())===(mode==='approve'?'ready':'no_reply')),'draft_changed');
+  need(rows.every(row=>row&&row.draft.category===(mode==='approve'?'ready':'no_reply')&&(mode!=='approve'||row.draft.reply&&!sendBlocked(row.draft))),'draft_changed');
   const token=randomBytes(12).toString('hex');
   await mutate(owner,d=>{d.batches=Object.fromEntries(Object.entries(d.batches||{}).filter(([,b])=>b.until>now()).slice(-9));d.batches[token]={displayVersion:2,items:refs,mode,until:now()+600000,results:[],bindingRevision:d.bindingRevision};});
   return {type:'flex',altText:'確認本組操作',contents:{type:'bubble',body:{type:'box',layout:'vertical',spacing:'md',contents:[text(mode==='approve'?`送出這 ${rows.length} 位客人剛才顯示的各自草稿？`:`這 ${rows.length} 位客人這次都不用回？`,{weight:'bold'}),...rows.map(row=>text(`${row.property.name}｜${row.draft.name}`)),text('內容有更新的項目會跳過，保留給你重新確認。',{size:'xs'})]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:[button(mode==='approve'?'確認送出':'確認不用回',{a:'batch_confirm',t:token},true),button('返回總覽',{a:'inbox',c:'all'})]}}};
@@ -109,8 +109,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
    d.clears=Object.fromEntries([...keep.filter(([,b])=>b.confirmed),...keep.filter(([,b])=>!b.confirmed).slice(-19)]);
    d.clears[token]={channel,groups,total:rows.length,excluded,revision,until:now()+600000,confirmed:false};
   });
-  const counts=Object.fromEntries(['ready','decision','no_reply','snoozed'].map(c=>[c,rows.filter(({draft})=>bucket(draft,now())===c).length]));
-  return {type:'flex',altText:`確認${clearLabels[channel]}：${rows.length} 筆`,contents:{type:'bubble',body:{type:'box',layout:'vertical',spacing:'md',contents:[text(`${channelLabel(channel)} 共 ${rows.length} 筆標為已處理？`,{size:'lg',weight:'bold'}),...Object.keys(groups).map(p=>text(`${rows.find(row=>row.property.id===p).property.name}：${groups[p].length} 筆`)),text(Object.entries(counts).map(([c,n])=>`${categories[c]} ${n} 筆`).join('\n')),text(`範圍：${channelLabel(channel)}。包含此範圍所有分類、所有分頁與稍後處理。這次不會傳送任何訊息給客人。`),text('以這次確認清單為準；新增訊息或內容已更新的項目會保留。',{size:'xs'}),...(excluded?[text(`另有 ${excluded} 筆正在處理或需重新整理，暫時保留。`,{size:'xs'})]:[]),...(data.warning?[text(data.warning,{size:'xs'})]:[])]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:[button(channel==='all'?'確認全部已處理':`確認 ${channelLabel(channel)} 全部已處理`,{a:'clear_confirm',t:token},true),button('取消',{a:'clear_cancel',t:token})]}},quickReply:quickNav()};
+  return {type:'flex',altText:`確認${clearLabels[channel]}：${rows.length} 筆`,contents:{type:'bubble',body:{type:'box',layout:'vertical',spacing:'md',contents:[text(`${channelLabel(channel)} 共 ${rows.length} 筆標為已處理？`,{size:'lg',weight:'bold'}),...Object.keys(groups).map(p=>text(`${rows.find(row=>row.property.id===p).property.name}：${groups[p].length} 筆`)),text(`範圍：${channelLabel(channel)}。包含此範圍所有待辦與所有分頁。這次不會傳送任何訊息給客人。`),text('以這次確認清單為準；新增訊息或內容已更新的項目會保留。',{size:'xs'}),...(excluded?[text(`另有 ${excluded} 筆正在處理或需重新整理，暫時保留。`,{size:'xs'})]:[]),...(data.warning?[text(data.warning,{size:'xs'})]:[])]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:[button(channel==='all'?'確認全部已處理':`確認 ${channelLabel(channel)} 全部已處理`,{a:'clear_confirm',t:token},true),button('取消',{a:'clear_cancel',t:token})]}},quickReply:quickNav()};
  }
  async function clearStatus(owner,token,readDrafts,revision){
   const b=(await read(owner)).clears?.[token];need(b?.confirmed&&b.until>now()&&b.revision===revision,'view_expired');
@@ -149,7 +148,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
     const name='客服經理・待辦 v'+MENU_VERSION,existing=await line(d,'richmenu/list');
     let menu=existing.richmenus?.find(m=>m.name===name),hasImage=false;
     if(menu){stage='image-check';const content=await fetcher(`https://api-data.line.me/v2/bot/richmenu/${menu.richMenuId}/content`,{headers:{Authorization:'Bearer '+d.accessToken},signal:AbortSignal.timeout(8000)});hasImage=content.ok;need(content.ok||content.status===404,'menu_unavailable',503);await content.body?.cancel();}
-    stage='create';if(!menu)menu=await line(d,'richmenu',{size:{width:2500,height:843},selected:true,name,chatBarText:'客服待辦',areas:['all','ready','decision','snoozed'].map((c,i)=>({bounds:{x:i*625,y:0,width:625,height:843},action:action(categories[c],{a:'inbox',c})}))});
+    stage='create';if(!menu)menu=await line(d,'richmenu',{size:{width:2500,height:843},selected:true,name,chatBarText:'客服待辦',areas:[{bounds:{x:0,y:0,width:1000,height:843},action:action('查看待辦',{a:'inbox',c:'pending'})},...['line','instagram'].map((ch,i)=>({bounds:{x:1000+i*750,y:0,width:750,height:843},action:action(clearLabels[ch],{a:'clear_preview',ch})}))]});
     if(!hasImage){stage='upload';const uploaded=await fetcher(`https://api-data.line.me/v2/bot/richmenu/${menu.richMenuId}/content`,{method:'POST',headers:{Authorization:'Bearer '+d.accessToken,'Content-Type':'image/png'},body:menuImage,signal:AbortSignal.timeout(8000)});
     if(!uploaded.ok){const e=new Error('menu_upload_failed');e.code='menu_upload_failed';e.providerStatus=uploaded.status;throw e;}}
     const current=await read(owner);need(current.bindingRevision===d.bindingRevision&&current.ownerUserId===d.ownerUserId,'binding_changed');
@@ -270,15 +269,16 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
      const pairing=/^綁定 ([a-f0-9]{32})$/.exec(value);
      if(pairing){
       await mutate(owner,s=>{need(s.pairHash===hash(pairing[1])&&s.pairExpires>now(),'pairing_expired',409);s.bindingRevision=(s.bindingRevision||0)+1;s.ownerUserId=event.source.userId;delete s.pairHash;delete s.editFocus;});
-      reply={type:'text',text:'已連接客服經理。按下「待辦總覽」查看分類，再用卡片按鈕處理；同一位客人的連續訊息會合併整理。'};
+      reply={type:'text',text:'已連接客服經理。待辦會自動整理到同一份清單，可直接用卡片按鈕處理；同一位客人的連續訊息會合併整理。'};
      }else if(current.ownerUserId===event.source.userId){
       // Bind every decision in this event, including each batch item, to the
       // owner connection that authenticated its LINE sender.
       const boundDecide=(actor,property,body)=>decide(actor,property,{...body,owner_binding_revision:current.bindingRevision||0});
       if(event.type==='postback'){
        const q=new URLSearchParams(event.postback?.data||''),a=q.get('a'),p=q.get('p'),id=q.get('d'),version=Number(q.get('v'));
-       refreshOverview=['approve','bind','takeover','no_reply','snooze','unsnooze','batch_confirm','clear_confirm','clear_cancel'].includes(a);
+       refreshOverview=['approve','bind','takeover','no_reply','batch_confirm','clear_confirm','clear_cancel'].includes(a);
        if(a==='inbox')reply=!q.get('c')||q.get('c')==='all'?await latestOverview():await openInbox(owner,q.get('c'),readDrafts,queueReview);
+       else if(a==='snooze'||a==='unsnooze')reply=await openInbox(owner,'pending',readDrafts,queueReview);
        else if(a==='page')reply=await showPage(owner,q.get('t'),Number(q.get('n')),readDrafts,queueReview);
        else if(a==='batch_preview')reply=await batchPreview(owner,q,readDrafts);
        else if(a==='batch_confirm')reply=await confirmBatch(owner,q.get('t'),eventId,boundDecide);
@@ -311,13 +311,9 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
         await mutate(owner,s=>{s.editFocus={property:p,id,version,until:now()+600000};});
         reply={type:'text',text:`修改「${current.properties.find(x=>x.id===p).name}｜${draft.name}」的回覆。\n送出到這裡只會儲存草稿，還需要按「核准送出」才會傳給客人。`,quickReply:{items:[{type:'action',action:action('取消修改',{a:'cancel_edit'})}]}};
        }else{
-        need(['approve','bind','takeover','no_reply','snooze','unsnooze'].includes(a),'invalid_action');
+        need(['approve','bind','takeover','no_reply'].includes(a),'invalid_action');
         const result=await boundDecide(owner,p,{draft_id:id,version,action:a,request_id:eventId});
-        reply=statusCard(current.properties.find(x=>x.id===p),result.draft,{duplicate:!!result.duplicate,binding:a==='bind',note:a==='takeover'?'已交由你處理，這位客人的後續訊息暫停整理。':a==='unsnooze'?'已恢復到待辦。':''});
-        if(a==='unsnooze'){
-         reply=[reply,card(current.properties.find(x=>x.id===p),result.draft)];
-         if(result.draft.contract_version===3&&queueReview)queueReview(owner,p,[{id:result.draft.id,v:result.draft.version}]);
-        }
+        reply=statusCard(current.properties.find(x=>x.id===p),result.draft,{duplicate:!!result.duplicate,binding:a==='bind',note:a==='takeover'?'已交由你處理，這位客人的後續訊息暫停整理。':''});
        }
        }
       }else if(value==='取消修改'){
@@ -329,7 +325,7 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
        reply=[{type:'text',text:'草稿已更新，請查看並按「核准送出」。'},card(current.properties.find(x=>x.id===focus.property),result.draft)];
        if(result.draft.contract_version===3&&queueReview)queueReview(owner,focus.property,[{id:result.draft.id,v:result.draft.version}]);
       }else if(['待辦','待辦總覽'].includes(value))reply=await latestOverview();
-      else if(value)reply={type:'text',text:'按下方「待辦總覽」查看分類，再左右滑動卡片處理。需要修改草稿時才需輸入文字。'};
+      else if(value)reply={type:'text',text:'按下方「查看待辦」，左右滑動卡片即可處理。需要修改草稿時才需輸入文字。'};
      }
      if(reply&&refreshOverview){
       try{reply=[...(Array.isArray(reply)?reply:[reply]),await latestOverview()];}
