@@ -1,6 +1,6 @@
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {customerCrypto} from './customer.mjs';
-const PREFIX='sweetfun-os:daili-manager:v1:',DAY=86400000,DISMISS_RECOVERY_VERSION=2;
+const PREFIX='sweetfun-os:daili-manager:v1:',DAY=86400000,DISMISS_RECOVERY_VERSION=3;
 const MEDIA_START='2026-09-28T09:04:05.000Z';
 const CAS="if (redis.call('GET',KEYS[1]) or '')~=ARGV[1] then return 0 end; redis.call('SET',KEYS[1],ARGV[2]); return 1";
 const hash=v=>createHash('sha256').update(v).digest('hex');
