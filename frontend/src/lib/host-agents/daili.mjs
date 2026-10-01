@@ -1,6 +1,6 @@
 import {createHash,randomBytes,randomUUID} from 'node:crypto';
 import {customerCrypto} from './customer.mjs';
-const PREFIX='sweetfun-os:daili-manager:v1:',DAY=86400000;
+const PREFIX='sweetfun-os:daili-manager:v1:',DAY=86400000,DISMISS_RECOVERY_VERSION=2;
 const MEDIA_START='2026-09-28T09:04:05.000Z';
 const CAS="if (redis.call('GET',KEYS[1]) or '')~=ARGV[1] then return 0 end; redis.call('SET',KEYS[1],ARGV[2]); return 1";
 const hash=v=>createHash('sha256').update(v).digest('hex');
@@ -108,8 +108,8 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
    await mutate(owner,p,s=>{expire(s);
     // The backend revalidates the saved review before applying it. Recover
     // unchanged local decisions now rather than waiting for a full queue scan.
-    for(const x of s.drafts)if(x.contract_version===3&&['awaiting_approval','stale'].includes(x.status)&&['no_reply','clear_all'].includes(x.last_action_type)&&x.last_action_at&&x.last_action_snapshot===x.inbox_snapshot&&x.dismiss_recovery_snapshot!==x.inbox_snapshot&&x.binding_revision===connection.binding_revision&&!['requested','binding','uncertain'].includes(x.binding_state)){
-     x.status='dismiss_requested';x.decision_id||=randomUUID();x.dismiss_recovery_snapshot=x.inbox_snapshot;delete x.dismiss_retry_at;
+    for(const x of s.drafts)if(x.contract_version===3&&['awaiting_approval','stale'].includes(x.status)&&['no_reply','clear_all'].includes(x.last_action_type)&&x.last_action_at&&x.last_action_snapshot===x.inbox_snapshot&&(x.dismiss_recovery_version!==DISMISS_RECOVERY_VERSION||x.dismiss_recovery_snapshot!==x.inbox_snapshot)&&x.binding_revision===connection.binding_revision&&!['requested','binding','uncertain'].includes(x.binding_state)){
+     x.status='dismiss_requested';x.decision_id||=randomUUID();x.dismiss_recovery_snapshot=x.inbox_snapshot;x.dismiss_recovery_version=DISMISS_RECOVERY_VERSION;delete x.dismiss_retry_at;
     }
    });
    d=await read(owner,p);
@@ -130,7 +130,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
      });continue;
     }
     await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===a.id);if(x?.status!=='dismiss_requested')return;x.status=result.status==='dismissed'?'dismissed':result.status==='blocked'?'awaiting_approval':'stale';x.version++;
-     if(result.status==='blocked')x.dismiss_recovery_snapshot=x.inbox_snapshot;
+     if(result.status==='blocked'){x.dismiss_recovery_snapshot=x.inbox_snapshot;x.dismiss_recovery_version=DISMISS_RECOVERY_VERSION;}
      const note=result.status==='blocked'?(result.reason==='MANAGER_REVIEW_INCOMPLETE'?'這筆待辦尚未結案：目前卡片未涵蓋所有待確認內容，請先查看完整對話。':'這筆待辦尚未結案：內部紀錄需要修復，已保留待辦；不必重複點擊。'):x.status==='dismissed'?'這次待辦已結案，沒有傳訊息；客人之後有新訊息仍會整理。':'客人有新訊息或內容已更新，保留待辦，請重新查看。';
      if(!clearResult(s,x,x.status==='dismissed'?'closed':'changed'))notice(s,x,'status',note);finishClears(s);
     });
