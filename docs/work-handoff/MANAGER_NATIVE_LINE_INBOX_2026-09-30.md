@@ -357,3 +357,14 @@ cards therefore remained stale until the owner requested a new overview.
 
 JavaScript syntax, scoped ESLint and whitespace checks passed. No automated
 or live guest/button tests were run. Build and rollout status follow below.
+
+Rollout: final frontend source 047b0eda56cb03a5df8f0da7ab3d6f9fdf6dc9ff
+(includes 93837fd). Vercel production deployment
+`dpl_4KE4GEL9MCgDLxndRzjf7pGQTipY`,
+https://sweetfun-hroc7wt81-sweetfuns-projects.vercel.app, passed the 17-second
+cloud Next.js build including TypeScript and 48 static pages. It was inspected
+Ready, promoted, and https://sweetfun-os.vercel.app independently resolved to
+this exact Ready deployment at approximately 23:40 Asia/Taipei, 2026-10-01.
+The first request-log read had no entries yet; no successful phone delivery or
+live button acceptance is claimed from that observation. No guest actions or
+data migrations were performed. Cloud Run and production secrets are unchanged.
