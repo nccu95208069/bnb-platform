@@ -291,3 +291,19 @@ visible “稍後處理” option.
 JavaScript syntax, scoped ESLint and whitespace checks passed. Automated tests
 and real guest/bulk actions were not run. No schema, secret, or Cloud Run change
 is needed. Rollout status is recorded below after the production build.
+
+Rollout currently blocked: source de50a52c79c4229be63ad1026d3a2958a62a70de.
+The restricted network attempt did not reach Vercel. Automatic approval review
+then rejected the production deployment because it required explicit approval
+for this feature deployment to the existing Vercel destination. No new
+production deployment or alias change occurred. Existing production remains
+at dpl_AVYgPU8EXFLncVrVxVQBxJE1Yocr. The prepared artifact contains only tracked
+frontend files and the existing Vercel project link; no secret/schema changes.
+TypeScript also passed locally. Local production build result follows.
+
+Local Next.js production build passed (48 static pages, including TypeScript).
+Its first attempt was blocked while fetching the pre-existing Google fonts;
+network-enabled local build completed successfully. This build does not deploy
+or alter the live service. Production deployment remains pending explicit
+approval following the automatic review rejection above. No automated tests
+or live LINE button actions were run for this change.
