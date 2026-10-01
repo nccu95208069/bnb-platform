@@ -322,3 +322,36 @@ above. Existing Cloud Run backend, database schema and secrets are unchanged.
 No guest messages or bulk handled actions were executed during rollout. Native
 LINE card interaction remains untested; the owner can tap “待辦總覽” to obtain
 new cards, since previously delivered LINE messages retain their old buttons.
+
+## Automatic inbox refresh — 2026-10-01
+
+The owner objected to manually pressing “更新待辦”. Previously an action replied
+with its receipt alone; digest pushes considered only unsnoozed active rows,
+skipped empty queues and were throttled for ten minutes. Delivered overview
+cards therefore remained stale until the owner requested a new overview.
+
+- Accepted approve, no-reply, snooze, resume, takeover, binding, batch confirmation
+  and clear/cancel actions now append a newly read overview to the same LINE
+  reply. Rejected/stale actions also attempt to include the current overview.
+  Reply payloads remain within five messages. A failed overview read preserves
+  the action receipt; the ordinary scheduled refresh can recover later.
+- A delivered overview records its content signature only after LINE accepts
+  the reply. The cron does not immediately repeat identical content. The
+  signature includes categories, snoozed items and expiry, pending clear counts,
+  warnings, the owner binding revision and the overview presentation version.
+  It excludes sync time alone, so an unchanged inbox stays quiet. Empty and
+  all-snoozed queues can now update automatically.
+- Background changes are coalesced at one-minute intervals by the existing
+  cron. After-action processing requests an updated digest when runtime remains,
+  without the background throttle. It still skips an identical overview. If a
+  worker runs out of time, the next scheduled pass can finish the refresh.
+- Push retries preserve the same saved payload and retry ID; owner revision
+  changes invalidate pending pushes. Missing property reads do not generate a
+  misleading authoritative empty-inbox push. The action gates, confirmation
+  snapshots and guest-send behavior remain unchanged.
+- The presentation version gives the currently connected owner a fresh overview
+  after rollout, even when guest data has not changed. No deployment-specific
+  manual refresh is necessary. Navigation labels now say “待辦總覽”.
+
+JavaScript syntax, scoped ESLint and whitespace checks passed. No automated
+or live guest/button tests were run. Build and rollout status follow below.

@@ -245,6 +245,10 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
    }
   }catch(e){await mutate(owner,p,s=>{s.error=e.code||'daili_unavailable';});throw e;}
   finally{await redis(['EVAL',"if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0",1,lease,leaseId]);}
+  if(actionsOnly&&now()<deadline-9000){
+   try{await manager.digest(owner,activity,{afterAction:true});}
+   catch(e){console.warn('manager_overview_deferred',e.code||'unavailable');}
+  }
  }
  return {activity,decide,toggle,resume,sync,context,review,async run(){const c=dailiConfig();if(!c)return {configured:false};const owner=await redis(['GET','sweetfun-os:customer-manager:v1:route:'+c.channel]);need(owner,'manager_not_configured');const registered=await manager.properties(owner),deadline=now()+50000;await manager.ensureMenu(owner).catch(()=>{});const rotation=Math.floor(now()/60000)%c.properties.length;const ordered=[...c.properties.slice(rotation),...c.properties.slice(0,rotation)];for(const p of ordered){need(registered.some(x=>x.id===p.id),'property_not_configured');if(now()<deadline-10000)await sync(owner,p.id,deadline);}if(now()<deadline-9000)await manager.digest(owner,activity);return {configured:true};}};
 }
