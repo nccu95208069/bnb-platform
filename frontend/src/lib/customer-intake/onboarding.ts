@@ -210,7 +210,27 @@ export async function sharedImportPermission(
   slug: string,
   propertyId: string,
 ) {
-  const { workspace } = await loadWorkspace(store, accountId, slug);
+  const { workspace, property } = await importAccess(
+    store,
+    accountId,
+    slug,
+    propertyId,
+  );
+  if (property.setup?.sheetUrl) {
+    if (property.setup.approvedByEmail) {
+      if (
+        !(await sheetApplicantHasAccess(
+          property.setup.sheetUrl,
+          property.setup.approvedByEmail,
+        ))
+      )
+        throw new Error("SHEET_REVIEW_REQUIRED");
+    } else if (property.setup.approvedByOperator)
+      await checkSharedSheet(property.setup.sheetUrl);
+    else throw new Error("SHEET_REVIEW_REQUIRED");
+    return { url: property.setup.sheetUrl, journey: null };
+  }
+  if (workspace.properties[0]?.id !== propertyId) throw new Error("NOT_FOUND");
   const source = workspace.onboarding;
   if (!source) throw new Error("NOT_FOUND");
   const journey = (await store.read<Journey>(`onboarding:${source.requestId}`))
@@ -249,8 +269,11 @@ export async function syncOnboardingProgress(
     status: excluded ? "partial" : "ready",
     readyAt: workspace.onboarding.readyAt,
     excludedCount: excluded,
-    importedCount: workspace.bookings.filter((b) => b.status !== "cancelled")
-      .length,
+    importedCount: workspace.bookings.filter(
+      (b) =>
+        b.status !== "cancelled" &&
+        b.propertyId === workspace.properties[0]?.id,
+    ).length,
   };
   await store.commit([
     { key, before: current.raw, after: next, ttlSeconds: TTL },
@@ -270,7 +293,8 @@ export async function finishOnboardingImport(
 ) {
   const loaded = await loadWorkspace(store, account.id, slug),
     workspace = loaded.workspace;
-  if (!workspace.onboarding) return;
+  if (!workspace.onboarding || workspace.properties[0]?.id !== propertyId)
+    return;
   const batch = workspace.importBatches?.find(
     (b) => b.id === previewId && b.propertyId === propertyId,
   );

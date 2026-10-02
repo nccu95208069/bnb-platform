@@ -6,6 +6,10 @@ import type {
   Mapping,
 } from "@/lib/customer-workspaces/sheet-import";
 import { api, button, field, secondary, today } from "./client";
+import {
+  suggestFormat,
+  type FormatSuggestion,
+} from "@/lib/customer-workspaces/format-assistant";
 type Batch = NonNullable<Workspace["importBatches"]>[number];
 const columnLabels = {
   checkIn: "入住日期",
@@ -25,6 +29,7 @@ export function SheetImport({
   initialVersion,
   sharedUrl,
   helpMessage,
+  shareEmail,
 }: {
   slug: string;
   property: Property;
@@ -34,7 +39,10 @@ export function SheetImport({
   initialVersion: number;
   sharedUrl?: string;
   helpMessage?: string;
+  shareEmail?: string;
 }) {
+  const [boundUrl, setBoundUrl] = useState(sharedUrl);
+  const [suggestion, setSuggestion] = useState<FormatSuggestion | null>(null);
   const [url, setUrl] = useState(sharedUrl ?? "");
   const [help, setHelp] = useState("");
   const [meta, setMeta] = useState<{
@@ -66,6 +74,7 @@ export function SheetImport({
     currency: "TWD",
     from: today(),
   });
+  const [confirmedEmpty, setConfirmedEmpty] = useState(false);
   const [confirmed, setConfirmed] = useState(false),
     [preview, setPreview] = useState<ImportPreview | null>(null),
     [selection, setSelection] = useState<number[]>([]);
@@ -96,6 +105,7 @@ export function SheetImport({
     setPreview(null);
     setSelection([]);
     setConfirmed(false);
+    setConfirmedEmpty(false);
   }
   async function commit() {
     if (!preview) return;
@@ -104,6 +114,7 @@ export function SheetImport({
       previewId: preview.id,
       selected: selection,
       confirmed: true,
+      confirmedEmpty,
     };
     try {
       const batch = await send<Batch>(pending.current);
@@ -141,6 +152,12 @@ export function SheetImport({
           ),
         ]
       : [];
+  const mappingComplete =
+    mapping.columns.checkIn >= 0 &&
+    mapping.columns.checkOut >= 0 &&
+    mapping.columns.rooms >= 0 &&
+    (mapping.amountBasis === "none") === (mapping.columns.total === -1) &&
+    (mapping.receivedMeaning === "none") === (mapping.columns.received === -1);
   const columnCount = Math.max(0, ...(source?.rows.map((r) => r.length) ?? []));
   const columns = Array.from({ length: columnCount }, (_, i) => ({
     id: i,
@@ -175,7 +192,7 @@ export function SheetImport({
             待核對事項：{helpMessage}
           </p>
         )}
-        {sharedUrl && (
+        {(boundUrl || shareEmail) && (
           <details className="my-4 rounded-xl border bg-white p-4">
             <summary className="cursor-pointer">
               表格格式不同、逐晚拆列或需要協助？
@@ -224,21 +241,23 @@ export function SheetImport({
         >
           <legend className="px-2 font-semibold">1. 連結自己的試算表</legend>
           <p className="mb-3 text-sm">
-            {sharedUrl
+            {boundUrl
               ? "已核對申請與分享權限。請選擇要匯入的分頁，確認一列代表一筆完整訂單。"
-              : "Google 唯讀授權約一小時有效。不需公開分享檔案。"}
+              : shareEmail
+                ? `先將 Sheet 的檢視權限分享給 ${shareEmail}，再貼上連結。系統也會核對你有權使用這份資料；不需公開檔案。`
+                : "Google 唯讀授權約一小時有效。不需公開分享檔案。"}
           </p>
           {!configured && (
             <p className="mb-3 text-amber-800">
               此測試環境尚未設定 Google 授權，設定完成後即可使用。
             </p>
           )}
-          {connected && !sharedUrl && (
+          {connected && !boundUrl && (
             <p className="mb-3 text-teal-800">
               已完成 Google 授權，可貼上連結。
             </p>
           )}
-          {!sharedUrl && (
+          {!boundUrl && !shareEmail && (
             <button
               disabled={!configured}
               className={secondary}
@@ -259,7 +278,7 @@ export function SheetImport({
             <input
               className={field}
               value={url}
-              readOnly={Boolean(sharedUrl)}
+              readOnly={Boolean(boundUrl)}
               onChange={(e) => {
                 setUrl(e.target.value);
                 setMeta(null);
@@ -276,6 +295,21 @@ export function SheetImport({
               run(async () => {
                 setSource(null);
                 setPreview(null);
+                if (shareEmail && !boundUrl) {
+                  const linked = await send<{
+                    status: string;
+                    url?: string;
+                    version?: number;
+                  }>({ action: "bind", url });
+                  if (linked.status !== "approved") {
+                    setNotice(
+                      "分享已可讀取，但還需要專人核對資料使用權限。需求已保存，確認後會寄信通知你。",
+                    );
+                    return;
+                  }
+                  setBoundUrl(linked.url ?? url);
+                  if (linked.version) setVersion(linked.version);
+                }
                 const result = await send<NonNullable<typeof meta>>({
                   action: "tabs",
                   url,
@@ -316,13 +350,14 @@ export function SheetImport({
                     setPreview(null);
                     setSource(null);
                     setConfirmed(false);
-                    setSource(
-                      await send({
-                        action: "read",
-                        spreadsheetId: meta.spreadsheetId,
-                        sheetId: Number(tab),
-                      }),
-                    );
+                    setConfirmedEmpty(false);
+                    const result = await send<NonNullable<typeof source>>({
+                      action: "read",
+                      spreadsheetId: meta.spreadsheetId,
+                      sheetId: Number(tab),
+                    });
+                    setSource(result);
+                    setSuggestion(suggestFormat(result.rows, property));
                   })
                 }
               >
@@ -337,6 +372,44 @@ export function SheetImport({
             className="mt-5 rounded-2xl border bg-white p-5 disabled:opacity-60"
           >
             <legend className="px-2 font-semibold">2. 對應欄位與房間</legend>
+            {suggestion && (
+              <section className="mb-5 space-y-3 rounded-xl bg-teal-50 p-4">
+                <h2 className="font-semibold">先確認你的紀錄方式</h2>
+                {suggestion.messages.map((message, i) => (
+                  <p className="text-sm leading-6" key={i}>
+                    {message}
+                  </p>
+                ))}
+                <ul className="list-disc space-y-2 pl-5 text-sm">
+                  {suggestion.questions.map((question) => (
+                    <li key={question}>{question}</li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  className={secondary}
+                  disabled={
+                    suggestion.layout === "grid" ||
+                    suggestion.layout === "nightly"
+                  }
+                  onClick={() =>
+                    changeMapping({
+                      ...mapping,
+                      headerRow: suggestion.headerRow,
+                      columns: suggestion.columns,
+                      roomMap: suggestion.roomMap,
+                      amountBasis: "none",
+                      receivedMeaning: "none",
+                    })
+                  }
+                >
+                  採用欄位與房間建議，再由我核對
+                </button>
+                <p className="text-xs text-slate-600">
+                  建議依欄名與房名比對，不會猜測金額，也不會自動匯入。逐晚、逐房拆列或月曆格請先使用上方「請專人協助核對」。
+                </p>
+              </section>
+            )}
             <p className="text-sm">
               {source.title} · {source.rows.length} 列。最多 501 列、前 52
               欄。日期需包含西元年，例如 2026/10/2。金額以新臺幣計。
@@ -486,6 +559,11 @@ export function SheetImport({
                 }
               />
             </label>
+            {!mappingComplete && (
+              <p className="mt-4 text-sm text-amber-800">
+                請選齊入住、退房與房間欄位。若選了房費或實收欄，也要回答金額的意思；不匯入金額時，請把對應欄位設為「不匯入」。無法對應的房名會列為待核對，不會匯入。
+              </p>
+            )}
             <label className="mt-4 flex items-start gap-3">
               <input
                 type="checkbox"
@@ -500,7 +578,7 @@ export function SheetImport({
             </label>
             <button
               className={`${button} mt-4`}
-              disabled={!confirmed}
+              disabled={!confirmed || !mappingComplete}
               onClick={() =>
                 run(async () => {
                   const result = await send<ImportPreview>({
@@ -594,12 +672,32 @@ export function SheetImport({
                 </tbody>
               </table>
             </div>
+            {preview.rows.every((row) =>
+              row.issues.includes("已在選定範圍之前退房"),
+            ) && (
+              <label className="mt-4 flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  disabled={busy || uncertain}
+                  checked={confirmedEmpty}
+                  onChange={(e) => setConfirmedEmpty(e.target.checked)}
+                />
+                <span>
+                  我已核對來源，確認 {mapping.from}{" "}
+                  起沒有尚未退房或未來的有效訂單。
+                </span>
+              </label>
+            )}
             <button
               className={`${button} mt-4`}
-              disabled={busy || !selection.length}
+              disabled={busy || (!selection.length && !confirmedEmpty)}
               onClick={() => run(commit)}
             >
-              {uncertain ? "重試相同匯入" : `確認匯入 ${selection.length} 筆`}
+              {uncertain
+                ? "重試相同匯入"
+                : selection.length
+                  ? `確認匯入 ${selection.length} 筆`
+                  : "確認此範圍沒有有效訂單"}
             </button>
           </section>
         )}
@@ -615,7 +713,11 @@ export function SheetImport({
                   {b.sourceTitle} · {b.bookingIds.length} 筆 ·{" "}
                   {new Date(b.createdAt).toLocaleString("zh-TW")}
                 </p>
-                {b.undo ? (
+                {!b.bookingIds.length ? (
+                  <p className="text-sm text-slate-500">
+                    本批為空表核對，沒有訂單可撤回；來源變更時請重新讀取與核對。
+                  </p>
+                ) : b.undo ? (
                   <p>
                     已撤回 {b.undo.cancelled.length} 筆，保留{" "}
                     {b.undo.skipped.length} 筆已變更訂單。

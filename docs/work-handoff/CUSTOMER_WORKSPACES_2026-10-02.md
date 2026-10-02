@@ -1,5 +1,7 @@
 # Customer workspaces — onboarding and one-time Sheet import
 
+Historical implementation record. Current customer decisions and completion status are in [onboarding flow](CUSTOMER_ONBOARDING_FLOW_2026-10-03.md) and [October 3 operations](CUSTOMER_OPERATIONS_2026-10-03.md). References below to unfinished verification, recovery and invitations describe earlier stages and should not override those follow-ups.
+
 Status: implemented behind a default-off feature gate; not enabled for public registration or deployed to production by this change.
 
 ## Decision and scope

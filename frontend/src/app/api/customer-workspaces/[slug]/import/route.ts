@@ -30,6 +30,10 @@ import {
   requestImportHelp,
 } from "@/lib/customer-intake/onboarding";
 import {
+  bindPropertySource,
+  propertySupport,
+} from "@/lib/customer-workspaces/support";
+import {
   sharedTabs,
   sharedSource,
 } from "@/lib/customer-workspaces/shared-sheet";
@@ -49,22 +53,49 @@ export async function POST(
     await store.limit(`import:${account.id}`, 100);
     if (typeof input.propertyId !== "string") throw new Error("INVALID_INPUT");
     const args = [store, account.id, slug, input.propertyId] as const;
-    const { workspace } = await importAccess(...args);
-    if (input.action === "help")
+    const { workspace, property } = await importAccess(...args);
+    if (input.action === "bind")
       return NextResponse.json(
-        await requestImportHelp(
-          ...args,
-          input.message,
+        await bindPropertySource(
+          store,
+          account,
+          slug,
+          input.propertyId,
+          input,
           sendCustomerLifecycleMail,
           intakePreview(),
         ),
+        { headers },
+      );
+    if (input.action === "help")
+      return NextResponse.json(
+        workspace.onboarding && workspace.properties[0]?.id === input.propertyId
+          ? await requestImportHelp(
+              ...args,
+              input.message,
+              sendCustomerLifecycleMail,
+              intakePreview(),
+            )
+          : await propertySupport(
+              store,
+              account,
+              slug,
+              input.propertyId,
+              input.message,
+              sendCustomerLifecycleMail,
+              intakePreview(),
+            ),
         { headers },
       );
     const existingBatch =
       input.action === "commit" &&
       workspace.importBatches?.some((b) => b.id === input.previewId);
     const shared =
-      workspace.onboarding && input.action !== "undo" && !existingBatch
+      (property.setup?.sheetUrl ||
+        (workspace.onboarding &&
+          workspace.properties[0]?.id === input.propertyId)) &&
+      input.action !== "undo" &&
+      !existingBatch
         ? await sharedImportPermission(...args)
         : null;
     if (input.action === "connect") {
@@ -124,7 +155,14 @@ export async function POST(
           if (digest(JSON.stringify(fresh.rows)) !== staged.sourceHash)
             throw new Error("SOURCE_CHANGED");
         }
-        result = await commitImport(...args, input.previewId, input.selected);
+        if (input.confirmed !== true)
+          throw new Error("FORMAT_CONFIRMATION_REQUIRED");
+        result = await commitImport(
+          ...args,
+          input.previewId,
+          input.selected,
+          input.confirmedEmpty === true,
+        );
         await finishOnboardingImport(
           store,
           account,

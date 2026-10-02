@@ -16,6 +16,7 @@ export type Role =
   "owner" | "admin" | "housekeeper" | "viewer" | "viewer_no_price";
 export type Membership = {
   accountId: string;
+  email?: string;
   role: Role;
   active: boolean;
   allProperties: boolean;
@@ -28,14 +29,36 @@ export type Property = {
   rooms: { id: string; name: string }[];
   villaRoomIds: string[];
   sourceMode: "native";
+  setup?: {
+    mode: "empty" | "sheet";
+    readyAt?: string;
+    unresolvedCount?: number;
+    coverageFrom?: string;
+    sheetUrl?: string;
+    approvedByEmail?: string;
+    approvedByOperator?: string;
+  };
+  pricing?: Pricing;
+};
+export type Pricing = {
+  currency: "TWD";
+  enabled: boolean;
+  base: Record<string, number>;
+  overrides: { roomId: string; from: string; to: string; amount: number }[];
+};
+export type StaySegment = {
+  checkIn: string;
+  checkOut: string;
+  roomIds: string[];
 };
 export type Payment = {
   id: string;
   amount: number;
-  kind: "deposit" | "balance" | "full" | "other";
+  kind: "deposit" | "balance" | "full" | "other" | "refund";
   receivedAt: string;
   method: string | null;
   actor: string;
+  note?: string | null;
 };
 export type Booking = {
   id: string;
@@ -45,7 +68,10 @@ export type Booking = {
   checkIn: string;
   checkOut: string;
   roomIds: string[];
+  stays?: StaySegment[];
   total: number | null;
+  expectedDeposit?: number | null;
+  openingReceived?: { amount: number; asOf: string; note: string | null };
   payments: Payment[];
   contact: string | null;
   notes: string | null;
@@ -87,6 +113,15 @@ export type Workspace = {
   members: Membership[];
   properties: Property[];
   bookings: Booking[];
+  invitations?: Invitation[];
+  availabilityLists?: AvailabilityList[];
+  operations?: {
+    key: string;
+    actor: string;
+    hash: string;
+    action: string;
+    targetId: string;
+  }[];
   importBatches?: {
     id: string;
     actor: string;
@@ -114,4 +149,29 @@ export type WorkspaceView = {
   onboarding?: { complete: boolean; unresolvedCount: number };
   properties: Property[];
   bookings: Omit<Booking, "requestKey" | "requestHash" | "actor">[];
+  readiness?: Record<
+    string,
+    { complete: boolean; unresolvedCount: number; coverageFrom?: string }
+  >;
+};
+export type Invitation = {
+  id: string;
+  email: string;
+  role: Exclude<Role, "owner">;
+  allProperties: boolean;
+  propertyIds: string[];
+  generation: string;
+  expiresAt: number;
+  createdAt: string;
+  revokedAt?: string;
+  acceptedAt?: string;
+  accountId?: string;
+};
+export type AvailabilityList = {
+  id: string;
+  title: string;
+  propertyId: string;
+  from: string;
+  to: string;
+  showPrices: boolean;
 };

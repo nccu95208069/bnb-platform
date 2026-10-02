@@ -54,7 +54,12 @@ export function Onboarding({
       const next = await api<Profile>("/api/customer-session");
       setProfile(next);
       const destination = new URLSearchParams(location.search).get("next");
-      if (destination && /^\/w\/[a-z0-9-]{3,48}\/calendar$/.test(destination))
+      if (
+        destination &&
+        /^\/w\/[a-z0-9-]{3,48}\/(calendar|availability|finance|settings|import)$/.test(
+          destination,
+        )
+      )
         location.assign(destination);
       else if (next.workspaces.length === 1)
         location.assign(`/w/${next.workspaces[0].slug}/calendar`);

@@ -8,6 +8,10 @@ import {
 } from "@/lib/customer-intake/onboarding";
 import { intakePreview } from "@/lib/customer-intake/config";
 import { sendCustomerLifecycleMail } from "@/lib/workspace-auth/mail";
+import {
+  listSupportRequests,
+  reviewSupport,
+} from "@/lib/customer-workspaces/support";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 async function operator(request: NextRequest) {
@@ -20,7 +24,10 @@ export async function GET(request: NextRequest) {
   try {
     await operator(request);
     return NextResponse.json(
-      { applications: await listApplications(new RedisCustomerStore()) },
+      {
+        applications: await listApplications(new RedisCustomerStore()),
+        support: await listSupportRequests(new RedisCustomerStore()),
+      },
       { headers },
     );
   } catch (e) {
@@ -42,6 +49,21 @@ export async function POST(request: NextRequest) {
     }
     const store = new RedisCustomerStore();
     await store.limit(`intake-admin:${actor.id}`, 100);
+    if (
+      ["source-approve", "support-reply", "support-resolve"].includes(
+        input.action,
+      )
+    )
+      return NextResponse.json(
+        await reviewSupport(
+          store,
+          actor.id,
+          input,
+          sendCustomerLifecycleMail,
+          intakePreview(),
+        ),
+        { headers },
+      );
     const result = await reviewApplication(
       store,
       input.id,

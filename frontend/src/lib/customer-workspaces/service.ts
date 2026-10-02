@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { accountKey, digest } from "./auth.ts";
+import { bookingsOverlap, propertyReadiness, staysOverlap } from "./domain.ts";
 import type { CustomerStore } from "./store.ts";
 import type {
   Account,
@@ -35,7 +36,7 @@ export function validSlug(value: unknown): string {
     throw new Error("INVALID_INPUT");
   return value;
 }
-function requestKey(value: unknown) {
+export function requestKey(value: unknown) {
   if (typeof value !== "string" || !/^[\w-]{16,80}$/.test(value))
     throw new Error("INVALID_INPUT");
   return value;
@@ -100,6 +101,7 @@ export async function createWorkspace(
     members: [
       {
         accountId: account.id,
+        email: account.email,
         role: "owner",
         active: true,
         allProperties: true,
@@ -164,9 +166,16 @@ export async function loadWorkspace(
   };
 }
 export function view(workspace: Workspace, member: Membership): WorkspaceView {
-  const properties = workspace.properties.filter(
+  const allowedProperties = workspace.properties.filter(
     (p) => member.allProperties || member.propertyIds.includes(p.id),
   );
+  const properties = allowedProperties.map((p) => {
+    const { setup: _setup, pricing, ...property } = p;
+    void _setup;
+    return member.role === "viewer_no_price"
+      ? property
+      : { ...property, pricing };
+  });
   const bookings = workspace.bookings
     .filter((b) => properties.some((p) => p.id === b.propertyId))
     .map((b) => {
@@ -188,6 +197,8 @@ export function view(workspace: Workspace, member: Membership): WorkspaceView {
             contact: null,
             importedFinance: undefined,
             imported: undefined,
+            expectedDeposit: undefined,
+            openingReceived: undefined,
           }
         : booking;
     });
@@ -209,6 +220,9 @@ export function view(workspace: Workspace, member: Membership): WorkspaceView {
       : {}),
     properties,
     bookings,
+    readiness: Object.fromEntries(
+      allowedProperties.map((p) => [p.id, propertyReadiness(workspace, p)]),
+    ),
   };
 }
 export function dateValue(value: unknown) {
@@ -227,7 +241,7 @@ export function dateValue(value: unknown) {
     throw new Error("INVALID_INPUT");
   return value;
 }
-function money(value: unknown) {
+export function money(value: unknown) {
   if (value === "" || value == null) return null;
   if (
     typeof value !== "number" ||
@@ -238,6 +252,71 @@ function money(value: unknown) {
   )
     throw new Error("INVALID_INPUT");
   return value;
+}
+export function receiptTime(value: unknown) {
+  if (
+    typeof value !== "string" ||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/.test(
+      value,
+    )
+  )
+    throw new Error("INVALID_INPUT");
+  dateValue(value.slice(0, 10));
+  const time = Date.parse(value);
+  if (!Number.isFinite(time)) throw new Error("INVALID_INPUT");
+  if (time > Date.now() + 5 * 60000) throw new Error("FUTURE_RECEIPT");
+  return new Date(time).toISOString();
+}
+export function normalizeStays(
+  property: Property,
+  input: Record<string, unknown>,
+) {
+  const values = input.stays === undefined ? [input] : input.stays;
+  if (!Array.isArray(values) || values.length < 1 || values.length > 50)
+    throw new Error("INVALID_INPUT");
+  const stays = values
+    .map((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value))
+        throw new Error("INVALID_INPUT");
+      const stay = value as Record<string, unknown>;
+      const checkIn = dateValue(stay.checkIn),
+        checkOut = dateValue(stay.checkOut);
+      if (
+        checkOut <= checkIn ||
+        (Date.parse(checkOut) - Date.parse(checkIn)) / 86400000 > 366
+      )
+        throw new Error("INVALID_INPUT");
+      if (
+        !Array.isArray(stay.roomIds) ||
+        stay.roomIds.length < 1 ||
+        stay.roomIds.length > 100 ||
+        stay.roomIds.some(
+          (id) =>
+            typeof id !== "string" || !property.rooms.some((r) => r.id === id),
+        )
+      )
+        throw new Error("INVALID_INPUT");
+      const roomIds = [...new Set(stay.roomIds as string[])].sort();
+      if (
+        property.kind === "villa" &&
+        property.villaRoomIds.some((id) => !roomIds.includes(id))
+      )
+        throw new Error("INVALID_INPUT");
+      return { checkIn, checkOut, roomIds };
+    })
+    .sort(
+      (a, b) =>
+        a.checkIn.localeCompare(b.checkIn) ||
+        a.checkOut.localeCompare(b.checkOut) ||
+        a.roomIds.join().localeCompare(b.roomIds.join()),
+    );
+  if (
+    stays.some((stay, i) =>
+      stays.slice(i + 1).some((other) => staysOverlap(stay, other)),
+    )
+  )
+    throw new Error("ROOM_CONFLICT");
+  return stays;
 }
 export async function createBooking(
   store: CustomerStore,
@@ -252,47 +331,40 @@ export async function createBooking(
   );
   if (!["owner", "admin", "housekeeper"].includes(member.role))
     throw new Error("FORBIDDEN");
-  if (
-    workspace.onboarding &&
-    (!workspace.onboarding.readyAt ||
-      workspace.onboarding.unresolvedCount !== 0)
-  )
-    throw new Error("IMPORT_INCOMPLETE");
   const property = workspace.properties.find(
     (p) =>
       p.id === input.propertyId &&
       (member.allProperties || member.propertyIds.includes(p.id)),
   );
   if (!property) throw new Error("NOT_FOUND");
+  if (!propertyReadiness(workspace, property).complete)
+    throw new Error("IMPORT_INCOMPLETE");
   const key = requestKey(input.requestKey),
-    checkIn = dateValue(input.checkIn),
-    checkOut = dateValue(input.checkOut);
+    stays = normalizeStays(property, input);
   if (
-    checkOut <= checkIn ||
-    (Date.parse(checkOut) - Date.parse(checkIn)) / 86400000 > 366
+    property.setup?.coverageFrom &&
+    stays.some((s) => s.checkIn < property.setup!.coverageFrom!)
   )
-    throw new Error("INVALID_INPUT");
-  if (
-    !Array.isArray(input.roomIds) ||
-    input.roomIds.length < 1 ||
-    input.roomIds.length > 100 ||
-    input.roomIds.some(
-      (id) =>
-        typeof id !== "string" || !property.rooms.some((r) => r.id === id),
-    )
-  )
-    throw new Error("INVALID_INPUT");
-  const roomIds = [...new Set(input.roomIds as string[])].sort();
-  if (
-    property.kind === "villa" &&
-    property.villaRoomIds.some((id) => !roomIds.includes(id))
-  )
-    throw new Error("INVALID_INPUT");
+    throw new Error("SOURCE_COVERAGE");
+  const checkIn = stays.reduce(
+    (d, s) => (d < s.checkIn ? d : s.checkIn),
+    stays[0].checkIn,
+  );
+  const checkOut = stays.reduce(
+    (d, s) => (d > s.checkOut ? d : s.checkOut),
+    stays[0].checkOut,
+  );
+  const roomIds = [...new Set(stays.flatMap((s) => s.roomIds))].sort();
   const data = {
     propertyId: property.id,
     checkIn,
     checkOut,
     roomIds,
+    ...(input.stays !== undefined ? { stays } : {}),
+    expectedDeposit:
+      input.expectedDeposit === undefined
+        ? undefined
+        : money(input.expectedDeposit),
     total: money(input.total),
     guestName: textValue(input.guestName, 100),
     notes: textValue(input.notes, 2000),
@@ -304,6 +376,7 @@ export async function createBooking(
       amount = money(p.amount);
     if (
       amount === null ||
+      amount <= 0 ||
       !["deposit", "balance", "full", "other"].includes(p.kind as string) ||
       typeof p.receivedAt !== "string" ||
       !/^\d{4}-\d{2}-\d{2}T/.test(p.receivedAt) ||
@@ -313,10 +386,23 @@ export async function createBooking(
     data.payment = {
       amount,
       kind: p.kind as "deposit" | "balance" | "full" | "other",
-      receivedAt: new Date(p.receivedAt).toISOString(),
+      receivedAt: receiptTime(p.receivedAt),
       method: textValue(p.method, 100),
     };
   }
+  if (
+    data.expectedDeposit != null &&
+    data.total != null &&
+    data.expectedDeposit > data.total
+  )
+    throw new Error("INVALID_INPUT");
+  if (
+    data.payment &&
+    data.total !== null &&
+    data.payment.amount > data.total &&
+    input.allowOverpayment !== true
+  )
+    throw new Error("OVERPAYMENT_CONFIRMATION_REQUIRED");
   const hash = digest(JSON.stringify(data));
   const repeated = workspace.bookings.find(
     (b) => b.requestKey === key && b.actor === accountId,
@@ -331,9 +417,7 @@ export async function createBooking(
     (b) =>
       b.propertyId === property.id &&
       b.status !== "cancelled" &&
-      b.checkIn < checkOut &&
-      checkIn < b.checkOut &&
-      b.roomIds.some((id) => roomIds.includes(id)),
+      bookingsOverlap(b, { checkIn, checkOut, roomIds, stays }),
   );
   if (conflict) throw new Error("ROOM_CONFLICT");
   const { payment, ...fields } = data;

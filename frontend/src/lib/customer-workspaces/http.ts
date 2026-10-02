@@ -19,7 +19,7 @@ export async function body(request: NextRequest) {
   if (request.headers.get("origin") !== request.nextUrl.origin)
     throw new Error("FORBIDDEN");
   const raw = await request.text();
-  if (raw.length > 16000) throw new Error("INVALID_INPUT");
+  if (raw.length > 128000) throw new Error("INVALID_INPUT");
   try {
     const value = JSON.parse(raw);
     if (!value || typeof value !== "object" || Array.isArray(value))
@@ -39,6 +39,48 @@ export async function limitSession(request: NextRequest) {
 export function failure(error: unknown) {
   const code = error instanceof Error ? error.message : "";
   const errors: Record<string, [number, string]> = {
+    SOURCE_COVERAGE: [
+      409,
+      "此日期早於已核對的匯入範圍。請先匯入涵蓋該日期的完整訂單；未顯示資料不能直接視為空房。",
+    ],
+    SOURCE_EMAIL_UNVERIFIED: [403, "請先確認登入信箱，再連結試算表。"],
+    SOURCE_LOCKED: [
+      409,
+      "此旅宿已綁定其他來源，請先聯絡專人核對，避免混入另一館資料。",
+    ],
+    INVITATION_INVALID: [
+      400,
+      "邀請已過期、撤回或帳號狀態已變更。請業主重新邀請。",
+    ],
+    INVITATION_EXISTS: [
+      409,
+      "這個信箱已有待接受的邀請；如需更改權限，請先撤回原邀請。",
+    ],
+    MEMBER_EXISTS: [409, "這個帳號已是成員，請在成員列表調整權限或重新啟用。"],
+    RATE_CONFLICT: [409, "同一房間的指定日期房價重疊，請先調整日期範圍。"],
+    PRICING_NOT_ENABLED: [400, "請先到房價設定填寫價格並開啟價格顯示。"],
+    OVERPAYMENT_CONFIRMATION_REQUIRED: [
+      409,
+      "這筆金額會超過訂單應收。請核對金額；若確定是溢收，勾選確認後再送出。",
+    ],
+    OPENING_BALANCE_REQUIRED: [
+      409,
+      "匯入前的實收金額尚未確認，請先由管理員核對期初實收。",
+    ],
+    OPENING_ALREADY_CONFIRMED: [
+      409,
+      "期初實收已確認，不能覆寫。新的收退款請逐筆登記。",
+    ],
+    REFUND_TOO_LARGE: [400, "退款不能超過已確認的實收餘額。"],
+    FUTURE_RECEIPT: [
+      400,
+      "收退款時間不能填未來時間；尚未收到的款項請勿登記為實收。",
+    ],
+    ORDER_CANCELLED: [409, "這筆訂單已取消，不能再登記收款或修改應收。"],
+    CANCELLATION_REQUIRES_SETTLEMENT: [
+      409,
+      "請先確認實收並完成退款登記，再取消訂單。",
+    ],
     IMPORT_INCOMPLETE: [
       409,
       "資料尚未完整，未顯示訂單的日期不能視為空房。請先完成匯入與問題資料核對。",

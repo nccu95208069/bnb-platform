@@ -4,6 +4,7 @@ import { api, button, secondary, field } from "../customer-workspaces/client";
 import type { IntakeRecord } from "@/lib/customer-intake/types";
 import type { Journey } from "@/lib/customer-intake/onboarding";
 import type { Delivery } from "@/lib/customer-intake/delivery";
+import type { SupportRequest } from "@/lib/customer-workspaces/support";
 type Application = {
   record: IntakeRecord;
   journey: Journey | null;
@@ -18,6 +19,7 @@ const statuses = {
   ready: "日曆已建立",
 };
 export function OnboardingAdmin() {
+  const [support, setSupport] = useState<SupportRequest[]>([]);
   const [items, setItems] = useState<Application[]>([]),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
@@ -25,10 +27,12 @@ export function OnboardingAdmin() {
     [identity, setIdentity] = useState<Record<string, boolean>>({}),
     [messages, setMessages] = useState<Record<string, string>>({});
   async function refresh() {
-    const result = await api<{ applications: Application[] }>(
-      "/api/onboarding-admin",
-    );
+    const result = await api<{
+      applications: Application[];
+      support?: SupportRequest[];
+    }>("/api/onboarding-admin");
     setItems(result.applications);
+    setSupport(result.support ?? []);
     setLoaded(true);
   }
   useEffect(() => {
@@ -78,6 +82,100 @@ export function OnboardingAdmin() {
           重新整理
         </button>
         {loaded && !items.length && <p className="my-5">目前沒有申請。</p>}
+        {support.length > 0 && (
+          <section className="my-8">
+            <h2 className="text-xl font-semibold">新增旅宿與資料格式協助</h2>
+            {support.map((request) => (
+              <article
+                key={request.id}
+                className="my-4 space-y-3 rounded-2xl border bg-white p-5"
+              >
+                <h3 className="font-semibold">
+                  {request.propertyName} ·{" "}
+                  {request.kind === "source" ? "資料使用權限" : "格式核對"}
+                </h3>
+                <p className="text-sm">
+                  {request.email} ·{" "}
+                  {request.status === "open"
+                    ? "待處理"
+                    : request.status === "approved"
+                      ? "權限已核對"
+                      : request.status === "replied"
+                        ? "已回覆"
+                        : "已完成"}
+                </p>
+                <p className="whitespace-pre-wrap">{request.message}</p>
+                {request.sheetUrl && (
+                  <a
+                    className="block break-all text-sm underline"
+                    href={request.sheetUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    開啟待核對的試算表
+                  </a>
+                )}
+                {request.response && (
+                  <p className="text-sm whitespace-pre-wrap">
+                    上次回覆：{request.response}
+                  </p>
+                )}
+                {request.kind === "source" && request.status !== "approved" && (
+                  <label className="flex items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={identity[request.id] ?? false}
+                      onChange={(e) =>
+                        setIdentity({
+                          ...identity,
+                          [request.id]: e.target.checked,
+                        })
+                      }
+                    />
+                    我已人工確認此帳號有權將這份資料匯入該旅宿
+                  </label>
+                )}
+                <label className="block text-sm">
+                  要寄給客戶的核對說明
+                  <textarea
+                    className={field}
+                    maxLength={1000}
+                    value={messages[request.id] ?? ""}
+                    onChange={(e) =>
+                      setMessages({ ...messages, [request.id]: e.target.value })
+                    }
+                  />
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {request.kind === "source" &&
+                    request.status !== "approved" && (
+                      <button
+                        className={button}
+                        disabled={busy || !identity[request.id]}
+                        onClick={() => act(request.id, "source-approve")}
+                      >
+                        核對權限並通知客戶
+                      </button>
+                    )}
+                  <button
+                    className={secondary}
+                    disabled={busy || !messages[request.id]?.trim()}
+                    onClick={() => act(request.id, "support-reply")}
+                  >
+                    保存並寄出說明
+                  </button>
+                  <button
+                    className={secondary}
+                    disabled={busy || request.status === "resolved"}
+                    onClick={() => act(request.id, "support-resolve")}
+                  >
+                    標記協助完成並通知
+                  </button>
+                </div>
+              </article>
+            ))}
+          </section>
+        )}
         {items.map(({ record: r, journey: j, receipt }) => (
           <article
             key={r.id}

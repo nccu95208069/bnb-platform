@@ -346,7 +346,7 @@ test("five source rows produce three safe imports; missing rows block new bookin
   assert.deepEqual(loaded.workspace.bookings[1].payments, []);
   assert.equal(loaded.workspace.bookings[2].total, null);
   await assert.rejects(
-    createBooking(...args.slice(0, 3), {}),
+    createBooking(...args.slice(0, 3), { propertyId: p.id }),
     /IMPORT_INCOMPLETE/,
   );
   const sent = f.sent.length;

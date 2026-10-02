@@ -14,18 +14,33 @@ import {
   principal,
   store,
 } from "@/lib/customer-workspaces/http";
+import { loadWorkspace } from "@/lib/customer-workspaces/service";
 export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
   try {
     const account = await principal(request);
+    const active = await Promise.all(
+      account.workspaces.map(async (reference) => {
+        try {
+          await loadWorkspace(store, account.id, reference.slug);
+          return reference;
+        } catch (error) {
+          if (error instanceof Error && error.message === "NOT_FOUND")
+            return null;
+          throw error;
+        }
+      }),
+    );
     return NextResponse.json(
       {
         email: account.email,
-        workspaces: account.workspaces.map(({ id, name, slug }) => ({
-          id,
-          name,
-          slug,
-        })),
+        workspaces: active
+          .filter((reference) => reference !== null)
+          .map(({ id, name, slug }) => ({
+            id,
+            name,
+            slug,
+          })),
       },
       { headers },
     );

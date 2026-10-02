@@ -16,8 +16,10 @@ export const metadata = {
 };
 export default async function Page({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ property?: string }>;
 }) {
   const { slug } = await params;
   if (!enabled()) return <main className="p-10">新客戶入口尚未開放。</main>;
@@ -46,7 +48,10 @@ export default async function Page({
     );
   }
   const { workspace, member } = loaded;
-  if (workspace.onboarding && !workspace.onboarding.readyAt)
-    redirect(`/w/${slug}/import`);
-  return <CustomerCalendar initial={view(workspace, member)} />;
+  return (
+    <CustomerCalendar
+      initial={view(workspace, member)}
+      initialPropertyId={(await searchParams).property}
+    />
+  );
 }

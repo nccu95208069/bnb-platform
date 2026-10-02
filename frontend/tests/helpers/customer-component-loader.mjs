@@ -3,6 +3,15 @@ import ts from "typescript";
 
 // Keep the production bundler unchanged; compile TSX only for Node DOM tests.
 export async function resolve(specifier, context, nextResolve) {
+  if (specifier.startsWith("@/")) {
+    for (const extension of [".ts", ".tsx"]) {
+      const url = new URL(
+        `../../src/${specifier.slice(2)}${extension}`,
+        import.meta.url,
+      );
+      if (existsSync(url)) return { url: url.href, shortCircuit: true };
+    }
+  }
   if (specifier.startsWith(".") && !/\.[a-z]+$/.test(specifier)) {
     for (const extension of [".ts", ".tsx"]) {
       const url = new URL(specifier + extension, context.parentURL);

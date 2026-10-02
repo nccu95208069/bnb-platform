@@ -1,12 +1,28 @@
 "use client";
 import { useRef, useState } from "react";
-import type { WorkspaceView } from "@/lib/customer-workspaces/types";
+import type {
+  StaySegment,
+  WorkspaceView,
+} from "@/lib/customer-workspaces/types";
 import { Modal } from "./modal";
 import { api, button, field, plusDays, secondary, today } from "./client";
-export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
+import { staysOf } from "@/lib/customer-workspaces/domain";
+import { WorkspaceNav } from "./workspace-nav";
+import { OrderFinance } from "./order-finance";
+export function CustomerCalendar({
+  initial,
+  initialPropertyId,
+}: {
+  initial: WorkspaceView;
+  initialPropertyId?: string;
+}) {
   const [data, setData] = useState(initial),
     [start, setStart] = useState(today()),
-    [propertyId, setPropertyId] = useState(initial.properties[0]?.id ?? "");
+    [propertyId, setPropertyId] = useState(
+      initial.properties.some((p) => p.id === initialPropertyId)
+        ? initialPropertyId!
+        : (initial.properties[0]?.id ?? ""),
+    );
   const [creating, setCreating] = useState(false),
     [selected, setSelected] = useState(""),
     [highlight, setHighlight] = useState(""),
@@ -16,6 +32,10 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
   const [checkIn, setCheckIn] = useState(start),
     [nights, setNights] = useState(1),
     [roomIds, setRoomIds] = useState<string[]>([]);
+  const [paymentLocked, setPaymentLocked] = useState(false);
+  const [extraStays, setExtraStays] = useState<StaySegment[]>([]),
+    [expectedDeposit, setExpectedDeposit] = useState(""),
+    [allowOverpayment, setAllowOverpayment] = useState(false);
   const [guestName, setGuestName] = useState(""),
     [total, setTotal] = useState(""),
     [paid, setPaid] = useState(""),
@@ -30,18 +50,21 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
   const key = useRef("");
   const canWrite =
       ["owner", "admin", "housekeeper"].includes(data.role) &&
-      (!data.onboarding || data.onboarding.complete),
+      (data.readiness?.[propertyId]?.complete ??
+        (!data.onboarding || data.onboarding.complete)),
     checkOut = plusDays(checkIn, nights);
   const active = data.bookings.filter(
     (b) => b.propertyId === propertyId && b.status !== "cancelled",
   );
   const picked = data.bookings.find((b) => b.id === selected);
   const occupied = (roomId: string) =>
-    active.some(
-      (b) =>
-        b.roomIds.includes(roomId) &&
-        b.checkIn < checkOut &&
-        checkIn < b.checkOut,
+    active.some((b) =>
+      staysOf(b).some(
+        (s) =>
+          s.roomIds.includes(roomId) &&
+          s.checkIn < checkOut &&
+          checkIn < s.checkOut,
+      ),
     );
   function open(date = start, roomId?: string) {
     if (!property) return;
@@ -54,6 +77,9 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
           ? [roomId]
           : [],
     );
+    setExtraStays([]);
+    setExpectedDeposit("");
+    setAllowOverpayment(false);
     setGuestName("");
     setTotal("");
     setPaid("");
@@ -93,6 +119,11 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
       checkIn,
       checkOut,
       roomIds,
+      ...(extraStays.length
+        ? { stays: [{ checkIn, checkOut, roomIds }, ...extraStays] }
+        : {}),
+      expectedDeposit: expectedDeposit === "" ? null : Number(expectedDeposit),
+      allowOverpayment,
       guestName,
       total: total === "" ? null : Number(total),
       contact,
@@ -180,17 +211,32 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
             )}
           </div>
         </header>
-        {data.onboarding && !data.onboarding.complete && (
+        <WorkspaceNav data={data} current="calendar" propertyId={propertyId} />
+        {(data.readiness?.[propertyId]?.complete === false ||
+          (!data.readiness &&
+            data.onboarding &&
+            !data.onboarding.complete)) && (
           <p role="alert" className="mt-5 rounded-xl bg-amber-50 p-4 leading-7">
             資料尚未完整：
-            {data.onboarding.unresolvedCount
-              ? `有 ${data.onboarding.unresolvedCount} 列仍待核對。`
+            {(data.readiness?.[propertyId]?.unresolvedCount ??
+            data.onboarding?.unresolvedCount ??
+            0)
+              ? `有 ${data.readiness?.[propertyId]?.unresolvedCount ?? data.onboarding?.unresolvedCount ?? 0} 列仍待核對。`
               : "尚未完成資料匯入。"}
             未顯示訂單的日期不能直接視為空房。請先
-            <a className="underline" href={`/w/${data.slug}/import`}>
+            <a
+              className="underline"
+              href={`/w/${data.slug}/import?property=${encodeURIComponent(propertyId)}`}
+            >
               完成資料核對
             </a>
             ，再新增訂房。
+          </p>
+        )}
+        {data.readiness?.[propertyId]?.coverageFrom && (
+          <p className="mt-4 text-sm text-slate-600">
+            本館訂單已核對範圍：{data.readiness[propertyId].coverageFrom}{" "}
+            起。更早日期的空白不能直接視為空房。
           </p>
         )}
         {data.properties.length > 1 && (
@@ -199,7 +245,10 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
             <select
               className={field}
               value={propertyId}
-              onChange={(e) => setPropertyId(e.target.value)}
+              onChange={(e) => {
+                setPropertyId(e.target.value);
+                setSelected("");
+              }}
             >
               {data.properties.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -275,6 +324,13 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
                     />
                   ))}
                   {active
+                    .flatMap((order) =>
+                      staysOf(order).map((stay, index) => ({
+                        ...order,
+                        ...stay,
+                        segmentKey: `${order.id}:${index}`,
+                      })),
+                    )
                     .filter(
                       (b) =>
                         b.roomIds.includes(room.id) &&
@@ -298,7 +354,7 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
                       );
                       return (
                         <button
-                          key={b.id}
+                          key={b.segmentKey}
                           onClick={() => setSelected(b.id)}
                           style={{
                             gridColumn: `${first + 1} / ${end + 1}`,
@@ -346,53 +402,49 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
           </p>
         )}
         {picked && !creating && (
-          <Modal label="訂房詳情" onClose={() => setSelected("")}>
+          <Modal
+            label="訂房詳情"
+            locked={paymentLocked}
+            onClose={() => {
+              if (!paymentLocked) setSelected("");
+            }}
+          >
             <div className="max-h-[90dvh] w-full max-w-lg overflow-auto rounded-2xl bg-white p-6">
               <div className="flex justify-between">
                 <h2 className="text-xl font-semibold">
                   {picked.guestName || "未填姓名"}
                 </h2>
-                <button className={secondary} onClick={() => setSelected("")}>
+                <button
+                  className={secondary}
+                  disabled={paymentLocked}
+                  onClick={() => setSelected("")}
+                >
                   關閉
                 </button>
               </div>
-              <p className="mt-5">
-                {picked.checkIn} → {picked.checkOut}
-              </p>
-              <p className="mt-2">
-                {property?.rooms
-                  .filter((r) => picked.roomIds.includes(r.id))
-                  .map((r) => r.name)
-                  .join("、")}
-              </p>
+              <div className="mt-5 space-y-3">
+                {staysOf(picked).map((stay, index) => (
+                  <p key={index} className="rounded-xl bg-stone-50 p-3 text-sm">
+                    住宿項目 {index + 1}：{stay.checkIn} → {stay.checkOut}
+                    <span className="mt-1 block">
+                      {data.properties
+                        .find((p) => p.id === picked.propertyId)
+                        ?.rooms.filter((r) => stay.roomIds.includes(r.id))
+                        .map((r) => r.name)
+                        .join("、")}
+                    </span>
+                  </p>
+                ))}
+              </div>
               {data.role !== "viewer_no_price" && (
                 <>
-                  <p className="mt-4">
-                    整筆房費：
-                    {picked.total === null
-                      ? "尚未登記"
-                      : `$${picked.total.toLocaleString()}`}
-                  </p>
-                  <p>
-                    旅宿實收：
-                    {picked.payments.length
-                      ? `$${picked.payments.reduce((sum, p) => sum + p.amount, 0).toLocaleString()}`
-                      : "尚未登記"}
-                  </p>
-                  {picked.importedFinance && (
-                    <p className="mt-3 text-sm text-slate-500">
-                      來源摘要（TWD）：累計旅宿實收{" "}
-                      {picked.importedFinance.propertyReceived ?? "未知"}
-                      ；旅客付平台 {picked.importedFinance.guestPaid ?? "未知"}
-                      。摘要不代表付款交易明細。
-                    </p>
-                  )}
-                  {picked.payments.map((p) => (
-                    <p key={p.id} className="mt-2 text-sm text-slate-500">
-                      {new Date(p.receivedAt).toLocaleString("zh-TW")} ·{" "}
-                      {p.method || "未填付款方式"} · ${p.amount}
-                    </p>
-                  ))}
+                  <OrderFinance
+                    key={picked.id}
+                    data={data}
+                    booking={picked}
+                    onSaved={setData}
+                    onPendingChange={setPaymentLocked}
+                  />
                   {picked.notes && (
                     <p className="mt-4 whitespace-pre-wrap">{picked.notes}</p>
                   )}
@@ -541,6 +593,124 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
                       ))}
                   </div>
                 </div>
+                <section className="space-y-4 border-t pt-4">
+                  <h3 className="font-semibold">同一訂單的其他住宿日期</h3>
+                  <p className="text-sm text-slate-500">
+                    若同一天訂三間房，在上方複選即可；不同日期、換房或分段住宿，可新增項目。整筆房費與訂金只登記一次。
+                  </p>
+                  {extraStays.map((stay, index) => (
+                    <fieldset
+                      key={index}
+                      className="space-y-3 rounded-xl border p-4"
+                    >
+                      <legend>住宿項目 {index + 2}</legend>
+                      <label className="block">
+                        項目 {index + 2} 入住日期
+                        <input
+                          className={field}
+                          type="date"
+                          required
+                          min="2000-01-01"
+                          max="2100-12-30"
+                          value={stay.checkIn}
+                          onChange={(e) =>
+                            setExtraStays(
+                              extraStays.map((s, i) =>
+                                i === index
+                                  ? { ...s, checkIn: e.target.value }
+                                  : s,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <label className="block">
+                        項目 {index + 2} 退房日期
+                        <input
+                          className={field}
+                          type="date"
+                          required
+                          min={stay.checkIn}
+                          max="2100-12-31"
+                          value={stay.checkOut}
+                          onChange={(e) =>
+                            setExtraStays(
+                              extraStays.map((s, i) =>
+                                i === index
+                                  ? { ...s, checkOut: e.target.value }
+                                  : s,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <div className="flex flex-wrap gap-3">
+                        {property.kind === "villa" ? (
+                          <p>
+                            整棟：{property.rooms.map((r) => r.name).join("、")}
+                          </p>
+                        ) : (
+                          property.rooms.map((room) => (
+                            <label key={room.id} className="flex gap-2">
+                              <input
+                                type="checkbox"
+                                checked={stay.roomIds.includes(room.id)}
+                                onChange={(e) =>
+                                  setExtraStays(
+                                    extraStays.map((s, i) =>
+                                      i === index
+                                        ? {
+                                            ...s,
+                                            roomIds: e.target.checked
+                                              ? [...s.roomIds, room.id]
+                                              : s.roomIds.filter(
+                                                  (id) => id !== room.id,
+                                                ),
+                                          }
+                                        : s,
+                                    ),
+                                  )
+                                }
+                              />
+                              {room.name}
+                            </label>
+                          ))
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        className={secondary}
+                        onClick={() =>
+                          setExtraStays(
+                            extraStays.filter((_, i) => i !== index),
+                          )
+                        }
+                      >
+                        移除此住宿項目
+                      </button>
+                    </fieldset>
+                  ))}
+                  <button
+                    type="button"
+                    className={secondary}
+                    disabled={extraStays.length >= 49}
+                    onClick={() =>
+                      setExtraStays([
+                        ...extraStays,
+                        {
+                          checkIn: checkOut,
+                          checkOut: plusDays(checkOut, 1),
+                          roomIds:
+                            property.kind === "villa"
+                              ? [...property.villaRoomIds]
+                              : [],
+                        },
+                      ])
+                    }
+                  >
+                    ＋新增不同日期的住宿項目
+                  </button>
+                </section>
                 <label className="block">
                   旅客稱呼（選填）
                   <input
@@ -565,6 +735,18 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
                         value={total}
                         placeholder="未記錄"
                         onChange={(e) => setTotal(e.target.value)}
+                      />
+                    </label>
+                    <label className="block">
+                      約定訂金（選填）
+                      <input
+                        className={field}
+                        type="number"
+                        min="0"
+                        max="100000000"
+                        step="0.01"
+                        value={expectedDeposit}
+                        onChange={(e) => setExpectedDeposit(e.target.value)}
                       />
                     </label>
                     <label className="block">
@@ -621,6 +803,18 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
                         </label>
                       </>
                     )}
+                    {paymentKind !== "none" && (
+                      <label className="flex gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={allowOverpayment}
+                          onChange={(e) =>
+                            setAllowOverpayment(e.target.checked)
+                          }
+                        />
+                        如果實收超過整筆房費，我已核對並確認保留溢收
+                      </label>
+                    )}
                   </div>
                 </details>
                 <details className="rounded-xl border p-3">
@@ -659,6 +853,12 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
                   <p className="mt-1">
                     {checkIn} 入住 → {checkOut} 退房 · {nights} 晚
                   </p>
+                  {extraStays.length > 0 && (
+                    <p className="mt-2">
+                      另有 {extraStays.length}{" "}
+                      個住宿項目，共用同一筆訂單與收款。
+                    </p>
+                  )}
                 </div>
                 {error && (
                   <p role="alert" className="mt-4 text-sm text-red-800">
@@ -676,6 +876,9 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
                     disabled={
                       busy ||
                       !roomIds.length ||
+                      extraStays.some(
+                        (s) => !s.roomIds.length || s.checkOut <= s.checkIn,
+                      ) ||
                       (!uncertain && roomIds.some(occupied))
                     }
                   >

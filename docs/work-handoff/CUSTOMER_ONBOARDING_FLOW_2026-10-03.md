@@ -1,5 +1,7 @@
 # Customer onboarding: shared Sheet to verified calendar
 
+For the October 3 follow-up, see [customer operations](CUSTOMER_OPERATIONS_2026-10-03.md): multiple properties, independent source readiness/coverage, format suggestions, collaborator invitations, availability pricing and receipts. The deployment evidence below describes the preceding onboarding candidate; it is not verification of the new operations.
+
 Status: implemented and running in a protected acceptance deployment from `658e1d9`; **the primary production domain is unchanged**. Dedicated Google reader credentials are configured, real Sheet access checks pass, and an authorized applicant receipt has been verified in the recipient’s Gmail INBOX. Customer activation, import acceptance and explicit permission to switch the primary domain are still pending.
 
 ## Accepted flow

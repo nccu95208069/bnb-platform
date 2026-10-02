@@ -46,7 +46,12 @@ export default async function Page({
       slug,
       search.property ?? loaded.workspace.properties[0]?.id,
     );
-    if (workspace.onboarding && !workspace.onboarding.approvedAt) {
+    const initialProperty = workspace.properties[0]?.id === property.id;
+    if (
+      initialProperty &&
+      workspace.onboarding &&
+      !workspace.onboarding.approvedAt
+    ) {
       const journey = (
         await store.read<Journey>(
           `onboarding:${workspace.onboarding.requestId}`,
@@ -75,22 +80,25 @@ export default async function Page({
         </main>
       );
     }
-    const journey = workspace.onboarding
-      ? (
-          await store.read<Journey>(
-            `onboarding:${workspace.onboarding.requestId}`,
-          )
-        ).value
-      : null;
+    const journey =
+      initialProperty && workspace.onboarding
+        ? (
+            await store.read<Journey>(
+              `onboarding:${workspace.onboarding.requestId}`,
+            )
+          ).value
+        : null;
     return (
       <SheetImport
         slug={slug}
         property={property}
-        configured={
-          workspace.onboarding ? Boolean(sharedSheetEmail()) : googleReady()
-        }
+        configured={Boolean(sharedSheetEmail()) || googleReady()}
         connected={search.google === "connected"}
-        sharedUrl={workspace.onboarding?.sheetUrl}
+        sharedUrl={
+          property.setup?.sheetUrl ??
+          (initialProperty ? workspace.onboarding?.sheetUrl : undefined)
+        }
+        shareEmail={sharedSheetEmail() ?? undefined}
         helpMessage={journey?.message}
         initialVersion={workspace.version}
         initialBatches={(workspace.importBatches ?? []).filter(

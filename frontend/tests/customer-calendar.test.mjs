@@ -82,6 +82,8 @@ test("selected rooms remain removable when dates or refreshed availability intro
                   id: "created",
                   status: "confirmed",
                   payments: [],
+                  createdAt: "2026-10-01T12:00:00Z",
+                  entry: "os",
                   guestNotified: false,
                 },
               ],

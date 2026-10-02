@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { bookingsOverlap } from "./domain.ts";
 import { digest } from "./auth.ts";
 import { dateValue, loadWorkspace, textValue } from "./service.ts";
 import type { CustomerStore } from "./store.ts";
@@ -42,6 +43,7 @@ export type ImportPreview = {
   accountId: string;
   workspaceId: string;
   propertyId: string;
+  coverageFrom?: string;
   version: number;
   expiresAt: number;
   sourceKey: string;
@@ -94,14 +96,10 @@ function sheetDate(value: string) {
   }
 }
 export function overlaps(
-  a: Pick<Booking, "roomIds" | "checkIn" | "checkOut">,
-  b: Pick<Booking, "roomIds" | "checkIn" | "checkOut">,
+  a: Pick<Booking, "roomIds" | "checkIn" | "checkOut" | "stays">,
+  b: Pick<Booking, "roomIds" | "checkIn" | "checkOut" | "stays">,
 ) {
-  return (
-    a.checkIn < b.checkOut &&
-    b.checkIn < a.checkOut &&
-    a.roomIds.some((id) => b.roomIds.includes(id))
-  );
+  return bookingsOverlap(a, b);
 }
 function validateMapping(m: Mapping) {
   if (
@@ -163,7 +161,7 @@ export async function previewImport(
     propertyId,
   );
   validateMapping(mapping);
-  if (source.rows.length > 501 || source.rows.length <= mapping.headerRow)
+  if (source.rows.length > 501 || source.rows.length < mapping.headerRow)
     throw new Error("IMPORT_SIZE");
   const sourceKey = digest(`${source.spreadsheetId}:${source.sheetId}`);
   const active = workspace.bookings.filter(
@@ -283,6 +281,7 @@ export async function previewImport(
     accountId,
     workspaceId: workspace.id,
     propertyId,
+    coverageFrom: mapping.from,
     version: workspace.version,
     expiresAt: Date.now() + 3600000,
     sourceKey,
@@ -313,6 +312,7 @@ export async function commitImport(
   propertyId: string,
   previewId: unknown,
   selected: unknown,
+  confirmedEmpty = false,
 ) {
   const { raw, workspace } = await importAccess(
     store,
@@ -324,12 +324,13 @@ export async function commitImport(
     typeof previewId !== "string" ||
     !/^[\w-]{36}$/.test(previewId) ||
     !Array.isArray(selected) ||
-    !selected.length ||
     selected.length > 500 ||
     selected.some((n) => !Number.isInteger(n))
   )
     throw new Error("INVALID_INPUT");
   const selection = [...new Set(selected as number[])].sort((a, b) => a - b);
+  if (!selection.length && !confirmedEmpty)
+    throw new Error("FORMAT_CONFIRMATION_REQUIRED");
   const selectionHash = digest(JSON.stringify(selection));
   const existing = workspace.importBatches?.find(
     (b) =>
@@ -353,6 +354,11 @@ export async function commitImport(
   )
     throw new Error("NOT_FOUND");
   if (preview.expiresAt < Date.now()) throw new Error("IMPORT_EXPIRED");
+  if (
+    !selection.length &&
+    !preview.rows.every((row) => row.issues.includes("已在選定範圍之前退房"))
+  )
+    throw new Error("INVALID_INPUT");
   if (preview.version !== workspace.version)
     throw new Error("VERSION_CONFLICT");
   const rows = selection.map((n) => preview.rows.find((r) => r.row === n));
@@ -410,6 +416,17 @@ export async function commitImport(
     selectionHash,
     bookingIds: bookings.map((b) => b.id),
   };
+  const unresolvedCount = preview.rows.filter(
+    (row) =>
+      !row.issues.includes("已在選定範圍之前退房") &&
+      ![...workspace.bookings, ...bookings].some(
+        (b) =>
+          b.status !== "cancelled" &&
+          b.propertyId === propertyId &&
+          b.imported?.sourceKey === preview.sourceKey &&
+          b.imported.fingerprint === row.fingerprint,
+      ),
+  ).length;
   await store.commit([
     {
       key: `workspace:${workspace.id}`,
@@ -418,22 +435,27 @@ export async function commitImport(
         ...workspace,
         version: workspace.version + 1,
         bookings: [...workspace.bookings, ...bookings],
-        ...(workspace.onboarding
+        properties: workspace.properties.map((p) =>
+          p.id === propertyId
+            ? {
+                ...p,
+                setup: {
+                  ...(p.setup ?? { mode: "sheet" }),
+                  readyAt: p.setup?.readyAt ?? at,
+                  unresolvedCount,
+                  ...(preview.coverageFrom
+                    ? { coverageFrom: preview.coverageFrom }
+                    : {}),
+                },
+              }
+            : p,
+        ),
+        ...(workspace.onboarding && workspace.properties[0]?.id === propertyId
           ? {
               onboarding: {
                 ...workspace.onboarding,
                 readyAt: workspace.onboarding.readyAt ?? at,
-                unresolvedCount: preview.rows.filter(
-                  (row) =>
-                    !row.issues.includes("已在選定範圍之前退房") &&
-                    ![...workspace.bookings, ...bookings].some(
-                      (b) =>
-                        b.status !== "cancelled" &&
-                        b.propertyId === propertyId &&
-                        b.imported?.sourceKey === preview.sourceKey &&
-                        b.imported.fingerprint === row.fingerprint,
-                    ),
-                ).length,
+                unresolvedCount,
               },
             }
           : {}),
@@ -480,6 +502,7 @@ export async function undoImport(
     (b) => b.id === batchId && b.propertyId === propertyId,
   );
   if (!batch) throw new Error("NOT_FOUND");
+  if (!batch.bookingIds.length) throw new Error("INVALID_INPUT");
   if (batch.undo) return batch.undo;
   if (workspace.version !== version) throw new Error("VERSION_CONFLICT");
   const undo = { cancelled: [] as string[], skipped: [] as string[] };
@@ -520,7 +543,19 @@ export async function undoImport(
         ...workspace,
         version: workspace.version + 1,
         bookings,
-        ...(workspace.onboarding
+        properties: workspace.properties.map((p) =>
+          p.id === propertyId
+            ? {
+                ...p,
+                setup: {
+                  ...(p.setup ?? { mode: "sheet" }),
+                  unresolvedCount:
+                    (p.setup?.unresolvedCount ?? 0) + undo.cancelled.length,
+                },
+              }
+            : p,
+        ),
+        ...(workspace.onboarding && workspace.properties[0]?.id === propertyId
           ? {
               onboarding: {
                 ...workspace.onboarding,

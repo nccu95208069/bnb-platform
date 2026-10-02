@@ -7,6 +7,8 @@
 
 This document is the top-level context for ongoing work. It supersedes older top-level positioning when there is a conflict, while preserving the earlier LINE Reply Copilot work as a separate subsystem.
 
+October 3 customer-workspace update: [customer operations and verification boundaries](docs/work-handoff/CUSTOMER_OPERATIONS_2026-10-03.md) extends the isolated customer track with multiple properties, invitations, unsold lists, pricing and order-level receipts. The implementation remains in draft PR #26; customer activation, browser/live-invitation acceptance and explicit production rollout approval are pending. Older implementation-status sections below are historical baselines, not claims about this new customer slice.
+
 ## 1. Product definition
 
 Build an operations system for approximately 3–30-room guesthouses, small hotels, and a small number of properties. The owner should be able to use natural language and visual month/week/day interfaces to:
