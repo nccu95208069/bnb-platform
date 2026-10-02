@@ -1,6 +1,9 @@
-import {createHash,createHmac,timingSafeEqual,randomBytes} from 'node:crypto';
+import {createHash,createHmac,timingSafeEqual,randomBytes,randomUUID} from 'node:crypto';
 import {customerCrypto} from './customer.mjs';
-const PREFIX='sweetfun-os:customer-manager:v1:',DAY=86400;
+import {PAGE_SIZE,action,button,text,overview,visible,normalizeCategory,sendBlocked,pageMessages,inboxCard,statusCard,clearStatusCard,quickNav} from './manager-inbox.mjs';
+import {clearLabels,channelLabel,validChannel,matchesChannel} from './manager-channels.mjs';
+import {menuImage} from './manager-menu-image.mjs';
+const PREFIX='sweetfun-os:customer-manager:v1:',DAY=86400,MENU_VERSION=5,INBOX_PRESENTATION_VERSION=3;
 const CAS="if (redis.call('GET',KEYS[1]) or '')~=ARGV[1] then return 0 end; redis.call('SET',KEYS[1],ARGV[2]); return 1";
 const hash=v=>createHash('sha256').update(v).digest('hex');
 const need=(ok,code,status=400)=>{if(!ok){const e=new Error(code);e.code=code;e.status=status;throw e;}};
@@ -12,23 +15,148 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
  const empty=owner=>({owner,properties:[{id:'sweetfun',name:'水芳民宿',oa_id:'@sweetfuntw'}]});
  const read=async owner=>{const raw=await redis(['GET',key(owner)]);return raw?vault().open(raw,key(owner)):empty(owner);};
  async function mutate(owner,fn){for(let i=0;i<8;i++){const raw=await redis(['GET',key(owner)]),d=raw?vault().open(raw,key(owner)):empty(owner),result=await fn(d);if(await redis(['EVAL',CAS,1,key(owner),raw||'',vault().seal(d,key(owner))])===1)return result;}need(false,'busy',409);}
- const safe=d=>({channel_id:channel(d.owner),configured:!!d.accessToken,name:d.name||'客服經理',basic_id:d.basicId||'',bound:!!d.ownerUserId,binding_revision:d.bindingRevision||0,webhook_verified:!!d.webhookVerified,properties:d.properties});
- async function line(d,path,body,retryKey){
-  const res=await fetcher('https://api.line.me/v2/bot/'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+d.accessToken,'Content-Type':'application/json',...(retryKey?{'X-Line-Retry-Key':retryKey}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(8000)});
+ const safe=d=>({channel_id:channel(d.owner),configured:!!d.accessToken,name:d.name||'客服經理',basic_id:d.basicId||'',bound:!!d.ownerUserId,binding_revision:d.bindingRevision||0,webhook_verified:!!d.webhookVerified,menu_ready:d.inboxMenuVersion===MENU_VERSION&&d.inboxMenuRevision===(d.bindingRevision||0)&&!!d.inboxMenuId,inbox_version:3,menu_note:d.inboxMenuNote||null,properties:d.properties});
+ async function line(d,path,body,retryKey,timeout=8000){
+  const res=await fetcher('https://api.line.me/v2/bot/'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+d.accessToken,'Content-Type':'application/json',...(retryKey?{'X-Line-Retry-Key':retryKey}:{})},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(timeout)});
   if(res.status===409&&retryKey&&res.headers.get('x-line-accepted-request-id'))return {};
   if(!res.ok){const e=new Error('line_api_unavailable');e.code='line_api_unavailable';e.status=502;e.providerStatus=res.status;throw e;}return res.status===204?{}:res.json();
  }
  function card(property,draft){
+  if(draft.contract_version===3)return {type:'flex',altText:clip(`${property.name}｜${draft.name}：待處理`,400),contents:inboxCard(property,draft)};
   const labels={awaiting_approval:'等待核准',approved:'已核准，等待重新核對',checking:'正在重新核對',sending:'正在送出',sent:'已送出',stale:'已失效',uncertain:'結果待確認',expired:'已過期',dismissed:'已交由你處理'};
   const message=`${property.name}｜${draft.name}\n${labels[draft.status]||draft.status}\n客人訊息${draft.question.length>700?'（節錄）':''}：\n${clip(draft.question,700)}\n\n${draft.binding?'訂單已確認：'+draft.binding.labels.map(l=>l.label).join('、')+'（Daili）\n\n':draft.identity?.summary?clip(draft.identity.summary,900)+'\n\n':''}${draft.reply?'建議回覆：\n'+draft.reply:'這個問題需要你判斷，請修改回覆或自行接手。'}`;
   const actions=['awaiting_approval','sent'].includes(draft.status)&&!['requested','binding','uncertain'].includes(draft.binding_state)?[
    ...(draft.identity?.selected&&!draft.binding?[{label:'確認訂單（不傳訊息）',a:'bind'}]:[]),
    ...(draft.status==='awaiting_approval'?[...(draft.reply?[{label:'核准送出訊息',a:'approve'}]:[]),{label:'修改回覆',a:'edit'},{label:'自行接手',a:'takeover'}]:[])
-  ].map(x=>({type:'button',style:x.a==='approve'?'primary':'secondary',action:{type:'postback',label:x.label,data:new URLSearchParams({a:x.a,p:property.id,d:draft.id,v:String(draft.version)}).toString()}})):[];
+  ].map(x=>({type:'button',style:x.a==='approve'?'primary':'secondary',action:action(x.label,{a:x.a,p:property.id,d:draft.id,v:String(draft.version)},{displayText:clip(`${draft.name}｜${x.label}`,300)})})):[];
   return {type:'flex',altText:clip(`${property.name}｜${draft.name}：${labels[draft.status]||draft.status}`,400),contents:{type:'bubble',body:{type:'box',layout:'vertical',contents:[{type:'text',text:message,wrap:true,size:'sm'}]},...(actions.length?{footer:{type:'box',layout:'vertical',spacing:'sm',contents:actions}}:{})}};
+ }
+ async function inbox(owner,readDrafts){
+  const state=await read(owner),rows=[],warnings=[],times=[],failures=[],clears={};
+  await Promise.all(state.properties.map(async property=>{
+   try{const result=await readDrafts(owner,property.id);clears[property.id]=result.clear_batches||[];for(const draft of result.drafts)if(visible(draft))rows.push({property,draft});if(result.last_sync)times.push(result.last_sync);if(result.error||!result.enabled)warnings.push(`${property.name}：${!result.enabled?'整理已暫停':'同步待恢復'}`);}
+   catch(e){if(e.code!=='not_paired'){failures.push(property.id);warnings.push(`${property.name}：暫時無法讀取`);}}
+  }));
+  rows.sort((a,b)=>(a.draft.created_at||0)-(b.draft.created_at||0));
+  const clearings=Object.entries(state.clears||{}).filter(([,b])=>b.confirmed&&b.until>now()&&b.revision===(state.bindingRevision||0)).map(([token,b])=>({token,channel:b.channel||'all',count:Object.entries(b.groups).reduce((total,[p,refs])=>total+(clears[p]?.find(x=>x.token===token)?.pending??refs.length),0)})).filter(b=>b.count>0);
+  return {rows,clears,clearings,clearing:clearings[0]||null,failures,revision:state.bindingRevision||0,now:now(),warning:warnings.join('；'),refreshedAt:times.length?Math.min(...times):null};
+ }
+ async function inboxSnapshot(owner,readDrafts){
+  const data=await inbox(owner,readDrafts);
+  // Track the single inbox, progress and presentation changes. A sync timestamp alone must not create another notification.
+  const signature=hash(JSON.stringify([INBOX_PRESENTATION_VERSION,data.revision,
+   data.rows.map(({property,draft})=>[property.id,draft.id,draft.version,draft.channel_kind||'line']).sort(),
+   data.clearings.map(b=>[b.token,b.channel,b.count]).sort(),data.warning]));
+  return {message:overview(data.rows,data),signature,revision:data.revision,complete:!data.failures.length};
+ }
+ async function rememberOverview(owner,snapshot){
+  if(!snapshot?.complete)return;
+  await mutate(owner,d=>{if((d.bindingRevision||0)===snapshot.revision){d.digestSignature=snapshot.signature;d.digestSentAt=now();}});
+ }
+ async function openInbox(owner,category,readDrafts,reviewCards){
+  category=normalizeCategory(category);need(category,'invalid_action');
+  const data=await inbox(owner,readDrafts);
+  if(category==='all')return overview(data.rows,data);
+  const rows=data.rows,token=randomBytes(12).toString('hex'),renderToken=randomBytes(12).toString('hex');
+  const view={category,pageSize:PAGE_SIZE,until:now()+DAY*1000,items:rows.map(({property,draft})=>({p:property.id,id:draft.id})),pages:{0:{renderToken,items:rows.slice(0,PAGE_SIZE).map(({property,draft})=>({p:property.id,id:draft.id,v:draft.version}))}}};
+  await mutate(owner,d=>{d.views=Object.fromEntries(Object.entries(d.views||{}).filter(([,v])=>v.until>now()).slice(-19));d.views[token]=view;});
+  return showPage(owner,token,0,readDrafts,reviewCards,{view,data});
+ }
+ async function showPage(owner,token,page,readDrafts,reviewCards,cached){
+  need(/^[a-f0-9]{24}$/.test(token||'')&&Number.isSafeInteger(page)&&page>=0,'invalid_action');
+  const view=cached?.view||(await read(owner)).views?.[token],pageSize=view?.pageSize||3;
+  need(view&&[3,PAGE_SIZE].includes(pageSize)&&view.until>now()&&page<Math.max(1,Math.ceil(view.items.length/pageSize)),'view_expired');
+  if(view.category!=='pending')return openInbox(owner,'pending',readDrafts,reviewCards);
+  const data=cached?.data||await inbox(owner,readDrafts),rows=view.items.slice(page*pageSize,page*pageSize+pageSize).flatMap(ref=>data.rows.filter(row=>row.property.id===ref.p&&row.draft.id===ref.id));
+  const renderToken=cached?view.pages[page].renderToken:randomBytes(12).toString('hex');
+  if(!cached)await mutate(owner,d=>{need(d.views?.[token]?.until>now(),'view_expired');d.views[token].pages[page]={renderToken,items:rows.map(({property,draft})=>({p:property.id,id:draft.id,v:draft.version}))};});
+  if(reviewCards)for(const property of new Set(rows.filter(r=>r.draft.contract_version===3).map(r=>r.property.id)))await reviewCards(owner,property,rows.filter(r=>r.property.id===property).map(r=>({id:r.draft.id,v:r.draft.version})));
+  return pageMessages(rows,{token,page,total:view.items.length,category:view.category,pageSize,renderToken});
+ }
+ async function batchPreview(owner,q,readDrafts){
+  const state=await read(owner),view=state.views?.[q.get('t')],page=Number(q.get('n')),shown=view?.pages?.[page],refs=shown?.items,mode=q.get('mode')==='no_reply'?'no_reply':'approve';
+  need(view?.until>now()&&shown?.renderToken===q.get('r')&&refs?.length&&refs.length<=PAGE_SIZE,'view_expired');
+  const data=await inbox(owner,readDrafts),rows=refs.map(ref=>data.rows.find(row=>row.property.id===ref.p&&row.draft.id===ref.id&&row.draft.version===ref.v));
+  need(rows.every(row=>row&&row.draft.category===(mode==='approve'?'ready':'no_reply')&&(mode!=='approve'||row.draft.reply&&!sendBlocked(row.draft))),'draft_changed');
+  const token=randomBytes(12).toString('hex');
+  await mutate(owner,d=>{d.batches=Object.fromEntries(Object.entries(d.batches||{}).filter(([,b])=>b.until>now()).slice(-9));d.batches[token]={displayVersion:2,items:refs,mode,until:now()+600000,results:[],bindingRevision:d.bindingRevision};});
+  return {type:'flex',altText:'確認本組操作',contents:{type:'bubble',body:{type:'box',layout:'vertical',spacing:'md',contents:[text(mode==='approve'?`送出這 ${rows.length} 位客人剛才顯示的各自草稿？`:`這 ${rows.length} 位客人這次都不用回？`,{weight:'bold'}),...rows.map(row=>text(`${row.property.name}｜${row.draft.name}`)),text('內容有更新的項目會跳過，保留給你重新確認。',{size:'xs'})]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:[button(mode==='approve'?'確認送出':'確認不用回',{a:'batch_confirm',t:token},true),button('返回總覽',{a:'inbox',c:'all'})]}}};
+ }
+ async function confirmBatch(owner,token,eventId,decide){
+  const work=await mutate(owner,d=>{const b=d.batches?.[token];need(b?.displayVersion===2&&b.until>now()&&b.bindingRevision===d.bindingRevision,'view_expired');need(!b.claim||b.claim===eventId,'already_processed');b.claim=eventId;return structuredClone(b);});
+  for(let i=work.results.length;i<work.items.length;i++){
+   const ref=work.items[i];let result;
+   try{await decide(owner,ref.p,{draft_id:ref.id,version:ref.v,action:work.mode,request_id:`${eventId}:${i}`});result='accepted';}catch(e){if(!e.status||e.status>=500)throw e;result='changed';}
+   await mutate(owner,d=>{const b=d.batches?.[token];need(b?.claim===eventId,'view_expired');if(b.results.length===i)b.results.push(result);});
+  }
+  const final=(await read(owner)).batches[token],accepted=final.results.filter(x=>x==='accepted').length;
+  return {type:'text',text:`已接受 ${accepted} 筆${work.mode==='approve'?'核准，重新核對後逐位送出':'不用回覆的決定'}。${final.results.length>accepted?`\n${final.results.length-accepted} 筆狀態已變，請重新查看。`:''}`};
+ }
+ async function clearPreview(owner,readDrafts,revision,channel='all'){
+  need(validChannel(channel),'invalid_action');
+  const data=await inbox(owner,readDrafts);need(!data.failures.length,'inbox_unavailable',503);
+  const scoped=data.rows.filter(({draft})=>matchesChannel(draft,channel));
+  const rows=scoped.filter(({draft})=>draft.contract_version===3&&draft.expires_at>now()&&!['requested','binding','uncertain'].includes(draft.binding_state));
+  const excluded=scoped.length-rows.length;
+  const clearing=data.clearings.find(b=>channel==='all'||b.channel===channel);
+  if(!rows.length&&clearing)return clearStatus(owner,clearing.token,readDrafts,revision);
+  if(!rows.length)return {type:'text',text:excluded?`目前 ${channelLabel(channel)} 的 ${excluded} 筆待辦正在處理或需重新整理，暫時無法結案。`:`目前 ${channelLabel(channel)} 沒有需要清理的待辦。`,quickReply:quickNav()};
+  const token=randomBytes(12).toString('hex'),groups={};
+  for(const {property,draft} of rows)(groups[property.id]||=[]).push({id:draft.id,v:draft.version});
+  await mutate(owner,d=>{
+   need((d.bindingRevision||0)===revision,'binding_changed',409);
+   const keep=Object.entries(d.clears||{}).filter(([,b])=>b.until>now());
+   d.clears=Object.fromEntries([...keep.filter(([,b])=>b.confirmed),...keep.filter(([,b])=>!b.confirmed).slice(-19)]);
+   d.clears[token]={channel,groups,total:rows.length,excluded,revision,until:now()+600000,confirmed:false};
+  });
+  return {type:'flex',altText:`確認${clearLabels[channel]}：${rows.length} 筆`,contents:{type:'bubble',body:{type:'box',layout:'vertical',spacing:'md',contents:[text(`${channelLabel(channel)} 共 ${rows.length} 筆標為已處理？`,{size:'lg',weight:'bold'}),...Object.keys(groups).map(p=>text(`${rows.find(row=>row.property.id===p).property.name}：${groups[p].length} 筆`)),text(`範圍：${channelLabel(channel)}。包含此範圍所有待辦與所有分頁。這次不會傳送任何訊息給客人。`),text('以這次確認清單為準；新增訊息或內容已更新的項目會保留。',{size:'xs'}),...(excluded?[text(`另有 ${excluded} 筆正在處理或需重新整理，暫時保留。`,{size:'xs'})]:[]),...(data.warning?[text(data.warning,{size:'xs'})]:[])]},footer:{type:'box',layout:'vertical',spacing:'sm',contents:[button(channel==='all'?'確認全部已處理':`確認 ${channelLabel(channel)} 全部已處理`,{a:'clear_confirm',t:token},true),button('取消',{a:'clear_cancel',t:token})]}},quickReply:quickNav()};
+ }
+ async function clearStatus(owner,token,readDrafts,revision){
+  const b=(await read(owner)).clears?.[token];need(b?.confirmed&&b.until>now()&&b.revision===revision,'view_expired');
+  const data=await inbox(owner,readDrafts);
+  const counts={closed:0,changed:0,pending:0,unaccepted:0};
+  for(const [p,refs] of Object.entries(b.groups)){
+   const result=data.clears[p]?.find(x=>x.token===token&&(x.channel||'all')===(b.channel||'all'));
+   if(result){counts.closed+=result.closed;counts.changed+=result.changed;counts.pending+=result.pending;}
+   else counts.unaccepted+=refs.length;
+  }
+  return clearStatusCard({token,channel:b.channel||'all',total:b.total,excluded:b.excluded,...counts,warning:data.failures.length?'部分進度暫時無法讀取，可稍後查看或按「繼續清理」重試。':counts.unaccepted?'部分待辦尚待受理，請按「繼續清理」。':counts.pending&&data.warning?'部分處理暫未完成，系統會自動重試。':''});
+ }
+ async function confirmClear(owner,token,decide,readDrafts,revision){
+  const work=await mutate(owner,d=>{
+   const b=d.clears?.[token];need(b&&b.until>now()&&b.revision===revision&&(d.bindingRevision||0)===revision,'view_expired');
+   need(Object.keys(b.groups).every(p=>d.properties.some(x=>x.id===p)),'invalid_property');
+   if(!b.confirmed){b.confirmed=true;b.until=now()+DAY*1000;}return structuredClone(b);
+  });
+  // One atomic property write enqueues every captured item. Retries reuse the
+  // same token; the leased worker and cron finish them beyond request limits.
+  for(const [p,items] of Object.entries(work.groups)){
+   try{await decide(owner,p,{action:'clear_all',token,items,channel:work.channel||'all'});}
+   catch(e){if(!e.status||e.status>=500||e.code==='busy')break;throw e;}
+  }
+  return clearStatus(owner,token,readDrafts,revision);
  }
  return {
   properties:async owner=>(await read(owner)).properties,
+  async ensureMenu(owner){
+   const d=await read(owner);if(!d.ownerUserId||!d.accessToken||!d.webhookVerified||safe(d).menu_ready)return;
+   const lease=key(owner)+':menu-lease',claim=randomUUID();let claimed=false,stage='lease';
+   try{
+    claimed=await redis(['SET',lease,claim,'NX','EX',45])==='OK';
+    if(!claimed){await mutate(owner,s=>{s.inboxMenuNote='選單正在由另一個整理作業處理，稍後會自動完成。';});return;}
+    stage='list';
+    const name='客服經理・待辦 v'+MENU_VERSION,existing=await line(d,'richmenu/list');
+    let menu=existing.richmenus?.find(m=>m.name===name),hasImage=false;
+    if(menu){stage='image-check';const content=await fetcher(`https://api-data.line.me/v2/bot/richmenu/${menu.richMenuId}/content`,{headers:{Authorization:'Bearer '+d.accessToken},signal:AbortSignal.timeout(8000)});hasImage=content.ok;need(content.ok||content.status===404,'menu_unavailable',503);await content.body?.cancel();}
+    stage='create';if(!menu)menu=await line(d,'richmenu',{size:{width:2500,height:843},selected:true,name,chatBarText:'客服待辦',areas:[{bounds:{x:0,y:0,width:1000,height:843},action:action('查看待辦',{a:'inbox',c:'pending'})},...['line','instagram'].map((ch,i)=>({bounds:{x:1000+i*750,y:0,width:750,height:843},action:action(clearLabels[ch],{a:'clear_preview',ch})}))]});
+    if(!hasImage){stage='upload';const uploaded=await fetcher(`https://api-data.line.me/v2/bot/richmenu/${menu.richMenuId}/content`,{method:'POST',headers:{Authorization:'Bearer '+d.accessToken,'Content-Type':'image/png'},body:menuImage,signal:AbortSignal.timeout(8000)});
+    if(!uploaded.ok){const e=new Error('menu_upload_failed');e.code='menu_upload_failed';e.providerStatus=uploaded.status;throw e;}}
+    const current=await read(owner);need(current.bindingRevision===d.bindingRevision&&current.ownerUserId===d.ownerUserId,'binding_changed');
+    stage='link';await line(d,`user/${d.ownerUserId}/richmenu/${menu.richMenuId}`,{});
+    stage='verify';const linked=await line(d,`user/${d.ownerUserId}/richmenu`);need(linked.richMenuId===menu.richMenuId,'menu_unavailable',503);
+    await mutate(owner,s=>{if(s.bindingRevision===d.bindingRevision){s.inboxMenuRevision=d.bindingRevision||0;s.inboxMenuVersion=MENU_VERSION;s.inboxMenuId=menu.richMenuId;delete s.inboxMenuNote;}});
+   }catch(e){console.warn('manager_menu_setup',stage,e.code||e.name||'unavailable',e.providerStatus||0);await mutate(owner,s=>{s.inboxMenuNote=`LINE 選單${({lease:'排程',list:'讀取',create:'建立','image-check':'圖片讀取',upload:'圖片上傳',link:'連接',verify:'確認'})[stage]||'準備'}暫時失敗${e.providerStatus?'（'+e.providerStatus+'）':''}，系統會自動重試。`;}).catch(()=>{});throw e;}finally{if(claimed)await redis(['EVAL',"if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0",1,lease,claim]);}
+  },
   async owner(owner,operation,b={}){
    if(operation==='status')return safe(await read(owner));
    if(operation==='property-add'){
@@ -61,6 +189,9 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
   async notify({owner,property,notice}){
    const d=await read(owner),p=d.properties.find(p=>p.id===property);
    if(!d.accessToken||!d.ownerUserId||!d.webhookVerified||!p)return false;
+   if(notice.kind==='clear_summary'){
+    await line(d,'message/push',{to:d.ownerUserId,messages:[clearStatusCard({...notice.clear,property:p.name})]},notice.id);return true;
+   }
    if(notice.kind==='media'){
     const a=notice.attachment,m=notice.media;
     const time=new Date(m.occurred_at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'});
@@ -86,10 +217,33 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
     }
     return true;
    }
-   const message=notice.kind==='draft'?card(p,notice.draft):{type:'text',text:`${p.name}｜${notice.draft.name}\n${notice.text}\n${notice.kind==='binding_status'?'':notice.draft.reply||''}`};
+   const message=notice.kind==='draft'?card(p,notice.draft):statusCard(p,notice.draft,{note:notice.text,binding:notice.kind==='binding_status'});
    await line(d,'message/push',{to:d.ownerUserId,messages:[message]},notice.id);return true;
   },
-  async webhook(channelId,raw,signature,decide,readDrafts){
+  async digest(owner,readDrafts,{afterAction=false}={}){
+   const snapshot=await inboxSnapshot(owner,readDrafts),state=await read(owner);
+   if(!state.ownerUserId||!state.accessToken||!state.webhookVerified)return;
+   if(!snapshot.complete)return;
+   if(!state.digestPending&&(state.digestSignature===snapshot.signature||(!afterAction&&state.digestSentAt>now()-60000)))return;
+   const lease=key(owner)+':digest-lease',claim=randomUUID();
+   if(await redis(['SET',lease,claim,'NX','EX',30])!=='OK')return;
+   try{
+    const pending=await mutate(owner,d=>{
+     if((d.bindingRevision||0)!==snapshot.revision)return null;
+     if(d.digestPending&&d.digestPending.revision!==(d.bindingRevision||0))delete d.digestPending;
+     if(!d.digestPending){
+      if(d.digestSignature===snapshot.signature||(!afterAction&&d.digestSentAt>now()-60000))return null;
+      d.digestPending={id:randomUUID(),signature:snapshot.signature,revision:d.bindingRevision||0,message:snapshot.message};
+     }
+     return structuredClone(d.digestPending);
+    });
+    if(!pending)return;
+    const current=await read(owner);need((current.bindingRevision||0)===pending.revision&&current.ownerUserId,'binding_changed');
+    await line(current,'message/push',{to:current.ownerUserId,messages:[pending.message]},pending.id);
+    await mutate(owner,d=>{if(d.digestPending?.id===pending.id){if((d.bindingRevision||0)===pending.revision){d.digestSignature=pending.signature;d.digestSentAt=now();}delete d.digestPending;}});
+   }finally{await redis(['EVAL',"if redis.call('GET',KEYS[1])==ARGV[1] then return redis.call('DEL',KEYS[1]) end return 0",1,lease,claim]);}
+  },
+  async webhook(channelId,raw,signature,decide,readDrafts,getContext,reviewCards,afterReply){
    need(/^[a-f0-9]{32}$/.test(channelId),'not_found',404);
    const owner=await redis(['GET',PREFIX+'route:'+channelId]);need(owner,'not_found',404);
    const d=await read(owner);need(d.channelSecret,'manager_not_configured',409);
@@ -97,54 +251,119 @@ export function createManager(redis,{secret=process.env.CALENDAR_OWNER_SESSION_S
    need(typeof signature==='string'&&signature.length===expected.length&&timingSafeEqual(Buffer.from(expected),Buffer.from(signature)),'invalid_signature',401);
    let body;try{body=JSON.parse(raw)}catch{need(false,'invalid_json');}
    need(body&&typeof body==='object'&&body.destination===d.botUserId&&Array.isArray(body.events)&&body.events.length<=20,'invalid_webhook');
-   await mutate(owner,s=>{s.webhookVerified=now();});
+   if(!d.webhookVerified)await mutate(owner,s=>{if(s.channelSecret===d.channelSecret)s.webhookVerified=now();});
    for(const event of body.events){
     if(event.source?.type!=='user'||!/^U[a-f0-9]{32}$/.test(event.source.userId||''))continue;
     const eventId=event.webhookEventId;need(typeof eventId==='string'&&eventId.length<100,'invalid_event');
     const eventKey=PREFIX+'event:'+hash(channelId+'|'+eventId);
-    if(await redis(['GET',eventKey])==='done')continue;
     // Fence concurrent delivery; a failed request is retried after this short lease.
-    if(await redis(['SET',eventKey,'working','NX','EX',60])!=='OK')need(false,'event_busy',503);
+    const claimed=await redis(['EVAL',"local v=redis.call('GET',KEYS[1]); if v=='done' then return 2 end; if v then return 0 end; redis.call('SET',KEYS[1],'working','EX',60); return 1",1,eventKey]);
+    if(claimed===2)continue;need(claimed===1,'event_busy',503);
+    const loading=d.ownerUserId===event.source.userId&&event.replyToken?line(d,'chat/loading/start',{chatId:d.ownerUserId,loadingSeconds:20},undefined,1500).catch(()=>{}):Promise.resolve();
+    const reviews=[],queueReview=reviewCards?(...args)=>{reviews.push(()=>reviewCards(...args));}:null;
+    let actionRef=null,shownOverview=null;
+    const latestOverview=async()=>{shownOverview=null;shownOverview=await inboxSnapshot(owner,readDrafts);return shownOverview.message;};
     try{
-     let current=await read(owner),reply=null;
+     let current=await read(owner),reply=null,refreshOverview=false;
      const value=event.type==='message'&&event.message?.type==='text'?event.message.text.trim():'';
      const pairing=/^綁定 ([a-f0-9]{32})$/.exec(value);
      if(pairing){
       await mutate(owner,s=>{need(s.pairHash===hash(pairing[1])&&s.pairExpires>now(),'pairing_expired',409);s.bindingRevision=(s.bindingRevision||0)+1;s.ownerUserId=event.source.userId;delete s.pairHash;delete s.editFocus;});
-      reply={type:'text',text:'已連接客服經理。新訊息會整理成草稿交給你核准；你也可以傳「待辦」查看目前待處理項目。'};
+      reply={type:'text',text:'已連接客服經理。待辦會自動整理到同一份清單，可直接用卡片按鈕處理；同一位客人的連續訊息會合併整理。'};
      }else if(current.ownerUserId===event.source.userId){
+      // Bind every decision in this event, including each batch item, to the
+      // owner connection that authenticated its LINE sender.
+      const boundDecide=(actor,property,body)=>decide(actor,property,{...body,owner_binding_revision:current.bindingRevision||0});
       if(event.type==='postback'){
        const q=new URLSearchParams(event.postback?.data||''),a=q.get('a'),p=q.get('p'),id=q.get('d'),version=Number(q.get('v'));
+       refreshOverview=['approve','bind','takeover','no_reply','batch_confirm','clear_confirm','clear_cancel'].includes(a);
+       if(a==='inbox')reply=!q.get('c')||q.get('c')==='all'?await latestOverview():await openInbox(owner,q.get('c'),readDrafts,queueReview);
+       else if(a==='snooze'||a==='unsnooze')reply=await openInbox(owner,'pending',readDrafts,queueReview);
+       else if(a==='page')reply=await showPage(owner,q.get('t'),Number(q.get('n')),readDrafts,queueReview);
+       else if(a==='batch_preview')reply=await batchPreview(owner,q,readDrafts);
+       else if(a==='batch_confirm')reply=await confirmBatch(owner,q.get('t'),eventId,boundDecide);
+       else if(a==='clear_preview')reply=await clearPreview(owner,readDrafts,current.bindingRevision||0,q.get('ch')??'all');
+       else if(a==='clear_confirm')reply=await confirmClear(owner,q.get('t'),boundDecide,readDrafts,current.bindingRevision||0);
+       else if(a==='clear_status')reply=await clearStatus(owner,q.get('t'),readDrafts,current.bindingRevision||0);
+       else if(a==='clear_cancel'){
+        const canceled=await mutate(owner,s=>{const b=s.clears?.[q.get('t')];need(b?.revision===(current.bindingRevision||0),'view_expired');if(b.confirmed)return false;delete s.clears[q.get('t')];return true;});
+        reply=canceled?{type:'text',text:'已取消，待辦保留。'}:await clearStatus(owner,q.get('t'),readDrafts,current.bindingRevision||0);
+       }
+       else if(a==='cancel_edit'){await mutate(owner,s=>{delete s.editFocus;});reply={type:'text',text:'已取消修改，原草稿保留。'};}
+       else {
        need(current.properties.some(x=>x.id===p)&&typeof id==='string'&&/^[\w-]{32}$/.test(id)&&Number.isSafeInteger(version),'invalid_action');
-       if(a==='edit'){
+       actionRef={p,id,a};
+       if(a==='status'){
+        const rows=await readDrafts(owner,p),draft=rows.drafts.find(x=>x.id===id);need(draft,'draft_not_found',404);
+        reply=[statusCard(current.properties.find(x=>x.id===p),draft)];
+        if(draft.status==='awaiting_approval'&&!['requested','binding','uncertain'].includes(draft.binding_state)){
+         reply.push(card(current.properties.find(x=>x.id===p),draft));
+         if(draft.contract_version===3&&queueReview)queueReview(owner,p,[{id:draft.id,v:draft.version}]);
+        }
+       }else if(a==='context'){
+        need(getContext,'context_unavailable');const result=await getContext(owner,p,id,q.get('before'));
+        const full=result.messages.map(m=>`${m.role==='CUSTOMER'?'客人':m.role==='OWNER'?'民宿':'自動訊息'} · ${new Date(m.at).toLocaleString('zh-TW',{timeZone:'Asia/Taipei'})}\n${m.text}`).join('\n\n');
+        const chars=[...full];reply=[];for(let pos=0;pos<chars.length;pos+=4000)reply.push({type:'text',text:chars.slice(pos,pos+4000).join('')});
+        need(reply.length<=4,'context_page_too_large');
+        if(result.before)reply.push({type:'flex',altText:'對話分頁',contents:{type:'bubble',body:{type:'box',layout:'vertical',contents:[text('已顯示本頁對話')]},footer:{type:'box',layout:'vertical',contents:[button('更早的對話',{a:'context',p,d:id,v:String(version),before:result.before})]}}});if(!reply.length)reply={type:'text',text:'目前沒有可顯示的對話。'};
+       }else if(a==='edit'){
         const rows=await readDrafts(owner,p),draft=rows.drafts.find(x=>x.id===id);need(draft?.version===version&&draft.status==='awaiting_approval','draft_changed',409);
         await mutate(owner,s=>{s.editFocus={property:p,id,version,until:now()+600000};});
-        reply={type:'text',text:`請輸入「${current.properties.find(x=>x.id===p).name}｜${draft.name}」的新回覆。\n只會更新草稿，仍需再次按「核准送出」。輸入「取消修改」可退出。`};
+        reply={type:'text',text:`修改「${current.properties.find(x=>x.id===p).name}｜${draft.name}」的回覆。\n送出到這裡只會儲存草稿，還需要按「核准送出」才會傳給客人。`,quickReply:{items:[{type:'action',action:action('取消修改',{a:'cancel_edit'})}]}};
        }else{
-        need(['approve','bind','takeover'].includes(a),'invalid_action');
-        await decide(owner,p,{draft_id:id,version,action:a,request_id:eventId});
-        reply={type:'text',text:a==='bind'?'已收到訂單確認，會核對後建立 Daili 關聯與住宿標記；這個操作不會傳訊息給客人。':a==='approve'?'已收到核准，會重新核對客人的最新訊息再送出；完成後向你回報。':'已交由你處理，這位客人的後續訊息暫停整理。可在工作台恢復。'};
+        need(['approve','bind','takeover','no_reply'].includes(a),'invalid_action');
+        const result=await boundDecide(owner,p,{draft_id:id,version,action:a,request_id:eventId});
+        reply=statusCard(current.properties.find(x=>x.id===p),result.draft,{duplicate:!!result.duplicate,binding:a==='bind',note:a==='takeover'?'已交由你處理，這位客人的後續訊息暫停整理。':''});
+       }
        }
       }else if(value==='取消修改'){
        await mutate(owner,s=>{delete s.editFocus;});reply={type:'text',text:'已取消修改，原草稿保留。'};
-      }else if(current.editFocus&&value&&value!=='待辦'){
+      }else if(current.editFocus&&value&&!['待辦','待辦總覽'].includes(value)){
        const focus=current.editFocus;need(focus.until>now(),'edit_expired',409);
-       const result=await decide(owner,focus.property,{draft_id:focus.id,version:focus.version,action:'edit',text:value,request_id:eventId});
+       const result=await boundDecide(owner,focus.property,{draft_id:focus.id,version:focus.version,action:'edit',text:value,request_id:eventId});
        await mutate(owner,s=>{if(s.editFocus?.id===focus.id&&s.editFocus?.version===focus.version)delete s.editFocus;});
-       reply={type:'text',text:`已儲存第 ${result.draft.version} 版草稿，稍後會收到新的核准卡片，尚未送出。`};
-      }else if(value==='待辦'){
-       const rows=[];for(const p of current.properties){try{const result=await readDrafts(owner,p.id);for(const draft of result.drafts.filter(x=>x.status==='awaiting_approval'))rows.push(card(p,draft));}catch(e){if(e.code!=='not_paired')throw e;}}
-       reply=rows.length?rows.slice(0,5):{type:'text',text:'目前沒有待核准的草稿。'};
-      }else if(value)reply={type:'text',text:'傳「待辦」查看待核准草稿，或直接使用卡片上的核准、修改、接手按鈕。'};
+       reply=[{type:'text',text:'草稿已更新，請查看並按「核准送出」。'},card(current.properties.find(x=>x.id===focus.property),result.draft)];
+       if(result.draft.contract_version===3&&queueReview)queueReview(owner,focus.property,[{id:result.draft.id,v:result.draft.version}]);
+      }else if(['待辦','待辦總覽'].includes(value))reply=await latestOverview();
+      else if(value)reply={type:'text',text:'按下方「查看待辦」，左右滑動卡片即可處理。需要修改草稿時才需輸入文字。'};
+     }
+     if(reply&&refreshOverview){
+      try{reply=[...(Array.isArray(reply)?reply:[reply]),await latestOverview()];}
+      catch(e){console.warn('manager_overview_deferred',e.code||'unavailable');}
      }
      current=await read(owner);
-     if(reply&&event.replyToken)await line(current,'message/reply',{replyToken:event.replyToken,messages:Array.isArray(reply)?reply:[reply]});
+     await loading;
+     if(reply&&event.replyToken){
+      need(current.ownerUserId===event.source.userId,'binding_changed',409);
+      const messages=Array.isArray(reply)?reply:[reply];messages.at(-1).quickReply||=quickNav();await line(current,'message/reply',{replyToken:event.replyToken,messages});
+      await rememberOverview(owner,shownOverview).catch(()=>{});
+      // Read evidence is captured only after LINE accepts the exact shown cards.
+      // Backend work cannot delay the initial card reply.
+      if(reviews.length){const work=async()=>{for(const job of reviews)try{await job();}catch(e){console.warn('manager_review_deferred',e.code||'unavailable');}};if(afterReply)afterReply(work);else await work();}
+     }
      await redis(['SET',eventKey,'done','EX',DAY*7]);
     }catch(e){
-     if(e.status&&e.status<500){
-      if(event.replyToken)await line(await read(owner),'message/reply',{replyToken:event.replyToken,messages:[{type:'text',text:'這份草稿、修改或綁定已失效，沒有送出新訊息。請傳「待辦」取得最新草稿，或回工作台重新綁定。'}]}).catch(()=>{});
-      await redis(['SET',eventKey,'done','EX',DAY*7]);
-     }else{await redis(['DEL',eventKey]);throw e;}
+     await loading;
+     // Keep transient failure redelivery, including partially accepted batches.
+     if(!e.status||e.status>=500){await redis(['DEL',eventKey]);throw e;}
+     if(event.replyToken)try{
+      const current=await read(owner);
+      if(current.ownerUserId===event.source.userId){
+       const reasons={instagram_reply_window_closed:'IG 的 24 小時回覆期限已過，請至 Instagram 原對話處理。',instagram_text_too_long:'IG 回覆上限為 1,000 UTF-8 位元組，約 330 個中文字；請縮短草稿。',automation_paused:'目前已暫停整理，請恢復後再操作。',view_expired:'先前那組待辦已更新，請使用下方最新總覽。',edit_expired:'修改已逾時，請重新打開卡片修改。',already_processed:'這組操作已受理，完成後會回報。',invalid_customer_input:'草稿內容不符合格式，請縮短至 1,000 字內後重試。',line_card_too_large:'這組卡片內容超過 LINE 顯示上限，請先使用「查看對話」閱讀內容。',busy:'目前操作較多，這次尚未確認完成，請查看最新卡片後再操作。'};
+       let message={type:'text',text:reasons[e.code]||'這張卡片的內容或狀態已更新，請查看最新待辦。',quickReply:quickNav()};
+       if(actionRef&&current.properties.some(x=>x.id===actionRef.p)){
+        if(['draft_changed','binding_in_progress'].includes(e.code)){
+         const rows=await readDrafts(owner,actionRef.p),draft=rows.drafts.find(x=>x.id===actionRef.id);
+         if(draft)message=statusCard(current.properties.find(x=>x.id===actionRef.p),draft,{note:'原卡片的內容或狀態已更新，這次沒有新增操作。',binding:actionRef.a==='bind'});
+        }else message.quickReply={items:[{type:'action',action:action('查看進度',{a:'status',p:actionRef.p,d:actionRef.id,v:'0'})},...quickNav().items]};
+       }
+       const messages=[message];
+       try{messages.push(await latestOverview());}catch(e){console.warn('manager_overview_deferred',e.code||'unavailable');}
+       await line(current,'message/reply',{replyToken:event.replyToken,messages});
+       await rememberOverview(owner,shownOverview).catch(()=>{});
+      }
+     }catch{/* A rejected old action is not reapplied on redelivery. */}
+     await redis(['SET',eventKey,'done','EX',DAY*7]);
     }
    }
    return {ok:true};
