@@ -62,3 +62,11 @@ Owner 認為原文案過度像 AI 生成，要求專業 SaaS 官網語氣。首�
 移除「款待、從容、節奏、安頓」等抽象訴求與裝飾性英文標語；主行動統一為「申請使用」，Sheet 下一步改為「下一步：聯絡資料」，明確區分前往表單與實際送出。保留申請制、專人核對、一次性匯入及不修改原表的說明；不新增價格、試用期限、客戶數、全天候服務或 OTA 同步承諾。未改動功能與寄信邏輯。
 
 調整較長中文標題的字級並更新本地字體子集（75,092 bytes）。六項 DOM／SSR 回歸測試通過；lint 無錯誤、仍有兩個原有警告；production build 通過。瀏覽器安全檢查仍不可用，本次沒有新的畫面或瀏覽器驗證數據。僅更新本機預覽與草稿 PR，未部署正式網站。
+
+## Appearance preference — 2026-10-02
+
+The owner requested a dark mode to reduce brightness on phones at night. Both service and contact headers now offer a native, keyboard-accessible appearance selector with system/light/dark choices and a 44px target. Default system mode responds through CSS before hydration and follows changes in the device setting. A validated `/join`-scoped, one-year preference cookie supplies the server-rendered manual choice, avoiding a light-first client effect. Shared route state preserves the choice while answering questions and moving between the service/contact pages. Blocked cookies do not prevent switching for the current visit.
+
+The palette covers paper/cards/forms, booking examples, active choices, warning/error states, completion content, native controls and page overscroll. Dark imagery renders at 68% brightness; large surfaces use muted dark greens rather than white. Main tested dark text/background token pairs have contrast ratios from 6.49 to 12.73. These numerical checks do not replace a full rendered accessibility audit. Authenticated calendar palette, account permissions and notification behavior are independent.
+
+Six DOM/SSR regressions pass, including switching all modes, persisting the cookie, preserving dark mode through contact navigation/draft reload, and rendering a saved dark choice directly in initial HTML. Frontend lint has zero errors/two existing warnings; local production build/TypeScript passed before final minor warning-palette refinements. The cloud release build verifies the final source. Fresh native-browser visual checks remain unavailable: the Mac was locked and the browser app-server could not initialize. Do not label this release visually verified on a real phone.

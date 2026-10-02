@@ -3,10 +3,11 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { act, createElement, useCallback, useEffect, useState } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { serviceTheme } from "../src/lib/customer-intake/theme.ts";
 import { ServiceJoin } from "../src/components/customer-intake/service-join.tsx";
 test("join questionnaire branches into Sheet sharing and optional consultation; non-Sheet gets assisted entry; uncertain send restores after reload", async (t) => {
   const dom = new JSDOM('<div id="root"></div>', {
-    url: "https://service.test",
+    url: "https://service.test/join",
   });
   const globals = {
     window: globalThis.window,
@@ -54,6 +55,7 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
     }, []);
     return createElement(ServiceJoin, {
       ...props,
+      initialTheme: serviceTheme(document.cookie.match(/bnb-service-theme-v1=([^;]+)/)?.[1]),
       contactPage,
       onOpenContact: open,
       onRestoreContact: open,
@@ -61,6 +63,16 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
     });
   }
   await act(() => root.render(createElement(Harness)));
+  const themeSelect = () => document.querySelector('select[aria-label="外觀模式"]');
+  assert.equal(document.querySelector("main").dataset.theme, "system");
+  for (const mode of ["dark", "light", "system", "dark"]) {
+    await act(() => {
+      themeSelect().value = mode;
+      themeSelect().dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+    assert.equal(document.querySelector("main").dataset.theme, mode);
+    assert.ok(document.cookie.includes(`bnb-service-theme-v1=${mode}`));
+  }
   const button = (label) =>
     [...document.querySelectorAll("button")].find(
       (b) => b.textContent.trim() === label,
@@ -136,6 +148,7 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
   await fill(control("目前使用的記錄工具（選填）"), "紙本月曆");
   await click(button("諮詢導入方式"));
   assert.equal(window.location.pathname, "/join/contact");
+  assert.equal(document.querySelector("main").dataset.theme, "dark");
   assert.equal(document.querySelector("dialog"), null);
   assert.equal(document.querySelector(".service-hero"), null);
   assert.match(document.querySelector("h1").textContent, /專人諮詢/);
@@ -149,6 +162,7 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
   await act(() => root.unmount());
   root = createRoot(document.getElementById("root"));
   await act(() => root.render(createElement(Harness)));
+  assert.equal(document.querySelector("main").dataset.theme, "dark");
   assert.equal(control("聯絡人姓名").value, "Synthetic Owner");
   assert.equal(control("Email").value, "owner@example.test");
   assert.match(
@@ -201,6 +215,7 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
   assert.equal(sessionStorage.getItem("bnb-intake-pending-v1"), null);
   assert.equal(sessionStorage.getItem("bnb-intake-draft-v1"), null);
   assert.match(document.body.textContent, /需求已收到/);
+  assert.ok(themeSelect());
   assert.match(document.body.textContent, /通知信已交由寄信服務/);
 });
 
@@ -209,10 +224,13 @@ test("direct contact entry is a full document section with one heading and no ov
     createElement(ServiceJoin, {
       enabled: true,
       contactPage: true,
+      initialTheme: "dark",
       shareEmail: "operator@example.test",
       contactEmail: "operator@example.test",
     }),
   );
+  assert.match(html, /data-theme="dark"/);
+  assert.match(html, /value="dark" selected=""/);
   assert.equal((html.match(/<h1/g) || []).length, 1);
   assert.match(html, /專人諮詢/);
   assert.match(html, /返回服務頁/);

@@ -4,6 +4,8 @@ import { ArrowLeft, ArrowRight, MessageCircle } from "lucide-react";
 import { api } from "../customer-workspaces/client";
 import type { IntakeResult } from "@/lib/customer-intake/types";
 import { DoorMark, ServiceLanding } from "./service-landing";
+import { ServiceThemeControl } from "./service-theme-control";
+import type { ServiceTheme } from "@/lib/customer-intake/theme";
 const button = "service-button service-button-primary";
 const secondary = "service-button service-button-secondary";
 const field = "service-field";
@@ -23,6 +25,7 @@ export function ServiceJoin({
   onOpenContact = noop,
   onRestoreContact = noop,
   onBack = noop,
+  initialTheme = "system",
 }: {
   enabled: boolean;
   preview?: boolean;
@@ -32,7 +35,9 @@ export function ServiceJoin({
   onOpenContact?: () => void;
   onRestoreContact?: () => void;
   onBack?: (toQuestionnaire: boolean) => void;
+  initialTheme?: ServiceTheme;
 }) {
+  const [theme, setTheme] = useState(initialTheme);
   const [started, setStarted] = useState(false),
     [step, setStep] = useState(1),
     [name, setName] = useState(""),
@@ -280,7 +285,7 @@ export function ServiceJoin({
     </button>
   );
   return (
-    <main className="service-site" lang="zh-Hant">
+    <main className="service-site" lang="zh-Hant" data-theme={theme}>
       {preview && (
         <p role="status" className="service-preview">
           預覽模式 ·
@@ -292,6 +297,7 @@ export function ServiceJoin({
           onStart={start}
           onConsult={consult}
           contactEmail={contactEmail}
+          themeControl={<ServiceThemeControl value={theme} onChange={setTheme} />}
         >
           {started && (
             <section id="join-questions" className="service-questionnaire">
@@ -307,12 +313,12 @@ export function ServiceJoin({
                 {[1, 2, 3].map((s) => (
                   <span
                     key={s}
-                    className={`h-1.5 flex-1 rounded-full ${s <= step ? "bg-[#9b4c35]" : "bg-[#ded8cb]"}`}
+                    className={`h-1.5 flex-1 rounded-full ${s <= step ? "service-progress-done" : "service-progress-pending"}`}
                   />
                 ))}
               </div>
               {uncertain && (
-                <p role="status" className="mb-5 text-sm text-[#99482f]">
+                <p role="status" className="mb-5 text-sm service-text-accent">
                   這筆需求的送出結果尚待確認。請選「專人諮詢」回到聯絡頁，重試相同需求。
                 </p>
               )}
@@ -365,7 +371,7 @@ export function ServiceJoin({
                             <span className="block font-semibold">
                               {k.label}
                             </span>
-                            <span className="mt-2 block text-sm text-[#686258]">
+                            <span className="mt-2 block text-sm service-text-muted">
                               {k.detail}
                             </span>
                           </button>
@@ -388,7 +394,7 @@ export function ServiceJoin({
                 )}
                 {step === 2 && (
                   <>
-                    <p className="mb-4 leading-7 text-[#686258]">
+                    <p className="mb-4 leading-7 service-text-muted">
                       {kind === "villa"
                         ? "包棟可先以「整棟」登記，也可填寫棟內各房間名稱。"
                         : "請填寫房號或房間名稱，每行一間，也可用逗號分隔。"}
@@ -407,7 +413,7 @@ export function ServiceJoin({
                       />
                     </label>
                     {kind === "mixed" && (
-                      <p className="mt-3 text-sm text-[#686258]">
+                      <p className="mt-3 text-sm service-text-muted">
                         這次先以全部房間可包棟來登記；若有不同棟別或部分包棟，請選專人諮詢補充。
                       </p>
                     )}
@@ -427,7 +433,7 @@ export function ServiceJoin({
                 )}
                 {step === 3 && (
                   <>
-                    <p className="mb-5 leading-7 text-[#686258]">
+                    <p className="mb-5 leading-7 service-text-muted">
                       請選擇目前的記錄方式，以便確認資料匯入需求。
                     </p>
                     <div className="grid gap-3 sm:grid-cols-2">
@@ -464,7 +470,7 @@ export function ServiceJoin({
                             maxLength={500}
                           />
                         </label>
-                        <div className="rounded-2xl bg-[#f5f1e8] p-5">
+                        <div className="rounded-2xl service-help-surface p-5">
                           <h3 className="font-semibold">
                             分享試算表的檢視權限
                           </h3>
@@ -494,7 +500,7 @@ export function ServiceJoin({
                               {copyMessage && (
                                 <span
                                   role="status"
-                                  className="ml-2 text-sm text-[#9b4c35]"
+                                  className="ml-2 text-sm service-text-accent"
                                 >
                                   {copyMessage}
                                 </span>
@@ -505,7 +511,7 @@ export function ServiceJoin({
                               權限選「檢視者」，按「傳送」。一般存取權維持「受限制」，不需公開。
                             </li>
                           </ol>
-                          <p className="mt-4 text-sm text-[#686258]">
+                          <p className="mt-4 text-sm service-text-muted">
                             只用來核對你的房間與訂房格式；目前不會修改原表或持續同步。
                           </p>
                         </div>
@@ -530,17 +536,17 @@ export function ServiceJoin({
                           </button>
                           {consultButton()}
                         </div>
-                        <p className="text-sm text-[#686258]">
+                        <p className="text-sm service-text-muted">
                           如需分享權限或資料整理方面的協助，請選擇專人諮詢。
                         </p>
                       </div>
                     )}
                     {source === "other" && (
-                      <div className="mt-6 rounded-2xl bg-[#f0e9dc] p-5">
+                      <div className="mt-6 rounded-2xl service-help-surface p-5">
                         <h3 className="text-lg font-semibold">
                           諮詢資料導入方式
                         </h3>
-                        <p className="mt-3 text-sm leading-7 text-[#686258]">
+                        <p className="mt-3 text-sm leading-7 service-text-muted">
                           請簡述目前使用的工具或記錄方式。服務人員會與你確認資料整理及導入需求，此階段不需上傳客人資料。
                         </p>
                         <label className="mt-4 block text-sm">
@@ -590,14 +596,17 @@ export function ServiceJoin({
                 民宿 <span className="service-brand-os">OS</span>
               </span>
             </button>
-            <button
-              className="service-contact-back"
-              disabled={busy || uncertain}
-              onClick={() => onBack(started)}
-            >
-              <ArrowLeft size={17} aria-hidden />
-              {started ? "返回問卷" : "返回服務頁"}
-            </button>
+            <div className="service-header-actions">
+              <ServiceThemeControl value={theme} onChange={setTheme} />
+              <button
+                className="service-contact-back"
+                disabled={busy || uncertain}
+                onClick={() => onBack(started)}
+              >
+                <ArrowLeft size={17} aria-hidden />
+                {started ? "返回問卷" : "返回服務頁"}
+              </button>
+            </div>
           </header>
           <section
             className="service-contact-layout"
@@ -650,7 +659,7 @@ export function ServiceJoin({
                     {completedIntent === "join" ? "使用申請" : "諮詢需求"}
                     。服務人員將與你確認需求、資料格式與開通安排。
                   </p>
-                  <p className="rounded-xl bg-[#f0e9dc] p-4 text-sm leading-7">
+                  <p className="rounded-xl service-help-surface p-4 text-sm leading-7">
                     {result.preview
                       ? "這是測試需求，預覽模式沒有寄出 Email。"
                       : result.notification === "accepted"
@@ -661,11 +670,11 @@ export function ServiceJoin({
                     {source === "sheet" && "Sheet 權限尚待核對；"}
                     目前沒有匯入或更改你的訂房。
                   </p>
-                  <p className="break-all text-sm text-[#70695f]">
+                  <p className="break-all text-sm service-text-muted">
                     申請編號：{result.id}
                   </p>
                   <a
-                    className="inline-block text-[#9b4c35] underline"
+                    className="inline-block service-text-accent underline"
                     href={`mailto:${contactEmail}?subject=${encodeURIComponent(`民宿 OS 申請 ${result.id}`)}`}
                   >
                     Email 聯絡我們
@@ -673,7 +682,7 @@ export function ServiceJoin({
                 </div>
               ) : (
                 <form onSubmit={submit} className="mt-5 space-y-4">
-                  <p className="text-sm leading-7 text-[#686258]">
+                  <p className="text-sm leading-7 service-text-muted">
                     {intent === "join"
                       ? "我們會核對分享權限與資料，再協助你開通使用。"
                       : "請填寫以下資料。若已填寫旅宿問卷，提交時會一併附上。"}
@@ -681,7 +690,7 @@ export function ServiceJoin({
                   {!enabled && (
                     <p
                       role="status"
-                      className="rounded-xl bg-amber-50 p-4 text-sm"
+                      className="rounded-xl service-warning p-4 text-sm"
                     >
                       線上申請目前尚未開放，請先{" "}
                       <a className="underline" href={`mailto:${contactEmail}`}>
@@ -760,13 +769,13 @@ export function ServiceJoin({
                   {error && (
                     <p
                       role="alert"
-                      className="rounded-xl bg-red-50 p-4 text-sm text-red-800"
+                      className="rounded-xl service-error p-4 text-sm"
                     >
                       {error}
                     </p>
                   )}
                   {uncertain && (
-                    <p role="status" className="text-sm text-amber-800">
+                    <p role="status" className="text-sm service-warning-text">
                       送出結果尚未確認。內容暫時鎖定，請用下方按鈕重試相同需求。
                     </p>
                   )}
@@ -782,7 +791,7 @@ export function ServiceJoin({
                           ? "送出使用申請"
                           : "送出專人諮詢"}
                   </button>
-                  <p className="text-xs leading-6 text-[#70695f]">
+                  <p className="text-xs leading-6 service-text-muted">
                     本分頁會暫存未送出的內容，24
                     小時後重新開啟時清除；送出成功後會清除草稿。系統會保存申請並通知專人。線上申請資料保留
                     90

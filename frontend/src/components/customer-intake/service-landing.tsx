@@ -274,11 +274,13 @@ export function ServiceLanding({
   onStart,
   onConsult,
   contactEmail,
+  themeControl,
   children,
 }: {
   onStart: () => void;
   onConsult: () => void;
   contactEmail: string;
+  themeControl: ReactNode;
   children: ReactNode;
 }) {
   const surface = useRef<HTMLDivElement>(null);
@@ -326,6 +328,7 @@ export function ServiceLanding({
           <a href="#questions">常見問題</a>
         </nav>
         <div className="service-header-actions">
+          {themeControl}
           <a className="service-login" href="/start">
             登入
           </a>
