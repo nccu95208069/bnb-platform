@@ -23,6 +23,8 @@ export function SheetImport({
   connected,
   initialBatches,
   initialVersion,
+  sharedUrl,
+  helpMessage,
 }: {
   slug: string;
   property: Property;
@@ -30,8 +32,11 @@ export function SheetImport({
   connected: boolean;
   initialBatches: Batch[];
   initialVersion: number;
+  sharedUrl?: string;
+  helpMessage?: string;
 }) {
-  const [url, setUrl] = useState("");
+  const [url, setUrl] = useState(sharedUrl ?? "");
+  const [help, setHelp] = useState("");
   const [meta, setMeta] = useState<{
     spreadsheetId: string;
     title: string;
@@ -98,6 +103,7 @@ export function SheetImport({
       action: "commit",
       previewId: preview.id,
       selected: selection,
+      confirmed: true,
     };
     try {
       const batch = await send<Batch>(pending.current);
@@ -164,6 +170,49 @@ export function SheetImport({
             {notice}
           </p>
         )}
+        {helpMessage && (
+          <p className="my-4 rounded-xl bg-amber-50 p-4 whitespace-pre-wrap">
+            待核對事項：{helpMessage}
+          </p>
+        )}
+        {sharedUrl && (
+          <details className="my-4 rounded-xl border bg-white p-4">
+            <summary className="cursor-pointer">
+              表格格式不同、逐晚拆列或需要協助？
+            </summary>
+            <p className="my-3 text-sm">
+              不必猜欄位或先改原表。請說明你不確定的部分，服務人員會收到通知協助核對。
+            </p>
+            <label className="text-sm">
+              需要協助的內容
+              <textarea
+                className={field}
+                maxLength={1000}
+                value={help}
+                onChange={(e) => setHelp(e.target.value)}
+              />
+            </label>
+            <button
+              className={`${secondary} mt-3`}
+              disabled={busy || !help.trim()}
+              onClick={() =>
+                run(async () => {
+                  const r = await send<{ notification: string }>({
+                    action: "help",
+                    message: help,
+                  });
+                  setNotice(
+                    r.notification === "accepted"
+                      ? "協助需求已保存，通知已交由寄信服務送出。"
+                      : "協助需求已保存；通知尚待確認，你也可以使用服務信箱聯絡我們。",
+                  );
+                })
+              }
+            >
+              請專人協助核對
+            </button>
+          </details>
+        )}
         {uncertain && (
           <p role="alert" className="my-4 rounded-xl bg-amber-50 p-4">
             寫入結果尚未確認。請按「重試相同匯入」核對；已送出的選擇暫時鎖定。
@@ -175,37 +224,42 @@ export function SheetImport({
         >
           <legend className="px-2 font-semibold">1. 連結自己的試算表</legend>
           <p className="mb-3 text-sm">
-            Google 唯讀授權約一小時有效。不需公開分享檔案。
+            {sharedUrl
+              ? "已核對申請與分享權限。請選擇要匯入的分頁，確認一列代表一筆完整訂單。"
+              : "Google 唯讀授權約一小時有效。不需公開分享檔案。"}
           </p>
           {!configured && (
             <p className="mb-3 text-amber-800">
               此測試環境尚未設定 Google 授權，設定完成後即可使用。
             </p>
           )}
-          {connected && (
+          {connected && !sharedUrl && (
             <p className="mb-3 text-teal-800">
               已完成 Google 授權，可貼上連結。
             </p>
           )}
-          <button
-            disabled={!configured}
-            className={secondary}
-            onClick={() =>
-              run(async () => {
-                const result = await send<{ url: string }>({
-                  action: "connect",
-                });
-                location.assign(result.url);
-              })
-            }
-          >
-            連結／切換 Google 帳號
-          </button>
+          {!sharedUrl && (
+            <button
+              disabled={!configured}
+              className={secondary}
+              onClick={() =>
+                run(async () => {
+                  const result = await send<{ url: string }>({
+                    action: "connect",
+                  });
+                  location.assign(result.url);
+                })
+              }
+            >
+              連結／切換 Google 帳號
+            </button>
+          )}
           <label className="mt-4 block">
             Google Sheet 連結
             <input
               className={field}
               value={url}
+              readOnly={Boolean(sharedUrl)}
               onChange={(e) => {
                 setUrl(e.target.value);
                 setMeta(null);

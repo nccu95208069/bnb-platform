@@ -44,6 +44,7 @@ export async function createWorkspace(
   store: CustomerStore,
   account: Account,
   input: Record<string, unknown>,
+  onboarding?: { requestId: string; sheetUrl: string },
 ) {
   const key = accountKey(account.email),
     current = await store.read<Account>(key);
@@ -64,7 +65,13 @@ export async function createWorkspace(
   if (new Set(roomNames).size !== roomNames.length)
     throw new Error("INVALID_INPUT");
   const creationHash = digest(
-    JSON.stringify({ name, slug, kind, rooms: roomNames }),
+    JSON.stringify({
+      name,
+      slug,
+      kind,
+      rooms: roomNames,
+      ...(onboarding ? { onboarding } : {}),
+    }),
   );
   const repeated = current.value.workspaces.find(
     (w) => w.creationKey === creationKey,
@@ -89,6 +96,7 @@ export async function createWorkspace(
     slug,
     name,
     version: 1,
+    ...(onboarding ? { onboarding } : {}),
     members: [
       {
         accountId: account.id,
@@ -189,6 +197,16 @@ export function view(workspace: Workspace, member: Membership): WorkspaceView {
     name: workspace.name,
     version: workspace.version,
     role: member.role,
+    ...(workspace.onboarding
+      ? {
+          onboarding: {
+            complete:
+              Boolean(workspace.onboarding.readyAt) &&
+              workspace.onboarding.unresolvedCount === 0,
+            unresolvedCount: workspace.onboarding.unresolvedCount ?? 0,
+          },
+        }
+      : {}),
     properties,
     bookings,
   };
@@ -234,6 +252,12 @@ export async function createBooking(
   );
   if (!["owner", "admin", "housekeeper"].includes(member.role))
     throw new Error("FORBIDDEN");
+  if (
+    workspace.onboarding &&
+    (!workspace.onboarding.readyAt ||
+      workspace.onboarding.unresolvedCount !== 0)
+  )
+    throw new Error("IMPORT_INCOMPLETE");
   const property = workspace.properties.find(
     (p) =>
       p.id === input.propertyId &&

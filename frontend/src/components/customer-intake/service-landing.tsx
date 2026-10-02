@@ -271,12 +271,14 @@ const faqs = [
 ] as const;
 
 export function ServiceLanding({
+  workflowEnabled = false,
   onStart,
   onConsult,
   contactEmail,
   themeControl,
   children,
 }: {
+  workflowEnabled?: boolean;
   onStart: () => void;
   onConsult: () => void;
   contactEmail: string;
@@ -443,7 +445,7 @@ export function ServiceLanding({
           <h2 id="begin-title">
             提供旅宿資料，
             <br />
-            由專人協助
+            {workflowEnabled ? "核對資料後" : "由專人協助"}
             <br />
             <em>完成導入。</em>
           </h2>
@@ -472,8 +474,12 @@ export function ServiceLanding({
             ],
             [
               "03",
-              "核對資料並安排開通",
-              "專人會與你確認服務內容、資料格式及開通安排，再協助完成設定。",
+              workflowEnabled
+                ? "收信、核對格式並建立日曆"
+                : "核對資料並安排開通",
+              workflowEnabled
+                ? "送出後請先開啟確認信。確認信箱與資料權限後，選擇分頁、對應欄位及房間；看過預覽並確認，系統才會匯入訂房。"
+                : "專人會與你確認服務內容、資料格式及開通安排，再協助完成設定。",
               "ONBOARDING",
             ],
           ].map(([number, title, copy, english]) => (
@@ -502,7 +508,25 @@ export function ServiceLanding({
           </button>
         </div>
         <div className="service-faq-list">
-          {faqs.map(([question, answer], index) => (
+          {(workflowEnabled
+            ? [
+                [
+                  "讀到 Sheet 就會直接建立日曆嗎？",
+                  "不會。勾號表示系統能讀取，還需確認你有權使用資料，再對應入住、退房、房間與金額欄位。只有你確認預覽後才會匯入。",
+                ],
+                [
+                  "完成申請後，要等多久？",
+                  "先開啟確認信並設定密碼。資料權限與格式確認完成後，系統會立即處理匯入，完成時寄出通知。若需要人工核對，頁面會顯示待處理事項；完成時間需視資料狀況確認。",
+                ],
+                [
+                  "我的表格格式不同，怎麼辦？",
+                  "目前支援一列一筆完整訂單，可自行指定欄位與房間對應。月曆格、逐晚拆列、合併儲存格或其他格式，請在匯入頁要求專人協助。原表不會被修改，也不會持續同步。",
+                ],
+                faqs[2],
+                faqs[3],
+              ]
+            : faqs
+          ).map(([question, answer], index) => (
             <details key={question}>
               <summary>
                 <span>
@@ -541,7 +565,11 @@ export function ServiceLanding({
             </button>
           </div>
         </div>
-        <p>送出資料後，由專人確認需求與開通安排。</p>
+        <p>
+          {workflowEnabled
+            ? "送出後請收取確認信，核對資料格式後再匯入。"
+            : "送出資料後，由專人確認需求與開通安排。"}
+        </p>
       </section>
       <footer className="service-footer">
         <div className="service-footer-top">

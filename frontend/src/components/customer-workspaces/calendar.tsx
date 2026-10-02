@@ -28,7 +28,9 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
     [uncertain, setUncertain] = useState(false);
   const pending = useRef<Record<string, unknown> | null>(null);
   const key = useRef("");
-  const canWrite = ["owner", "admin", "housekeeper"].includes(data.role),
+  const canWrite =
+      ["owner", "admin", "housekeeper"].includes(data.role) &&
+      (!data.onboarding || data.onboarding.complete),
     checkOut = plusDays(checkIn, nights);
   const active = data.bookings.filter(
     (b) => b.propertyId === propertyId && b.status !== "cancelled",
@@ -178,6 +180,19 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
             )}
           </div>
         </header>
+        {data.onboarding && !data.onboarding.complete && (
+          <p role="alert" className="mt-5 rounded-xl bg-amber-50 p-4 leading-7">
+            資料尚未完整：
+            {data.onboarding.unresolvedCount
+              ? `有 ${data.onboarding.unresolvedCount} 列仍待核對。`
+              : "尚未完成資料匯入。"}
+            未顯示訂單的日期不能直接視為空房。請先
+            <a className="underline" href={`/w/${data.slug}/import`}>
+              完成資料核對
+            </a>
+            ，再新增訂房。
+          </p>
+        )}
         {data.properties.length > 1 && (
           <label className="mt-5 block">
             目前旅宿

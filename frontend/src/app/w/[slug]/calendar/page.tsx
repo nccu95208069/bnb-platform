@@ -31,9 +31,9 @@ export default async function Page({
   } catch {
     redirect(`/start?next=${encodeURIComponent(`/w/${slug}/calendar`)}`);
   }
+  let loaded;
   try {
-    const { workspace, member } = await loadWorkspace(store, account.id, slug);
-    return <CustomerCalendar initial={view(workspace, member)} />;
+    loaded = await loadWorkspace(store, account.id, slug);
   } catch {
     return (
       <main className="mx-auto max-w-lg p-10">
@@ -45,4 +45,8 @@ export default async function Page({
       </main>
     );
   }
+  const { workspace, member } = loaded;
+  if (workspace.onboarding && !workspace.onboarding.readyAt)
+    redirect(`/w/${slug}/import`);
+  return <CustomerCalendar initial={view(workspace, member)} />;
 }

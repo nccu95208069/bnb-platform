@@ -76,3 +76,7 @@ The owner changed the service email to `linlab.ai2024@gmail.com`. The public con
 Validation: 14 intake/mail/legacy authorization tests and 2 intake DOM/SSR checks pass, including the new fixed To header; lint has zero errors/two existing warnings. This address update does not claim a new observed inbox delivery.
 
 Address release `21d9f87`: cloud build/TypeScript passed in 18 seconds, and the local production build also passed. Landing/contact HTTP content checks confirmed the new mailto address and no old service address. Promoted deployment `dpl_2jLsmZFuqA9hv4uxpzE2CcU4M9uC` (https://sweetfun-b4zs68u4g-sweetfuns-projects.vercel.app) to the same production domain. Prior dark-mode deployment `dpl_2WT62HJWfv3i2oso2NTHGacbjYiX` is the rollback target. The earlier live notification smoke test predates this address change and went to the previous recipient; no new live test email was sent for this update.
+
+## Complete onboarding implementation — 2026-10-03, not yet released
+
+The follow-up [customer onboarding flow](CUSTOMER_ONBOARDING_FLOW_2026-10-03.md) adds real sharing checks, independent applicant receipts, email verification, source-bound import confirmation, progress/help handling and operator review. It is behind a separate `CUSTOMER_ONBOARDING_ENABLED` switch. The Google reader setup and real applicant end-to-end test are still required; this does not change the production release described above.

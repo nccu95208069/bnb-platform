@@ -131,6 +131,7 @@ export function intakeMessage(record: IntakeRecord): Parameters<Notify>[0] {
       `想諮詢的內容：\n${a.note || "未填"}`,
       "",
       "申請已保存，等待人工聯絡與核對；尚未建立或匯入任何正式訂單。",
+      "查看申請與寄信狀態：https://sweetfun-os.vercel.app/onboarding-admin （需管理者登入）",
       "以上為使用者填寫內容，請先核對再提供服務。請依上方聯絡方式回覆。",
     ].join("\n"),
   };

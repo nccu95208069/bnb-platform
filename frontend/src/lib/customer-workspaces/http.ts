@@ -39,6 +39,39 @@ export async function limitSession(request: NextRequest) {
 export function failure(error: unknown) {
   const code = error instanceof Error ? error.message : "";
   const errors: Record<string, [number, string]> = {
+    IMPORT_INCOMPLETE: [
+      409,
+      "資料尚未完整，未顯示訂單的日期不能視為空房。請先完成匯入與問題資料核對。",
+    ],
+    FORMAT_CONFIRMATION_REQUIRED: [
+      400,
+      "請先確認欄位、房間、訂單粒度與金額意義，再匯入。",
+    ],
+    SOURCE_CHANGED: [
+      409,
+      "Sheet 在預覽後有變更。尚未匯入，請重新讀取並核對預覽。",
+    ],
+    SHEET_READER_UNAVAILABLE: [
+      503,
+      "系統讀表服務尚未就緒，請稍後重試或聯絡專人；這不代表你分享失敗。",
+    ],
+    SHEET_NOT_SHARED: [
+      400,
+      "目前讀不到這份 Sheet。請確認連結正確，並將檢視權限分享給頁面上的系統帳號。",
+    ],
+    SHEET_READ_FAILED: [503, "Google 暫時無法回應，請稍後重新檢查。"],
+    SHEET_REVIEW_REQUIRED: [
+      409,
+      "申請仍待核對試算表使用權限。服務人員確認後會通知你繼續。",
+    ],
+    LINK_INVALID: [
+      400,
+      "連結已過期、已使用或帳號狀態已變更。請回登入頁申請新連結，或聯絡服務人員。",
+    ],
+    REGISTRATION_CLOSED: [
+      403,
+      "請先完成加入申請，並使用確認信中的連結設定帳號。",
+    ],
     GOOGLE_UNAVAILABLE: [503, "此測試環境尚未設定 Google 授權。"],
     GOOGLE_CONNECT_FAILED: [400, "Google 授權未完成，請重新連線。"],
     GOOGLE_CONNECT_REQUIRED: [

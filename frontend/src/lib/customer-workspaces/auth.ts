@@ -80,6 +80,8 @@ export async function login(
   const key = accountKey(email);
   const previous = await store.read<Account>(key);
   if (input.mode === "register") {
+    if (process.env.CUSTOMER_SELF_SIGNUP_PREVIEW !== "true")
+      throw new Error("REGISTRATION_CLOSED");
     if (previous.value) throw new Error("ACCOUNT_EXISTS");
     if (
       input.password !== input.confirmPassword ||

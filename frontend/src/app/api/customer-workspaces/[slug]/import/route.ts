@@ -17,9 +17,27 @@ import {
   commitImport,
   previewImport,
   undoImport,
+  importAccess,
 } from "@/lib/customer-workspaces/sheet-import";
-import type { Mapping } from "@/lib/customer-workspaces/sheet-import";
+import type {
+  Mapping,
+  ImportPreview,
+} from "@/lib/customer-workspaces/sheet-import";
+import {
+  sharedImportPermission,
+  syncOnboardingProgress,
+  finishOnboardingImport,
+  requestImportHelp,
+} from "@/lib/customer-intake/onboarding";
+import {
+  sharedTabs,
+  sharedSource,
+} from "@/lib/customer-workspaces/shared-sheet";
+import { sendCustomerLifecycleMail } from "@/lib/workspace-auth/mail";
+import { intakePreview } from "@/lib/customer-intake/config";
+import { digest } from "@/lib/customer-workspaces/auth";
 export const runtime = "nodejs";
+export const maxDuration = 60;
 export async function POST(
   request: NextRequest,
   context: { params: Promise<{ slug: string }> },
@@ -31,7 +49,26 @@ export async function POST(
     await store.limit(`import:${account.id}`, 100);
     if (typeof input.propertyId !== "string") throw new Error("INVALID_INPUT");
     const args = [store, account.id, slug, input.propertyId] as const;
+    const { workspace } = await importAccess(...args);
+    if (input.action === "help")
+      return NextResponse.json(
+        await requestImportHelp(
+          ...args,
+          input.message,
+          sendCustomerLifecycleMail,
+          intakePreview(),
+        ),
+        { headers },
+      );
+    const existingBatch =
+      input.action === "commit" &&
+      workspace.importBatches?.some((b) => b.id === input.previewId);
+    const shared =
+      workspace.onboarding && input.action !== "undo" && !existingBatch
+        ? await sharedImportPermission(...args)
+        : null;
     if (input.action === "connect") {
+      if (shared) throw new Error("INVALID_INPUT");
       const result = await beginGoogle(...args);
       const response = NextResponse.json({ url: result.url }, { headers });
       response.cookies.set(GOOGLE_STATE_COOKIE, result.nonce, {
@@ -46,10 +83,14 @@ export async function POST(
     let result: unknown;
     switch (input.action) {
       case "tabs":
-        result = await sheetTabs(...args, input.url);
+        result = shared
+          ? await sharedTabs(shared.url)
+          : await sheetTabs(...args, input.url);
         break;
       case "read":
-        result = await readSheet(...args, input.spreadsheetId, input.sheetId);
+        result = shared
+          ? await sharedSource(...args, shared.url, input.sheetId)
+          : await readSheet(...args, input.spreadsheetId, input.sheetId);
         break;
       case "preview":
         result = await previewImport(
@@ -59,10 +100,44 @@ export async function POST(
         );
         break;
       case "commit":
+        if (
+          shared &&
+          !workspace.importBatches?.some((b) => b.id === input.previewId)
+        ) {
+          if (input.confirmed !== true)
+            throw new Error("FORMAT_CONFIRMATION_REQUIRED");
+          const staged = (
+            await store.read<ImportPreview>(`import-preview:${input.previewId}`)
+          ).value;
+          if (
+            !staged ||
+            staged.accountId !== account.id ||
+            staged.workspaceId !== workspace.id ||
+            staged.propertyId !== input.propertyId
+          )
+            throw new Error("NOT_FOUND");
+          const fresh = await sharedSource(
+            ...args,
+            shared.url,
+            staged.source.sheetId,
+          );
+          if (digest(JSON.stringify(fresh.rows)) !== staged.sourceHash)
+            throw new Error("SOURCE_CHANGED");
+        }
         result = await commitImport(...args, input.previewId, input.selected);
+        await finishOnboardingImport(
+          store,
+          account,
+          slug,
+          input.propertyId,
+          String(input.previewId),
+          sendCustomerLifecycleMail,
+          intakePreview(),
+        );
         break;
       case "undo":
         result = await undoImport(...args, input.batchId, input.version);
+        await syncOnboardingProgress(store, account.id, slug);
         break;
       default:
         throw new Error("INVALID_INPUT");

@@ -10,6 +10,9 @@ import { loadWorkspace } from "@/lib/customer-workspaces/service";
 import { googleReady } from "@/lib/customer-workspaces/customer-google";
 import { importAccess } from "@/lib/customer-workspaces/sheet-import";
 import { SheetImport } from "@/components/customer-workspaces/sheet-import";
+import { sharedSheetEmail } from "@/lib/customer-workspaces/shared-sheet";
+import type { Journey } from "@/lib/customer-intake/onboarding";
+import { INTAKE_RECIPIENT } from "@/lib/customer-intake/config";
 export const dynamic = "force-dynamic";
 export const metadata = {
   title: "從試算表匯入｜旅宿工作區",
@@ -43,12 +46,52 @@ export default async function Page({
       slug,
       search.property ?? loaded.workspace.properties[0]?.id,
     );
+    if (workspace.onboarding && !workspace.onboarding.approvedAt) {
+      const journey = (
+        await store.read<Journey>(
+          `onboarding:${workspace.onboarding.requestId}`,
+        )
+      ).value;
+      return (
+        <main className="mx-auto max-w-xl p-8">
+          <h1 className="text-2xl font-semibold">信箱已確認，等待權限核對</h1>
+          <p className="my-5 leading-7">
+            你的登入帳號已設定完成。Google
+            尚未提供足夠資料讓系統確認你有權使用這份
+            Sheet，服務人員會核對後寄信通知你繼續。
+          </p>
+          {journey?.message && (
+            <p className="my-4 rounded-xl bg-amber-50 p-4">{journey.message}</p>
+          )}
+          <p className="my-4 break-all text-sm">
+            申請編號：{workspace.onboarding.requestId}
+          </p>
+          <a className="underline" href={`mailto:${INTAKE_RECIPIENT}`}>
+            聯絡服務人員
+          </a>
+          <a className="ml-5 underline" href="/start">
+            回我的旅宿
+          </a>
+        </main>
+      );
+    }
+    const journey = workspace.onboarding
+      ? (
+          await store.read<Journey>(
+            `onboarding:${workspace.onboarding.requestId}`,
+          )
+        ).value
+      : null;
     return (
       <SheetImport
         slug={slug}
         property={property}
-        configured={googleReady()}
+        configured={
+          workspace.onboarding ? Boolean(sharedSheetEmail()) : googleReady()
+        }
         connected={search.google === "connected"}
+        sharedUrl={workspace.onboarding?.sheetUrl}
+        helpMessage={journey?.message}
         initialVersion={workspace.version}
         initialBatches={(workspace.importBatches ?? []).filter(
           (b) => b.propertyId === property.id,

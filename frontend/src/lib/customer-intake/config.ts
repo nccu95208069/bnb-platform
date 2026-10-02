@@ -8,3 +8,6 @@ export function intakeEnabled() {
 export function intakePreview() {
   return process.env.CUSTOMER_INTAKE_PREVIEW === "true";
 }
+export function onboardingEnabled() {
+  return process.env.CUSTOMER_ONBOARDING_ENABLED === "true";
+}

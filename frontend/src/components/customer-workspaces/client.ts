@@ -8,7 +8,7 @@ export async function api<T>(
     headers: input ? { "Content-Type": "application/json" } : undefined,
     body: input ? JSON.stringify(input) : undefined,
     cache: "no-store",
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(65000),
   });
   const value = await response.json();
   if (!response.ok)

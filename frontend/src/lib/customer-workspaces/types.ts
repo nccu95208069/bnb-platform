@@ -3,6 +3,7 @@ export type Account = {
   id: string;
   email: string;
   credential: OwnerCredential;
+  emailVerifiedAt?: string;
   workspaces: {
     id: string;
     slug: string;
@@ -76,6 +77,13 @@ export type Workspace = {
   slug: string;
   name: string;
   version: number;
+  onboarding?: {
+    requestId: string;
+    sheetUrl: string;
+    approvedAt?: string;
+    readyAt?: string;
+    unresolvedCount?: number;
+  };
   members: Membership[];
   properties: Property[];
   bookings: Booking[];
@@ -103,6 +111,7 @@ export type WorkspaceView = {
   name: string;
   version: number;
   role: Role;
+  onboarding?: { complete: boolean; unresolvedCount: number };
   properties: Property[];
   bookings: Omit<Booking, "requestKey" | "requestHash" | "actor">[];
 };

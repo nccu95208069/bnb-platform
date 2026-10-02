@@ -13,6 +13,7 @@ import {
   sessionFor,
 } from "../src/lib/customer-workspaces/auth.ts";
 process.env.CUSTOMER_WORKSPACES_ENABLED = "true";
+process.env.CUSTOMER_SELF_SIGNUP_PREVIEW = "true";
 process.env.CUSTOMER_SESSION_SECRET =
   "synthetic-customer-secret-for-tests-only";
 function fixture() {

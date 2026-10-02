@@ -21,6 +21,7 @@ const request = (
   });
 test("API enforces CSRF, tenant boundaries, no-store, separate legacy sessions and feature gate", async (t) => {
   process.env.CUSTOMER_WORKSPACES_ENABLED = "true";
+  process.env.CUSTOMER_SELF_SIGNUP_PREVIEW = "true";
   process.env.CUSTOMER_SESSION_SECRET = "synthetic-session-secret-for-testing";
   process.env.KV_REST_API_URL = "https://redis.invalid";
   process.env.KV_REST_API_TOKEN = "synthetic";

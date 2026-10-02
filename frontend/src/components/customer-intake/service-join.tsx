@@ -1,6 +1,13 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, MessageCircle } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  MessageCircle,
+  CheckCircle2,
+  XCircle,
+  Clock3,
+} from "lucide-react";
 import { api } from "../customer-workspaces/client";
 import type { IntakeResult } from "@/lib/customer-intake/types";
 import { DoorMark, ServiceLanding } from "./service-landing";
@@ -26,6 +33,7 @@ export function ServiceJoin({
   onRestoreContact = noop,
   onBack = noop,
   initialTheme = "system",
+  workflowEnabled = false,
 }: {
   enabled: boolean;
   preview?: boolean;
@@ -36,6 +44,7 @@ export function ServiceJoin({
   onRestoreContact?: () => void;
   onBack?: (toQuestionnaire: boolean) => void;
   initialTheme?: ServiceTheme;
+  workflowEnabled?: boolean;
 }) {
   const [theme, setTheme] = useState(initialTheme);
   const [started, setStarted] = useState(false),
@@ -48,6 +57,35 @@ export function ServiceJoin({
     [sheetUrl, setSheetUrl] = useState(""),
     [shared, setShared] = useState(false);
   const [copyMessage, setCopyMessage] = useState("");
+  const [sheetCheck, setSheetCheck] = useState<
+    "idle" | "checking" | "verified" | "denied" | "unavailable"
+  >("idle");
+  const [sheetCheckMessage, setSheetCheckMessage] = useState("");
+  const checkSequence = useRef(0);
+  function invalidateSheetCheck() {
+    checkSequence.current++;
+    setSheetCheck("idle");
+    setSheetCheckMessage("");
+    setShared(false);
+  }
+  async function verifySheet() {
+    const sequence = ++checkSequence.current;
+    setSheetCheck("checking");
+    setSheetCheckMessage("");
+    setShared(false);
+    try {
+      await api("/api/customer-intake/sheet-check", "POST", { url: sheetUrl });
+      if (sequence !== checkSequence.current) return;
+      setSheetCheck("verified");
+      setShared(true);
+      setSheetCheckMessage("已確認系統可讀取。下一步仍需核對分頁與資料格式。");
+    } catch (e) {
+      if (sequence !== checkSequence.current) return;
+      const error = e as Error & { status?: number };
+      setSheetCheck(error.status === 400 ? "denied" : "unavailable");
+      setSheetCheckMessage(error.message);
+    }
+  }
   const [contactName, setContactName] = useState(""),
     [email, setEmail] = useState(""),
     [phone, setPhone] = useState(""),
@@ -294,10 +332,13 @@ export function ServiceJoin({
       )}
       {!contactPage && (
         <ServiceLanding
+          workflowEnabled={workflowEnabled}
           onStart={start}
           onConsult={consult}
           contactEmail={contactEmail}
-          themeControl={<ServiceThemeControl value={theme} onChange={setTheme} />}
+          themeControl={
+            <ServiceThemeControl value={theme} onChange={setTheme} />
+          }
         >
           {started && (
             <section id="join-questions" className="service-questionnaire">
@@ -446,7 +487,7 @@ export function ServiceJoin({
                           aria-pressed={source === value}
                           onClick={() => {
                             setSource(value);
-                            setShared(false);
+                            invalidateSheetCheck();
                           }}
                           className="service-choice"
                         >
@@ -465,7 +506,7 @@ export function ServiceJoin({
                             value={sheetUrl}
                             onChange={(e) => {
                               setSheetUrl(e.target.value);
-                              setShared(false);
+                              invalidateSheetCheck();
                             }}
                             maxLength={500}
                           />
@@ -515,19 +556,68 @@ export function ServiceJoin({
                             只用來核對你的房間與訂房格式；目前不會修改原表或持續同步。
                           </p>
                         </div>
-                        <label className="flex items-start gap-3 text-sm leading-7">
-                          <input
-                            type="checkbox"
-                            checked={shared}
-                            onChange={(e) => setShared(e.target.checked)}
-                            className="mt-2 size-4 shrink-0"
-                          />
-                          我已將這份試算表分享給上述帳號，了解仍需核對權限與內容。
-                        </label>
+                        {workflowEnabled ? (
+                          <div className="space-y-3">
+                            <button
+                              type="button"
+                              className={secondary}
+                              disabled={
+                                !sheetUrl.trim() || sheetCheck === "checking"
+                              }
+                              onClick={verifySheet}
+                            >
+                              {sheetCheck === "checking"
+                                ? "檢查中…"
+                                : "檢查分享權限"}
+                            </button>
+                            <div
+                              role="status"
+                              aria-live="polite"
+                              className="flex items-start gap-2 text-sm leading-7"
+                            >
+                              {sheetCheck === "verified" ? (
+                                <CheckCircle2
+                                  aria-hidden="true"
+                                  className="mt-1 size-5 shrink-0 text-green-600"
+                                />
+                              ) : sheetCheck === "denied" ? (
+                                <XCircle
+                                  aria-hidden="true"
+                                  className="mt-1 size-5 shrink-0 text-red-600"
+                                />
+                              ) : (
+                                <Clock3
+                                  aria-hidden="true"
+                                  className="mt-1 size-5 shrink-0"
+                                />
+                              )}
+                              <span>
+                                {sheetCheckMessage ||
+                                  (sheetCheck === "checking"
+                                    ? "正在向 Google 確認存取權限。"
+                                    : "尚未檢查。分享後請按上方按鈕。")}
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <label className="flex items-start gap-3 text-sm leading-7">
+                            <input
+                              type="checkbox"
+                              checked={shared}
+                              onChange={(e) => setShared(e.target.checked)}
+                              className="mt-2 size-4 shrink-0"
+                            />
+                            我已將這份試算表分享給上述帳號，了解仍需核對權限與內容。
+                          </label>
+                        )}
                         <div className="flex flex-wrap gap-3">
                           <button
                             className={button}
-                            disabled={!sheetUrl.trim() || !shared}
+                            disabled={
+                              !sheetUrl.trim() ||
+                              !shared ||
+                              (workflowEnabled && sheetCheck !== "verified")
+                            }
                             onClick={() => {
                               openContact("join");
                             }}
@@ -656,8 +746,10 @@ export function ServiceJoin({
                 <div className="mt-6 space-y-4">
                   <p>
                     已保存你的
-                    {completedIntent === "join" ? "使用申請" : "諮詢需求"}
-                    。服務人員將與你確認需求、資料格式與開通安排。
+                    {completedIntent === "join" ? "使用申請" : "諮詢需求"}。
+                    {workflowEnabled && completedIntent === "join"
+                      ? "請先開啟確認信並設定密碼，再依指引核對資料格式。"
+                      : "服務人員將與你確認需求、資料格式與開通安排。"}
                   </p>
                   <p className="rounded-xl service-help-surface p-4 text-sm leading-7">
                     {result.preview
@@ -666,8 +758,21 @@ export function ServiceJoin({
                         ? "通知信已交由寄信服務發送給專人。"
                         : "需求已保存，但通知信尚未確認送出。你可以使用下方 Email，附上申請編號聯絡我們，不必再填一次。"}
                   </p>
+                  {result.applicantNotification && !result.preview && (
+                    <p
+                      role="status"
+                      className="rounded-xl service-help-surface p-4 text-sm leading-7"
+                    >
+                      {result.applicantNotification === "accepted"
+                        ? `確認信已交由寄信服務寄往 ${email}。請也檢查垃圾郵件。`
+                        : "申請已保存，但寄給你的確認信尚未確認寄出。請保留申請編號並聯絡我們協助重寄，不必再填一份申請。"}
+                    </p>
+                  )}
                   <p className="text-sm">
-                    {source === "sheet" && "Sheet 權限尚待核對；"}
+                    {source === "sheet" &&
+                      (result.sheetAccess === "verified"
+                        ? "Sheet 已可讀取，格式仍待確認；"
+                        : "Sheet 權限尚待核對；")}
                     目前沒有匯入或更改你的訂房。
                   </p>
                   <p className="break-all text-sm service-text-muted">

@@ -33,7 +33,9 @@ export default async function StartPage({
           授權未完成或已過期。請回到旅宿的匯入頁重新連線，並使用同一個瀏覽器完成授權。
         </p>
       )}
-      <Onboarding />
+      <Onboarding
+        allowRegistration={process.env.CUSTOMER_SELF_SIGNUP_PREVIEW === "true"}
+      />
     </>
   );
 }

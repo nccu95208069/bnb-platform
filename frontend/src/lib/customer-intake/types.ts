@@ -20,7 +20,7 @@ export type IntakeRecord = {
   createdAt: string;
   answers: IntakeAnswers;
   status: "awaiting_review";
-  sheetAccess: "not_checked" | "not_provided";
+  sheetAccess: "not_checked" | "not_provided" | "verified";
   notification: {
     status: "pending" | "sending" | "accepted" | "needs_attention";
     attemptedAt?: string;
@@ -32,5 +32,7 @@ export type IntakeResult = {
   id: string;
   saved: true;
   notification: "accepted" | "pending";
+  applicantNotification?: "accepted" | "pending" | "preview";
+  sheetAccess?: "verified" | "not_checked" | "not_provided";
   status: "awaiting_review";
 };

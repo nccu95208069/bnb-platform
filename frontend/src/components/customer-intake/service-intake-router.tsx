@@ -6,7 +6,12 @@ import { ServiceJoin } from "./service-join";
 export function ServiceIntakeRouter(
   props: Pick<
     ComponentProps<typeof ServiceJoin>,
-    "enabled" | "preview" | "shareEmail" | "contactEmail" | "initialTheme"
+    | "enabled"
+    | "preview"
+    | "shareEmail"
+    | "contactEmail"
+    | "initialTheme"
+    | "workflowEnabled"
   >,
 ) {
   const router = useRouter();

@@ -5,12 +5,17 @@ type Profile = {
   email: string;
   workspaces: { id: string; slug: string; name: string }[];
 };
-export function Onboarding() {
+export function Onboarding({
+  allowRegistration = false,
+}: {
+  allowRegistration?: boolean;
+}) {
   const [profile, setProfile] = useState<Profile | null>(null),
     [loading, setLoading] = useState(true);
   const [mode, setMode] = useState("login"),
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [step, setStep] = useState(1),
     [name, setName] = useState(""),
     [slug, setSlug] = useState(""),
@@ -31,6 +36,15 @@ export function Onboarding() {
     setError("");
     const form = new FormData(event.currentTarget);
     try {
+      if (mode === "recover") {
+        const result = await api<{ detail: string }>(
+          "/api/customer-account",
+          "POST",
+          { action: "recover", email: form.get("email") },
+        );
+        setNotice(result.detail);
+        return;
+      }
       await api("/api/customer-session", "POST", {
         mode,
         email: form.get("email"),
@@ -88,11 +102,11 @@ export function Onboarding() {
           了解服務／專人諮詢
         </a>
         <p className="text-sm font-semibold tracking-widest text-teal-800">
-          旅宿工作區 · 測試版
+          旅宿工作區
         </p>
         <h1 className="my-4 text-3xl font-semibold">從自己的房況日曆開始</h1>
         <p className="mb-8 text-slate-600">
-          先設定旅宿和房間，就能登記第一筆訂房。
+          已完成申請與信箱確認的客戶，可在這裡登入。
         </p>
         {loading ? (
           <p>讀取中…</p>
@@ -104,13 +118,18 @@ export function Onboarding() {
             <div className="flex gap-2">
               {[
                 ["login", "登入"],
-                ["register", "建立帳號"],
+                ...(allowRegistration ? [["register", "建立帳號"]] : []),
+                ["recover", "忘記密碼"],
               ].map(([value, label]) => (
                 <button
                   key={value}
                   type="button"
                   className={mode === value ? button : secondary}
-                  onClick={() => setMode(value)}
+                  onClick={() => {
+                    setMode(value);
+                    setNotice("");
+                    setError("");
+                  }}
                 >
                   {label}
                 </button>
@@ -126,20 +145,27 @@ export function Onboarding() {
                 required
               />
             </label>
-            <label className="block">
-              密碼
-              <input
-                className={field}
-                name="password"
-                type="password"
-                autoComplete={
-                  mode === "register" ? "new-password" : "current-password"
-                }
-                minLength={12}
-                maxLength={128}
-                required
-              />
-            </label>
+            {notice && (
+              <p role="status" className="rounded-xl bg-teal-50 p-4">
+                {notice}
+              </p>
+            )}
+            {mode !== "recover" && (
+              <label className="block">
+                密碼
+                <input
+                  className={field}
+                  name="password"
+                  type="password"
+                  autoComplete={
+                    mode === "register" ? "new-password" : "current-password"
+                  }
+                  minLength={12}
+                  maxLength={128}
+                  required
+                />
+              </label>
+            )}
             {mode === "register" && (
               <label className="block">
                 再次輸入密碼
@@ -154,14 +180,20 @@ export function Onboarding() {
               </label>
             )}
             <p className="text-sm text-slate-500">
-              測試版尚未提供信箱驗證與忘記密碼復原，請妥善保存密碼。
+              新客戶請先
+              <a className="underline" href="/join">
+                填寫加入申請
+              </a>
+              ，再使用確認信中的連結設定帳號。
             </p>
             <button className={button} disabled={busy}>
               {busy
                 ? "處理中…"
                 : mode === "register"
                   ? "建立帳號並繼續"
-                  : "登入並繼續"}
+                  : mode === "recover"
+                    ? "寄送重設密碼連結"
+                    : "登入並繼續"}
             </button>
           </form>
         ) : (

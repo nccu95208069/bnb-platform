@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   sealMailPassword,
   sendOperatorIntakeNotification,
+  sendCustomerLifecycleMail,
 } from "../src/lib/workspace-auth/mail.ts";
 test("operator intake mail uses configured Gmail, validates sender and always addresses fixed recipient", async (t) => {
   process.env.CALENDAR_OWNER_SESSION_SECRET = "a".repeat(64);
@@ -42,6 +43,13 @@ test("operator intake mail uses configured Gmail, validates sender and always ad
   assert.match(sent, /To: linlab.ai2024@gmail.com\r\n/);
   assert.match(sent, /From: Sweetfun OS <sweetfuntw@gmail.com>/);
   assert.equal(sent.includes("Bcc:"), false);
+  await sendCustomerLifecycleMail(
+    "applicant@example.test",
+    "旅宿服務｜確認信",
+    "Synthetic account link",
+  );
+  assert.match(sent, /To: applicant@example.test\r\n/);
+  assert.equal(sent.includes("To: linlab.ai2024@gmail.com"), false);
   await assert.rejects(
     sendOperatorIntakeNotification("subject\r\nBcc: someone", "text"),
     /INVALID_INPUT/,

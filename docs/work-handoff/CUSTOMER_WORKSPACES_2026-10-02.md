@@ -105,3 +105,7 @@ Provider implementation references: [Google OAuth web-server flow](https://devel
 ## Service-page onboarding decision
 
 The owner requested a public service introduction and questionnaire with named-user Sheet sharing and specialist consultation emailed to the operator. See [host service page](SERVICE_JOIN_2026-10-02.md) for the implemented `/join` flow, how it differs from customer OAuth import, assumptions, verification and rollout status.
+
+## Verified onboarding follow-up — 2026-10-03
+
+See [Customer onboarding flow](CUSTOMER_ONBOARDING_FLOW_2026-10-03.md) for the new email activation, dedicated shared-Sheet reader, server-bound source, explicit format confirmation, incomplete-import guard and operator review. Self-registration is now restricted to the explicit preview switch. Current verification covers synthetic integration and DOM behavior; production enablement awaits reader credentials and actual applicant delivery/integration checks.

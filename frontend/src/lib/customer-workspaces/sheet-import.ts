@@ -46,6 +46,7 @@ export type ImportPreview = {
   expiresAt: number;
   sourceKey: string;
   sourceTitle: string;
+  sourceHash: string;
   source: {
     spreadsheetId: string;
     sheetId: number;
@@ -286,6 +287,7 @@ export async function previewImport(
     expiresAt: Date.now() + 3600000,
     sourceKey,
     sourceTitle: source.title,
+    sourceHash: digest(JSON.stringify(source.rows)),
     source: {
       spreadsheetId: source.spreadsheetId,
       sheetId: source.sheetId,
@@ -416,6 +418,25 @@ export async function commitImport(
         ...workspace,
         version: workspace.version + 1,
         bookings: [...workspace.bookings, ...bookings],
+        ...(workspace.onboarding
+          ? {
+              onboarding: {
+                ...workspace.onboarding,
+                readyAt: workspace.onboarding.readyAt ?? at,
+                unresolvedCount: preview.rows.filter(
+                  (row) =>
+                    !row.issues.includes("已在選定範圍之前退房") &&
+                    ![...workspace.bookings, ...bookings].some(
+                      (b) =>
+                        b.status !== "cancelled" &&
+                        b.propertyId === propertyId &&
+                        b.imported?.sourceKey === preview.sourceKey &&
+                        b.imported.fingerprint === row.fingerprint,
+                    ),
+                ).length,
+              },
+            }
+          : {}),
         importBatches: [...(workspace.importBatches ?? []), batch],
         audit: [
           ...workspace.audit,
@@ -499,6 +520,16 @@ export async function undoImport(
         ...workspace,
         version: workspace.version + 1,
         bookings,
+        ...(workspace.onboarding
+          ? {
+              onboarding: {
+                ...workspace.onboarding,
+                unresolvedCount:
+                  (workspace.onboarding.unresolvedCount ?? 0) +
+                  undo.cancelled.length,
+              },
+            }
+          : {}),
         importBatches: workspace.importBatches!.map((b) =>
           b.id === batch.id ? { ...b, undo } : b,
         ),
