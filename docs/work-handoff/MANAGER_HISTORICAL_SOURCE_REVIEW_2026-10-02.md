@@ -1,5 +1,4 @@
-
-## 2026-10-02 — historical pending sources and web dismissal
+# Historical pending sources and web dismissal — 2026-10-02
 
 The backend review builder now includes exact historical source messages referenced
 by pending obligations even when they predate bridge activation. Previously the
@@ -17,3 +16,12 @@ control after deployment, then checked in the authoritative audit/runtime.
 
 JavaScript syntax, scoped ESLint and diff whitespace checks passed. No tests were
 added or run. Production build and observed outcome are recorded separately.
+
+The incomplete-review fallback now explains that the system could not verify its
+sources and retains the task, without asking the owner to open the conversation
+or repeatedly press the same action. Viewing history alone never changed the
+review builder's activation cutoff.
+
+Initial web action release `2d188d7` completed Next.js/TypeScript production build
+and was promoted as `dpl_2ycSjZn7KrwJSXk5iK2PttN3Fmf3`. The primary domain was
+checked against this exact deployment. The final copy follow-up is below.

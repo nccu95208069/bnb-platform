@@ -418,3 +418,5 @@ sheet-monitor request returning 200; the manager cron had not appeared in that
 initial sample, so phone delivery/menu linkage is not inferred from it. The
 existing manager cron installs menu v5 and delivers the version-3 overview.
 No guest send, bulk resolution or database migration was performed by rollout.
+
+2026-10-02: See [historical source review fix](MANAGER_HISTORICAL_SOURCE_REVIEW_2026-10-02.md) for pending questions predating manager activation and the aligned web handled action.

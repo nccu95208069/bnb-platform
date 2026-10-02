@@ -133,7 +133,7 @@ export function createDaili(redis,manager,{now=()=>Date.now(),fetcher=fetch}={})
     }
     await mutate(owner,p,s=>{const x=s.drafts.find(x=>x.id===a.id);if(x?.status!=='dismiss_requested')return;x.status=result.status==='dismissed'?'dismissed':result.status==='blocked'?'awaiting_approval':'stale';x.version++;
      if(result.status==='blocked'){x.dismiss_recovery_snapshot=x.inbox_snapshot;x.dismiss_recovery_version=DISMISS_RECOVERY_VERSION;}
-     const note=result.status==='blocked'?(result.reason==='MANAGER_REVIEW_INCOMPLETE'?'這筆待辦尚未結案：目前卡片未涵蓋所有待確認內容，請先查看完整對話。':'這筆待辦尚未結案：內部紀錄需要修復，已保留待辦；不必重複點擊。'):x.status==='dismissed'?'這次待辦已結案，沒有傳訊息；客人之後有新訊息仍會整理。':'客人有新訊息或內容已更新，保留待辦，請重新查看。';
+     const note=result.status==='blocked'?(result.reason==='MANAGER_REVIEW_INCOMPLETE'?'這筆待辦尚未結案：系統未能完整核對來源，已保留待辦；不必重複點擊。':'這筆待辦尚未結案：內部紀錄需要修復，已保留待辦；不必重複點擊。'):x.status==='dismissed'?'這次待辦已結案，沒有傳訊息；客人之後有新訊息仍會整理。':'客人有新訊息或內容已更新，保留待辦，請重新查看。';
      if(!clearResult(s,x,x.status==='dismissed'?'closed':'changed'))notice(s,x,'status',note);finishClears(s);
     });
    }
