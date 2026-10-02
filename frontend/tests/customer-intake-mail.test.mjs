@@ -39,7 +39,7 @@ test("operator intake mail uses configured Gmail, validates sender and always ad
     "Synthetic inquiry content",
   );
   assert.equal(id, "synthetic-message-id");
-  assert.match(sent, /To: nccu95208069@gmail.com\r\n/);
+  assert.match(sent, /To: linlab.ai2024@gmail.com\r\n/);
   assert.match(sent, /From: Sweetfun OS <sweetfuntw@gmail.com>/);
   assert.equal(sent.includes("Bcc:"), false);
   await assert.rejects(

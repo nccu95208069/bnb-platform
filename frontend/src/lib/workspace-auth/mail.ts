@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { INTAKE_RECIPIENT } from '../customer-intake/config.ts';
 import { gmailAuthorization, sendGmail, type GmailAuthorization } from './gmail.ts';
 import {createCipheriv,createDecipheriv,createHash,randomBytes} from 'node:crypto';
 import {ADMIN_EMAIL,validEmail} from './types.ts';
@@ -65,7 +66,7 @@ export async function sendInvitation(to:string,token:string) {
 // Platform intake notifications use the existing operator mail transport only.
 // This does not grant the operator's Google credentials to any customer workspace.
 export async function sendOperatorIntakeNotification(subject: string, text: string) {
-  const to = 'nccu95208069@gmail.com';
+  const to = INTAKE_RECIPIENT;
   if (/[\r\n]/.test(subject)) throw new Error('INVALID_INPUT');
   const value = await storedMail();
   if (!value?.secret) throw new Error('MAIL_NOT_CONFIGURED');

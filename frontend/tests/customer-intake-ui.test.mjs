@@ -32,8 +32,8 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
   });
   const props = {
     enabled: true,
-    shareEmail: "nccu95208069@gmail.com",
-    contactEmail: "nccu95208069@gmail.com",
+    shareEmail: "linlab.ai2024@gmail.com",
+    contactEmail: "linlab.ai2024@gmail.com",
   };
   function Harness() {
     const [contactPage, setContactPage] = useState(

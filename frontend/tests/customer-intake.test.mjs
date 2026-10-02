@@ -56,7 +56,7 @@ test("consultation persists full context then sends only to fixed operator; same
   const repeated = await submitIntake(store, payload, send);
   assert.deepEqual(repeated, first);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].to, "nccu95208069@gmail.com");
+  assert.equal(calls[0].to, "linlab.ai2024@gmail.com");
   assert.match(calls[0].text, /紙本月曆/);
   assert.match(calls[0].text, /owner@example.test/);
   assert.match(calls[0].text, /101、102/);
