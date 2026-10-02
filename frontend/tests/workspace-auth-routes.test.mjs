@@ -97,4 +97,32 @@ test('complete API flow preserves owner password, sends invitation, activates, l
  await assert.rejects(()=>provisionPhoneMembers(new RedisWorkspaceStore(),[{phone:'+886911111111',password:memberPassword,displayName:'Duplicate',role:'admin',allProperties:false,propertyIds:['sweetfun']}]),/PHONE_EXISTS/);
  assert.equal(phoneAccounts[0].mustResetPassword,false);
 
+ const phoneMember=phoneAccounts[0];
+ const phoneCookie=`${MEMBER_COOKIE}=${createMemberSession(phoneMember)}`;
+ const patch={id:phoneMember.id,version:phoneMember.version,displayName:phoneMember.displayName,phone:phoneMember.phone,role:phoneMember.role,allProperties:phoneMember.allProperties,propertyIds:phoneMember.propertyIds,email:' Phone.Staff@example.test '};
+ const mailCount=mails.length;
+ // Authorization and conflicts must fail without altering the account.
+ assert.equal((await Members.PATCH(request('workspace-members','PATCH',patch,phoneCookie))).status,403);
+ assert.equal((await Members.PATCH(request('workspace-members','PATCH',patch,ownerCookie,'https://evil.test'))).status,403);
+ const before=(await new RedisWorkspaceStore().read()).raw;
+ for(const email of [memberInput.email,'MANAGER@example.test','sweetfuntw@gmail.com','invalid']){
+  assert.notEqual((await Members.PATCH(request('workspace-members','PATCH',{...patch,email},ownerCookie))).status,200);
+  assert.equal((await new RedisWorkspaceStore().read()).raw,before);
+ }
+ // A phone-only member can still be saved without an email.
+ const unchanged=await Members.PATCH(request('workspace-members','PATCH',{...patch,email:''},ownerCookie));
+ assert.equal(unchanged.status,200);
+ const current=(await new RedisWorkspaceStore().read()).value.members.find(m=>m.id===phoneMember.id);
+ const added=await Members.PATCH(request('workspace-members','PATCH',{...patch,version:current.version},ownerCookie));
+ assert.equal(added.status,200);
+ const saved=(await new RedisWorkspaceStore().read()).value.members.find(m=>m.id===phoneMember.id);
+ assert.equal(saved.email,'phone.staff@example.test');
+ for(const field of ['id','phone','credential','role','propertyIds','status','invitation','mustResetPassword']) assert.deepEqual(saved[field],phoneMember[field]);
+ assert.equal(mails.length,mailCount);
+ assert.equal((await (await Session.GET(request('calendar-session','GET',null,phoneCookie))).json()).authenticated,true);
+ for(const identity of [saved.email,phoneMember.phone]) assert.equal((await Session.POST(request('calendar-session','POST',{email:identity,code:memberPassword}))).status,200);
+ assert.equal((await Members.PATCH(request('workspace-members','PATCH',{...patch,version:current.version},ownerCookie))).status,409);
+ for(const email of ['replacement@example.test','']) assert.equal((await Members.PATCH(request('workspace-members','PATCH',{...patch,email,version:saved.version},ownerCookie))).status,400);
+ assert.equal(data.get('sweetfun-os:owner-auth:v1:credential'),ownerRaw);
+
 });
