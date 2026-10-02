@@ -69,8 +69,8 @@ async function get(url: string, access: string) {
     cache: "no-store",
     signal: AbortSignal.timeout(15000),
   });
-  if ([403, 404].includes(r.status)) throw new Error("SHEET_NOT_SHARED");
-  if (!r.ok) throw new Error("SHEET_READ_FAILED");
+  if (!r.ok && ![403, 404].includes(r.status))
+    throw new Error("SHEET_READ_FAILED");
   const length = Number(r.headers.get("content-length") || 0);
   if (length > 1000000 || !r.body) throw new Error("IMPORT_SIZE");
   const reader = r.body.getReader(),
@@ -86,7 +86,26 @@ async function get(url: string, access: string) {
     }
     chunks.push(value);
   }
-  return JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  const data = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  if (!r.ok) {
+    const reasons = (data.error?.details ?? []).map(
+      (detail: { reason?: string }) => detail.reason,
+    );
+    // Disabled APIs and insufficient application scopes are setup problems,
+    // not a customer's failure to share their spreadsheet.
+    if (
+      reasons.some((reason: string) =>
+        [
+          "SERVICE_DISABLED",
+          "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+          "CONSUMER_INVALID",
+        ].includes(reason),
+      )
+    )
+      throw new Error("SHEET_READER_UNAVAILABLE");
+    throw new Error("SHEET_NOT_SHARED");
+  }
+  return data;
 }
 async function metadata(
   id: string,

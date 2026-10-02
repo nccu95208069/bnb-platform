@@ -40,6 +40,21 @@ import {
 } from "../src/lib/customer-workspaces/shared-sheet.ts";
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const password = "Synthetic customer passphrase 88!";
+test("disabled Google APIs report service setup failure, not incorrect customer sharing", async (t) => {
+  const f = fixture(t);
+  t.mock.method(globalThis, "fetch", async (url) => {
+    if (String(url) === "https://oauth2.googleapis.com/token")
+      return Response.json({ access_token: "synthetic" });
+    return Response.json(
+      { error: { details: [{ reason: "SERVICE_DISABLED" }] } },
+      { status: 403 },
+    );
+  });
+  await assert.rejects(
+    checkSharedSheet(f.input.sheetUrl),
+    /SHEET_READER_UNAVAILABLE/,
+  );
+});
 function fixture(t, { owner = true, readable = true } = {}) {
   process.env.CUSTOMER_WORKSPACES_ENABLED = "true";
   process.env.CUSTOMER_SESSION_SECRET =

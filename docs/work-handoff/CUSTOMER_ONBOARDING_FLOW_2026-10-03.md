@@ -53,3 +53,9 @@ Release in a candidate deployment first. Verify sharing denied → allowed, actu
 - Browser visual verification is pending because the computer-use browser service was unavailable. DOM assertions and builds are not a substitute for that check.
 
 Remaining: dedicated Google reader setup, candidate deployment, actual mail and Google integration test, browser verification, and final production release. Do not report the entire customer journey as shipped until these pass.
+
+## Reader setup follow-up
+
+The user supplied a dedicated service-account key through a local file and enabled the Sheets and Drive APIs. `CUSTOMER_SHEET_READER_CREDENTIALS` and a newly generated `CUSTOMER_SESSION_SECRET` are saved as sensitive production environment variables. The workspace/onboarding flags are prepared for the next deployment; existing production deployments are unchanged. The synthetic Sheet is shared as Viewer with the dedicated reader, verified through Drive permission readback. No key content is stored in this repository.
+
+An actual `SERVICE_DISABLED` response revealed that a Google API configuration failure could be confused with missing sharing permissions. The reader now reports this as a system setup problem; an added regression test passes (8 onboarding/API tests in the focused suite). Live deployment and email checks are still pending.
