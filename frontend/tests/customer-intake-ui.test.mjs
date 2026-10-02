@@ -111,7 +111,7 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
     document.querySelector(".service-order-detail").textContent,
     /6,000/,
   );
-  await click(button("我想加入使用"));
+  await click(button("申請使用"));
   await fill(control("旅宿名稱"), "Synthetic Inn");
   await click(
     [...document.querySelectorAll("button[aria-pressed]")].find((b) =>
@@ -122,7 +122,7 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
   await fill(control("房號或房間名稱"), "101\n102");
   await click(button("下一步：目前的資料"));
   await click(button("是，我用 Google Sheet"));
-  assert.equal(button("填寫聯絡方式，送出加入申請").disabled, true);
+  assert.equal(button("下一步：聯絡資料").disabled, true);
   await fill(
     control("Google Sheet 連結"),
     "https://docs.google.com/spreadsheets/d/synthetic-spreadsheet-0000/edit",
@@ -130,26 +130,26 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
   assert.match(document.body.textContent, /檢視者/);
   assert.match(document.body.textContent, /受限制/);
   await click(document.querySelector("input[type=checkbox]"));
-  assert.equal(button("填寫聯絡方式，送出加入申請").disabled, false);
+  assert.equal(button("下一步：聯絡資料").disabled, false);
   await click(button("不是／我不確定"));
-  assert.equal(button("填寫聯絡方式，送出加入申請"), undefined);
-  await fill(control("目前怎麼記錄？（選填）"), "紙本月曆");
-  await click(button("請專人協助我開始"));
+  assert.equal(button("下一步：聯絡資料"), undefined);
+  await fill(control("目前使用的記錄工具（選填）"), "紙本月曆");
+  await click(button("諮詢導入方式"));
   assert.equal(window.location.pathname, "/join/contact");
   assert.equal(document.querySelector("dialog"), null);
   assert.equal(document.querySelector(".service-hero"), null);
-  assert.match(document.querySelector("h1").textContent, /聊聊你的旅宿/);
+  assert.match(document.querySelector("h1").textContent, /專人諮詢/);
   await click(button("返回問卷"));
-  assert.equal(control("目前怎麼記錄？（選填）").value, "紙本月曆");
-  await click(button("請專人協助我開始"));
-  await fill(control("怎麼稱呼你？"), "Synthetic Owner");
+  assert.equal(control("目前使用的記錄工具（選填）").value, "紙本月曆");
+  await click(button("諮詢導入方式"));
+  await fill(control("聯絡人姓名"), "Synthetic Owner");
   await fill(control("Email"), "owner@example.test");
   await click(document.querySelector(".service-contact input[type=checkbox]"));
   // Refresh on the contact route restores both the questionnaire and unsent contact draft.
   await act(() => root.unmount());
   root = createRoot(document.getElementById("root"));
   await act(() => root.render(createElement(Harness)));
-  assert.equal(control("怎麼稱呼你？").value, "Synthetic Owner");
+  assert.equal(control("聯絡人姓名").value, "Synthetic Owner");
   assert.equal(control("Email").value, "owner@example.test");
   assert.match(
     document.querySelector(".service-contact-context").textContent,
@@ -214,7 +214,7 @@ test("direct contact entry is a full document section with one heading and no ov
     }),
   );
   assert.equal((html.match(/<h1/g) || []).length, 1);
-  assert.match(html, /聊聊你的旅宿/);
+  assert.match(html, /專人諮詢/);
   assert.match(html, /返回服務頁/);
   assert.doesNotMatch(html, /<dialog|service-hero|backdrop/);
 });

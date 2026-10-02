@@ -2032,3 +2032,36 @@
     font-size: 12px;
   }
 }
+
+/* Product copy uses concise feature headings instead of decorative English slogans. */
+.service-overview-title {
+  font-family: var(--serif);
+  font-size: clamp(26px, 3.4vw, 46px);
+  font-weight: 400;
+  line-height: 1.65;
+  margin-bottom: 25px;
+  color: var(--ink);
+}
+.service-hero-copy > .service-eyebrow {
+  font-size: 12px;
+  letter-spacing: 0.09em;
+}
+.service-footer-bottom > span:nth-child(2) {
+  font-family: inherit;
+  font-style: normal;
+  font-size: 11px;
+}
+@media (max-width: 600px) {
+  .service-hero-copy > .service-eyebrow {
+    font-size: 11px;
+  }
+  .service-demo-copy {
+    min-height: 150px;
+  }
+  .service-overview-title {
+    font-size: 27px;
+  }
+  .service-invitation h2 {
+    font-size: 32px;
+  }
+}

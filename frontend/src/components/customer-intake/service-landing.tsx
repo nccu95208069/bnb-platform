@@ -28,9 +28,9 @@ export function DoorMark({ className = "" }: { className?: string }) {
 const scenarios = {
   villa: {
     label: "包棟",
-    title: "一組客人，一起看清。",
+    title: "一筆訂房管理多間房",
     description:
-      "一次包下的房間與夜晚，放在同一筆訂房。整棟住宿與收款，不必逐間重複記。",
+      "包棟的房間與住宿日期歸在同一筆訂房，房費與實收金額只需記錄一次。",
     rooms: ["山景房", "庭院房", "和室"],
     nights: "2 晚 · 3 間房",
     booking: "整棟入住",
@@ -39,9 +39,8 @@ const scenarios = {
   },
   rooms: {
     label: "單房",
-    title: "每間房，都有自己的節奏。",
-    description:
-      "哪間入住、哪天退房、哪些日期還空著。沿用熟悉的房名，在一份日曆裡輕鬆核對。",
+    title: "按房間查看入住安排",
+    description: "依房號查看入住、退房與可預訂日期，並查閱各筆訂房的收款狀態。",
     rooms: ["山景房", "庭院房", "和室"],
     nights: "2 晚 · 1 間房",
     booking: "山景房入住",
@@ -50,9 +49,8 @@ const scenarios = {
   },
   mixed: {
     label: "混合經營",
-    title: "包棟與單房，都安頓好。",
-    description:
-      "平日接單房，週末開放包棟。從實際房間安排入住，讓不同的接待方式回到同一張日曆。",
+    title: "包棟與單房共用房況",
+    description: "包棟與單房訂單使用同一組房間資料，方便核對各日期的入住安排。",
     rooms: ["山景房", "庭院房", "和室"],
     nights: "2 晚 · 3 間房",
     booking: "週末包棟",
@@ -81,26 +79,28 @@ export function StayDemo() {
       aria-labelledby="experience-title"
     >
       <div className="service-section-top">
-        <span className="service-eyebrow">01 / A LITTLE MORE CLARITY</span>
-        <span className="service-small-note">少一點來回翻找，多一點從容。</span>
+        <span className="service-eyebrow">01 / 功能介紹</span>
+        <span className="service-small-note">
+          房況、訂房金額與實收金額集中查看
+        </span>
       </div>
       <div className="service-experience-intro" data-reveal>
         <h2 id="experience-title">
-          再多細節，
+          房況與收款，
           <br />
-          也能一眼看清。
+          按訂房核對。
         </h2>
         <p>
-          把訂房、住宿日期與收款，
+          查看每筆訂房的房間與住宿日期，
           <br />
-          放進一份清楚的日曆。
+          分別記錄訂房總額與實際收款。
           <br />
-          <span>你的接待方式，值得被好好理解。</span>
+          <span>以下可切換經營模式，查看操作示意。</span>
         </p>
       </div>
       <div className="service-demo-layout" data-reveal>
         <div className="service-demo-story">
-          <div className="service-mode-label">你的旅宿，怎麼接待？</div>
+          <div className="service-mode-label">選擇經營模式</div>
           <div
             className="service-mode-switch"
             role="group"
@@ -126,7 +126,8 @@ export function StayDemo() {
             <p>{data.description}</p>
           </div>
           <p className="service-demo-hint">
-            <span aria-hidden="true">↗</span> 點選日曆中的訂房，看看住宿與收款。
+            <span aria-hidden="true">↗</span>{" "}
+            點選訂房，查看房間、住宿晚數與收款金額。
           </p>
         </div>
         <div className="service-calendar">
@@ -252,20 +253,20 @@ export function StayDemo() {
 
 const faqs = [
   [
-    "還沒整理好資料，也可以加入嗎？",
-    "可以。不論你用 Google Sheet、Excel、紙本或手機記事本，都可以先回答幾個問題。不是 Google Sheet 的話，我們會透過專人諮詢，和你確認合適的開始方式。",
+    "現有訂房資料需要先整理嗎？",
+    "不必先重新整理。使用 Google Sheet 可提供連結，由專人核對房間與訂房格式。使用 Excel、紙本或其他系統，請先諮詢資料整理與導入方式。",
   ],
   [
-    "分享 Google Sheet 後，會直接修改我的資料嗎？",
-    "不會。先以「檢視者」分享給我們，核對房間與訂房格式，再協助後續開通與匯入。原表不會被修改，目前也不會持續同步。",
+    "提供 Google Sheet 連結後，如何處理資料？",
+    "請以「檢視者」權限分享試算表。專人會先核對存取權限、房間與訂房格式，再確認匯入範圍。現階段採一次性匯入，不修改原表，也不會持續同步。",
   ],
   [
-    "只有幾間房，或只有一棟，也適合嗎？",
-    "這個流程就是從小型旅宿的實際房間開始。整棟出租可先填「整棟」，單房或混合經營則填熟悉的房號。若有多棟或部分包棟，專人會再協助確認。",
+    "支援哪些經營模式？",
+    "支援包棟、單房與混合經營。整棟出租可先以「整棟」登記；單房出租可沿用現有房號。若有多棟或部分包棟需求，請由專人協助確認設定。",
   ],
   [
-    "費用與開通方式，什麼時候確認？",
-    "送出需求後，我們會先了解你的旅宿規模、資料與需要的協助，再和你確認服務內容、費用及開通安排。填寫這份問卷不會產生扣款。",
+    "如何收費與開通？",
+    "請透過專人諮詢確認服務內容、費用與開通安排。送出申請不會產生扣款；確認需求與資料後，再協助開通。",
   ],
 ] as const;
 
@@ -320,8 +321,8 @@ export function ServiceLanding({
           </span>
         </a>
         <nav aria-label="服務導覽">
-          <a href="#experience">服務體驗</a>
-          <a href="#how-it-works">如何開始</a>
+          <a href="#experience">功能介紹</a>
+          <a href="#how-it-works">導入流程</a>
           <a href="#questions">常見問題</a>
         </nav>
         <div className="service-header-actions">
@@ -337,7 +338,7 @@ export function ServiceLanding({
         <p className="service-no-script">
           互動問卷需要 JavaScript。你也可以直接{" "}
           <a href={`mailto:${contactEmail}`}>Email 聯絡專人</a>
-          ，一起確認適合的開始方式。
+          ，諮詢功能與導入方式。
         </p>
       </noscript>
       <section
@@ -347,29 +348,29 @@ export function ServiceLanding({
       >
         <div className="service-hero-copy">
           <p className="service-eyebrow">
-            <span className="service-tiny-sun" aria-hidden /> MADE FOR THE WAY
-            YOU HOST
+            <span className="service-tiny-sun" aria-hidden />{" "}
+            民宿房況與訂房管理系統
           </p>
           <h1 id="service-title">
-            把時間，
+            民宿訂房，
             <br />
-            留給<span>款待。</span>
+            <span>集中管理。</span>
           </h1>
           <p className="service-hero-description">
-            房況、訂房、收款，安頓在一起。
+            適用包棟、單房與混合經營的民宿。
             <br />
-            給用心經營每一間房的你，
+            在同一份房況日曆查看住宿安排，
             <br />
-            一個更從容的日常。
+            核對訂房金額與實際收款。
           </p>
           <button
             className="service-button service-button-primary service-hero-cta"
             onClick={onStart}
           >
-            我想加入使用 <ArrowUpRight size={18} aria-hidden />
+            申請使用 <ArrowUpRight size={18} aria-hidden />
           </button>
           <p className="service-hero-footnote">
-            從你的旅宿開始 · 有專人陪你一起整理
+            採申請制開通 · 可先諮詢導入方式
           </p>
         </div>
         <figure className="service-hero-visual">
@@ -384,14 +385,14 @@ export function ServiceLanding({
               width="1600"
               height="1067"
               fetchPriority="high"
-              alt="午後陽光灑進安靜的旅宿庭院，木門旁是一張等待客人的茶桌"
+              alt="山景旅宿的庭院、木門與茶桌"
             />
             <div className="service-photo-shade" />
             <div className="service-photo-caption">
               <span>
-                把日常照顧好，
+                民宿 OS
                 <br />
-                美好的停留，就有了空間。
+                房況與訂房管理系統
               </span>
               <DoorMark />
             </div>
@@ -399,34 +400,32 @@ export function ServiceLanding({
           <div className="service-stay-note">
             <span className="service-note-dot" />
             <div>
-              <strong>每一次入住，都好好安頓。</strong>
-              <span>房況清楚，心裡也有餘裕。</span>
+              <strong>一筆訂房，多間房間</strong>
+              <span>住宿日期與收款集中核對</span>
             </div>
             <span className="service-note-line" />
           </div>
           <figcaption>
-            <span>A QUIETER WAY TO HOST.</span>
+            <span>民宿 OS</span>
             <span>旅宿情境示意 · AI 原創影像</span>
           </figcaption>
         </figure>
         <a href="#experience" className="service-scroll-link">
           <ArrowDown size={16} aria-hidden />
-          <span>往下，看看更從容的日常</span>
+          <span>查看功能與操作示意</span>
         </a>
       </section>
       {children}
       <div className="service-manifesto" data-reveal>
-        <p className="service-english-phrase">
-          Room for <em>hospitality.</em>
-        </p>
+        <h2 className="service-overview-title">為小型民宿設計的管理系統</h2>
         <div>
-          <span className="service-eyebrow">為小而用心的旅宿而做</span>
+          <span className="service-eyebrow">適用對象</span>
           <p>
-            你記得客人喜歡的早餐、窗邊最好的光。
+            整棟出租、單房出租，或兩種模式並行。
             <br />
-            那些散落在表格裡的大小事，
+            沿用現有房號建立房況日曆，
             <br className="service-mobile-break" />
-            讓我們一起收好。
+            管理住宿安排與訂房收款。
           </p>
         </div>
       </div>
@@ -437,42 +436,42 @@ export function ServiceLanding({
         aria-labelledby="begin-title"
       >
         <div className="service-begin-heading" data-reveal>
-          <span className="service-eyebrow">02 / START WHERE YOU ARE</span>
+          <span className="service-eyebrow">02 / 導入流程</span>
           <h2 id="begin-title">
-            不用全部重來。
+            提供旅宿資料，
             <br />
-            從你熟悉的方式，
+            由專人協助
             <br />
-            <em>開始就好。</em>
+            <em>完成導入。</em>
           </h2>
           <p>
-            不必先研究一套新系統，
+            先確認經營模式與現有資料，
             <br />
-            也不用自己摸索搬資料。
+            再安排房間設定與訂房匯入。
           </p>
           <button className="service-text-button" onClick={onStart}>
-            開始回答問題 <ArrowUpRight size={19} aria-hidden />
+            填寫旅宿資料 <ArrowUpRight size={19} aria-hidden />
           </button>
         </div>
         <ol className="service-steps">
           {[
             [
               "01",
-              "先認識你的旅宿",
-              "包棟、單房，或兩種都經營。告訴我們你的接待方式，沿用你熟悉的房號與名稱。",
-              "YOUR PLACE",
+              "填寫旅宿與房間資料",
+              "選擇包棟、單房或混合經營，填寫旅宿名稱與房號，作為後續設定的依據。",
+              "PROPERTY SETUP",
             ],
             [
               "02",
-              "接住你現有的記錄",
-              "用 Google Sheet？貼上連結並分享檢視權限。紙本、Excel 或其他方式，也有專人協助。",
-              "YOUR WAY",
+              "確認現有資料來源",
+              "使用 Google Sheet，請提供連結並分享檢視權限。其他格式則由專人確認整理與匯入方式。",
+              "DATA REVIEW",
             ],
             [
               "03",
-              "一起確認，再開始",
-              "核對資料與需求後，再協助開通。每一步都有清楚的下一步，不確定時，隨時找我們聊聊。",
-              "YOUR PACE",
+              "核對資料並安排開通",
+              "專人會與你確認服務內容、資料格式及開通安排，再協助完成設定。",
+              "ONBOARDING",
             ],
           ].map(([number, title, copy, english]) => (
             <li key={number} data-reveal>
@@ -493,14 +492,10 @@ export function ServiceLanding({
         aria-labelledby="faq-title"
       >
         <div data-reveal>
-          <span className="service-eyebrow">03 / A FEW THINGS TO KNOW</span>
-          <h2 id="faq-title">
-            你可能
-            <br />
-            也想知道。
-          </h2>
+          <span className="service-eyebrow">03 / 常見問題</span>
+          <h2 id="faq-title">使用前須知</h2>
           <button className="service-text-button" onClick={onConsult}>
-            直接找專人聊聊 <ArrowUpRight size={19} aria-hidden />
+            聯絡服務人員 <ArrowUpRight size={19} aria-hidden />
           </button>
         </div>
         <div className="service-faq-list">
@@ -529,27 +524,21 @@ export function ServiceLanding({
           <span />
         </div>
         <div data-reveal>
-          <span className="service-eyebrow">
-            GOOD DAYS BEGIN WITH A LITTLE CLARITY.
-          </span>
-          <h2 id="invitation-title">
-            讓經營，有條理。
-            <br />
-            讓款待，有餘裕。
-          </h2>
+          <span className="service-eyebrow">申請與諮詢</span>
+          <h2 id="invitation-title">申請使用民宿 OS</h2>
           <div className="service-invitation-actions">
             <button
               className="service-button service-button-light"
               onClick={onStart}
             >
-              從我的旅宿開始 <ArrowUpRight size={18} aria-hidden />
+              申請使用 <ArrowUpRight size={18} aria-hidden />
             </button>
             <button className="service-invitation-consult" onClick={onConsult}>
-              我想先諮詢 <ArrowRight size={18} aria-hidden />
+              專人諮詢 <ArrowRight size={18} aria-hidden />
             </button>
           </div>
         </div>
-        <p>包棟 · 單房 · 每一間用心經營的旅宿</p>
+        <p>送出資料後，由專人確認需求與開通安排。</p>
       </section>
       <footer className="service-footer">
         <div className="service-footer-top">
@@ -559,7 +548,7 @@ export function ServiceLanding({
               民宿 <span className="service-brand-os">OS</span>
             </span>
           </a>
-          <p>把時間，留給款待。</p>
+          <p>房況與訂房管理系統</p>
           <a className="service-footer-email" href={`mailto:${contactEmail}`}>
             {contactEmail}
             <ArrowUpRight size={16} aria-hidden />
@@ -567,7 +556,7 @@ export function ServiceLanding({
         </div>
         <div className="service-footer-bottom">
           <span>© 2026 民宿 OS</span>
-          <span>Thoughtfully made for thoughtful hosts.</span>
+          <span>房況 · 訂房 · 收款</span>
           <a href="#service-content">回到頂端 ↑</a>
         </div>
       </footer>

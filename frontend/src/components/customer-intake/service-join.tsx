@@ -296,7 +296,7 @@ export function ServiceJoin({
           {started && (
             <section id="join-questions" className="service-questionnaire">
               <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm font-medium">加入使用 · {step} / 3</p>
+                <p className="text-sm font-medium">使用申請 · {step} / 3</p>
                 {consultButton()}
               </div>
               <div
@@ -328,9 +328,9 @@ export function ServiceJoin({
                   className="service-question-title"
                 >
                   {step === 1 ? (
-                    "先認識你的旅宿"
+                    "填寫旅宿資料"
                   ) : step === 2 ? (
-                    "有哪些房間？"
+                    "填寫房間資料"
                   ) : (
                     <>
                       目前用 Google Sheet
@@ -353,7 +353,7 @@ export function ServiceJoin({
                       />
                     </label>
                     <fieldset className="mt-6">
-                      <legend className="mb-3">主要怎麼接待客人？</legend>
+                      <legend className="mb-3">經營模式</legend>
                       <div className="grid gap-3 sm:grid-cols-3">
                         {kinds.map((k) => (
                           <button
@@ -390,8 +390,8 @@ export function ServiceJoin({
                   <>
                     <p className="mb-4 leading-7 text-[#686258]">
                       {kind === "villa"
-                        ? "整棟一起出租，可以先以「整棟」開始；也可以填上實際房間。"
-                        : "把房號或房間名稱列出來，每行一間，也可以用逗號分隔。"}
+                        ? "包棟可先以「整棟」登記，也可填寫棟內各房間名稱。"
+                        : "請填寫房號或房間名稱，每行一間，也可用逗號分隔。"}
                     </p>
                     <label className="block">
                       {kind === "villa"
@@ -428,7 +428,7 @@ export function ServiceJoin({
                 {step === 3 && (
                   <>
                     <p className="mb-5 leading-7 text-[#686258]">
-                      不必為了加入，先把原本的記錄重做一遍。
+                      請選擇目前的記錄方式，以便確認資料匯入需求。
                     </p>
                     <div className="grid gap-3 sm:grid-cols-2">
                       {[
@@ -466,7 +466,7 @@ export function ServiceJoin({
                         </label>
                         <div className="rounded-2xl bg-[#f5f1e8] p-5">
                           <h3 className="font-semibold">
-                            把這份試算表分享給我們
+                            分享試算表的檢視權限
                           </h3>
                           <ol className="mt-3 list-decimal space-y-3 pl-5 text-sm leading-7">
                             <li>打開試算表，點右上角「共用」。</li>
@@ -526,25 +526,25 @@ export function ServiceJoin({
                               openContact("join");
                             }}
                           >
-                            填寫聯絡方式，送出加入申請
+                            下一步：聯絡資料
                           </button>
                           {consultButton()}
                         </div>
                         <p className="text-sm text-[#686258]">
-                          不會分享、想先了解，或資料比較複雜，都可以選專人諮詢。
+                          如需分享權限或資料整理方面的協助，請選擇專人諮詢。
                         </p>
                       </div>
                     )}
                     {source === "other" && (
                       <div className="mt-6 rounded-2xl bg-[#f0e9dc] p-5">
                         <h3 className="text-lg font-semibold">
-                          讓專人幫你找合適的開始方式
+                          諮詢資料導入方式
                         </h3>
                         <p className="mt-3 text-sm leading-7 text-[#686258]">
-                          紙本、Excel、手機記事本、訂房系統，或還沒有固定記錄方式，都可以先聊聊。你不用現在上傳客人資料。
+                          請簡述目前使用的工具或記錄方式。服務人員會與你確認資料整理及導入需求，此階段不需上傳客人資料。
                         </p>
                         <label className="mt-4 block text-sm">
-                          目前怎麼記錄？（選填）
+                          目前使用的記錄工具（選填）
                           <input
                             className={field}
                             placeholder="例如：紙本月曆、Excel"
@@ -556,7 +556,7 @@ export function ServiceJoin({
                           />
                         </label>
                         <button className={`${button} mt-5`} onClick={consult}>
-                          請專人協助我開始
+                          諮詢導入方式
                         </button>
                       </div>
                     )}
@@ -604,9 +604,7 @@ export function ServiceJoin({
             aria-labelledby="contact-title"
           >
             <div className="service-contact-intro">
-              <p className="service-eyebrow">
-                LET’S MAKE ROOM FOR BETTER DAYS.
-              </p>
+              <p className="service-eyebrow">功能與導入諮詢</p>
               <h1
                 ref={contactHeading}
                 tabIndex={-1}
@@ -616,32 +614,32 @@ export function ServiceJoin({
                 {result
                   ? "需求已收到"
                   : intent === "join"
-                    ? "留下聯絡方式"
-                    : "聊聊你的旅宿。"}
+                    ? "填寫聯絡資料"
+                    : "專人諮詢"}
               </h1>
               <p className="service-contact-lead">
-                每間旅宿都有自己的節奏。
+                請提供聯絡方式與需求。
                 <br />
-                從你的日常開始，
+                服務人員會與你確認功能、
                 <br />
-                一起找到合適的方式。
+                資料匯入及開通安排。
               </p>
               {name && (
                 <div className="service-contact-context">
-                  <span>關於你的旅宿</span>
+                  <span>旅宿資料</span>
                   <strong>{name}</strong>
                   <p>
                     {kinds.find((k) => k.value === kind)?.label ||
-                      "接待方式待確認"}
+                      "經營模式待確認"}
                     {rooms.length > 0 ? ` · ${rooms.length} 間房` : ""}
                   </p>
-                  <small>已填的問卷內容會一起帶給專人。</small>
+                  <small>提交時會附上已填寫的旅宿資料。</small>
                 </div>
               )}
               <p className="service-contact-aside-note">
-                不用先註冊，也不用一次準備齊全。
+                尚未決定導入方式，也可以先諮詢。
                 <br />
-                留下聯絡方式，我們會和你確認需求。
+                如有現有系統或資料格式的問題，請在需求說明中填寫。
               </p>
             </div>
             <div className="service-contact">
@@ -649,8 +647,8 @@ export function ServiceJoin({
                 <div className="mt-6 space-y-4">
                   <p>
                     已保存你的
-                    {completedIntent === "join" ? "加入申請" : "諮詢需求"}
-                    ，接下來會聯絡你，核對適合的設定與資料方式。
+                    {completedIntent === "join" ? "使用申請" : "諮詢需求"}
+                    。服務人員將與你確認需求、資料格式與開通安排。
                   </p>
                   <p className="rounded-xl bg-[#f0e9dc] p-4 text-sm leading-7">
                     {result.preview
@@ -678,7 +676,7 @@ export function ServiceJoin({
                   <p className="text-sm leading-7 text-[#686258]">
                     {intent === "join"
                       ? "我們會核對分享權限與資料，再協助你開通使用。"
-                      : "不用先註冊或填完整份問卷。已回答的內容會一起帶給專人，你不必重填。"}
+                      : "請填寫以下資料。若已填寫旅宿問卷，提交時會一併附上。"}
                   </p>
                   {!enabled && (
                     <p
@@ -694,7 +692,7 @@ export function ServiceJoin({
                   )}
                   <fieldset disabled={busy || uncertain} className="space-y-4">
                     <label className="block">
-                      怎麼稱呼你？
+                      聯絡人姓名
                       <input
                         className={field}
                         required
@@ -726,12 +724,12 @@ export function ServiceJoin({
                       />
                     </label>
                     <label className="block">
-                      想先了解什麼？（選填）
+                      需求說明（選填）
                       <textarea
                         className={field}
                         rows={3}
                         maxLength={2000}
-                        placeholder="例如：如何搬資料、不同棟別怎麼設定"
+                        placeholder="例如：現有資料如何匯入、多棟旅宿如何設定"
                         value={note}
                         onChange={(e) => setNote(e.target.value)}
                       />
@@ -781,7 +779,7 @@ export function ServiceJoin({
                       : uncertain
                         ? "重試相同需求"
                         : intent === "join"
-                          ? "送出加入申請"
+                          ? "送出使用申請"
                           : "送出專人諮詢"}
                   </button>
                   <p className="text-xs leading-6 text-[#70695f]">
@@ -795,7 +793,7 @@ export function ServiceJoin({
             </div>
           </section>
           <footer className="service-contact-footer">
-            <span>民宿 OS · 把時間，留給款待。</span>
+            <span>民宿 OS · 房況與訂房管理系統</span>
             <a href={`mailto:${contactEmail}`}>{contactEmail}</a>
           </footer>
         </div>
