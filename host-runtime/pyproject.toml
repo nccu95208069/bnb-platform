@@ -1,0 +1,18 @@
+[project]
+name = "bnb-line-oa-host-runtime"
+version = "0.1.0"
+description = "Owner-paired local Android host companion for LINE OA"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.30,<1",
+  "keyring>=25,<27",
+  "Pillow>=10,<13",
+  "httpx>=0.27,<1",
+]
+
+[project.optional-dependencies]
+test = ["ruff>=0.8"]
+
+[tool.uv]
+package = false
