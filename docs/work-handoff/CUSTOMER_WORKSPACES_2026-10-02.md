@@ -53,3 +53,9 @@ This is the first isolated slice, not completion of the full design:
 6. Migration of existing customers only with source contracts, dedicated tests and a rollout plan. Existing two-property constants remain confined to the legacy subsystem.
 
 Before public enablement, complete the account lifecycle and persistent-store integration validation, then merge onto the latest deployed application base. No real guest rows, credentials, email bodies or production exports belong in tests or this document.
+
+## Review fix: deselect rooms after an availability conflict
+
+Changing stay dates or refreshing inventory can make a selected room unavailable. The room button now remains usable solely to remove that selected room; once removed, it is disabled until available again. Creating a booking remains blocked while any selected room conflicts, and the villa button still enforces complete-group availability.
+
+Two React DOM interaction regressions cover date changes and inventory refresh: select room 101, introduce a conflict, choose free room 102, remove 101, and verify the submitted booking contains only 102 with the intended dates. Both scenarios fail against the original code and pass with the fix. The existing 17 authorization/service regressions also pass. CI now accepts pull requests targeting `codex/sweetfun-bots` and includes these DOM tests, so the current stacked PR receives checks.

@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, codex/sweetfun-bots]
 
 jobs:
   backend:
@@ -91,3 +91,5 @@ jobs:
       - run: npm ci
       - name: Tenant, booking, session and legacy authorization regressions
         run: node --experimental-strip-types --loader ./tests/helpers/next-route-loader.mjs --test tests/customer-workspaces.test.mjs tests/customer-workspace-routes.test.mjs tests/workspace-auth.test.mjs tests/workspace-auth-routes.test.mjs tests/calendar-owner-session.test.mjs
+      - name: Calendar conflict recovery DOM regressions
+        run: node --loader ./tests/helpers/customer-component-loader.mjs --test tests/customer-calendar.test.mjs

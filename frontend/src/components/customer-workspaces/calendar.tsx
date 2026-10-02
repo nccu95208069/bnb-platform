@@ -491,7 +491,7 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
                         <button
                           type="button"
                           key={r.id}
-                          disabled={occupied(r.id)}
+                          disabled={occupied(r.id) && !roomIds.includes(r.id)}
                           aria-pressed={roomIds.includes(r.id)}
                           className={
                             roomIds.includes(r.id) ? button : secondary
