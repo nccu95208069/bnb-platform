@@ -106,6 +106,7 @@ export default function AccessManagementPage() {
   const [recoveryBusy,setRecoveryBusy] = useState(false);
   const [deviceAccount,setDeviceAccount] = useState<string|null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const editingMember = members.find((member) => member.id === editingId);
   const formCardRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -172,8 +173,8 @@ export default function AccessManagementPage() {
       toast.error(uiText("請填寫使用者名稱"));
       return;
     }
-    if ((LIVE_SHEET && !form.email.trim()) || (!form.email.trim() && !form.phone.trim())) {
-      toast.error(uiText(LIVE_SHEET ? "請填寫接收邀請信的 Email" : "Email 與手機至少填寫一項"));
+    if ((LIVE_SHEET && !editingId && !form.email.trim()) || (!form.email.trim() && !form.phone.trim())) {
+      toast.error(uiText(LIVE_SHEET && !editingId ? "請填寫接收邀請信的 Email" : "Email 與手機至少填寫一項"));
       return;
     }
     if (!form.allProperties && form.propertyIds.length === 0) {
@@ -184,10 +185,12 @@ export default function AccessManagementPage() {
     setSaving(true);
     try {
       await saveMember({ ...form, id: editingId ?? undefined });
-      toast.success(uiText(editingId ? "成員權限已更新" : LIVE_SHEET ? "邀請信已寄出" : "成員已加入"), {
+      toast.success(uiText(editingId ? "成員資料已更新" : LIVE_SHEET ? "邀請信已寄出" : "成員已加入"), {
         description: DEMO_MODE
           ? "已儲存在此瀏覽器供測試，尚未建立正式登入帳號。"
-          : "請對方從邀請信設定密碼，再用 Email 與密碼登入。",
+          : editingId
+            ? "原有密碼與帳號狀態不變；補填 Email 不會自動寄出邀請信。"
+            : "請對方從邀請信設定密碼，再用 Email 與密碼登入。",
       });
       resetForm();
     } catch (saveError) {
@@ -315,8 +318,8 @@ export default function AccessManagementPage() {
                 <Label htmlFor="member-email">Email</Label>
                 <Input
                   id="member-email"
-                  disabled={LIVE_SHEET && Boolean(editingId)}
-                  required={LIVE_SHEET}
+                  disabled={LIVE_SHEET && Boolean(editingMember?.email)}
+                  required={LIVE_SHEET && !editingId}
                   type="email"
                   value={form.email}
                   onChange={(event) =>
@@ -324,6 +327,11 @@ export default function AccessManagementPage() {
                   }
                   placeholder="staff@example.com"
                 />
+                {LIVE_SHEET && editingId && (
+                  <p className="text-xs text-muted-foreground">
+                    {uiText(editingMember?.email ? "已設定的 Email 無法在此更換。" : "可補填 Email，原有手機與密碼仍可使用；不會自動寄出邀請信。")}
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">

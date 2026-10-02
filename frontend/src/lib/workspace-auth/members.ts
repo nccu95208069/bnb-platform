@@ -78,7 +78,9 @@ export async function updateMember(store:WorkspaceStore,input:Record<string,unkn
   } else {
     const values=memberInput(input);
     if(values.phone && state.value.members.some(m=>m.id!==member.id&&normalizedPhone(m.phone)===values.phone))throw new Error('EMAIL_EXISTS');
-    if(values.email!==member.email)throw new Error('INVALID_INPUT');
+    // Managers may complete a phone-only identity, but cannot replace an existing email.
+    if(member.email && values.email!==member.email)throw new Error('INVALID_INPUT');
+    if(values.email && state.value.members.some(m=>m.id!==member.id&&normalizedEmail(m.email)===values.email))throw new Error('EMAIL_EXISTS');
     updated={...member,...values,version:member.version+1};
   }
   await store.replace(state.raw,nextWorkspace(state.value,state.value.members.map(m=>m.id===member.id?updated:m),input.status?'status_updated':'permissions_updated',member.id,actor.id));
