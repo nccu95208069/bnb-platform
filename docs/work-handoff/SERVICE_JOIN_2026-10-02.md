@@ -33,3 +33,7 @@ Actual notification sending requires the existing configured platform Gmail reco
 - An attempted live synthetic notification on 2026-10-02 stopped before Google token exchange: Vercel's local environment runner omitted the protected owner/session secret. Read-only diagnostics confirmed that secret was absent locally, rather than establishing a revoked Google grant. No successful real email send or inbox delivery has been verified. No production mail configuration was changed. Verification must be completed in a reviewed deployed runtime where the protected secret is available; do not export or rotate that secret just to run the local test.
 - Service page is not live on the production alias. Public deployment and real notification verification remain pending. Current customer-account lifecycle and import release gates still apply; submitting this form does not claim immediate self-service activation.
 - Final local checks: 34 service/API/mail/legacy tests and 5 reported DOM tests pass; lint has no errors and two pre-existing warnings; TypeScript and webpack production build pass.
+
+## Visual design follow-up
+
+The public page and intake UI were redesigned around「把時間，留給款待」with an original hospitality image, self-hosted Chinese serif typography, interactive illustrated bookings, native FAQ and responsive editorial layout. Review rounds, asset provenance, generation prompt, accessibility and production-browser evidence are recorded in [SERVICE_JOIN_DESIGN_2026-10-02.md](SERVICE_JOIN_DESIGN_2026-10-02.md). Release gates above remain unchanged.

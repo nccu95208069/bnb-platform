@@ -64,6 +64,31 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
       el.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
     });
   };
+  // The public demo selects a real illustrated order; it must never submit intake.
+  await click(button("單房"));
+  await click(
+    document.querySelector('button[aria-label="查看庭院房示範訂房"]'),
+  );
+  assert.match(
+    document.querySelector(".service-order-detail").textContent,
+    /庭院房入住/,
+  );
+  assert.match(
+    document.querySelector(".service-order-detail").textContent,
+    /5,600/,
+  );
+  await click(button("混合經營"));
+  await click(
+    document.querySelector('button[aria-label="查看包棟之後的山景房示範訂房"]'),
+  );
+  assert.match(
+    document.querySelector(".service-order-detail").textContent,
+    /山景房入住/,
+  );
+  assert.match(
+    document.querySelector(".service-order-detail").textContent,
+    /6,000/,
+  );
   await click(button("我想加入使用"));
   await fill(control("旅宿名稱"), "Synthetic Inn");
   await click(
