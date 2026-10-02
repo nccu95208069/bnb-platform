@@ -38,3 +38,8 @@ zero runtime pending/attention/incomplete items, and unchanged inbound revision.
 After the 14:37 background sync the manager displayed zero pending tasks. Older
 unreviewed pre-activation input remains intact in the generic conversation flag;
 the scoped manager audit closes only the owner's reviewed current turn.
+
+A different guest sent new input at 14:37:32, after the reported turn was closed.
+The next scan correctly showed that one new task while the recovered conversation
+remained absent. The previously observed zero count is time-specific, not a claim
+that subsequent guest input stays hidden.
