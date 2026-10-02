@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
-import { act, createElement } from "react";
+import { act, createElement, useCallback, useEffect, useState } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { ServiceJoin } from "../src/components/customer-intake/service-join.tsx";
 test("join questionnaire branches into Sheet sharing and optional consultation; non-Sheet gets assisted entry; uncertain send restores after reload", async (t) => {
   const dom = new JSDOM('<div id="root"></div>', {
@@ -19,13 +20,8 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
     sessionStorage: dom.window.sessionStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
-  dom.window.HTMLDialogElement.prototype.showModal = function () {
-    this.open = true;
-  };
-  dom.window.HTMLDialogElement.prototype.close = function () {
-    this.open = false;
-  };
   dom.window.HTMLElement.prototype.scrollIntoView = function () {};
+  dom.window.scrollTo = function () {};
   const { createRoot } = await import("react-dom/client");
   let root = createRoot(document.getElementById("root"));
   t.after(async () => {
@@ -38,7 +34,33 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
     shareEmail: "nccu95208069@gmail.com",
     contactEmail: "nccu95208069@gmail.com",
   };
-  await act(() => root.render(createElement(ServiceJoin, props)));
+  function Harness() {
+    const [contactPage, setContactPage] = useState(
+      window.location.pathname === "/join/contact",
+    );
+    useEffect(() => {
+      const pop = () =>
+        setContactPage(window.location.pathname === "/join/contact");
+      window.addEventListener("popstate", pop);
+      return () => window.removeEventListener("popstate", pop);
+    }, []);
+    const open = useCallback(() => {
+      window.history.pushState({}, "", "/join/contact");
+      setContactPage(true);
+    }, []);
+    const back = useCallback(() => {
+      window.history.pushState({}, "", "/join");
+      setContactPage(false);
+    }, []);
+    return createElement(ServiceJoin, {
+      ...props,
+      contactPage,
+      onOpenContact: open,
+      onRestoreContact: open,
+      onBack: back,
+    });
+  }
+  await act(() => root.render(createElement(Harness)));
   const button = (label) =>
     [...document.querySelectorAll("button")].find(
       (b) => b.textContent.trim() === label,
@@ -113,9 +135,26 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
   assert.equal(button("填寫聯絡方式，送出加入申請"), undefined);
   await fill(control("目前怎麼記錄？（選填）"), "紙本月曆");
   await click(button("請專人協助我開始"));
+  assert.equal(window.location.pathname, "/join/contact");
+  assert.equal(document.querySelector("dialog"), null);
+  assert.equal(document.querySelector(".service-hero"), null);
+  assert.match(document.querySelector("h1").textContent, /聊聊你的旅宿/);
+  await click(button("返回問卷"));
+  assert.equal(control("目前怎麼記錄？（選填）").value, "紙本月曆");
+  await click(button("請專人協助我開始"));
   await fill(control("怎麼稱呼你？"), "Synthetic Owner");
   await fill(control("Email"), "owner@example.test");
-  await click(document.querySelector("dialog input[type=checkbox]"));
+  await click(document.querySelector(".service-contact input[type=checkbox]"));
+  // Refresh on the contact route restores both the questionnaire and unsent contact draft.
+  await act(() => root.unmount());
+  root = createRoot(document.getElementById("root"));
+  await act(() => root.render(createElement(Harness)));
+  assert.equal(control("怎麼稱呼你？").value, "Synthetic Owner");
+  assert.equal(control("Email").value, "owner@example.test");
+  assert.match(
+    document.querySelector(".service-contact-context").textContent,
+    /Synthetic Inn/,
+  );
   const sends = [];
   let fail = true;
   t.mock.method(globalThis, "fetch", async (_url, options) => {
@@ -133,11 +172,25 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
   });
   await click(button("送出專人諮詢"));
   assert.ok(button("重試相同需求"));
-  assert.equal(document.querySelector("dialog fieldset").disabled, true);
+  assert.equal(
+    document.querySelector(".service-contact fieldset").disabled,
+    true,
+  );
   assert.ok(sessionStorage.getItem("bnb-intake-pending-v1"));
+  // Browser Back may leave a pending request: the questionnaire stays frozen until retry.
+  await act(() => {
+    window.history.pushState({}, "", "/join");
+    window.dispatchEvent(new dom.window.PopStateEvent("popstate"));
+  });
+  assert.equal(
+    document.querySelector("#join-questions > fieldset").disabled,
+    true,
+  );
+  await click(button("專人諮詢"));
+  assert.ok(button("重試相同需求"));
   await act(() => root.unmount());
   root = createRoot(document.getElementById("root"));
-  await act(() => root.render(createElement(ServiceJoin, props)));
+  await act(() => root.render(createElement(Harness)));
   assert.ok(button("重試相同需求"));
   await click(button("重試相同需求"));
   assert.deepEqual(sends[1], sends[0]);
@@ -146,6 +199,22 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
   assert.equal(sends[0].source, "other");
   assert.equal(sends[0].sourceDescription, "紙本月曆");
   assert.equal(sessionStorage.getItem("bnb-intake-pending-v1"), null);
+  assert.equal(sessionStorage.getItem("bnb-intake-draft-v1"), null);
   assert.match(document.body.textContent, /需求已收到/);
   assert.match(document.body.textContent, /通知信已交由寄信服務/);
+});
+
+test("direct contact entry is a full document section with one heading and no overlay", () => {
+  const html = renderToStaticMarkup(
+    createElement(ServiceJoin, {
+      enabled: true,
+      contactPage: true,
+      shareEmail: "operator@example.test",
+      contactEmail: "operator@example.test",
+    }),
+  );
+  assert.equal((html.match(/<h1/g) || []).length, 1);
+  assert.match(html, /聊聊你的旅宿/);
+  assert.match(html, /返回服務頁/);
+  assert.doesNotMatch(html, /<dialog|service-hero|backdrop/);
 });

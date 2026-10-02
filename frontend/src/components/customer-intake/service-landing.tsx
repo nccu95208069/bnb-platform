@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowRight, ArrowUpRight, Check, Plus } from "lucide-react";
 
-function DoorMark({ className = "" }: { className?: string }) {
+export function DoorMark({ className = "" }: { className?: string }) {
   return (
     <svg
       className={className}

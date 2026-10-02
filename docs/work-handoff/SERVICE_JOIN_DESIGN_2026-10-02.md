@@ -50,3 +50,7 @@
 ## 上線狀態
 
 更新於既有草稿 PR #26，尚未部署或切換正式網站。`CUSTOMER_INTAKE_ENABLED` 預設關閉；本機預覽使用 `CUSTOMER_INTAKE_PREVIEW=true`，禁止外寄。正式 Gmail 通知驗證、帳號／資料匯入的發布前條件維持原紀錄，詳見 `SERVICE_JOIN_2026-10-02.md` 與 `CUSTOMER_WORKSPACES_2026-10-02.md`。
+
+## 後續修正：聯絡表單改為頁面
+
+Owner 依截圖要求移除彈窗。最新 `/join/contact` 採獨立頁面、整頁捲動、桌面雙欄／手機單欄，返回問卷與草稿保留、未確認送出後的安全重試均有測試。原生 dialog 與其遮罩已從此流程移除。上方的瀏覽器截圖、axe 與效能數據屬於改動前的設計驗證；新頁面這一輪因瀏覽器安全檢查不可用，僅完成 DOM／SSR、lint、TypeScript 與正式建置驗證。詳見 `SERVICE_JOIN_2026-10-02.md` 的 contact page follow-up。

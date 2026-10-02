@@ -1,11 +1,3 @@
-import "./service.css";
-import { ServiceJoin } from "@/components/customer-intake/service-join";
-import {
-  intakeEnabled,
-  intakePreview,
-  SHEET_SHARE_EMAIL,
-  INTAKE_RECIPIENT,
-} from "@/lib/customer-intake/config";
 export const dynamic = "force-dynamic";
 export const metadata = {
   title: { absolute: "民宿 OS｜把時間，留給款待" },
@@ -20,12 +12,5 @@ export const metadata = {
   },
 };
 export default function Page() {
-  return (
-    <ServiceJoin
-      enabled={intakeEnabled()}
-      preview={intakePreview()}
-      shareEmail={SHEET_SHARE_EMAIL}
-      contactEmail={INTAKE_RECIPIENT}
-    />
-  );
+  return null;
 }
