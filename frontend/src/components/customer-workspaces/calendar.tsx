@@ -146,7 +146,15 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
               房況日曆 · 訂房保存在此工作區
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            {["owner", "admin"].includes(data.role) && (
+              <a
+                className={secondary}
+                href={`/w/${data.slug}/import?property=${encodeURIComponent(propertyId)}`}
+              >
+                從試算表匯入
+              </a>
+            )}
             <button
               className={secondary}
               onClick={async () => {
@@ -356,6 +364,14 @@ export function CustomerCalendar({ initial }: { initial: WorkspaceView }) {
                       ? `$${picked.payments.reduce((sum, p) => sum + p.amount, 0).toLocaleString()}`
                       : "尚未登記"}
                   </p>
+                  {picked.importedFinance && (
+                    <p className="mt-3 text-sm text-slate-500">
+                      來源摘要（TWD）：累計旅宿實收{" "}
+                      {picked.importedFinance.propertyReceived ?? "未知"}
+                      ；旅客付平台 {picked.importedFinance.guestPaid ?? "未知"}
+                      。摘要不代表付款交易明細。
+                    </p>
+                  )}
                   {picked.payments.map((p) => (
                     <p key={p.id} className="mt-2 text-sm text-slate-500">
                       {new Date(p.receivedAt).toLocaleString("zh-TW")} ·{" "}

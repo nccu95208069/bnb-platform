@@ -39,6 +39,21 @@ export async function limitSession(request: NextRequest) {
 export function failure(error: unknown) {
   const code = error instanceof Error ? error.message : "";
   const errors: Record<string, [number, string]> = {
+    GOOGLE_UNAVAILABLE: [503, "此測試環境尚未設定 Google 授權。"],
+    GOOGLE_CONNECT_FAILED: [400, "Google 授權未完成，請重新連線。"],
+    GOOGLE_CONNECT_REQUIRED: [
+      401,
+      "請先連結自己的 Google 帳號；授權約一小時後需重新連線。",
+    ],
+    SHEET_UNAVAILABLE: [
+      400,
+      "無法讀取試算表，請確認 Google 帳號的存取權限與連結。",
+    ],
+    IMPORT_SIZE: [
+      400,
+      "每次可讀取最多 501 列、52 欄；請將資料整理成較小分頁再試。",
+    ],
+    IMPORT_EXPIRED: [409, "預覽已過期，請重新讀取試算表。"],
     FEATURE_UNAVAILABLE: [503, "新客戶入口尚未開放。"],
     UNAUTHORIZED: [401, "請登入；若登入失敗，請確認信箱與密碼。"],
     ACCOUNT_EXISTS: [409, "此信箱無法建立新帳號，請嘗試登入。"],

@@ -172,7 +172,15 @@ export function view(workspace: Workspace, member: Membership): WorkspaceView {
       void _hash;
       void _actor;
       return member.role === "viewer_no_price"
-        ? { ...booking, total: null, payments: [], notes: null, contact: null }
+        ? {
+            ...booking,
+            total: null,
+            payments: [],
+            notes: null,
+            contact: null,
+            importedFinance: undefined,
+            imported: undefined,
+          }
         : booking;
     });
   return {

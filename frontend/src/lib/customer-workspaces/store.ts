@@ -1,6 +1,11 @@
 import { redisCommand } from "../workspace-auth/store.ts";
 export type Snapshot<T> = { raw: string | null; value: T | null };
-export type Change = { key: string; before: string | null; after: unknown };
+export type Change = {
+  key: string;
+  before: string | null;
+  after: unknown;
+  ttlSeconds?: number;
+};
 export interface CustomerStore {
   read<T>(key: string): Promise<Snapshot<T>>;
   commit(changes: Change[]): Promise<void>;
@@ -17,13 +22,31 @@ export class RedisCustomerStore implements CustomerStore {
     return { raw, value: JSON.parse(raw) as T };
   }
   async commit(changes: Change[]) {
+    const expiring = changes.some((c) => c.ttlSeconds);
     const result = await redisCommand([
       "EVAL",
-      `for i=1,#KEYS do if (redis.call('GET',KEYS[i]) or '') ~= ARGV[i*2-1] then return 0 end end
+      ...(expiring
+        ? [
+            `for i=1,#KEYS do if (redis.call('GET',KEYS[i]) or '') ~= ARGV[i*3-2] then return 0 end end
+        for i=1,#KEYS do redis.call('SET',KEYS[i],ARGV[i*3-1]); if tonumber(ARGV[i*3]) > 0 then redis.call('EXPIRE',KEYS[i],ARGV[i*3]) end end return 1`,
+            changes.length,
+            ...changes.map((c) => `${this.prefix}:${c.key}`),
+            ...changes.flatMap((c) => [
+              c.before ?? "",
+              JSON.stringify(c.after),
+              c.ttlSeconds ?? 0,
+            ]),
+          ]
+        : [
+            `for i=1,#KEYS do if (redis.call('GET',KEYS[i]) or '') ~= ARGV[i*2-1] then return 0 end end
       for i=1,#KEYS do redis.call('SET',KEYS[i],ARGV[i*2]) end return 1`,
-      changes.length,
-      ...changes.map((c) => `${this.prefix}:${c.key}`),
-      ...changes.flatMap((c) => [c.before ?? "", JSON.stringify(c.after)]),
+            changes.length,
+            ...changes.map((c) => `${this.prefix}:${c.key}`),
+            ...changes.flatMap((c) => [
+              c.before ?? "",
+              JSON.stringify(c.after),
+            ]),
+          ]),
     ]);
     if (result !== 1) throw new Error("VERSION_CONFLICT");
   }

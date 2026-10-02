@@ -52,7 +52,22 @@ export type Booking = {
   guestNotified: false;
   createdAt: string;
   actor: string;
-  entry: "os";
+  entry: "os" | "sheet";
+  imported?: {
+    batchId: string;
+    sourceKey: string;
+    fingerprint: string;
+    externalId: string | null;
+    row: number;
+  };
+  importedFinance?: {
+    currency: "TWD";
+    amountBasis: "order" | "night" | "none";
+    sourceAmount: number | null;
+    receivedMeaning: "property" | "guest" | "none";
+    propertyReceived: number | null;
+    guestPaid: number | null;
+  };
   requestKey: string;
   requestHash: string;
 };
@@ -64,6 +79,22 @@ export type Workspace = {
   members: Membership[];
   properties: Property[];
   bookings: Booking[];
+  importBatches?: {
+    id: string;
+    actor: string;
+    propertyId: string;
+    createdAt: string;
+    sourceTitle: string;
+    source: {
+      spreadsheetId: string;
+      sheetId: number;
+      headerRow: number;
+      columns: Record<string, number>;
+    };
+    selectionHash: string;
+    bookingIds: string[];
+    undo?: { cancelled: string[]; skipped: string[] };
+  }[];
   audit: { at: string; actor: string; action: string; targetId: string }[];
 };
 export type WorkspaceView = {

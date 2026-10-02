@@ -4,6 +4,8 @@ import { NextRequest } from "next/server";
 import * as Session from "../src/app/api/customer-session/route.ts";
 import * as Workspaces from "../src/app/api/customer-workspaces/route.ts";
 import * as Calendar from "../src/app/api/customer-workspaces/[slug]/route.ts";
+import * as Import from "../src/app/api/customer-workspaces/[slug]/import/route.ts";
+import * as GoogleCallback from "../src/app/api/customer-google/callback/route.ts";
 import * as Legacy from "../src/app/api/calendar-session/route.ts";
 const request = (
   path,
@@ -170,6 +172,68 @@ test("API enforces CSRF, tenant boundaries, no-store, separate legacy sessions a
     ).status,
     404,
   );
+  const importInput = {
+    action: "preview",
+    propertyId: booking.propertyId,
+    sourceId: "00000000-0000-0000-0000-000000000000",
+  };
+  assert.equal(
+    (
+      await Import.POST(
+        request(
+          "customer-workspaces/api-inn/import",
+          "POST",
+          importInput,
+          cookie,
+          "https://evil.test",
+        ),
+        context,
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await Import.POST(
+        request(
+          "customer-workspaces/api-inn/import",
+          "POST",
+          importInput,
+          otherCookie,
+        ),
+        context,
+      )
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await Import.POST(
+        request(
+          "customer-workspaces/api-inn/import",
+          "POST",
+          { ...importInput, action: "connect" },
+          cookie,
+        ),
+        context,
+      )
+    ).status,
+    503,
+  );
+  const badCallback = await GoogleCallback.GET(
+    request(
+      "customer-google/callback?state=forged&code=secret",
+      "GET",
+      null,
+      cookie,
+    ),
+  );
+  assert.equal(badCallback.status, 307);
+  assert.equal(
+    badCallback.headers.get("location"),
+    "https://test.local/start?google=failed",
+  );
+  assert.equal(badCallback.headers.get("cache-control"), "private, no-store");
   const legacy = await Legacy.GET(
     request("calendar-session", "GET", null, cookie),
   );
