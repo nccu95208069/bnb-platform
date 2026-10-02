@@ -1,6 +1,6 @@
 # Customer onboarding: shared Sheet to verified calendar
 
-Status: implemented and locally verified on `codex/customer-onboarding`; **not enabled or deployed to production**. The production service page still runs the earlier assisted intake. Google reader credentials and real applicant email delivery must be configured and verified before this is called complete.
+Status: implemented and running in a protected acceptance deployment from `658e1d9`; **the primary production domain is unchanged**. Dedicated Google reader credentials are configured, real Sheet access checks pass, and an authorized applicant receipt has been verified in the recipient’s Gmail INBOX. Customer activation, import acceptance and explicit permission to switch the primary domain are still pending.
 
 ## Accepted flow
 
@@ -35,15 +35,15 @@ Do not enable the flow until all of these exist in the **new deployment**:
 - Existing Redis and verified operator Gmail transport remain available
 - `CUSTOMER_SELF_SIGNUP_PREVIEW` absent/false: public registration is closed, email link activation is required
 
-The reader requests only Sheets read-only and Drive metadata read-only scopes. Share the synthetic source as Viewer with its displayed service-account address. Do not reuse the existing live-property monitor credentials or broaden the original customers' permissions. Credentials must be installed through secure environment settings, never committed or pasted into the application form. Service-account setup still needs the user's Google account/project access; connecting the contact Gmail address is a different OAuth implementation and is not implied by changing the contact address.
+The reader requests only Sheets read-only and Drive metadata read-only scopes. Share the synthetic source as Viewer with its displayed service-account address. Do not reuse the existing live-property monitor credentials or broaden the original customers' permissions. Credentials must be installed through secure environment settings, never committed or pasted into the application form. The user completed the service-account setup and enabled both APIs. Connecting the contact Gmail address would be a different OAuth implementation and is not implied by changing the contact address.
 
 The existing generic Google OAuth importer remains available to older non-onboarding workspaces. New applications always use the file bound on the server; arbitrary client-supplied file identifiers are ignored.
 
-Release in a candidate deployment first. Verify sharing denied → allowed, actual applicant email receipt, account link activation, source preview, selected import, authoritative persisted calendar, retry, and unrelated-account denial. Only then enable the public release. Provider acceptance alone does not prove inbox delivery. No production enablement or new real applicant email was performed in this implementation turn.
+Release in a candidate deployment first. Verify sharing denied → allowed, actual applicant email receipt, account link activation, source preview, selected import, authoritative persisted calendar, retry, and unrelated-account denial. Only then enable the public release. Provider acceptance alone does not prove inbox delivery. An authorized applicant receipt was sent from the protected acceptance deployment and verified in Gmail INBOX; the primary production domain has not been switched.
 
 ## Verification
 
-- 41 service/API/auth regression tests pass, including a complete HTTP route flow against synthetic Google responses and an isolated Redis mock; email recipients are verified independently.
+- 43 service/API/auth regression tests pass, including a complete HTTP route flow against synthetic Google responses and an isolated Redis mock; email recipients are verified independently.
 - Live Redis verification using three unique synthetic keys passed: mixed persistent/expiring atomic write, TTL, all-or-nothing conflict, and exactly one winning concurrent claim. All three test keys were deleted and absence read back; no customer records were read or changed.
 - 9 DOM tests pass, including sharing cross/check, changed-link invalidation, stale-response rejection, activation failures, password recovery, existing calendar conflict handling and import retries.
 - Production webpack build including TypeScript passes. ESLint has zero errors and two unchanged calendar warnings.
@@ -52,7 +52,7 @@ Release in a candidate deployment first. Verify sharing denied → allowed, actu
 - Previous real Sheet and live intake tests on 2026-10-02 demonstrated native Sheet contents and operator notification; they did not validate this new reader, applicant receipt, activation or website import end-to-end.
 - Browser visual verification is pending because the computer-use browser service was unavailable. DOM assertions and builds are not a substitute for that check.
 
-Remaining: dedicated Google reader setup, candidate deployment, actual mail and Google integration test, browser verification, and final production release. Do not report the entire customer journey as shipped until these pass.
+Remaining: customer-controlled activation and import acceptance, browser verification, explicit production-switch authorization, and final production release. Do not report the entire customer journey as shipped until these pass.
 
 ## Reader setup follow-up
 
@@ -63,3 +63,15 @@ An actual `SERVICE_DISABLED` response revealed that a Google API configuration f
 A production-environment candidate was built and passed real Google checks: shared file readable, unavailable file refused, cross-origin calls refused, anonymous operational data denied, self-registration closed and new pages HTTP 200. The primary production domain was not changed: automatic approval review rejected promotion because this rollout still needs explicit owner approval and actual applicant email validation.
 
 For email acceptance testing before promotion, a deployment-only `CUSTOMER_DEPLOYMENT_LINKS=true` override now directs lifecycle links to Vercel's own `VERCEL_URL`. This is validated server-side and never uses request headers or applicant-supplied URLs. The default remains the fixed public domain. A release intended for the public domain must omit this override. The added origin tests cover safe defaults and malformed hosts.
+
+
+## Live acceptance evidence
+
+- Dedicated reader successfully calls both Google Sheets and Drive APIs; the synthetic source is readable and ownership metadata matches the authorized applicant.
+- Protected deployment `dpl_9rM84fZScH5BuRd4qTj9yjgbutNx` is READY at https://sweetfun-9mkskbj30-sweetfuns-projects.vercel.app . Its links target that deployment, and its existing Vercel authentication protection remains enabled.
+- One clearly named synthetic application returned HTTP 201, persisted successfully, reported verified Sheet access, and recorded independent operator/applicant provider acceptance. Retrying the identical request returned the same result without a new send.
+- A targeted Gmail lookup of the authorized applicant’s specific test application found exactly one confirmation email. Metadata confirms INBOX delivery (not SPAM), the correct subject/recipient and the test deployment link. The password has not been set by the agent.
+- Scoped authoritative storage readback confirms the saved source/application and applicant delivery record. Latest observed state is waiting for email verification; there are no imported orders yet.
+- Primary `sweetfun-os.vercel.app` independently remains READY on `dpl_2jLsmZFuqA9hv4uxpzE2CcU4M9uC`. No promote/alias change was executed after the automatic approval rejection.
+- Final cloud build including TypeScript passed (17 seconds build); 43 service/API/auth and 9 DOM tests pass; lint has zero errors and the same two pre-existing warnings.
+- The computer-use browser service still fails initialization. No automated browser walkthrough is claimed; the customer is being asked to perform the password step themselves.
