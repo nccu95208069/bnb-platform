@@ -25,3 +25,16 @@ review builder's activation cutoff.
 Initial web action release `2d188d7` completed Next.js/TypeScript production build
 and was promoted as `dpl_2ycSjZn7KrwJSXk5iK2PttN3Fmf3`. The primary domain was
 checked against this exact deployment. The final copy follow-up is below.
+
+Final web release `af43393` passed scoped syntax/ESLint and its Next.js/TypeScript
+production build; `dpl_8G9bd4xskuprzQuKsgQB8nt8HRph` is Ready and promoted at
+`sweetfun-os.vercel.app` (exact deployment inspected). No tests were run.
+
+At 14:36 Taipei the normal queue scan rebuilt the reported card as version 5,
+including the two historical question sources. The normal web handled action
+committed at 14:37:24, with four source IDs and two selected obligations in the
+authoritative audit. Read-only inspection confirmed both obligations DISMISSED,
+zero runtime pending/attention/incomplete items, and unchanged inbound revision.
+After the 14:37 background sync the manager displayed zero pending tasks. Older
+unreviewed pre-activation input remains intact in the generic conversation flag;
+the scoped manager audit closes only the owner's reviewed current turn.
