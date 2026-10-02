@@ -61,3 +61,21 @@ export async function sendInvitation(to:string,token:string) {
     if(!result.accepted?.length)throw new Error('MAIL_FAILED');
   } finally {smtp.close();}
 }
+
+// Platform intake notifications use the existing operator mail transport only.
+// This does not grant the operator's Google credentials to any customer workspace.
+export async function sendOperatorIntakeNotification(subject: string, text: string) {
+  const to = 'nccu95208069@gmail.com';
+  if (/[\r\n]/.test(subject)) throw new Error('INVALID_INPUT');
+  const value = await storedMail();
+  if (!value?.secret) throw new Error('MAIL_NOT_CONFIGURED');
+  if (value.method === 'gmail_oauth') {
+    return sendGmail(gmailAuthorization(JSON.parse(openMailPassword(value.secret))), to, subject, text);
+  }
+  const smtp = transport(openMailPassword(value.secret));
+  try {
+    const result = await smtp.sendMail({ from: { name: '民宿 OS', address: ADMIN_EMAIL }, to, subject, text });
+    if (!result.accepted?.includes(to) || !result.messageId) throw new Error('MAIL_FAILED');
+    return result.messageId;
+  } finally { smtp.close(); }
+}

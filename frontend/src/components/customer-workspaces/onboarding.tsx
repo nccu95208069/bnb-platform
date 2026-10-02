@@ -81,6 +81,12 @@ export function Onboarding() {
   return (
     <main className="min-h-dvh bg-stone-50 px-5 py-12 text-slate-800">
       <div className="mx-auto max-w-xl">
+        <a
+          href="/join"
+          className="mb-5 inline-block text-sm text-teal-800 underline"
+        >
+          了解服務／專人諮詢
+        </a>
         <p className="text-sm font-semibold tracking-widest text-teal-800">
           旅宿工作區 · 測試版
         </p>
@@ -290,7 +296,7 @@ export function Onboarding() {
                 </p>
                 <p className="text-sm text-slate-600">
                   訂房會保存在工作區。Google Sheet
-                  與照片匯入尚在開發，現在可以直接新增訂房。
+                  可在建立後從日曆選擇一次匯入；需要協助也可先提出諮詢。
                 </p>
                 <div className="flex gap-3">
                   <button

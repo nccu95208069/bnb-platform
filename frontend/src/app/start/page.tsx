@@ -15,7 +15,10 @@ export default async function StartPage({
     return (
       <main className="mx-auto max-w-lg p-10">
         <h1 className="text-2xl font-semibold">旅宿工作區</h1>
-        <p className="mt-4">新客戶入口尚未開放。</p>
+        <p className="mt-4">自助開通目前尚未開放。</p>
+        <a className="mt-5 inline-block text-teal-800 underline" href="/join">
+          了解服務、申請加入或專人諮詢
+        </a>
       </main>
     );
   const search = await searchParams;

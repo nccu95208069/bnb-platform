@@ -101,3 +101,7 @@ Provider implementation references: [Google OAuth web-server flow](https://devel
 - Browser verification used a synthetic Google read response and local synthetic Redis REST substitute with the actual Next.js preview/import/undo APIs. One villa order occupied two rooms for two nights, held one TWD 6,000 total, recorded TWD 1,000 as guest-paid only, survived calendar reload, and was cancelled by guarded undo. Desktop and 390×844 results showed no page overflow or framework error overlay. No real guest or provider data was used.
 - GitHub CI was previously unable to start because the repository account was locked for a billing issue. Local checks are reported separately; do not treat that remote failure as a test failure or remote verification success.
 - Final local verification for this follow-up: 26 service/API/legacy tests and 4 reported DOM tests pass; lint has zero errors and the same two pre-existing warnings; TypeScript and the webpack production build pass. Python backend was unchanged in this follow-up.
+
+## Service-page onboarding decision
+
+The owner requested a public service introduction and questionnaire with named-user Sheet sharing and specialist consultation emailed to the operator. See [host service page](SERVICE_JOIN_2026-10-02.md) for the implemented `/join` flow, how it differs from customer OAuth import, assumptions, verification and rollout status.
