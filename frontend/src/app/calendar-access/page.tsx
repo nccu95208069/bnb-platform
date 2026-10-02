@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 export default function CalendarAccessPage() {
   const uiText = useT();
 
+  const [returnTo, setReturnTo] = useState("/calendar");
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -14,6 +15,7 @@ export default function CalendarAccessPage() {
   useEffect(() => {
     // Fragments never reach the web server. Remove the private entry code from
     // the current address before navigation or a link can copy it elsewhere.
+    if (new URLSearchParams(window.location.search).get("next") === "/bots") setReturnTo("/bots");
     const fragment = window.location.hash.slice(1);
     if (/^[A-Za-z0-9_-]{32}$/.test(fragment)) setCode(fragment);
     window.history.replaceState(null, "", window.location.pathname);
@@ -24,7 +26,7 @@ export default function CalendarAccessPage() {
       const response = await fetch("/api/calendar-session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, code }), cache: "no-store" });
       if (!response.ok) throw new Error((await response.json()).detail || "暫時無法登入，請稍後再試。");
       const result = await response.json();
-      setCode(""); window.location.replace(result.requires_password_reset ? "/reset-password" : "/calendar");
+      setCode(""); window.location.replace(result.requires_password_reset ? "/reset-password" : returnTo);
     } catch (error) { setError(error instanceof Error ? error.message : "暫時無法登入。"); setBusy(false); }
   }
   return <main className="flex min-h-dvh items-center justify-center bg-slate-50 px-5">
