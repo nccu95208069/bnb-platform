@@ -59,3 +59,11 @@ The owner explicitly requested 上線 after approving the service-page copy. Thi
 - Regression checks: 34 service/API/mail/legacy tests and 6 DOM/SSR checks pass. Frontend lint has zero errors/two pre-existing warnings. Backend Ruff lint/format pass, 166 tests pass and 45 environment-dependent tests skip.
 - Runtime log inspection through the connected Vercel tool returned permission-denied 403, so no clean runtime-error scan is claimed. Prior in-app browser security-check unavailability still limits fresh visual verification.
 - Rollback target: `dpl_55vs49AA5BJ5amwKQVduqSUJcv7i`, https://sweetfun-mg3zay3j2-sweetfuns-projects.vercel.app . Repoint the production aliases to that verified prior deployment if needed; intake records remain isolated in the customer namespace. No migration or legacy data replacement occurred.
+
+### Dark appearance follow-up — 2026-10-02
+
+The owner's follow-up requested switchable dark mode for nighttime phone use. Release `8e8c35c` adds system/light/dark appearance on the service, questionnaire, contact and completion surfaces. System is the default; a scoped cookie is read by the server so a saved manual choice is included in initial HTML. Dark photo brightness is 68%. No mail, account gate or operational data behavior changed.
+
+Cloud build/TypeScript passed in 17 seconds. Six DOM/SSR regressions pass; lint has no errors and the same two existing warnings. The deployed landing and contact routes each returned 200 with correct initial markup for all three modes; invalid preference falls back to system. Served CSS includes system-dark media rules, dark surfaces and photo dimming. Main dark text token contrast pairs were calculated at 6.49–12.73. Native browser/real-phone visual verification was not possible because the Mac is locked and browser initialization failed.
+
+Promoted deployment `dpl_2WT62HJWfv3i2oso2NTHGacbjYiX`, https://sweetfun-23znroa8m-sweetfuns-projects.vercel.app , explicitly assigned to https://sweetfun-os.vercel.app . Rollback for this appearance-only update is the prior service release `dpl_35JmiPZPbjHnSQb5dPtJMEx3FDw6`.
