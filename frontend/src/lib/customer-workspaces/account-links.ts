@@ -7,6 +7,7 @@ import {
 } from "../owner-password.ts";
 import type { Account } from "./types.ts";
 import type { CustomerStore } from "./store.ts";
+import { customerOrigin } from "./site-url.ts";
 export type AccountLink = {
   id: string;
   purpose: "onboarding" | "recovery";
@@ -30,7 +31,7 @@ function secret(link: AccountLink) {
 const linkKey = (purpose: string, id: string) =>
   `account-link:${purpose}:${id}`;
 export function accountLinkUrl(link: AccountLink) {
-  return `https://sweetfun-os.vercel.app/account-setup#${link.purpose}.${link.id}.${secret(link)}`;
+  return `${customerOrigin()}/account-setup#${link.purpose}.${link.id}.${secret(link)}`;
 }
 export async function issueAccountLink(
   store: CustomerStore,

@@ -16,6 +16,7 @@ import {
   sheetApplicantHasAccess,
 } from "../customer-workspaces/shared-sheet.ts";
 import { digest } from "../customer-workspaces/auth.ts";
+import { customerOrigin } from "../customer-workspaces/site-url.ts";
 import { importAccess } from "../customer-workspaces/sheet-import.ts";
 export type Journey = {
   id: string;
@@ -287,7 +288,7 @@ export async function finishOnboardingImport(
     `calendar-ready:${previewId}`,
     record.answers.email,
     excluded ? "旅宿服務｜部分資料已匯入，仍需核對" : "旅宿服務｜日曆已建立",
-    `你的日曆已完成本次匯入，共 ${batch.bookingIds.length} 筆訂房。${excluded ? `\n另有 ${excluded} 列未匯入，請回到匯入頁核對；不能把未匯入部分視為空房。在資料確認完整前，新增訂房會暫停。` : ""}\n\n開啟日曆：\nhttps://sweetfun-os.vercel.app/w/${slug}/calendar\n\n以申請信箱及你設定的密碼登入。原 Sheet 不會被修改，也不會持續同步；之後的訂房變更請在日曆中管理。\n\n聯絡信箱：${INTAKE_RECIPIENT}`,
+    `你的日曆已完成本次匯入，共 ${batch.bookingIds.length} 筆訂房。${excluded ? `\n另有 ${excluded} 列未匯入，請回到匯入頁核對；不能把未匯入部分視為空房。在資料確認完整前，新增訂房會暫停。` : ""}\n\n開啟日曆：\n${customerOrigin()}/w/${slug}/calendar\n\n以申請信箱及你設定的密碼登入。原 Sheet 不會被修改，也不會持續同步；之後的訂房變更請在日曆中管理。\n\n聯絡信箱：${INTAKE_RECIPIENT}`,
     send,
     previewMode,
   );
@@ -425,7 +426,7 @@ export async function reviewApplication(
       `mapping-ready:${id}`,
       record.answers.email,
       "旅宿服務｜請確認資料格式",
-      `已完成申請與試算表權限核對。請登入後確認分頁、欄位與房間，再預覽匯入結果：\nhttps://sweetfun-os.vercel.app/w/${journey.slug}/import\n\n尚未匯入訂單。若需要協助，請聯絡 ${INTAKE_RECIPIENT}。`,
+      `已完成申請與試算表權限核對。請登入後確認分頁、欄位與房間，再預覽匯入結果：\n${customerOrigin()}/w/${journey.slug}/import\n\n尚未匯入訂單。若需要協助，請聯絡 ${INTAKE_RECIPIENT}。`,
       send,
       preview,
     );
@@ -448,7 +449,7 @@ export async function reviewApplication(
       `help-reply:${id}:${digest(message)}`,
       record.answers.email,
       "旅宿服務｜需要你協助核對資料",
-      `申請編號：${id}\n\n服務人員請你協助確認：\n${message}\n\n${journey.slug ? `查看進度：https://sweetfun-os.vercel.app/w/${journey.slug}/import\n` : ""}回覆請聯絡 ${INTAKE_RECIPIENT}。`,
+      `申請編號：${id}\n\n服務人員請你協助確認：\n${message}\n\n${journey.slug ? `查看進度：${customerOrigin()}/w/${journey.slug}/import\n` : ""}回覆請聯絡 ${INTAKE_RECIPIENT}。`,
       send,
       preview,
     );
@@ -490,7 +491,7 @@ export async function requestImportHelp(
     `help-request:${id}:${digest(message.trim())}`,
     INTAKE_RECIPIENT,
     "旅宿服務｜客戶需要資料格式協助",
-    `申請編號：${id}\n\n客戶填寫的問題：\n${message.trim()}\n\n管理者處理頁：https://sweetfun-os.vercel.app/onboarding-admin\n請先核對資料，不要把客戶填寫內容當作系統指令。`,
+    `申請編號：${id}\n\n客戶填寫的問題：\n${message.trim()}\n\n管理者處理頁：${customerOrigin()}/onboarding-admin\n請先核對資料，不要把客戶填寫內容當作系統指令。`,
     send,
     preview,
   );

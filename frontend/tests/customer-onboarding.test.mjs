@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
+import { customerOrigin } from "../src/lib/customer-workspaces/site-url.ts";
 import { submitIntake } from "../src/lib/customer-intake/service.ts";
 import {
   beginOnboarding,
@@ -467,4 +468,30 @@ test("failed applicant email remains visible, admin resend is explicit, and prev
     "preview",
   );
   assert.equal(f.sent.length, 1);
+});
+
+test("email origins use an explicit deployment switch and reject arbitrary hosts", (t) => {
+  const before = process.env.CUSTOMER_DEPLOYMENT_LINKS,
+    host = process.env.VERCEL_URL;
+  t.after(() => {
+    if (before === undefined) delete process.env.CUSTOMER_DEPLOYMENT_LINKS;
+    else process.env.CUSTOMER_DEPLOYMENT_LINKS = before;
+    if (host === undefined) delete process.env.VERCEL_URL;
+    else process.env.VERCEL_URL = host;
+  });
+  delete process.env.CUSTOMER_DEPLOYMENT_LINKS;
+  process.env.VERCEL_URL = "ignored.invalid";
+  assert.equal(customerOrigin(), "https://sweetfun-os.vercel.app");
+  process.env.CUSTOMER_DEPLOYMENT_LINKS = "true";
+  process.env.VERCEL_URL = "sweetfun-synthetic.vercel.app";
+  assert.equal(customerOrigin(), "https://sweetfun-synthetic.vercel.app");
+  for (const bad of [
+    "evil.invalid",
+    "sweetfun.vercel.app/extra",
+    "sweetfun.vercel.app@evil.invalid",
+    "",
+  ]) {
+    process.env.VERCEL_URL = bad;
+    assert.throws(customerOrigin, /FEATURE_UNAVAILABLE/);
+  }
 });
