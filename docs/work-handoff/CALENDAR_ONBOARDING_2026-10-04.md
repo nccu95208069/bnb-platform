@@ -67,4 +67,10 @@ Implemented choices differ from some original design suggestions: the intake cho
 
 This is a web onboarding and import implementation. Direct iCloud/CalDAV access, Apple EventKit, Android Calendar Provider and reading phone-local data require native/provider adapters and are not implemented. iOS/Android backed by Google use the Google connector; other supported exports use the same verified ICS backend. The two previously created live native Google workbook examples were not changed by these tests.
 
-Deployment and final commit evidence is recorded below after the protected candidate is ready. No primary-domain promotion is authorized by this implementation request.
+## Protected candidate acceptance
+
+Implementation commit `ef15fdff270a16418aa6b720ea2d638db2297afc` is READY at [the protected calendar candidate](https://sweetfun-6t3xujw3n-sweetfuns-projects.vercel.app), deployment `dpl_6bnE5cRoe4WxGAb2gv6Tm4z3qGg6`. The cloud Turbopack build and TypeScript pass; build output completed in 29 seconds. Candidate-only lifecycle links and the existing blank-template guard are preserved; `CUSTOMER_CALENDAR_SYNC_ENABLED=false` is explicit.
+
+Read-only deployment checks pass: four entry pages return 200; seven anonymous customer/cron requests return 401, including calendar status and standard-workbook download. Direct deployment access still redirects to Vercel authentication. The primary domain was queried before and after and remains `dpl_4RtToxbsPMUWt1bw25Mn2cvUvg82`. No account login, applicant mail, production-store test write or primary promotion was performed.
+
+[GitHub CI run 37142632229](https://github.com/nccu95208069/bnb-platform/actions/runs/37142632229) did not start any of its three jobs because the repository account is locked for billing. Local checks and cloud build are verified independently; remote CI is not reported as passing. PR #26 remains a draft stacked on `codex/sweetfun-bots`.
