@@ -1,4 +1,5 @@
 "use client";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
@@ -50,6 +51,31 @@ export function ServiceJoin({
   initialTheme?: ServiceTheme;
   workflowEnabled?: boolean;
 }) {
+  const router = useRouter();
+  const [calendarStarting, setCalendarStarting] = useState(false);
+  async function startCalendar() {
+    if (calendarStarting) return;
+    setCalendarStarting(true);
+    setError("");
+    try {
+      const result = await api<{ url: string }>(
+        "/api/customer-calendar-onboarding",
+        "POST",
+        {
+          action: "start",
+          name,
+          kind,
+          rooms: rooms.length ? rooms : ["整棟"],
+          calendarKind: source,
+        },
+      );
+      router.push(result.url);
+    } catch (error) {
+      setError((error as Error).message);
+    } finally {
+      setCalendarStarting(false);
+    }
+  }
   const [theme, setTheme] = useState(initialTheme);
   const [started, setStarted] = useState(false),
     [step, setStep] = useState(1),
@@ -644,8 +670,9 @@ export function ServiceJoin({
                           從 {CALENDAR_LABELS[source]} 導入
                         </h3>
                         <p className="text-sm leading-7 service-text-muted">
-                          先確認信箱並設定密碼，再連結 Google 日曆或上傳
-                          ICS／ZIP 日曆檔。
+                          Google 日曆可使用 Google 登入並授權，不需另設密碼。
+                          ICS／ZIP
+                          日曆檔可先上傳預覽，決定保存時再用登入連結確認信箱。
                           {source !== "google_calendar" &&
                             " 手機日曆若使用 Google 帳號，可直接連結；iCloud 或其他來源可使用匯出檔。網頁無法直接讀取只存在手機的日曆。"}
                           不需先整理成試算表；資料會先預覽，確認後才匯入。
@@ -653,9 +680,12 @@ export function ServiceJoin({
                         <div className="flex flex-wrap gap-3">
                           <button
                             className={button}
-                            onClick={() => openContact("join")}
+                            disabled={calendarStarting || !workflowEnabled}
+                            onClick={() => void startCalendar()}
                           >
-                            下一步：聯絡資料
+                            {calendarStarting
+                              ? "正在準備預覽…"
+                              : "下一步：連結或選檔預覽"}
                           </button>
                           {consultButton()}
                         </div>

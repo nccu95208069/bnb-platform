@@ -1,14 +1,14 @@
 import {
+  customerCredentialBinding,
+  customerPasswordMatches,
+} from "./identity.ts";
+import {
   createHash,
   createHmac,
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
-import {
-  credentialBinding,
-  credentialMatches,
-  createPasswordCredential,
-} from "../owner-password.ts";
+import { createPasswordCredential } from "../owner-password.ts";
 import { normalizedEmail, validEmail } from "../workspace-auth/types.ts";
 import type { Account } from "./types.ts";
 import type { CustomerStore } from "./store.ts";
@@ -27,7 +27,7 @@ function signature(payload: string, account: Account) {
   if (!enabled()) throw new Error("FEATURE_UNAVAILABLE");
   return createHmac(
     "sha256",
-    `${process.env.CUSTOMER_SESSION_SECRET}:customer:${credentialBinding(account.credential)}`,
+    `${process.env.CUSTOMER_SESSION_SECRET}:customer:${customerCredentialBinding(account.credential)}`,
   )
     .update(payload)
     .digest("base64url");
@@ -101,7 +101,7 @@ export async function login(
   }
   if (
     !previous.value ||
-    !(await credentialMatches(input.password, previous.value.credential))
+    !(await customerPasswordMatches(input.password, previous.value.credential))
   )
     throw new Error("UNAUTHORIZED");
   return previous.value;

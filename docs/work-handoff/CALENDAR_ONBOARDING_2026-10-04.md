@@ -1,5 +1,7 @@
 # Calendar onboarding — implementation and review, 2026-10-04
 
+**Latest onboarding flow:** [preview before signup and passwordless login](CALENDAR_PREVIEW_FIRST_2026-10-04.md) supersedes the activation-first entry below. Parser/import/sync behavior remains applicable.
+
 The owner's follow-up requested implementation of Google Calendar, iOS and Android onboarding and backend, followed by review and repair of critical issues. This note supersedes the original planning-only status. Code lives in draft PR #26 on `codex/customer-onboarding`; public activation remains separate.
 
 ## Implemented behavior

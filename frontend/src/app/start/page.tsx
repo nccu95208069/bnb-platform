@@ -1,4 +1,5 @@
 import { enabled } from "@/lib/customer-workspaces/auth";
+import { calendarGoogleReady } from "@/lib/customer-workspaces/calendar-google";
 import { Onboarding } from "@/components/customer-workspaces/onboarding";
 export const dynamic = "force-dynamic";
 export const metadata = {
@@ -30,10 +31,11 @@ export default async function StartPage({
           className="mx-auto mt-4 max-w-lg rounded-xl bg-amber-50 p-4"
         >
           Google
-          授權未完成或已過期。請回到旅宿的匯入頁重新連線，並使用同一個瀏覽器完成授權。
+          登入或授權未完成。請使用同一個瀏覽器重試，或改用信箱登入連結；新加入的旅宿可先從加入頁預覽日曆。
         </p>
       )}
       <Onboarding
+        googleConfigured={calendarGoogleReady()}
         allowRegistration={process.env.CUSTOMER_SELF_SIGNUP_PREVIEW === "true"}
       />
     </>

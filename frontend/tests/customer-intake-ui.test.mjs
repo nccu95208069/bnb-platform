@@ -32,6 +32,7 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
   });
   const props = {
     enabled: true,
+    workflowEnabled: true,
     shareEmail: "linlab.ai2024@gmail.com",
     contactEmail: "linlab.ai2024@gmail.com",
   };
@@ -144,7 +145,7 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
     "Android 日曆",
   ]) {
     await click(button(label));
-    assert.equal(button("下一步：聯絡資料").disabled, false);
+    assert.equal(button("下一步：連結或選檔預覽").disabled, false);
     assert.equal(control("Google Sheet 連結"), undefined);
     assert.match(document.body.textContent, /ICS／ZIP/);
   }
@@ -156,7 +157,10 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
   );
   assert.match(document.body.textContent, /檢視者/);
   assert.match(document.body.textContent, /受限制/);
-  await click(document.querySelector("input[type=checkbox]"));
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({ readable: true }),
+  );
+  await click(button("檢查分享權限"));
   assert.equal(button("下一步：聯絡資料").disabled, false);
   await click(button("不是／我不確定"));
   assert.equal(button("下一步：聯絡資料"), undefined);

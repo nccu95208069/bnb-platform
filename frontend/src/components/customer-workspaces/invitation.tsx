@@ -8,6 +8,8 @@ type Info = {
   properties: string[];
   existingAccount: boolean;
   accepted: boolean;
+  passwordless: boolean;
+  signedIn: boolean;
 };
 export function InvitationSetup() {
   const initialized = useRef(false),
@@ -72,25 +74,31 @@ export function InvitationSetup() {
             <p>角色：{info.role}</p>
             <p>可使用：{info.properties.join("、")}</p>
             <p className="text-sm text-slate-600">
-              {info.existingAccount
-                ? "使用原帳號密碼確認加入，原本的旅宿與密碼會保留。"
-                : "請設定 12～128 字元密碼。之後用本信箱登入即可查看有權限的旅宿。"}
+              {info.signedIn
+                ? "已登入受邀帳號，可直接確認加入。"
+                : info.passwordless
+                  ? "這個帳號使用免密碼登入。請先在另一個分頁登入，再回這裡重新確認。"
+                  : info.existingAccount
+                    ? "使用原帳號密碼確認加入，原本的旅宿與密碼會保留。"
+                    : "請設定 12～128 字元密碼。之後用本信箱登入即可查看有權限的旅宿。"}
             </p>
-            <label className="block">
-              {info.existingAccount ? "目前密碼" : "新密碼"}
-              <input
-                className={field}
-                name="password"
-                type="password"
-                autoComplete={
-                  info.existingAccount ? "current-password" : "new-password"
-                }
-                minLength={info.existingAccount ? undefined : 12}
-                maxLength={128}
-                required
-                disabled={busy}
-              />
-            </label>
+            {!info.signedIn && !info.passwordless && (
+              <label className="block">
+                {info.existingAccount ? "目前密碼" : "新密碼"}
+                <input
+                  className={field}
+                  name="password"
+                  type="password"
+                  autoComplete={
+                    info.existingAccount ? "current-password" : "new-password"
+                  }
+                  minLength={info.existingAccount ? undefined : 12}
+                  maxLength={128}
+                  required
+                  disabled={busy}
+                />
+              </label>
+            )}
             {!info.existingAccount && (
               <label className="block">
                 再次輸入密碼
@@ -106,7 +114,45 @@ export function InvitationSetup() {
                 />
               </label>
             )}
-            <button className={button} disabled={busy}>
+            {info.passwordless && !info.signedIn && (
+              <div className="space-y-3">
+                <a
+                  className="block underline"
+                  href="/start"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  開啟免密碼登入
+                </a>
+                <button
+                  type="button"
+                  className={button}
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    setError("");
+                    try {
+                      setInfo(
+                        await api<Info>("/api/customer-invitation", "POST", {
+                          action: "info",
+                          token,
+                        }),
+                      );
+                    } catch (e) {
+                      setError((e as Error).message);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  已登入，重新確認
+                </button>
+              </div>
+            )}
+            <button
+              className={button}
+              disabled={busy || (info.passwordless && !info.signedIn)}
+            >
               {busy ? "確認中…" : "確認加入，開啟日曆"}
             </button>
           </form>

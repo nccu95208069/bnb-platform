@@ -1,14 +1,17 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api, button, field, secondary } from "./client";
+import { PasswordlessLogin } from "./passwordless-login";
 type Profile = {
   email: string;
   workspaces: { id: string; slug: string; name: string }[];
 };
 export function Onboarding({
   allowRegistration = false,
+  googleConfigured = false,
 }: {
   allowRegistration?: boolean;
+  googleConfigured?: boolean;
 }) {
   const [profile, setProfile] = useState<Profile | null>(null),
     [loading, setLoading] = useState(true);
@@ -111,96 +114,106 @@ export function Onboarding({
         </p>
         <h1 className="my-4 text-3xl font-semibold">從自己的房況日曆開始</h1>
         <p className="mb-8 text-slate-600">
-          已完成申請與信箱確認的客戶，可在這裡登入。
+          使用 Google 或信箱登入連結回到自己的旅宿；既有密碼登入仍可使用。
         </p>
         {loading ? (
           <p>讀取中…</p>
         ) : !profile ? (
-          <form
-            onSubmit={signIn}
-            className="space-y-5 rounded-2xl border bg-white p-6"
-          >
-            <div className="flex gap-2">
-              {[
-                ["login", "登入"],
-                ...(allowRegistration ? [["register", "建立帳號"]] : []),
-                ["recover", "忘記密碼"],
-              ].map(([value, label]) => (
-                <button
-                  key={value}
-                  type="button"
-                  className={mode === value ? button : secondary}
-                  onClick={() => {
-                    setMode(value);
-                    setNotice("");
-                    setError("");
-                  }}
-                >
-                  {label}
+          <>
+            <PasswordlessLogin googleConfigured={googleConfigured} />
+            <details className="mt-5">
+              <summary className="cursor-pointer py-3 text-sm text-teal-800">
+                使用既有密碼登入／重設密碼
+              </summary>
+              <form
+                onSubmit={signIn}
+                className="space-y-5 rounded-2xl border bg-white p-6"
+              >
+                <div className="flex gap-2">
+                  {[
+                    ["login", "登入"],
+                    ...(allowRegistration ? [["register", "建立帳號"]] : []),
+                    ["recover", "忘記密碼"],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={mode === value ? button : secondary}
+                      onClick={() => {
+                        setMode(value);
+                        setNotice("");
+                        setError("");
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <label className="block">
+                  Email
+                  <input
+                    className={field}
+                    name="email"
+                    type="email"
+                    autoComplete="username"
+                    required
+                  />
+                </label>
+                {notice && (
+                  <p role="status" className="rounded-xl bg-teal-50 p-4">
+                    {notice}
+                  </p>
+                )}
+                {mode !== "recover" && (
+                  <label className="block">
+                    密碼
+                    <input
+                      className={field}
+                      name="password"
+                      type="password"
+                      autoComplete={
+                        mode === "register"
+                          ? "new-password"
+                          : "current-password"
+                      }
+                      minLength={12}
+                      maxLength={128}
+                      required
+                    />
+                  </label>
+                )}
+                {mode === "register" && (
+                  <label className="block">
+                    再次輸入密碼
+                    <input
+                      className={field}
+                      name="confirmPassword"
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={12}
+                      required
+                    />
+                  </label>
+                )}
+                <p className="text-sm text-slate-500">
+                  新客戶請先
+                  <a className="underline" href="/join">
+                    填寫加入申請
+                  </a>
+                  ；日曆可先預覽，保存時再確認登入。
+                </p>
+                <button className={button} disabled={busy}>
+                  {busy
+                    ? "處理中…"
+                    : mode === "register"
+                      ? "建立帳號並繼續"
+                      : mode === "recover"
+                        ? "寄送重設密碼連結"
+                        : "登入並繼續"}
                 </button>
-              ))}
-            </div>
-            <label className="block">
-              Email
-              <input
-                className={field}
-                name="email"
-                type="email"
-                autoComplete="username"
-                required
-              />
-            </label>
-            {notice && (
-              <p role="status" className="rounded-xl bg-teal-50 p-4">
-                {notice}
-              </p>
-            )}
-            {mode !== "recover" && (
-              <label className="block">
-                密碼
-                <input
-                  className={field}
-                  name="password"
-                  type="password"
-                  autoComplete={
-                    mode === "register" ? "new-password" : "current-password"
-                  }
-                  minLength={12}
-                  maxLength={128}
-                  required
-                />
-              </label>
-            )}
-            {mode === "register" && (
-              <label className="block">
-                再次輸入密碼
-                <input
-                  className={field}
-                  name="confirmPassword"
-                  type="password"
-                  autoComplete="new-password"
-                  minLength={12}
-                  required
-                />
-              </label>
-            )}
-            <p className="text-sm text-slate-500">
-              新客戶請先
-              <a className="underline" href="/join">
-                填寫加入申請
-              </a>
-              ，再使用確認信中的連結設定帳號。
-            </p>
-            <button className={button} disabled={busy}>
-              {busy
-                ? "處理中…"
-                : mode === "register"
-                  ? "建立帳號並繼續"
-                  : mode === "recover"
-                    ? "寄送重設密碼連結"
-                    : "登入並繼續"}
-            </button>
-          </form>
+              </form>
+            </details>
+          </>
         ) : (
           <section className="space-y-6 rounded-2xl border bg-white p-6">
             {profile.workspaces.length > 0 && (

@@ -634,3 +634,85 @@ export async function disconnectCalendarGoogle(
     throw new Error("WRITE_UNCONFIRMED");
   return { disconnected: true };
 }
+
+// Internal onboarding helpers. Credentials are staged inside the temporary
+// preview namespace, then re-encrypted into the verified owner's final context.
+export { SCOPES as CALENDAR_READ_SCOPES, exchange as exchangeCalendarCode };
+export async function saveCalendarGrant(
+  store: CustomerStore,
+  actor: string,
+  workspaceId: string,
+  propertyId: string,
+  token: Token,
+) {
+  const { id, change } = await calendarGrantChange(
+    store,
+    actor,
+    workspaceId,
+    propertyId,
+    token,
+  );
+  await store.commit([change]);
+  return id;
+}
+export async function calendarGrantChange(
+  store: CustomerStore,
+  actor: string,
+  workspaceId: string,
+  propertyId: string,
+  token: Token,
+) {
+  const id = connectionId(workspaceId, propertyId, actor),
+    key = `calendar-connection:${id}`;
+  const old = await store.read<Connection>(key);
+  return {
+    id,
+    change: {
+      key,
+      before: old.raw,
+      after: {
+        workspaceId,
+        propertyId,
+        actor,
+        sealed: seal(token, key),
+      } satisfies Connection,
+    },
+  };
+}
+export async function copyCalendarGrant(
+  fromStore: CustomerStore,
+  fromActor: string,
+  fromWorkspace: string,
+  fromProperty: string,
+  toStore: CustomerStore,
+  toActor: string,
+  toWorkspace: string,
+  toProperty: string,
+) {
+  const previousKey = `calendar-connection:${connectionId(fromWorkspace, fromProperty, fromActor)}`;
+  const prior = (await fromStore.read<Connection>(previousKey)).value;
+  if (
+    !prior ||
+    prior.actor !== fromActor ||
+    prior.workspaceId !== fromWorkspace ||
+    prior.propertyId !== fromProperty
+  )
+    throw new Error("CALENDAR_CONNECT_REQUIRED");
+  const token = unseal(prior.sealed, previousKey),
+    id = connectionId(toWorkspace, toProperty, toActor),
+    key = `calendar-connection:${id}`;
+  const existing = await toStore.read<Connection>(key);
+  return {
+    id,
+    change: {
+      key,
+      before: existing.raw,
+      after: {
+        workspaceId: toWorkspace,
+        propertyId: toProperty,
+        actor: toActor,
+        sealed: seal(token, key),
+      } satisfies Connection,
+    },
+  };
+}

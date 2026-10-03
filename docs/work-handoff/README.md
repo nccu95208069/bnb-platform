@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-04 latest calendar flow: [preview before signup, Google identity and email-link login, repeated review and verification](CALENDAR_PREVIEW_FIRST_2026-10-04.md). Calendar import no longer requires setting a password or completing the contact form first.
+
 2026-10-04 calendar implementation: [three onboarding options, backend, self-review and activation boundaries](CALENDAR_ONBOARDING_2026-10-04.md). Includes ICS/ZIP import for Google/iOS/Android, Google read-only OAuth, durable polling, freshness guards, source conflicts, unknown financials and standard-workbook v2 extensions. Google credentials and actual mobile/OAuth acceptance remain pending. The [original plan](GOOGLE_CALENDAR_FAST_ONBOARD_2026-10-03.md) is retained as design history; [Next Work](NEXT_WORK.md#calendar-onboarding-implementation-and-acceptance) distinguishes implemented code from live acceptance.
 
 2026-10-03 latest Sheet decision: [standard workbook and conversion rules](STANDARD_SHEET_2026-10-03.md). Source creator/user identity matching is removed. Grouped stays, nightly rows and explicit calendar-grid groups now produce one order ledger, with separate room-night details and source-paid summaries. A native blank template and synthetic example have been created and verified through the production Google gateway; public rollout remains separate.

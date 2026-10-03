@@ -1,9 +1,10 @@
+import {
+  customerCredentialBinding,
+  customerPasswordMatches,
+} from "./identity.ts";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { accountKey, digest } from "./auth.ts";
-import {
-  createPasswordCredential,
-  credentialMatches,
-} from "../owner-password.ts";
+import { createPasswordCredential } from "../owner-password.ts";
 import { normalizedEmail, validEmail } from "../workspace-auth/types.ts";
 import { loadWorkspace } from "./service.ts";
 import { mutationContext, saveMutation, withReceipt } from "./mutations.ts";
@@ -179,8 +180,14 @@ async function checkInvitation(store: CustomerStore, token: unknown) {
     throw new Error("INVITATION_INVALID");
   return { workspace, raw: snapshot.raw, invitation };
 }
-export async function invitationInfo(store: CustomerStore, token: unknown) {
+export async function invitationInfo(
+  store: CustomerStore,
+  token: unknown,
+  signedIn?: Account,
+) {
   const { workspace, invitation } = await checkInvitation(store, token);
+  const account = (await store.read<Account>(accountKey(invitation.email)))
+    .value;
   return {
     email: invitation.email,
     workspace: workspace.name,
@@ -190,8 +197,14 @@ export async function invitationInfo(store: CustomerStore, token: unknown) {
       : workspace.properties
           .filter((p) => invitation.propertyIds.includes(p.id))
           .map((p) => p.name),
-    existingAccount: Boolean(
-      (await store.read<Account>(accountKey(invitation.email))).value,
+    existingAccount: Boolean(account),
+    passwordless: account?.credential.kind === "passwordless",
+    signedIn: Boolean(
+      account &&
+      signedIn?.emailVerifiedAt &&
+      account.id === signedIn.id &&
+      customerCredentialBinding(account.credential) ===
+        customerCredentialBinding(signedIn.credential),
     ),
     accepted: Boolean(invitation.acceptedAt),
   };
@@ -201,17 +214,28 @@ export async function acceptInvitation(
   token: unknown,
   password: unknown,
   confirmation: unknown,
+  signedIn?: Account,
 ) {
   const { workspace, raw, invitation } = await checkInvitation(store, token);
   await store.limit(`invitation-accept:${digest(invitation.email)}`, 15);
   const key = accountKey(invitation.email),
     current = await store.read<Account>(key);
-  if (typeof password !== "string") throw new Error("PASSWORD_INVALID");
-  if (
+  const authenticated = Boolean(
     current.value &&
-    !(await credentialMatches(password, current.value.credential))
-  )
-    throw new Error("UNAUTHORIZED");
+    signedIn?.emailVerifiedAt &&
+    signedIn.email === invitation.email &&
+    current.value.id === signedIn.id &&
+    customerCredentialBinding(current.value.credential) ===
+      customerCredentialBinding(signedIn.credential),
+  );
+  if (!authenticated) {
+    if (typeof password !== "string") throw new Error("PASSWORD_INVALID");
+    if (
+      current.value &&
+      !(await customerPasswordMatches(password, current.value.credential))
+    )
+      throw new Error("UNAUTHORIZED");
+  }
   if (!current.value && password !== confirmation)
     throw new Error("PASSWORD_INVALID");
   if (invitation.acceptedAt) {
@@ -240,7 +264,7 @@ export async function acceptInvitation(
   const account: Account = current.value ?? {
     id: randomUUID(),
     email: invitation.email,
-    credential: await createPasswordCredential(password),
+    credential: await createPasswordCredential(password as string),
     emailVerifiedAt: at,
     workspaces: [],
   };

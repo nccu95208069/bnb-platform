@@ -1,10 +1,10 @@
+import {
+  customerCredentialBinding,
+  customerPasswordMatches,
+} from "./identity.ts";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { accountKey, digest } from "./auth.ts";
-import {
-  createPasswordCredential,
-  credentialBinding,
-  credentialMatches,
-} from "../owner-password.ts";
+import { createPasswordCredential } from "../owner-password.ts";
 import type { Account } from "./types.ts";
 import type { CustomerStore } from "./store.ts";
 import { customerOrigin } from "./site-url.ts";
@@ -51,7 +51,7 @@ export async function issueAccountLink(
     generation: randomUUID(),
     expiresAt: Date.now() + 86400000,
     accountId: account?.id ?? null,
-    binding: account ? credentialBinding(account.credential) : null,
+    binding: account ? customerCredentialBinding(account.credential) : null,
   };
   await store.commit([
     { key, before: current.raw, after: link, ttlSeconds: 2 * 86400 },
@@ -104,16 +104,18 @@ export async function consumeAccountLink(
     // The email link alone cannot be reused as a session credential.
     if (
       current.value?.id !== link.usedAccountId ||
-      credentialBinding(current.value.credential) !== link.usedBinding ||
-      !(await credentialMatches(password, current.value.credential))
+      customerCredentialBinding(current.value.credential) !==
+        link.usedBinding ||
+      !(await customerPasswordMatches(password, current.value.credential))
     )
       throw new Error("LINK_INVALID");
     return { account: current.value, link };
   }
   if (
     (current.value?.id ?? null) !== link.accountId ||
-    (current.value ? credentialBinding(current.value.credential) : null) !==
-      link.binding
+    (current.value
+      ? customerCredentialBinding(current.value.credential)
+      : null) !== link.binding
   )
     throw new Error("LINK_INVALID");
   if (link.purpose === "recovery" && !current.value)
@@ -130,7 +132,7 @@ export async function consumeAccountLink(
   const consumed = {
     ...link,
     usedAccountId: account.id,
-    usedBinding: credentialBinding(account.credential),
+    usedBinding: customerCredentialBinding(account.credential),
   };
   await store.commit([
     { key: accountKey(link.email), before: current.raw, after: account },
@@ -140,7 +142,7 @@ export async function consumeAccountLink(
   if (
     !verified ||
     verified.id !== account.id ||
-    credentialBinding(verified.credential) !== consumed.usedBinding
+    customerCredentialBinding(verified.credential) !== consumed.usedBinding
   )
     throw new Error("WRITE_UNCONFIRMED");
   return { account: verified, link: consumed };

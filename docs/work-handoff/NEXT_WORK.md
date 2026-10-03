@@ -2,6 +2,8 @@
 
 ## Calendar onboarding implementation and acceptance
 
+Latest owner decision: [preview first and passwordless saving](CALENDAR_PREVIEW_FIRST_2026-10-04.md) is implemented. Google login/consent precedes preview; ICS/ZIP previews anonymously and asks for an email link only when saving. The former calendar contact/activation/password prerequisite is superseded.
+
 Owner request: implement Google Calendar, iOS and Android onboarding and backend, then review and repair critical issues. See [actual implementation and review](CALENDAR_ONBOARDING_2026-10-04.md); the [original plan](GOOGLE_CALENDAR_FAST_ONBOARD_2026-10-03.md) records the earlier design.
 
 - [x] **CAL-G0** — Source-aware intake/activation; calendar customers need no Sheet URL; isolated scopes, source references, blocks and bounded coverage.

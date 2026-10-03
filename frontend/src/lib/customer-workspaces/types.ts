@@ -1,4 +1,4 @@
-import type { OwnerCredential } from "../owner-password.ts";
+import type { CustomerCredential } from "./identity.ts";
 import type {
   CalendarKind,
   CalendarReference,
@@ -9,7 +9,8 @@ import type {
 export type Account = {
   id: string;
   email: string;
-  credential: OwnerCredential;
+  credential: CustomerCredential;
+  googleSubject?: string;
   emailVerifiedAt?: string;
   workspaces: {
     id: string;

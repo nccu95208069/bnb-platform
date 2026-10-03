@@ -1,5 +1,8 @@
 "use client";
 import { useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { PasswordlessLogin } from "./passwordless-login";
+import type { PreparedCalendar } from "@/lib/customer-workspaces/calendar-onboarding";
 import type { Property } from "@/lib/customer-workspaces/types";
 import {
   CALENDAR_KINDS,
@@ -45,6 +48,7 @@ export function CalendarImport({
   configured,
   syncReady,
   connected,
+  onboarding,
 }: {
   slug: string;
   property: Property;
@@ -53,34 +57,74 @@ export function CalendarImport({
   configured: boolean;
   syncReady: boolean;
   connected: boolean;
+  onboarding?: {
+    source: CalendarSnapshot | null;
+    preview: CalendarPreview | null;
+    prepared: PreparedCalendar | null;
+    account: { id: string; email: string } | null;
+    googleEmail: string | null;
+    expiresAt: number;
+    googleFailed: boolean;
+  };
 }) {
-  const endpoint = `/api/customer-workspaces/${slug}/calendar-import`;
+  const router = useRouter();
+  const endpoint = onboarding
+    ? "/api/customer-calendar-onboarding"
+    : `/api/customer-workspaces/${slug}/calendar-import`;
+  const [awaitingLogin, setAwaitingLogin] = useState(
+    Boolean(onboarding?.prepared),
+  );
+  const [account, setAccount] = useState(onboarding?.account ?? null);
   const [kind, setKind] = useState(initialKind),
     [status, setStatus] = useState(initialStatus),
     [bindingId, setBindingId] = useState(""),
-    [from, setFrom] = useState(today()),
-    [to, setTo] = useState(plusDays(today(), 365)),
-    [timezone, setTimezone] = useState("Asia/Taipei"),
+    [from, setFrom] = useState(onboarding?.source?.from ?? today()),
+    [to, setTo] = useState(onboarding?.source?.to ?? plusDays(today(), 365)),
+    [timezone, setTimezone] = useState(
+      onboarding?.source?.timezone ?? "Asia/Taipei",
+    ),
     [file, setFile] = useState<File | null>(null),
     [calendars, setCalendars] = useState<{ id: string; name: string }[]>([]),
     [googleIds, setGoogleIds] = useState<string[]>([]),
-    [source, setSource] = useState<CalendarSnapshot | null>(null),
-    [mapping, setMapping] = useState<CalendarMapping>({
-      calendarIds: [],
-      rooms: {},
-      dateMode: "stay",
-      titleRooms: false,
-      extractLabels: true,
-      overrides: {},
-    }),
-    [preview, setPreview] = useState<CalendarPreview | null>(null),
-    [selected, setSelected] = useState<string[]>([]),
-    [confirmed, setConfirmed] = useState(false),
-    [coverage, setCoverage] = useState(false),
+    [source, setSource] = useState<CalendarSnapshot | null>(
+      onboarding?.source ?? null,
+    ),
+    [mapping, setMapping] = useState<CalendarMapping>(
+      onboarding?.preview?.mapping ?? {
+        calendarIds: onboarding?.source?.calendars.map((c) => c.id) ?? [],
+        rooms: {},
+        dateMode: "stay",
+        titleRooms: false,
+        extractLabels: true,
+        overrides: {},
+      },
+    ),
+    [preview, setPreview] = useState<CalendarPreview | null>(
+      onboarding?.preview ?? null,
+    ),
+    [selected, setSelected] = useState<string[]>(
+      onboarding?.prepared?.selected ??
+        onboarding?.preview?.rows
+          .filter((r) => r.disposition === "ready" && !r.issues.length)
+          .map((r) => r.id) ??
+        [],
+    ),
+    [confirmed, setConfirmed] = useState(
+      onboarding?.prepared?.confirmed ?? false,
+    ),
+    [coverage, setCoverage] = useState(
+      onboarding?.prepared?.confirmedCoverage ?? false,
+    ),
     [acceptChanges, setAcceptChanges] = useState(false),
-    [mode, setMode] = useState<"migration" | "connected">("migration"),
+    [mode, setMode] = useState<"migration" | "connected">(
+      onboarding?.prepared?.mode ?? "migration",
+    ),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState(""),
+    [error, setError] = useState(
+      onboarding?.googleFailed
+        ? "Google 登入或授權未完成。你可以重試，或先使用日曆檔預覽。"
+        : "",
+    ),
     [notice, setNotice] = useState(
       connected ? "Google 授權已完成，請讀取並選擇日曆。" : "",
     );
@@ -174,8 +218,16 @@ export function CalendarImport({
   }
   async function save() {
     if (!preview && !commit.uncertain) return;
-    const result = await commit.execute<CalendarBatch>({
+    const result = await commit.execute<
+      | CalendarBatch
+      | {
+          loginRequired?: boolean;
+          account?: { id: string; email: string } | null;
+          completed?: { url: string };
+        }
+    >({
       action: "commit",
+      ...(onboarding ? { accountId: account?.id } : {}),
       propertyId: property.id,
       previewId: preview?.id,
       selected,
@@ -185,10 +237,30 @@ export function CalendarImport({
       mode,
     });
     if (!result) return;
+    if (onboarding) {
+      const saved = result.data as {
+        loginRequired?: boolean;
+        account?: { id: string; email: string } | null;
+        completed?: { url: string };
+      };
+      if (saved.completed) {
+        router.push(saved.completed.url);
+        return;
+      }
+      if (saved.loginRequired) {
+        setAwaitingLogin(true);
+        setAccount(saved.account ?? null);
+        setNotice(
+          "預覽已暫存，尚未建立正式訂單。完成登入後，請確認保存到自己的工作區。",
+        );
+      }
+      return;
+    }
+    const savedBatch = result.data as CalendarBatch;
     setSource(null);
     clearPreview();
     setNotice(
-      `匯入已保存並核對：${result.data.bookingIds.length} 筆訂單、${result.data.blockIds.length} 筆封房。${result.data.unresolvedCount ? "仍有資料待確認，房況暫不列為可售。" : "所選日期範圍已核對。"}`,
+      `匯入已保存並核對：${savedBatch.bookingIds.length} 筆訂單、${savedBatch.blockIds.length} 筆封房。${savedBatch.unresolvedCount ? "仍有資料待確認，房況暫不列為可售。" : "所選日期範圍已核對。"}`,
     );
     try {
       await refreshStatus();
@@ -256,9 +328,13 @@ export function CalendarImport({
       <div className="mx-auto max-w-5xl space-y-5">
         <a
           className="text-sm text-teal-800 underline"
-          href={`/w/${slug}/calendar?property=${encodeURIComponent(property.id)}`}
+          href={
+            onboarding
+              ? "/join"
+              : `/w/${slug}/calendar?property=${encodeURIComponent(property.id)}`
+          }
         >
-          ← 回 {property.name} 房況
+          ← {onboarding ? "回加入頁" : `回 ${property.name} 房況`}
         </a>
         <header>
           <p className="mt-4 text-sm font-medium text-teal-800">日曆快速加入</p>
@@ -266,7 +342,9 @@ export function CalendarImport({
             把日曆紀錄整理成訂單
           </h1>
           <p className="mt-3 max-w-3xl leading-7 text-slate-600">
-            選擇來源、確認房間與住宿日期，再預覽匯入。沒有記載的房費與實收會保留未知，多房同一筆訂金只算一次。
+            {onboarding
+              ? "先連結或選檔，核對房間與日期，再預覽。Google 使用者不需另設密碼；檔案匯入在決定保存時才確認信箱。"
+              : "選擇來源、確認房間與住宿日期，再預覽匯入。沒有記載的房費與實收會保留未知，多房同一筆訂金只算一次。"}
           </p>
         </header>
         {notice && (
@@ -300,13 +378,17 @@ export function CalendarImport({
           </div>
         )}
         <section className={panel}>
-          <h2 className="text-lg font-semibold">目前進度</h2>
+          <h2 className="text-lg font-semibold">
+            {onboarding ? "預覽進度" : "目前進度"}
+          </h2>
           <p className="mt-2 text-sm leading-6">
-            {status.readiness.complete
-              ? `已核對 ${status.readiness.coverageFrom} 至 ${status.readiness.coverageTo}（不含末日）`
-              : status.readiness.stale
-                ? "同步尚未恢復，未顯示訂單的日期暫不能視為空房。"
-                : "尚有來源或資料待核對，未顯示訂單的日期暫不能視為空房。"}
+            {onboarding
+              ? `預覽尚未保存為正式訂單。暫存於 ${new Date(onboarding.expiresAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })} 到期，登入後仍需確認保存。`
+              : status.readiness.complete
+                ? `已核對 ${status.readiness.coverageFrom} 至 ${status.readiness.coverageTo}（不含末日）`
+                : status.readiness.stale
+                  ? "同步尚未恢復，未顯示訂單的日期暫不能視為空房。"
+                  : "尚有來源或資料待核對，未顯示訂單的日期暫不能視為空房。"}
           </p>
           {status.sources.map((s) => (
             <div
@@ -377,7 +459,10 @@ export function CalendarImport({
             </button>
           </details>
         )}
-        <fieldset className={panel} disabled={locked || Boolean(source)}>
+        <fieldset
+          className={panel}
+          disabled={locked || awaitingLogin || Boolean(source)}
+        >
           <legend className="sr-only">選擇日曆來源</legend>
           <h2 className="text-lg font-semibold">1. 選擇你使用的日曆</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -477,6 +562,8 @@ export function CalendarImport({
             <div className="rounded-xl bg-slate-50 p-4">
               <h3 className="font-medium">日曆資料存在 Google</h3>
               <p className="my-2 text-sm leading-6">
+                {onboarding &&
+                  "Google 登入會確認你的帳號，日曆只要求讀取權限，不需另設密碼。"}
                 授權為唯讀。Google
                 權限涵蓋帳號內可讀取的日曆；系統只匯入你接下來勾選的日曆，不會修改
                 Google 活動。
@@ -494,7 +581,9 @@ export function CalendarImport({
                     })
                   }
                 >
-                  連結 Google 帳號
+                  {onboarding
+                    ? "使用 Google 登入並連結日曆"
+                    : "連結 Google 帳號"}
                 </button>
                 <button
                   className={secondary}
@@ -619,7 +708,7 @@ export function CalendarImport({
                 個日曆
               </p>
               <button
-                disabled={locked}
+                disabled={locked || awaitingLogin}
                 className={secondary}
                 onClick={() => {
                   setSource(null);
@@ -629,7 +718,7 @@ export function CalendarImport({
                 重新選擇來源或日期
               </button>
             </div>
-            <fieldset disabled={locked} className={panel}>
+            <fieldset disabled={locked || awaitingLogin} className={panel}>
               <legend className="sr-only">確認轉換方式</legend>
               <h2 className="text-lg font-semibold">2. 確認房間與紀錄方式</h2>
               <p className="mt-2 text-sm leading-6 text-slate-600">
@@ -965,7 +1054,7 @@ export function CalendarImport({
           </>
         )}
         {preview && source && (
-          <fieldset disabled={locked} className={panel}>
+          <fieldset disabled={locked || awaitingLogin} className={panel}>
             <legend className="sr-only">預覽與確認匯入</legend>
             <h2 className="text-lg font-semibold">3. 核對預覽再匯入</h2>
             <p className="mt-2 text-sm leading-7 text-slate-600">
@@ -1114,9 +1203,50 @@ export function CalendarImport({
               disabled={!confirmed || (hasChanges && !acceptChanges)}
               onClick={() => void save()}
             >
-              確認匯入 {selected.length} 筆並核對結果
+              {onboarding
+                ? `確認預覽，保存 ${selected.length} 筆${account ? `至 ${account.email}` : ""}`
+                : `確認匯入 ${selected.length} 筆並核對結果`}
             </button>
           </fieldset>
+        )}
+        {onboarding && awaitingLogin && (
+          <section className="space-y-4">
+            {account ? (
+              <div className={panel}>
+                <h2 className="text-lg font-semibold">確認保存到你的工作區</h2>
+                <p className="my-3 text-sm leading-7">
+                  已登入 {account.email}。即將為「{property.name}
+                  」建立旅宿工作區，保存已核對的 {selected.length} 筆資料。
+                </p>
+                <button
+                  className={button}
+                  disabled={locked}
+                  onClick={() => void save()}
+                >
+                  以 {account.email} 確認保存
+                </button>
+              </div>
+            ) : (
+              <PasswordlessLogin
+                destination="calendar"
+                initialEmail={onboarding.googleEmail ?? ""}
+                fixedEmail={Boolean(onboarding.googleEmail)}
+              />
+            )}
+            <button
+              className={secondary}
+              disabled={locked}
+              onClick={() =>
+                void work(async () => {
+                  await read({ action: "edit" });
+                  setAwaitingLogin(false);
+                  setNotice("");
+                })
+              }
+            >
+              返回調整預覽
+            </button>
+          </section>
         )}
         {status.batches.length > 0 && (
           <section className={panel}>

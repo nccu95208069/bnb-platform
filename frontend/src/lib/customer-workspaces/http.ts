@@ -54,6 +54,34 @@ export function failure(error: unknown) {
   const code = error instanceof Error ? error.message : "";
   const errors: Record<string, [number, string]> = {
     ...standardSheetErrors,
+    CALENDAR_PREVIEW_REQUIRED: [
+      409,
+      "暫存預覽已過期或不在這個瀏覽器。請回加入頁重新選檔；尚未保存的資料會在一小時後清除。",
+    ],
+    CALENDAR_PREVIEW_LOCKED: [
+      409,
+      "這份預覽正在確認保存。請先返回調整，再產生新預覽。",
+    ],
+    CALENDAR_ACCOUNT_CHANGED: [
+      409,
+      "登入帳號與本次確認的信箱不同。請使用畫面上確認的帳號，再保存預覽。",
+    ],
+    LOGIN_BROWSER_REQUIRED: [
+      400,
+      "請使用剛才申請登入連結的同一個瀏覽器；若已更換瀏覽器，請重新申請登入連結。",
+    ],
+    GOOGLE_SIGNIN_FAILED: [
+      400,
+      "Google 登入未完成或身分驗證失敗，請重新嘗試。",
+    ],
+    GOOGLE_ACCOUNT_NOT_FOUND: [
+      400,
+      "此 Google 帳號尚未加入。請先從加入頁開始預覽日曆。",
+    ],
+    GOOGLE_EMAIL_CHALLENGE_REQUIRED: [
+      400,
+      "此 Google 帳號的信箱需要另外確認，請改用信箱登入連結。",
+    ],
     CALENDAR_GOOGLE_UNAVAILABLE: [
       503,
       "此環境尚未設定 Google 日曆授權，請先使用日曆檔匯入。",
@@ -197,7 +225,10 @@ export function failure(error: unknown) {
     ],
     IMPORT_EXPIRED: [409, "預覽已過期，請重新讀取試算表。"],
     FEATURE_UNAVAILABLE: [503, "新客戶入口尚未開放。"],
-    UNAUTHORIZED: [401, "請登入；若登入失敗，請確認信箱與密碼。"],
+    UNAUTHORIZED: [
+      401,
+      "請重新登入，再繼續操作；若登入失敗，請確認信箱及使用的登入方式。",
+    ],
     ACCOUNT_EXISTS: [409, "此信箱無法建立新帳號，請嘗試登入。"],
     PASSWORD_INVALID: [400, "請使用 12～128 字元的密碼，並確認兩次輸入相同。"],
     INVALID_INPUT: [400, "請檢查房間、日期及輸入內容。"],
