@@ -41,3 +41,7 @@ Magic-link delivery uses the existing configured operator mail transport and tru
 ## Delivery
 
 The change remains in draft PR #26, stacked on `codex/sweetfun-bots`; the primary domain is not promoted. The prior GitHub run was blocked before all jobs by account billing. Local checks and the cloud build are tracked independently, not reported as a green GitHub CI run. Protected candidate URL and read-only deployment checks are appended after deployment.
+
+Implementation commit `9ba7e29d3b2d2690cb5ac414de5c5e33198fe2dc` is READY at [the protected preview-first candidate](https://sweetfun-bzdbx1b5y-sweetfuns-projects.vercel.app/join), deployment `dpl_Br39QcQ8ZYQzKqWz2SHsCJ2PGEeK`. Cloud Turbopack/TypeScript completed successfully; build output took 22 seconds. Vercel authentication remains enabled. Six entry pages return 200, seven anonymous customer/cron requests return 401, and a public-preview read without its cookie returns 409. These checks made zero customer-data writes and sent zero mail. The primary domain is unchanged at `dpl_4RtToxbsPMUWt1bw25Mn2cvUvg82`.
+
+[GitHub run 37146929183](https://github.com/nccu95208069/bnb-platform/actions/runs/37146929183) reports all three jobs unstarted because the account is locked for billing. The final local command set is 149/149 passing; TypeScript, webpack production build and cloud build pass; lint remains zero errors/seven warnings. No primary promotion or real-provider acceptance is implied.
