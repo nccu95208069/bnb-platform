@@ -110,3 +110,11 @@ Google 服務帳號不能靠個人 My Drive 容量擁有新檔案；自動建立
 驗證涵蓋多列金額只取一次、逐晚與不同區段、歧義整組隔離、同名不合併、重複占房、日期／金額型別、文字不執行成公式、角色／館別隔離、失去回覆、讀回不符、競爭寫入、外部編輯、建立結果不確定與重試。HTTP 測試使用真實 Next request/response 與合成 Google/Redis 回覆；沒有寄送測試郵件。
 
 最終本機驗證：83 個客戶服務／元件測試加 4 個 HTTP 整合測試，合計 87 個通過（其中 12 個轉換規則、14 個標準帳本／復原測試）。ESLint 無錯誤，保留兩個原有日曆元件警告；含 TypeScript 的正式 webpack 建置通過。本次未改 Python 後端。真實 Google 寫入與讀回的驗證結果如上，並不等於正式客戶 Redis 或瀏覽器操作驗收。原有瀏覽器政策與正式站切換邊界仍保留。
+
+## 受保護部署與遠端檢查
+
+- 程式提交 `91f7241e129a7d0a1b6dfcffd9fa41538e988d58` 已推送至草稿 PR #26。測試部署為 [sweetfun-ha1un4zwf-sweetfuns-projects.vercel.app](https://sweetfun-ha1un4zwf-sweetfuns-projects.vercel.app)，ID `dpl_A183xhyGoP9tGCC8UxgpaSrppj1c`，狀態 READY；雲端 Turbopack、TypeScript 與路由產生成功。
+- 此部署使用 `--skip-domain`，保留 Vercel 登入保護與部署專屬的啟用連結；已設定本次主範本 ID，禁止將主範本綁成客戶目的檔。未設定共用資料夾，因此不顯示自動建檔功能。
+- 唯讀線上核對：四個入口頁 `/join`、`/start`、`/account-setup`、`/invite` 回傳 200。客戶 session、工作區、成員、標準帳本及帳本下載等五個資料介面，在沒有客戶 session 時皆回傳 401。未通過 Vercel 登入的測試站請求仍導向 SSO。沒有登入客戶、寫入正式工作區或寄信。
+- 正式 `sweetfun-os.vercel.app` 現場查得為另一個較早的部署 `dpl_4RtToxbsPMUWt1bw25Mn2cvUvg82`（提交 `2c20ef0`，2026-10-03 02:16 UTC 建立），並非本次新版。先前文件記錄的 `dpl_2jLsmZFuqA9hv4uxpzE2CcU4M9uC` 已是歷史狀態；本次沒有將新版 promote 或 alias 到正式網域，也沒有倒退覆蓋較早的其他工作。
+- [GitHub run 37107883110](https://github.com/nccu95208069/bnb-platform/actions/runs/37107883110) 的三個工作因帳務問題鎖定而未開始，不能宣稱遠端 CI 通過。本機測試與 Vercel 雲端建置是目前可用的程式驗證證據。
