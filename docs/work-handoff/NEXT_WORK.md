@@ -1,5 +1,25 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
+## Calendar onboarding implementation and acceptance
+
+Latest owner decision: [preview first and passwordless saving](CALENDAR_PREVIEW_FIRST_2026-10-04.md) is implemented. Google login/consent precedes preview; ICS/ZIP previews anonymously and asks for an email link only when saving. The former calendar contact/activation/password prerequisite is superseded.
+
+Owner request: implement Google Calendar, iOS and Android onboarding and backend, then review and repair critical issues. See [actual implementation and review](CALENDAR_ONBOARDING_2026-10-04.md); the [original plan](GOOGLE_CALENDAR_FAST_ONBOARD_2026-10-03.md) records the earlier design.
+
+- [x] **CAL-G0** — Source-aware intake/activation; calendar customers need no Sheet URL; isolated scopes, source references, blocks and bounded coverage.
+- [x] **CAL-G1** — ICS/ZIP import, room/date mapping, per-event corrections, grouped preview, atomic commit/readback, exact retry, revised-source review, guarded undo and standard-workbook v2 output.
+- [x] **CAL-G2-CODE** — Read-only Google OAuth, selected calendars, pagination, preview revalidation, reconnect and property-scoped credential removal. Tested with synthetic provider responses.
+- [x] **CAL-G3-CODE** — Durable jobs, leases, retries, field ownership, source changes/cancellations and freshness checks. Continuous mode is gated by explicit configuration.
+- [x] **CAL-IOS / CAL-ANDROID-WEB** — Separate intake options, account identification instructions, Google-backed connection and ICS/ZIP file paths, with explicit local-device limitations.
+- [x] **CAL-REVIEW** — Review and regression coverage for authorization, money, source completeness, stale availability, retry and dependency critical vulnerabilities. See the repair record.
+- [ ] **CAL-GOOGLE-LIVE** — Configure Calendar API/OAuth consent, exact callback, encryption key and cron secret in an approved deployment; verify real consent, refresh, revocation and two scheduled cycles before enabling continued use.
+- [ ] **CAL-MOBILE-LIVE** — Real-device file selection and OAuth return, including multiple accounts and cancellation recovery. Mac iCloud export is documented; iPhone-only/iCloud direct and Android device-local readers require a separate native/provider adapter.
+- [ ] **CAL-PILOT** — Scoped real samples for per-room calendars, titles that identify rooms and check-in reminders; measure corrections and verify overlaps, recurrence exceptions and unknown money.
+
+The intake chooses one primary source; additional calendar bindings can be reviewed within the property. Coverage requires explicit confirmation that all booking sources for the selected period are included. Color-based rules, multi-source declarations at intake, a pre-import month-grid preview and native device APIs remain design extensions, not claims of shipped behavior.
+
+Latest customer-import implementation: see [standard workbook and conversion rules](STANDARD_SHEET_2026-10-03.md). The original sources remain read-only, owner/editor identity matching is removed, and grouped orders/nightly rows/calendar grids now normalize into a standard ledger. Remaining standard-workbook work is deployment acceptance and optional shared-drive provisioning for automatic copies, plus a separately specified continuous-source-sync contract. Do not reintroduce the superseded single-row-only or source-owner-email restrictions.
+
 The next phase should implement the Agent-First backend rather than expand the prototype UI.
 
 ## Milestone 0 — Verify the current truth

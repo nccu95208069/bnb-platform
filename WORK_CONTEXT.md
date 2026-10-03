@@ -7,6 +7,10 @@
 
 This document is the top-level context for ongoing work. It supersedes older top-level positioning when there is a conflict, while preserving the earlier LINE Reply Copilot work as a separate subsystem.
 
+October 3 customer-workspace update: [customer operations and verification boundaries](docs/work-handoff/CUSTOMER_OPERATIONS_2026-10-03.md) extends the isolated customer track with multiple properties, invitations, unsold lists, pricing and order-level receipts. The implementation remains in draft PR #26; customer activation, browser/live-invitation acceptance and explicit production rollout approval are pending. Older implementation-status sections below are historical baselines, not claims about this new customer slice.
+
+October 4 calendar implementation: Google Calendar, iPhone/iPad Calendar and Android Calendar now have onboarding paths with a shared ICS/ZIP importer and a read-only Google connector. The backend includes source identity, room/date conversion, blocks, atomic import/readback/retry, guarded undo and durable one-way refresh. See [implementation, review and activation boundaries](docs/work-handoff/CALENDAR_ONBOARDING_2026-10-04.md). OAuth credentials and real-device acceptance are still pending; direct iCloud/device-local readers are not implemented. The protected candidate remains separate from public rollout. [The original plan](docs/work-handoff/GOOGLE_CALENDAR_FAST_ONBOARD_2026-10-03.md) is historical design context; the implementation note governs current capabilities.
+
 ## 1. Product definition
 
 Build an operations system for approximately 3–30-room guesthouses, small hotels, and a small number of properties. The owner should be able to use natural language and visual month/week/day interfaces to:
@@ -463,3 +467,16 @@ finance sources remain read-only. See
 `docs/work-handoff/CUSTOMER_WORKFLOWS_2026-09-28.md` for implementation, privacy,
 verification and current UI/host limits. Real guest mutations are not used as
 acceptance tests without a specific target/action authorization.
+
+## Customer standard workbook — 2026-10-03
+
+The latest owner instruction explicitly removes source Sheet owner/editor email matching: the file creator and application user may be different accounts. Source readability is sufficient for format mapping inside the authenticated, bound customer workspace. Account verification, membership and property scopes remain separate controls. This supersedes earlier onboarding identity-review wording.
+
+Customer sources remain unchanged. The importer now groups explicit order IDs from whole-order, stay-segment and nightly rows, or explicit per-cell calendar-grid groups. One order owns one total and source cumulative payment; room nights and actual dated receipts are separate records. The generic source-paid summary does not claim bank receipt or invent transaction dates.
+
+Six-tab standard Google workbooks are implemented as verified projections of the existing atomic customer workspace store, not an unannounced migration of the legacy operational SSOT. Owner-only binding/export, destination claims, write/readback, pending versions and retry recovery are implemented. The blank template and fully synthetic example have passed real Google gateway write/readback and repeat-sync checks. Automatic per-customer copying needs a shared-drive folder, which is not currently available; a prepared independent template copy can be bound now. See `docs/work-handoff/STANDARD_SHEET_2026-10-03.md` for the specification, native artifacts, exact validation and release boundary.
+
+
+## Calendar preview before signup — 2026-10-04
+
+The latest owner decision supersedes the account/password-first calendar entry. Google login and read-only calendar consent lead to preview and explicit save; ICS/ZIP can be previewed anonymously, with same-browser email-link login required only at save. Passwordless customer credentials, authenticated workspace ownership, exact retry and isolated one-hour previews are implemented. Existing Sheet/consultation onboarding and legacy accounts remain supported. See `docs/work-handoff/CALENDAR_PREVIEW_FIRST_2026-10-04.md` for review/repair cycles, 149 regression checks and the pending real-Google/mobile acceptance boundary.
