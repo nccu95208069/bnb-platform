@@ -1,43 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { bookingsOverlap } from "./domain.ts";
 import { digest } from "./auth.ts";
-import { dateValue, loadWorkspace, textValue } from "./service.ts";
+import { loadWorkspace } from "./service.ts";
 import type { CustomerStore } from "./store.ts";
 import type { Booking } from "./types.ts";
-export type SheetSource = {
-  spreadsheetId: string;
-  sheetId: number;
-  title: string;
-  rows: string[][];
-};
-export type Mapping = {
-  headerRow: number;
-  columns: {
-    checkIn: number;
-    checkOut: number;
-    rooms: number;
-    guestName: number;
-    externalId: number;
-    total: number;
-    received: number;
-  };
-  roomMap: Record<string, string[]>;
-  granularity: "order";
-  amountBasis: "order" | "night" | "none";
-  receivedMeaning: "property" | "guest" | "none";
-  currency: "TWD";
-  from: string;
-};
-type Draft = Pick<
-  Booking,
-  "guestName" | "checkIn" | "checkOut" | "roomIds" | "total" | "importedFinance"
-> & { externalId: string | null };
-export type PreviewRow = {
-  row: number;
-  draft: Draft | null;
-  issues: string[];
-  fingerprint: string;
-};
+import {
+  normalizeSheet,
+  importFingerprint,
+  NORMALIZATION_VERSION,
+} from "./sheet-normalizer.ts";
+import type {
+  Mapping,
+  SheetSource,
+  NormalizedOrder,
+} from "./sheet-normalizer.ts";
+export type { Mapping, SheetSource } from "./sheet-normalizer.ts";
+export type PreviewRow = NormalizedOrder;
 export type ImportPreview = {
   id: string;
   accountId: string;
@@ -49,6 +27,7 @@ export type ImportPreview = {
   sourceKey: string;
   sourceTitle: string;
   sourceHash: string;
+  mapping?: Mapping;
   source: {
     spreadsheetId: string;
     sheetId: number;
@@ -75,76 +54,11 @@ export async function importAccess(
   if (property.sourceMode !== "native") throw new Error("INVALID_INPUT");
   return { ...loaded, property };
 }
-function amount(value: string) {
-  if (!value.trim()) return null;
-  // No currencies, formulas, parentheses, implicit negatives or ambiguous grouping.
-  if (!/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(value.trim()))
-    throw new Error("金額格式不明，請先整理來源");
-  const n = Number(value.replaceAll(",", ""));
-  if (n > 100000000) throw new Error("金額超出範圍");
-  return n;
-}
-function sheetDate(value: string) {
-  const m = /^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/.exec(value.trim());
-  if (!m) throw new Error("日期需包含西元年，例如 2026-10-02");
-  try {
-    return dateValue(
-      `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`,
-    );
-  } catch {
-    throw new Error("日期不存在或超出範圍");
-  }
-}
 export function overlaps(
   a: Pick<Booking, "roomIds" | "checkIn" | "checkOut" | "stays">,
   b: Pick<Booking, "roomIds" | "checkIn" | "checkOut" | "stays">,
 ) {
   return bookingsOverlap(a, b);
-}
-function validateMapping(m: Mapping) {
-  if (
-    !m ||
-    m.granularity !== "order" ||
-    m.currency !== "TWD" ||
-    !["order", "night", "none"].includes(m.amountBasis) ||
-    !["property", "guest", "none"].includes(m.receivedMeaning) ||
-    !Number.isInteger(m.headerRow) ||
-    m.headerRow < 1 ||
-    m.headerRow > 20 ||
-    !m.columns ||
-    !m.roomMap ||
-    typeof m.roomMap !== "object" ||
-    Array.isArray(m.roomMap)
-  )
-    throw new Error("INVALID_INPUT");
-  dateValue(m.from);
-  const required = ["checkIn", "checkOut", "rooms"];
-  const used: number[] = [];
-  for (const key of [
-    "checkIn",
-    "checkOut",
-    "rooms",
-    "guestName",
-    "externalId",
-    "total",
-    "received",
-  ] as const) {
-    const index = m.columns[key];
-    if (
-      !Number.isInteger(index) ||
-      index < -1 ||
-      index > 51 ||
-      (required.includes(key) && index < 0)
-    )
-      throw new Error("INVALID_INPUT");
-    if (index >= 0) used.push(index);
-  }
-  if (
-    new Set(used).size !== used.length ||
-    (m.amountBasis === "none") !== (m.columns.total === -1) ||
-    (m.receivedMeaning === "none") !== (m.columns.received === -1)
-  )
-    throw new Error("INVALID_INPUT");
 }
 export async function previewImport(
   store: CustomerStore,
@@ -160,9 +74,6 @@ export async function previewImport(
     slug,
     propertyId,
   );
-  validateMapping(mapping);
-  if (source.rows.length > 501 || source.rows.length < mapping.headerRow)
-    throw new Error("IMPORT_SIZE");
   const sourceKey = digest(`${source.spreadsheetId}:${source.sheetId}`);
   const active = workspace.bookings.filter(
     (b) => b.propertyId === propertyId && b.status !== "cancelled",
@@ -170,101 +81,23 @@ export async function previewImport(
   const prior = workspace.bookings.filter(
     (b) => b.propertyId === propertyId && b.imported,
   );
-  const cell = (r: string[], index: number) =>
-    index < 0 ? "" : (r[index] ?? "").trim();
-  const rows: PreviewRow[] = source.rows
-    .slice(mapping.headerRow)
-    .flatMap((r, index) => {
-      if (r.every((c) => !c.trim())) return [];
-      const result: PreviewRow = {
-        row: mapping.headerRow + index + 1,
-        draft: null,
-        issues: [],
-        fingerprint: "",
-      };
-      try {
-        const c = mapping.columns,
-          checkIn = sheetDate(cell(r, c.checkIn)),
-          checkOut = sheetDate(cell(r, c.checkOut));
-        const nights = (Date.parse(checkOut) - Date.parse(checkIn)) / 86400000;
-        if (nights < 1 || nights > 366)
-          throw new Error("退房日期需晚於入住，最長 366 晚");
-        const label = cell(r, c.rooms);
-        const roomIds = mapping.roomMap[label];
-        if (
-          !Array.isArray(roomIds) ||
-          !roomIds.length ||
-          roomIds.some((id) => !property.rooms.some((room) => room.id === id))
-        )
-          throw new Error("房間尚未對應");
-        if (
-          property.kind === "villa" &&
-          property.villaRoomIds.some((id) => !roomIds.includes(id))
-        )
-          throw new Error("包棟旅宿需包含全部實體房間");
-        const total = amount(cell(r, c.total)),
-          received = amount(cell(r, c.received));
-        const draft: Draft = {
-          checkIn,
-          checkOut,
-          roomIds: [...new Set(roomIds)].sort(),
-          guestName: textValue(cell(r, c.guestName), 100),
-          externalId: textValue(cell(r, c.externalId), 200),
-          total:
-            total === null
-              ? null
-              : Math.round(
-                  total * (mapping.amountBasis === "night" ? nights : 1) * 100,
-                ) / 100,
-          importedFinance: {
-            currency: "TWD",
-            amountBasis: mapping.amountBasis,
-            sourceAmount: total,
-            receivedMeaning: mapping.receivedMeaning,
-            propertyReceived:
-              mapping.receivedMeaning === "property" ? received : null,
-            guestPaid: mapping.receivedMeaning === "guest" ? received : null,
-          },
-        };
-        if (draft.total !== null && draft.total > 100000000)
-          throw new Error("金額超出範圍");
-        result.draft = draft;
-        result.fingerprint = digest(JSON.stringify(draft));
-        if (checkOut <= mapping.from)
-          result.issues.push("已在選定範圍之前退房");
-        if (
-          prior.some(
-            (b) =>
-              b.imported?.fingerprint === result.fingerprint ||
-              (draft.externalId &&
-                b.imported?.sourceKey === sourceKey &&
-                b.imported?.externalId === draft.externalId),
-          )
-        )
-          result.issues.push("已匯入，或相同來源訂單有變更；請核對既有訂單");
-        if (active.some((b) => overlaps(b, draft)))
-          result.issues.push("與現有訂房衝突");
-      } catch (e) {
-        result.issues.push(
-          e instanceof Error && e.message !== "INVALID_INPUT"
-            ? e.message
-            : "欄位內容超出限制",
-        );
-      }
-      return [result];
-    });
-  // Block all rows in ambiguous groups, including rows outside the date filter.
-  const externalCounts = new Map<string, number>();
-  for (const r of source.rows.slice(mapping.headerRow)) {
-    const externalId = cell(r, mapping.columns.externalId);
-    if (externalId)
-      externalCounts.set(externalId, (externalCounts.get(externalId) ?? 0) + 1);
-  }
+  const rows = normalizeSheet(source, mapping, property);
   for (const row of rows) {
     if (!row.draft) continue;
     const draft = row.draft;
-    if (draft.externalId && (externalCounts.get(draft.externalId) ?? 0) > 1)
-      row.issues.push("同一訂單編號有多列，請先合併成一筆完整訂單");
+    if (draft.checkOut <= mapping.from) row.issues.push("已在選定範圍之前退房");
+    if (
+      prior.some(
+        (b) =>
+          b.imported?.fingerprint === row.fingerprint ||
+          (draft.externalId &&
+            b.imported?.sourceKey === sourceKey &&
+            b.imported?.externalId === draft.externalId),
+      )
+    )
+      row.issues.push("已匯入，或相同來源訂單有變更；請核對既有訂單");
+    if (active.some((b) => overlaps(b, draft)))
+      row.issues.push("與現有訂房衝突");
     if (
       rows.some(
         (other) =>
@@ -274,7 +107,7 @@ export async function previewImport(
             overlaps(other.draft, draft)),
       )
     )
-      row.issues.push("來源內有重複或重疊訂房，請先整理");
+      row.issues.push("來源內有重複或重疊訂房，請核對整組資料");
   }
   const preview: ImportPreview = {
     id: randomUUID(),
@@ -287,6 +120,7 @@ export async function previewImport(
     sourceKey,
     sourceTitle: source.title,
     sourceHash: digest(JSON.stringify(source.rows)),
+    mapping,
     source: {
       spreadsheetId: source.spreadsheetId,
       sheetId: source.sheetId,
@@ -389,7 +223,10 @@ export async function commitImport(
         sourceKey: preview.sourceKey,
         fingerprint: r!.fingerprint,
         externalId,
-        row: r!.row,
+        row: r!.sourceRows?.[0] ?? r!.row,
+        sourceRows: r!.sourceRows,
+        references: r!.references,
+        normalizationVersion: NORMALIZATION_VERSION,
       },
     };
   });
@@ -509,17 +346,17 @@ export async function undoImport(
   const bookings = workspace.bookings.map((b) => {
     if (!batch.bookingIds.includes(b.id)) return b;
     const unchanged =
-      digest(
-        JSON.stringify({
-          checkIn: b.checkIn,
-          checkOut: b.checkOut,
-          roomIds: b.roomIds,
-          guestName: b.guestName,
-          externalId: b.imported?.externalId ?? null,
-          total: b.total,
-          importedFinance: b.importedFinance,
-        }),
-      ) === b.imported?.fingerprint;
+      importFingerprint({
+        checkIn: b.checkIn,
+        checkOut: b.checkOut,
+        roomIds: b.roomIds,
+        guestName: b.guestName,
+        externalId: b.imported?.externalId ?? null,
+        total: b.total,
+        importedFinance: b.importedFinance,
+        ...(b.stays ? { stays: b.stays } : {}),
+        ...(b.nightlyPrices ? { nightlyPrices: b.nightlyPrices } : {}),
+      }) === b.imported?.fingerprint;
     if (
       b.version !== 1 ||
       !unchanged ||

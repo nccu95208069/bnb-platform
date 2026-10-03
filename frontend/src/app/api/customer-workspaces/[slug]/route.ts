@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { scheduleStandardSheetSync } from "@/lib/customer-workspaces/standard-sheet-jobs";
 import {
   body,
   failure,
@@ -30,6 +31,7 @@ export async function POST(request: NextRequest, context: Context) {
       { slug } = await context.params;
     await store.limit(`write:${account.id}`, 300);
     const result = await createBooking(store, account.id, slug, input);
+    await scheduleStandardSheetSync(store, result.workspace.id);
     return NextResponse.json(
       { bookingId: result.booking.id, workspace: result.workspace },
       { status: 201, headers },

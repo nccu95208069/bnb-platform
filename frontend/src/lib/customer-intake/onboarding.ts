@@ -11,10 +11,7 @@ import {
 } from "../customer-workspaces/account-links.ts";
 import { deliverOnce, type CustomerMail, type Delivery } from "./delivery.ts";
 import { INTAKE_RECIPIENT } from "./config.ts";
-import {
-  checkSharedSheet,
-  sheetApplicantHasAccess,
-} from "../customer-workspaces/shared-sheet.ts";
+import { checkSharedSheet } from "../customer-workspaces/shared-sheet.ts";
 import { digest } from "../customer-workspaces/auth.ts";
 import { customerOrigin } from "../customer-workspaces/site-url.ts";
 import { importAccess } from "../customer-workspaces/sheet-import.ts";
@@ -116,7 +113,7 @@ export async function beginOnboarding(
     `receipt:${id}`,
     record.answers.email,
     "旅宿服務｜已收到申請，請確認信箱",
-    `已收到你的加入申請。\n\n申請編號：${id}\n\n請於 24 小時內開啟下方連結，確認信箱並設定登入密碼：\n${accountLinkUrl(link)}\n\n接著會核對你對試算表的使用權限，再請你選擇分頁、確認欄位與房間對應，預覽後才匯入日曆。讀取成功不代表資料格式已確認。格式不適用時可要求專人協助。\n\n聯絡信箱：${INTAKE_RECIPIENT}\n若不是你提出的申請，請勿開啟連結，直接忽略本信。`,
+    `已收到你的加入申請。\n\n申請編號：${id}\n\n請於 24 小時內開啟下方連結，確認信箱並設定登入密碼：\n${accountLinkUrl(link)}\n\n接著選擇分頁、確認紀錄方式與房間對應，預覽合併後的訂單，再匯入日曆。Sheet 建立者與登入帳號可以不同。讀取成功不代表資料格式已確認。格式不適用時可要求專人協助。\n\n聯絡信箱：${INTAKE_RECIPIENT}\n若不是你提出的申請，請勿開啟連結，直接忽略本信。`,
     send,
     preview,
   );
@@ -154,12 +151,10 @@ export async function provisionVerifiedApplication(
     workspace = loaded.workspace;
   if (workspace.onboarding && workspace.onboarding.requestId !== id)
     throw new Error("FORBIDDEN");
-  const identityConfirmed = journey.approvedAt
-    ? true
-    : await sheetApplicantHasAccess(record.answers.sheetUrl, account.email);
-  const approved =
-    journey.approvedAt ||
-    (identityConfirmed ? new Date().toISOString() : undefined);
+  // A supplied source only needs to be readable. Its creator/editor can use a
+  // different Google account from the person signing up for this workspace.
+  await checkSharedSheet(record.answers.sheetUrl);
+  const approved = journey.approvedAt ?? new Date().toISOString();
   const next: Journey = {
     ...journey,
     verifiedAt: journey.verifiedAt ?? new Date().toISOString(),
@@ -168,10 +163,8 @@ export async function provisionVerifiedApplication(
     workspaceId: workspace.id,
     propertyId: workspace.properties[0].id,
     approvedAt: approved,
-    approvedBy:
-      journey.approvedBy ??
-      (approved ? "verified-google-permission" : undefined),
-    status: journey.readyAt ? journey.status : approved ? "mapping" : "review",
+    approvedBy: "readable-source",
+    status: journey.readyAt ? journey.status : "mapping",
   };
   // A lost activation response can safely repeat; account, creation key and source
   // binding must continue to match before returning a session and destination.
@@ -217,17 +210,7 @@ export async function sharedImportPermission(
     propertyId,
   );
   if (property.setup?.sheetUrl) {
-    if (property.setup.approvedByEmail) {
-      if (
-        !(await sheetApplicantHasAccess(
-          property.setup.sheetUrl,
-          property.setup.approvedByEmail,
-        ))
-      )
-        throw new Error("SHEET_REVIEW_REQUIRED");
-    } else if (property.setup.approvedByOperator)
-      await checkSharedSheet(property.setup.sheetUrl);
-    else throw new Error("SHEET_REVIEW_REQUIRED");
+    await checkSharedSheet(property.setup.sheetUrl);
     return { url: property.setup.sheetUrl, journey: null };
   }
   if (workspace.properties[0]?.id !== propertyId) throw new Error("NOT_FOUND");
@@ -239,15 +222,10 @@ export async function sharedImportPermission(
     !journey ||
     journey.workspaceId !== workspace.id ||
     journey.propertyId !== propertyId ||
-    !journey.verifiedAt ||
-    !journey.approvedAt
+    !journey.verifiedAt
   )
     throw new Error("SHEET_REVIEW_REQUIRED");
-  if (journey.approvedBy === "verified-google-permission") {
-    const record = await intakeFor(store, journey.id);
-    if (!(await sheetApplicantHasAccess(source.sheetUrl, record.answers.email)))
-      throw new Error("SHEET_REVIEW_REQUIRED");
-  }
+  await checkSharedSheet(source.sheetUrl);
   return { url: source.sheetUrl, journey };
 }
 // The workspace progress is written atomically with the bookings. Mirroring it
@@ -402,12 +380,7 @@ export async function reviewApplication(
   }
   if (!journey) throw new Error("NOT_FOUND");
   if (action === "approve") {
-    if (
-      !journey.verifiedAt ||
-      !journey.accountId ||
-      !journey.workspaceId ||
-      input.confirmIdentity !== true
-    )
+    if (!journey.verifiedAt || !journey.accountId || !journey.workspaceId)
       throw new Error("SHEET_REVIEW_REQUIRED");
     await checkSharedSheet(record.answers.sheetUrl);
     const ws = await store.read<Workspace>(`workspace:${journey.workspaceId}`);
@@ -450,7 +423,7 @@ export async function reviewApplication(
       `mapping-ready:${id}`,
       record.answers.email,
       "旅宿服務｜請確認資料格式",
-      `已完成申請與試算表權限核對。請登入後確認分頁、欄位與房間，再預覽匯入結果：\n${customerOrigin()}/w/${journey.slug}/import\n\n尚未匯入訂單。若需要協助，請聯絡 ${INTAKE_RECIPIENT}。`,
+      `已確認試算表可讀取。請登入後確認分頁、欄位與房間，再預覽匯入結果：\n${customerOrigin()}/w/${journey.slug}/import\n\n尚未匯入訂單。若需要協助，請聯絡 ${INTAKE_RECIPIENT}。`,
       send,
       preview,
     );

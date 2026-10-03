@@ -10,6 +10,12 @@ const aliases: Record<Column, string[]> = {
     "checkindate",
     "arrival",
     "arrivaldate",
+    "住宿日期",
+    "住宿日",
+    "日期",
+    "staydate",
+    "night",
+    "date",
   ],
   checkOut: [
     "退房",
@@ -50,6 +56,13 @@ const aliases: Record<Column, string[]> = {
     "total",
     "totalamount",
     "amount",
+    "每晚房價",
+    "每晚價格",
+    "每晚房費",
+    "單晚房費",
+    "每房每晚",
+    "房晚金額",
+    "每列金額",
   ],
   received: [
     "旅宿實收",
@@ -63,7 +76,12 @@ const aliases: Record<Column, string[]> = {
     "received",
     "paid",
     "amountpaid",
+    "累計已付",
+    "已付金額",
+    "已付訂金",
+    "訂金",
   ],
+  status: ["狀態", "訂單狀態", "訂房狀態", "status", "bookingstatus"],
 };
 const normalize = (value: string) =>
   value.toLowerCase().replace(/[\s_\-/／（）()：:]/g, "");
@@ -75,6 +93,9 @@ export type FormatSuggestion = {
   layout: "orders" | "nightly" | "grid" | "unknown";
   messages: string[];
   questions: string[];
+  granularity: Mapping["granularity"];
+  amountBasis: Mapping["amountBasis"];
+  grid?: Mapping["grid"];
 };
 // Suggestions use only explicit labels and exact room names. No guest cells are
 // sent to a model, and guesses never bypass the deterministic import validator.
@@ -118,7 +139,6 @@ export function suggestFormat(
   ) as Mapping["columns"];
   const headers = rows[best?.index ?? 0] ?? [];
   const grid =
-    proposed.checkIn < 0 &&
     proposed.checkOut < 0 &&
     rows
       .slice(0, 5)
@@ -126,7 +146,7 @@ export function suggestFormat(
         (row) =>
           row.filter((cell) =>
             /^(?:\d{4}[-/])?\d{1,2}[-/]\d{1,2}$/.test(cell.trim()),
-          ).length >= 3,
+          ).length >= 1,
       );
   const nightly =
     proposed.checkOut < 0 &&
@@ -176,11 +196,11 @@ export function suggestFormat(
   }
   const messages = [
     layout === "orders"
-      ? "看起來是含入住、退房與房間的訂單表。請核對下方建議，再確認每列是否代表一筆完整訂單。"
+      ? "看起來是含入住、退房與房間的表。相同訂單編號的多房、多段日期會合併預覽，不需要改原表。"
       : layout === "grid"
-        ? "看起來是月曆格。日期橫向排列時不能直接當訂單表匯入，請使用人工協助整理副本。"
+        ? "看起來是日期橫排的房況格。請確認日期包含年份、房間對應，以及每個有內容的格子屬於哪張訂單。"
         : layout === "nightly"
-          ? "看起來是一晚一列的表。需要先用訂單編號確認哪些列屬於同一筆訂房，再合併住宿區間及金額。"
+          ? "看起來是一晚一列的表。系統會按來源訂單編號合併多晚、多房，不需要在原表新增退房欄。"
           : "目前無法確認表格結構。你可以手動對應欄位，或請專人協助。",
   ];
   for (const key of columns)
@@ -190,16 +210,79 @@ export function suggestFormat(
       );
   if (best && candidates[1]?.score === best.score && best.score > 0)
     messages.push("表中可能有重複標題或多個區塊，請確認真正的標題列。");
+  const amountHeader = normalize(headers[proposed.total] ?? "");
+  const amountBasis: Mapping["amountBasis"] =
+    proposed.total < 0
+      ? "none"
+      : amountHeader === "每房每晚"
+        ? "room-night"
+        : ["房晚金額", "每列金額"].includes(amountHeader)
+          ? "line"
+          : ["每晚房價", "每晚價格", "每晚房費", "單晚房費"].includes(
+                amountHeader,
+              )
+            ? "night"
+            : [
+                  "總額",
+                  "訂單總額",
+                  "房費總額",
+                  "總房費",
+                  "total",
+                  "totalamount",
+                ].includes(amountHeader)
+              ? "order"
+              : "none";
+  const dateColumns = headers.flatMap((header, column) =>
+    /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(header.trim()) ? [column] : [],
+  );
+  const externalIds = rows
+    .slice((best?.index ?? 0) + 1)
+    .map((row) => (row[proposed.externalId] ?? "").trim())
+    .filter(Boolean);
+  const repeated = new Set(externalIds).size !== externalIds.length;
+  if (layout === "grid" && !dateColumns.length)
+    messages.push(
+      "目前日期欄沒有完整年份。請先由專人確認日期範圍，不會套用今年或猜測年份。",
+    );
   return {
     headerRow: (best?.index ?? 0) + 1,
-    columns: proposed,
+    columns:
+      layout === "grid"
+        ? {
+            checkIn: -1,
+            checkOut: -1,
+            rooms: proposed.rooms,
+            guestName: -1,
+            externalId: -1,
+            total: -1,
+            received: -1,
+            status: -1,
+          }
+        : proposed,
     roomMap,
     layout,
     messages,
-    questions: [
-      "一列是一筆完整訂單，還是一間房、一天住宿或一筆付款？",
-      "房費是整筆訂單總額、每晚價格，還是只收取的訂金？",
-      "已付金額是旅宿實際收到，還是旅客付給平台？",
-    ],
+    granularity:
+      layout === "grid"
+        ? "grid"
+        : layout === "nightly"
+          ? "night"
+          : repeated
+            ? "stay"
+            : "order",
+    amountBasis: layout === "grid" ? "none" : amountBasis,
+    ...(layout === "grid"
+      ? {
+          grid: {
+            dateColumns,
+            cellMeaning: "guest-name" as const,
+            orderIds: {},
+          },
+        }
+      : {}),
+    questions:
+      proposed.total >= 0 && amountBasis === "none" && layout !== "grid"
+        ? ["請在下方指定房費欄記的是整筆訂單總額、每列金額，還是每晚房費。"]
+        : [],
   };
 }

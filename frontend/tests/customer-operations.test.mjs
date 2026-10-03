@@ -877,7 +877,7 @@ test("Sheet paid-to-platform totals remain unknown cash until opening receipts a
   assert.deepEqual(undone.cancelled, []);
   assert.deepEqual(undone.skipped, [b.id]);
 });
-test("format suggestions require semantic confirmation and send unsupported nightly/grid structures for assistance", async () => {
+test("format suggestions recognize order, nightly and grid layouts without a universal payment-recipient question", async () => {
   const f = await fixture();
   const simple = suggestFormat(
     [
@@ -891,8 +891,8 @@ test("format suggestions require semantic confirmation and send unsupported nigh
   assert.equal(simple.layout, "orders");
   assert.equal(simple.columns.total, 3);
   assert.deepEqual(simple.roomMap["101"], [f.property.rooms[0].id]);
-  assert.equal(simple.questions.length, 3);
-  assert.equal("amountBasis" in simple, false);
+  assert.equal(simple.questions.length, 0);
+  assert.equal(simple.amountBasis, "order");
   assert.equal("receivedMeaning" in simple, false);
   assert.equal(
     suggestFormat(

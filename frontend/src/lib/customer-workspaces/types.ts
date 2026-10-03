@@ -35,6 +35,7 @@ export type Property = {
     unresolvedCount?: number;
     coverageFrom?: string;
     sheetUrl?: string;
+    readableAt?: string;
     approvedByEmail?: string;
     approvedByOperator?: string;
   };
@@ -69,6 +70,7 @@ export type Booking = {
   checkOut: string;
   roomIds: string[];
   stays?: StaySegment[];
+  nightlyPrices?: { roomId: string; date: string; amount: number }[];
   total: number | null;
   expectedDeposit?: number | null;
   openingReceived?: { amount: number; asOf: string; note: string | null };
@@ -86,14 +88,18 @@ export type Booking = {
     fingerprint: string;
     externalId: string | null;
     row: number;
+    sourceRows?: number[];
+    references?: { row: number; column?: number }[];
+    normalizationVersion?: number;
   };
   importedFinance?: {
     currency: "TWD";
-    amountBasis: "order" | "night" | "none";
+    amountBasis: "order" | "line" | "night" | "room-night" | "none";
     sourceAmount: number | null;
-    receivedMeaning: "property" | "guest" | "none";
+    receivedMeaning: "source" | "property" | "guest" | "none";
     propertyReceived: number | null;
     guestPaid: number | null;
+    sourcePaid?: number | null;
   };
   requestKey: string;
   requestHash: string;

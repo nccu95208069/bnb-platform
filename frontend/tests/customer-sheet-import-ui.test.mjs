@@ -127,9 +127,9 @@ test("Sheet wizard maps columns, quarantines rows, preserves selection after los
   await click(button("讀取分頁"));
   await click(button("讀取資料"));
   let selects = document.querySelectorAll("select");
-  await input(selects[1], "0");
-  await input(selects[2], "1");
-  await input(selects[3], "2");
+  await input(selects[2], "0");
+  await input(selects[3], "1");
+  await input(selects[4], "2");
   const firstRoomGroup = [...document.querySelectorAll("fieldset")].find((f) =>
     f.querySelector("legend")?.textContent.startsWith("來源「villa」"),
   );

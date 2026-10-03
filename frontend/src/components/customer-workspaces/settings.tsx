@@ -11,6 +11,7 @@ import type {
 import { api, button, field, secondary, today } from "./client";
 import { useCommand } from "./use-command";
 import { WorkspaceNav } from "./workspace-nav";
+import { StandardSheetPanel } from "./standard-sheet";
 const roles: [Role, string][] = [
   ["admin", "管理員：訂房、收退款及房價"],
   ["housekeeper", "管家：訂房、登記收款"],
@@ -465,6 +466,7 @@ export function CustomerSettings({
             ["properties", "館別與房間"],
             ...(data.role === "owner" ? [["members", "協作成員"]] : []),
             ["pricing", "房價設定"],
+            ...(data.role === "owner" ? [["standard", "標準帳本"]] : []),
           ].map(([value, label]) => (
             <button
               key={value}
@@ -503,6 +505,9 @@ export function CustomerSettings({
               重試相同操作
             </button>
           </div>
+        )}
+        {panel === "standard" && data.role === "owner" && (
+          <StandardSheetPanel slug={data.slug} />
         )}
         {panel === "properties" && (
           <section className="space-y-5">

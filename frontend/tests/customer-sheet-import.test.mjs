@@ -174,11 +174,12 @@ test("ambiguous duplicate IDs, repeated rows, invalid year and contradictory map
   ]);
   source.rows.push(["10/5", "10/6", "single", "", "id-4", "", ""]);
   const p = await previewImport(...args, source, mapping);
-  assert.match(p.rows[1].issues.join(""), /多列/);
-  assert.match(p.rows[3].issues.join(""), /多列/);
-  assert.equal(p.rows[4].draft, null);
+  assert.equal(p.rows.length, 4);
+  assert.match(p.rows[1].issues.join(""), /不同客人/);
+  assert.deepEqual(p.rows[1].sourceRows, [3, 5]);
+  assert.equal(p.rows[3].draft, null);
   await assert.rejects(
-    previewImport(...args, source, { ...mapping, granularity: "night" }),
+    previewImport(...args, source, { ...mapping, granularity: "not-a-layout" }),
     /INVALID_INPUT/,
   );
   await assert.rejects(

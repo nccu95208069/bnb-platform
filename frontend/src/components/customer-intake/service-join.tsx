@@ -607,7 +607,7 @@ export function ServiceJoin({
                               onChange={(e) => setShared(e.target.checked)}
                               className="mt-2 size-4 shrink-0"
                             />
-                            我已將這份試算表分享給上述帳號，了解仍需核對權限與內容。
+                            我已將這份試算表分享給上述帳號，接著會預覽並確認匯入內容。
                           </label>
                         )}
                         <div className="flex flex-wrap gap-3">
@@ -772,7 +772,7 @@ export function ServiceJoin({
                     {source === "sheet" &&
                       (result.sheetAccess === "verified"
                         ? "Sheet 已可讀取，格式仍待確認；"
-                        : "Sheet 權限尚待核對；")}
+                        : "Sheet 尚待確認是否可讀取；")}
                     目前沒有匯入或更改你的訂房。
                   </p>
                   <p className="break-all text-sm service-text-muted">
@@ -789,7 +789,7 @@ export function ServiceJoin({
                 <form onSubmit={submit} className="mt-5 space-y-4">
                   <p className="text-sm leading-7 service-text-muted">
                     {intent === "join"
-                      ? "我們會核對分享權限與資料，再協助你開通使用。"
+                      ? "我們會確認來源可讀取，再協助你核對資料並開通使用。"
                       : "請填寫以下資料。若已填寫旅宿問卷，提交時會一併附上。"}
                   </p>
                   {!enabled && (

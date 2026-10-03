@@ -465,3 +465,11 @@ finance sources remain read-only. See
 `docs/work-handoff/CUSTOMER_WORKFLOWS_2026-09-28.md` for implementation, privacy,
 verification and current UI/host limits. Real guest mutations are not used as
 acceptance tests without a specific target/action authorization.
+
+## Customer standard workbook — 2026-10-03
+
+The latest owner instruction explicitly removes source Sheet owner/editor email matching: the file creator and application user may be different accounts. Source readability is sufficient for format mapping inside the authenticated, bound customer workspace. Account verification, membership and property scopes remain separate controls. This supersedes earlier onboarding identity-review wording.
+
+Customer sources remain unchanged. The importer now groups explicit order IDs from whole-order, stay-segment and nightly rows, or explicit per-cell calendar-grid groups. One order owns one total and source cumulative payment; room nights and actual dated receipts are separate records. The generic source-paid summary does not claim bank receipt or invent transaction dates.
+
+Six-tab standard Google workbooks are implemented as verified projections of the existing atomic customer workspace store, not an unannounced migration of the legacy operational SSOT. Owner-only binding/export, destination claims, write/readback, pending versions and retry recovery are implemented. The blank template and fully synthetic example have passed real Google gateway write/readback and repeat-sync checks. Automatic per-customer copying needs a shared-drive folder, which is not currently available; a prepared independent template copy can be bound now. See `docs/work-handoff/STANDARD_SHEET_2026-10-03.md` for the specification, native artifacts, exact validation and release boundary.

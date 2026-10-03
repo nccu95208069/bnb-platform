@@ -199,6 +199,7 @@ export function view(workspace: Workspace, member: Membership): WorkspaceView {
             imported: undefined,
             expectedDeposit: undefined,
             openingReceived: undefined,
+            nightlyPrices: undefined,
           }
         : booking;
     });

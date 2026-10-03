@@ -1,5 +1,7 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
+Latest customer-import implementation: see [standard workbook and conversion rules](STANDARD_SHEET_2026-10-03.md). The original sources remain read-only, owner/editor identity matching is removed, and grouped orders/nightly rows/calendar grids now normalize into a standard ledger. Remaining standard-workbook work is deployment acceptance and optional shared-drive provisioning for automatic copies, plus a separately specified continuous-source-sync contract. Do not reintroduce the superseded single-row-only or source-owner-email restrictions.
+
 The next phase should implement the Agent-First backend rather than expand the prototype UI.
 
 ## Milestone 0 — Verify the current truth

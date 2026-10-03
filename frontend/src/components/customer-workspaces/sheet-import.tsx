@@ -18,7 +18,8 @@ const columnLabels = {
   guestName: "姓名（選填）",
   externalId: "來源訂單編號（建議）",
   total: "房費（選填）",
-  received: "已付／實收（選填）",
+  received: "累計已付／訂金（選填）",
+  status: "訂單狀態（選填）",
 };
 export function SheetImport({
   slug,
@@ -66,6 +67,7 @@ export function SheetImport({
       externalId: -1,
       total: -1,
       received: -1,
+      status: -1,
     },
     roomMap: {},
     granularity: "order",
@@ -152,10 +154,16 @@ export function SheetImport({
           ),
         ]
       : [];
+  const isGrid = mapping.granularity === "grid";
+  const isNight = mapping.granularity === "night";
   const mappingComplete =
-    mapping.columns.checkIn >= 0 &&
-    mapping.columns.checkOut >= 0 &&
+    (isGrid
+      ? Boolean(mapping.grid?.dateColumns.length)
+      : mapping.columns.checkIn >= 0 &&
+        (isNight || mapping.columns.checkOut >= 0)) &&
     mapping.columns.rooms >= 0 &&
+    (!["stay", "night"].includes(mapping.granularity) ||
+      mapping.columns.externalId >= 0) &&
     (mapping.amountBasis === "none") === (mapping.columns.total === -1) &&
     (mapping.receivedMeaning === "none") === (mapping.columns.received === -1);
   const columnCount = Math.max(0, ...(source?.rows.map((r) => r.length) ?? []));
@@ -163,6 +171,25 @@ export function SheetImport({
     id: i,
     label: `第 ${i + 1} 欄 · ${source?.rows[mapping.headerRow - 1]?.[i] || "未命名"}`,
   }));
+  const gridCells =
+    isGrid && source
+      ? source.rows.slice(mapping.headerRow).flatMap((row, i) =>
+          (mapping.grid?.dateColumns ?? []).flatMap((column) =>
+            row[column]?.trim()
+              ? [
+                  {
+                    key: `${mapping.headerRow + i + 1}:${column + 1}`,
+                    row: mapping.headerRow + i + 1,
+                    column: column + 1,
+                    room: row[mapping.columns.rooms] ?? "",
+                    date: source.rows[mapping.headerRow - 1]?.[column] ?? "",
+                    content: row[column].trim(),
+                  },
+                ]
+              : [],
+          ),
+        )
+      : [];
   return (
     <main className="min-h-dvh bg-stone-50 p-4 text-slate-800 sm:p-8">
       <div className="mx-auto max-w-5xl">
@@ -173,9 +200,8 @@ export function SheetImport({
           從 Google Sheet 匯入 · {property.name}
         </h1>
         <p className="my-3 text-slate-600">
-          一次匯入，往後以 OS
-          為準。只讀取試算表，不會回寫或持續同步，也不會通知客人或關閉 OTA
-          房量。
+          系統會把不同紀錄方式轉成標準訂單，保留原表與來源列。這是一次性匯入，往後以
+          OS 為準；不會持續讀取原表、通知客人或關閉 OTA 房量。
         </p>
         {error && (
           <p role="alert" className="my-4 rounded-xl bg-red-50 p-4">
@@ -239,12 +265,12 @@ export function SheetImport({
           disabled={busy || uncertain}
           className="rounded-2xl border bg-white p-5 disabled:opacity-60"
         >
-          <legend className="px-2 font-semibold">1. 連結自己的試算表</legend>
+          <legend className="px-2 font-semibold">1. 連結來源試算表</legend>
           <p className="mb-3 text-sm">
             {boundUrl
-              ? "已核對申請與分享權限。請選擇要匯入的分頁，確認一列代表一筆完整訂單。"
+              ? "請選擇要匯入的分頁。Sheet 建立者與登入帳號可以不同，不需變更原表格式。"
               : shareEmail
-                ? `先將 Sheet 的檢視權限分享給 ${shareEmail}，再貼上連結。系統也會核對你有權使用這份資料；不需公開檔案。`
+                ? `先將 Sheet 的檢視權限分享給 ${shareEmail}，再貼上連結。不要求建立者與登入帳號相同，也不需公開檔案。`
                 : "Google 唯讀授權約一小時有效。不需公開分享檔案。"}
           </p>
           {!configured && (
@@ -302,9 +328,7 @@ export function SheetImport({
                     version?: number;
                   }>({ action: "bind", url });
                   if (linked.status !== "approved") {
-                    setNotice(
-                      "分享已可讀取，但還需要專人核對資料使用權限。需求已保存，確認後會寄信通知你。",
-                    );
+                    setNotice("來源連結尚未完成，請重新讀取或聯絡專人協助。");
                     return;
                   }
                   setBoundUrl(linked.url ?? url);
@@ -388,25 +412,24 @@ export function SheetImport({
                 <button
                   type="button"
                   className={secondary}
-                  disabled={
-                    suggestion.layout === "grid" ||
-                    suggestion.layout === "nightly"
-                  }
                   onClick={() =>
                     changeMapping({
                       ...mapping,
                       headerRow: suggestion.headerRow,
                       columns: suggestion.columns,
                       roomMap: suggestion.roomMap,
-                      amountBasis: "none",
-                      receivedMeaning: "none",
+                      granularity: suggestion.granularity,
+                      amountBasis: suggestion.amountBasis,
+                      receivedMeaning:
+                        suggestion.columns.received < 0 ? "none" : "source",
+                      grid: suggestion.grid,
                     })
                   }
                 >
                   採用欄位與房間建議，再由我核對
                 </button>
                 <p className="text-xs text-slate-600">
-                  建議依欄名與房名比對，不會猜測金額，也不會自動匯入。逐晚、逐房拆列或月曆格請先使用上方「請專人協助核對」。
+                  建議依欄名與房名比對。相同訂單的多列會整組預覽；有歧義時只暫停那組，不需要改原表。
                 </p>
               </section>
             )}
@@ -414,6 +437,57 @@ export function SheetImport({
               {source.title} · {source.rows.length} 列。最多 501 列、前 52
               欄。日期需包含西元年，例如 2026/10/2。金額以新臺幣計。
             </p>
+            <label className="mt-3 block">
+              來源紀錄方式
+              <select
+                className={field}
+                value={mapping.granularity}
+                onChange={(e) => {
+                  const granularity = e.target.value as Mapping["granularity"];
+                  changeMapping({
+                    ...mapping,
+                    granularity,
+                    ...(granularity === "night"
+                      ? { columns: { ...mapping.columns, checkOut: -1 } }
+                      : {}),
+                    ...(granularity === "grid"
+                      ? {
+                          columns: {
+                            checkIn: -1,
+                            checkOut: -1,
+                            rooms: mapping.columns.rooms,
+                            guestName: -1,
+                            externalId: -1,
+                            total: -1,
+                            received: -1,
+                            status: -1,
+                          },
+                          amountBasis: "none",
+                          receivedMeaning: "none",
+                          grid: {
+                            dateColumns: (
+                              source.rows[mapping.headerRow - 1] ?? []
+                            ).flatMap((v, i) =>
+                              /^\d{4}[-/]\d{1,2}[-/]\d{1,2}$/.test(v.trim())
+                                ? [i]
+                                : [],
+                            ),
+                            cellMeaning: "guest-name",
+                            orderIds: {},
+                          },
+                        }
+                      : {}),
+                  });
+                }}
+              >
+                <option value="order">一列是一張完整訂單</option>
+                <option value="stay">
+                  一列是一間房或一段住宿，同張訂單可能多列
+                </option>
+                <option value="night">一列是一個住宿夜</option>
+                <option value="grid">日期橫排、房間直排的房況格</option>
+              </select>
+            </label>
             <label className="mt-3 block">
               標題在第幾列
               <input
@@ -427,6 +501,15 @@ export function SheetImport({
                     ...mapping,
                     headerRow: Number(e.target.value),
                     roomMap: {},
+                    ...(isGrid
+                      ? {
+                          grid: {
+                            dateColumns: [],
+                            cellMeaning: "guest-name",
+                            orderIds: {},
+                          },
+                        }
+                      : {}),
                   })
                 }
               />
@@ -449,73 +532,172 @@ export function SheetImport({
               </table>
             </div>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
-              {Object.entries(columnLabels).map(([key, label]) => (
-                <label key={key}>
-                  {label}
+              {Object.entries(columnLabels)
+                .filter(([key]) =>
+                  isGrid ? key === "rooms" : !(isNight && key === "checkOut"),
+                )
+                .map(([key, label]) => (
+                  <label key={key}>
+                    {key === "checkIn" && isNight ? "住宿日期" : label}
+                    <select
+                      className={field}
+                      value={
+                        mapping.columns[key as keyof typeof columnLabels] ?? -1
+                      }
+                      onChange={(e) =>
+                        changeMapping({
+                          ...mapping,
+                          columns: {
+                            ...mapping.columns,
+                            [key]: Number(e.target.value),
+                          },
+                          ...(key === "rooms" ? { roomMap: {} } : {}),
+                          ...(key === "received"
+                            ? {
+                                receivedMeaning:
+                                  Number(e.target.value) < 0
+                                    ? "none"
+                                    : "source",
+                              }
+                            : {}),
+                          ...(key === "total" && Number(e.target.value) < 0
+                            ? { amountBasis: "none" }
+                            : {}),
+                        })
+                      }
+                    >
+                      <option value={-1}>不匯入／尚未選擇</option>
+                      {columns.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ))}
+            </div>
+            {!isGrid && (
+              <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                <label>
+                  房費欄位的意思
                   <select
                     className={field}
-                    value={mapping.columns[key as keyof typeof columnLabels]}
+                    value={mapping.amountBasis}
                     onChange={(e) =>
                       changeMapping({
                         ...mapping,
-                        columns: {
-                          ...mapping.columns,
-                          [key]: Number(e.target.value),
-                        },
-                        ...(key === "rooms" ? { roomMap: {} } : {}),
+                        amountBasis: e.target.value as Mapping["amountBasis"],
                       })
                     }
                   >
-                    <option value={-1}>不匯入／尚未選擇</option>
-                    {columns.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.label}
-                      </option>
-                    ))}
+                    <option value="none">不匯入金額</option>
+                    <option value="order">
+                      整筆訂單、全部房間與夜晚的總額
+                    </option>
+                    <option value="line">每列的完整金額，合併時相加</option>
+                    <option value="night">全部所選房間每晚合計 × 晚數</option>
+                    <option value="room-night">
+                      每間房每晚價格 × 房間數 × 晚數
+                    </option>
                   </select>
                 </label>
-              ))}
-            </div>
-            <div className="mt-5 grid gap-4 sm:grid-cols-2">
-              <label>
-                房費欄位的意思
-                <select
-                  className={field}
-                  value={mapping.amountBasis}
-                  onChange={(e) =>
-                    changeMapping({
-                      ...mapping,
-                      amountBasis: e.target.value as Mapping["amountBasis"],
-                    })
-                  }
-                >
-                  <option value="none">不匯入金額</option>
-                  <option value="order">整筆訂單、全部房間與夜晚的總額</option>
-                  <option value="night">全部所選房間每晚合計 × 晚數</option>
-                </select>
-              </label>
-              <label>
-                已付／實收欄位的意思
-                <select
-                  className={field}
-                  value={mapping.receivedMeaning}
-                  onChange={(e) =>
-                    changeMapping({
-                      ...mapping,
-                      receivedMeaning: e.target
-                        .value as Mapping["receivedMeaning"],
-                    })
-                  }
-                >
-                  <option value="none">不匯入收款</option>
-                  <option value="property">旅宿實際已收到的累計金額</option>
-                  <option value="guest">旅客已付平台，尚非旅宿實收</option>
-                </select>
-              </label>
-            </div>
+              </div>
+            )}
             <p className="mt-3 text-sm">
-              累計實收只保留來源摘要，不會捏造付款日期或交易明細。空白金額維持未知。
+              同一訂單重複出現的總額與累計已付只記一次；不同金額會列為待核對。來源累計保留原意，不新增假的付款日期。空白金額維持未知。
             </p>
+            {isGrid && (
+              <section className="mt-4 space-y-3 rounded-xl border p-4">
+                <h3 className="font-medium">房況格對應</h3>
+                <p className="text-sm">
+                  選擇包含完整年份的日期欄。空白格不建立訂單，有內容的格子都會檢查。若格內是姓名，請為每個格子填來源訂單編號；同名不會自動合併。
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  {columns
+                    .filter((c) => c.id !== mapping.columns.rooms)
+                    .map((c) => (
+                      <label
+                        key={c.id}
+                        className="flex items-center gap-2 text-sm"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={
+                            mapping.grid?.dateColumns.includes(c.id) ?? false
+                          }
+                          onChange={(e) =>
+                            changeMapping({
+                              ...mapping,
+                              grid: {
+                                cellMeaning:
+                                  mapping.grid?.cellMeaning ?? "guest-name",
+                                orderIds: {},
+                                dateColumns: e.target.checked
+                                  ? [...(mapping.grid?.dateColumns ?? []), c.id]
+                                  : (mapping.grid?.dateColumns ?? []).filter(
+                                      (n) => n !== c.id,
+                                    ),
+                              },
+                            })
+                          }
+                        />
+                        {c.label}
+                      </label>
+                    ))}
+                </div>
+                <label className="block">
+                  格子內容
+                  <select
+                    className={field}
+                    value={mapping.grid?.cellMeaning ?? "guest-name"}
+                    onChange={(e) =>
+                      changeMapping({
+                        ...mapping,
+                        grid: {
+                          dateColumns: mapping.grid?.dateColumns ?? [],
+                          orderIds: {},
+                          cellMeaning: e.target.value as
+                            "guest-name" | "order-id",
+                        },
+                      })
+                    }
+                  >
+                    <option value="guest-name">
+                      客人姓名，需要指定訂單編號
+                    </option>
+                    <option value="order-id">已經是完整訂單編號</option>
+                  </select>
+                </label>
+                {mapping.grid?.cellMeaning === "guest-name" && (
+                  <div className="max-h-96 overflow-auto">
+                    {gridCells.map((cell) => (
+                      <label key={cell.key} className="mb-3 block text-sm">
+                        第 {cell.row} 列、第 {cell.column} 欄 · {cell.room} ·{" "}
+                        {cell.date} · {cell.content}
+                        <input
+                          className={field}
+                          aria-label={`儲存格 ${cell.key} 的訂單編號`}
+                          maxLength={200}
+                          value={mapping.grid?.orderIds[cell.key] ?? ""}
+                          onChange={(e) =>
+                            changeMapping({
+                              ...mapping,
+                              grid: {
+                                ...mapping.grid!,
+                                orderIds: {
+                                  ...mapping.grid!.orderIds,
+                                  [cell.key]: e.target.value,
+                                },
+                              },
+                            })
+                          }
+                        />
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
             {labels.map((label) => (
               <fieldset key={label} className="mt-4 rounded-xl border p-3">
                 <legend>來源「{label}」對應哪些實體房間？</legend>
@@ -561,7 +743,7 @@ export function SheetImport({
             </label>
             {!mappingComplete && (
               <p className="mt-4 text-sm text-amber-800">
-                請選齊入住、退房與房間欄位。若選了房費或實收欄，也要回答金額的意思；不匯入金額時，請把對應欄位設為「不匯入」。無法對應的房名會列為待核對，不會匯入。
+                請選齊此紀錄方式需要的日期、房間與訂單編號。若選了房費欄，請確認金額是整筆、每列或每晚；不匯入金額時，請把對應欄位設為「不匯入」。
               </p>
             )}
             <label className="mt-4 flex items-start gap-3">
@@ -572,7 +754,7 @@ export function SheetImport({
                 className="mt-1"
               />
               <span>
-                確認每列是一筆完整訂單、金額是新臺幣，並已核對房間對應。逐晚或逐房拆列、取消訂單請先整理；此版不自動判讀狀態欄。匯入後以
+                已確認紀錄方式、房間對應與金額是新臺幣。系統會按訂單編號合併，並列出衝突或無法判讀的資料；匯入後以
                 OS 為準。
               </span>
             </label>
@@ -603,7 +785,7 @@ export function SheetImport({
           <section className="mt-5 rounded-2xl border bg-white p-5">
             <h2 className="font-semibold">3. 選擇要匯入的訂單</h2>
             <p className="my-3 text-sm">
-              可先匯入無問題的資料。未勾選與有問題的列不會寫入；預覽保留一小時。
+              每一列預覽代表合併後的一張訂單。可先匯入無問題的整組資料；有問題的訂單不會只匯入其中幾晚。預覽保留一小時。
             </p>
             <div className="overflow-auto">
               <table className="w-full text-sm">
@@ -642,27 +824,59 @@ export function SheetImport({
                           }
                         />
                       </td>
-                      <td className="border p-2">{r.row}</td>
+                      <td className="border p-2">
+                        {r.references?.some((ref) => ref.column)
+                          ? r.references
+                              .map((ref) => `${ref.row}:${ref.column}`)
+                              .join("、")
+                          : (r.sourceRows ?? [r.row]).join("、")}
+                      </td>
                       <td className="border p-2">
                         {r.draft?.guestName || "未填姓名"}
                         <br />
+                        {r.draft?.externalId && (
+                          <>
+                            <span className="text-xs">
+                              {r.draft.externalId}
+                            </span>
+                            <br />
+                          </>
+                        )}
                         {property.rooms
                           .filter((room) => r.draft?.roomIds.includes(room.id))
                           .map((room) => room.name)
                           .join("、")}
                       </td>
                       <td className="whitespace-nowrap border p-2">
-                        {r.draft?.checkIn}
-                        <br />
-                        {r.draft?.checkOut}
+                        {(r.draft?.stays ?? (r.draft ? [r.draft] : [])).map(
+                          (stay, i) => (
+                            <div key={i}>
+                              {stay.checkIn} ～ {stay.checkOut}
+                              <br />
+                              <span className="text-xs">
+                                {property.rooms
+                                  .filter((room) =>
+                                    stay.roomIds.includes(room.id),
+                                  )
+                                  .map((room) => room.name)
+                                  .join("、")}
+                              </span>
+                            </div>
+                          ),
+                        )}
+                        {r.roomNightCount > 0 && (
+                          <span className="text-xs">
+                            共 {r.roomNightCount} 個房晚
+                          </span>
+                        )}
                       </td>
                       <td className="border p-2">{r.draft?.total ?? "未知"}</td>
                       <td className="border p-2">
-                        旅宿實收{" "}
-                        {r.draft?.importedFinance?.propertyReceived ?? "未知"}
-                        <br />
-                        旅客付平台{" "}
-                        {r.draft?.importedFinance?.guestPaid ?? "未知"}
+                        來源累計已付{" "}
+                        {r.draft?.importedFinance?.sourcePaid ??
+                          r.draft?.importedFinance?.propertyReceived ??
+                          r.draft?.importedFinance?.guestPaid ??
+                          "未知"}
                       </td>
                       <td className="min-w-40 border p-2">
                         {r.issues.join("；") || "可匯入"}

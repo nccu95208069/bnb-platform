@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-03 latest Sheet decision: [standard workbook and conversion rules](STANDARD_SHEET_2026-10-03.md). Source creator/user identity matching is removed. Grouped stays, nightly rows and explicit calendar-grid groups now produce one order ledger, with separate room-night details and source-paid summaries. A native blank template and synthetic example have been created and verified through the production Google gateway; public rollout remains separate.
+
 2026-10-03 customer update: [multiple properties, collaborators, unsold lists, pricing and order receipts](CUSTOMER_OPERATIONS_2026-10-03.md). Includes the format-assistance decision, coverage safeguards, role matrix, 54 service/API/auth and 15 DOM checks, and remaining acceptance boundaries. The protected customer candidate is separate from the primary production site.
 
 2026-09-14 production update: [OwlNest price refresh and calendar position repair](CALENDAR_PRICE_REFRESH_2026-09-14.md), deployed with verified live price snapshot refresh; signed-in owner acceptance remains.

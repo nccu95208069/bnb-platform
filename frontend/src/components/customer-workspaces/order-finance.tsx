@@ -148,6 +148,13 @@ export function OrderFinance({
       )}
       {booking.entry === "sheet" && (
         <div className="my-4 rounded-xl bg-stone-50 p-3 text-sm leading-6">
+          {booking.importedFinance?.receivedMeaning === "source" && (
+            <p>
+              來源累計已付：
+              {formatMoney(booking.importedFinance.sourcePaid ?? null)}
+              （保留原表摘要）
+            </p>
+          )}
           <p>匯入前累計旅宿實收：{formatMoney(summary.openingReceived)}</p>
           {booking.importedFinance?.guestPaid != null && (
             <p>

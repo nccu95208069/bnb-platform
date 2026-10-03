@@ -6,6 +6,7 @@ import * as Workspaces from "../src/app/api/customer-workspaces/route.ts";
 import * as Calendar from "../src/app/api/customer-workspaces/[slug]/route.ts";
 import * as Import from "../src/app/api/customer-workspaces/[slug]/import/route.ts";
 import * as GoogleCallback from "../src/app/api/customer-google/callback/route.ts";
+import * as Standard from "../src/app/api/customer-workspaces/[slug]/standard-sheet/route.ts";
 import * as Legacy from "../src/app/api/calendar-session/route.ts";
 const request = (
   path,
@@ -107,6 +108,48 @@ test("API enforces CSRF, tenant boundaries, no-store, separate legacy sessions a
   );
   const view = await calendar.json();
   assert.equal(calendar.status, 200);
+  assert.equal(
+    (
+      await Standard.GET(
+        request("customer-workspaces/api-inn/standard-sheet"),
+        context,
+      )
+    ).status,
+    401,
+  );
+  const standard = await Standard.GET(
+    request("customer-workspaces/api-inn/standard-sheet", "GET", null, cookie),
+    context,
+  );
+  assert.equal(standard.status, 200);
+  assert.equal(standard.headers.get("cache-control"), "private, no-store");
+  assert.equal((await standard.json()).state, "unlinked");
+  const download = await Standard.GET(
+    request(
+      "customer-workspaces/api-inn/standard-sheet?download=1",
+      "GET",
+      null,
+      cookie,
+    ),
+    context,
+  );
+  assert.equal(download.status, 200);
+  assert.equal((await download.json()).tables.orders.length, 1);
+  assert.equal(
+    (
+      await Standard.POST(
+        request(
+          "customer-workspaces/api-inn/standard-sheet",
+          "POST",
+          { action: "sync" },
+          cookie,
+          "https://evil.test",
+        ),
+        context,
+      )
+    ).status,
+    403,
+  );
   const booking = {
     propertyId: view.properties[0].id,
     roomIds: [view.properties[0].rooms[0].id],

@@ -356,7 +356,7 @@ test("invitation strips its fragment and asks existing members for their current
   assert.match(document.body.textContent, /原密碼不正確/);
   assert.match(document.body.textContent, /原本的旅宿與密碼會保留/);
 });
-test("format helper suggests labels but leaves amount semantics and final confirmation to the user", async (t) => {
+test("format helper recognizes explicit totals and preserves source paid without a recipient question", async (t) => {
   const rows = [
     ["入住日期", "退房日期", "房號", "訂單總額", "已付"],
     ["2027-01-01", "2027-01-02", "101", "3000", "1000"],
@@ -386,8 +386,9 @@ test("format helper suggests labels but leaves amount semantics and final confir
   await click(button("讀取資料"));
   await click(button("採用欄位與房間建議，再由我核對"));
   assert.equal(control("入住日期").value, "0");
-  assert.equal(control("房費欄位的意思").value, "none");
-  assert.equal(control("已付／實收欄位的意思").value, "none");
+  assert.equal(control("房費欄位的意思").value, "order");
+  assert.equal(control("已付／實收欄位的意思"), undefined);
+  assert.equal(control("累計已付／訂金（選填）").value, "4");
   assert.equal(button("產生匯入預覽").disabled, true);
-  assert.match(document.body.textContent, /一列是一筆完整訂單/);
+  assert.match(document.body.textContent, /一列是一張完整訂單/);
 });

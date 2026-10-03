@@ -12,7 +12,7 @@ type Application = {
 };
 const statuses = {
   verify_email: "等待客戶確認信箱",
-  review: "等待核對資料權限",
+  review: "等待讀取來源並確認格式",
   mapping: "等待客戶確認格式",
   help: "需要專人協助",
   partial: "已部分匯入，仍有資料待核對",
@@ -24,7 +24,6 @@ export function OnboardingAdmin() {
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [loaded, setLoaded] = useState(false),
-    [identity, setIdentity] = useState<Record<string, boolean>>({}),
     [messages, setMessages] = useState<Record<string, string>>({});
   async function refresh() {
     const result = await api<{
@@ -45,7 +44,6 @@ export function OnboardingAdmin() {
       await api("/api/onboarding-admin", "POST", {
         id,
         action,
-        confirmIdentity: identity[id] === true,
         message: messages[id],
       });
       await refresh();
@@ -64,7 +62,8 @@ export function OnboardingAdmin() {
         <h1 className="my-5 text-2xl font-semibold">客戶加入申請</h1>
         <p className="mb-5 text-sm text-slate-600">
           顯示最近 50
-          筆申請。分享勾勾只代表可讀取；身分、格式與匯入結果分開核對。
+          筆申請。系統讀取客戶提供的來源，再核對格式與匯入結果；不比對 Sheet
+          擁有者與申請信箱。
         </p>
         {error && (
           <div role="alert" className="my-4 rounded-xl bg-red-50 p-4">
@@ -92,14 +91,14 @@ export function OnboardingAdmin() {
               >
                 <h3 className="font-semibold">
                   {request.propertyName} ·{" "}
-                  {request.kind === "source" ? "資料使用權限" : "格式核對"}
+                  {request.kind === "source" ? "來源連結協助" : "格式核對"}
                 </h3>
                 <p className="text-sm">
                   {request.email} ·{" "}
                   {request.status === "open"
                     ? "待處理"
                     : request.status === "approved"
-                      ? "權限已核對"
+                      ? "來源已連結"
                       : request.status === "replied"
                         ? "已回覆"
                         : "已完成"}
@@ -120,21 +119,6 @@ export function OnboardingAdmin() {
                     上次回覆：{request.response}
                   </p>
                 )}
-                {request.kind === "source" && request.status !== "approved" && (
-                  <label className="flex items-start gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={identity[request.id] ?? false}
-                      onChange={(e) =>
-                        setIdentity({
-                          ...identity,
-                          [request.id]: e.target.checked,
-                        })
-                      }
-                    />
-                    我已人工確認此帳號有權將這份資料匯入該旅宿
-                  </label>
-                )}
                 <label className="block text-sm">
                   要寄給客戶的核對說明
                   <textarea
@@ -151,10 +135,10 @@ export function OnboardingAdmin() {
                     request.status !== "approved" && (
                       <button
                         className={button}
-                        disabled={busy || !identity[request.id]}
+                        disabled={busy}
                         onClick={() => act(request.id, "source-approve")}
                       >
-                        核對權限並通知客戶
+                        重新讀取來源並通知客戶
                       </button>
                     )}
                   <button
@@ -230,18 +214,6 @@ export function OnboardingAdmin() {
             {r.answers.note && (
               <p className="whitespace-pre-wrap text-sm">{r.answers.note}</p>
             )}
-            {j?.verifiedAt && !j.approvedAt && (
-              <label className="flex items-start gap-3 text-sm">
-                <input
-                  type="checkbox"
-                  checked={identity[r.id] ?? false}
-                  onChange={(e) =>
-                    setIdentity({ ...identity, [r.id]: e.target.checked })
-                  }
-                />
-                已核對此申請人確實有權使用這份試算表；同意開放給此帳號確認格式。
-              </label>
-            )}
             <div className="flex flex-wrap gap-3">
               <button
                 className={secondary}
@@ -253,10 +225,10 @@ export function OnboardingAdmin() {
               {j?.verifiedAt && !j.approvedAt && (
                 <button
                   className={button}
-                  disabled={busy || !identity[r.id]}
+                  disabled={busy}
                   onClick={() => act(r.id, "approve")}
                 >
-                  核對通過，通知客戶確認格式
+                  重新讀取來源，通知客戶確認格式
                 </button>
               )}
             </div>

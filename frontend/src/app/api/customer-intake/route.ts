@@ -13,7 +13,7 @@ import {
   sendCustomerLifecycleMail,
 } from "@/lib/workspace-auth/mail";
 import { beginOnboarding } from "@/lib/customer-intake/onboarding";
-import { sheetApplicantHasAccess } from "@/lib/customer-workspaces/shared-sheet";
+import { checkSharedSheet } from "@/lib/customer-workspaces/shared-sheet";
 import type { IntakeRecord } from "@/lib/customer-intake/types";
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -84,10 +84,8 @@ export async function POST(request: NextRequest) {
       answers.intent === "join" &&
       (!existing || existing.sheetAccess !== "verified")
     ) {
-      applicantCanRead = await sheetApplicantHasAccess(
-        answers.sheetUrl,
-        answers.email,
-      );
+      await checkSharedSheet(answers.sheetUrl);
+      applicantCanRead = true;
     }
     const result = await submitIntake(store, input, ({ subject, text }) =>
       intakePreview()

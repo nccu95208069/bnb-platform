@@ -41,8 +41,7 @@ async function token() {
     Buffer.from(JSON.stringify(v)).toString("base64url");
   const unsigned = `${b64({ alg: "RS256", typ: "JWT" })}.${b64({
     iss: c.client_email,
-    scope:
-      "https://www.googleapis.com/auth/spreadsheets.readonly https://www.googleapis.com/auth/drive.metadata.readonly",
+    scope: "https://www.googleapis.com/auth/spreadsheets.readonly",
     aud: "https://oauth2.googleapis.com/token",
     iat: now,
     exp: now + 600,
@@ -141,33 +140,6 @@ export async function checkSharedSheet(url: unknown) {
   await metadata(id, await token());
   // Public checks disclose no titles, cells, owners or other customer data.
   return { readable: true as const, checkedAt: new Date().toISOString() };
-}
-export async function sheetApplicantHasAccess(url: unknown, email: string) {
-  const id = spreadsheetId(url),
-    access = await token();
-  await metadata(id, access);
-  // The link alone is not ownership. Never release data to a claimant merely
-  // because another customer has already shared that file with our reader.
-  try {
-    const data = await get(
-      `https://www.googleapis.com/drive/v3/files/${id}?fields=owners(emailAddress),permissions(type,emailAddress,role)&supportsAllDrives=true`,
-      access,
-    );
-    const eligible = [
-      ...(data.owners ?? []),
-      ...(data.permissions ?? []).filter(
-        (p: { type: string; role: string }) =>
-          p.type === "user" &&
-          ["writer", "owner", "organizer", "fileOrganizer"].includes(p.role),
-      ),
-    ];
-    return eligible.some(
-      (p: { emailAddress?: string }) =>
-        p.emailAddress?.toLowerCase() === email.toLowerCase(),
-    );
-  } catch {
-    return false;
-  } // Missing permission metadata requires operator review.
 }
 export async function sharedTabs(url: unknown) {
   const id = spreadsheetId(url);

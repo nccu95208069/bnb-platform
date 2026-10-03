@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authenticate, CUSTOMER_COOKIE, digest, enabled } from "./auth.ts";
 import { RedisCustomerStore } from "./store.ts";
+import { standardSheetErrors } from "./standard-sheet-messages.ts";
 export const store = new RedisCustomerStore();
 export const headers = {
   "Cache-Control": "private, no-store",
@@ -39,6 +40,7 @@ export async function limitSession(request: NextRequest) {
 export function failure(error: unknown) {
   const code = error instanceof Error ? error.message : "";
   const errors: Record<string, [number, string]> = {
+    ...standardSheetErrors,
     SOURCE_COVERAGE: [
       409,
       "此日期早於已核對的匯入範圍。請先匯入涵蓋該日期的完整訂單；未顯示資料不能直接視為空房。",
@@ -87,7 +89,7 @@ export function failure(error: unknown) {
     ],
     FORMAT_CONFIRMATION_REQUIRED: [
       400,
-      "請先確認欄位、房間、訂單粒度與金額意義，再匯入。",
+      "請先確認紀錄方式、欄位與房間對應，再匯入。",
     ],
     SOURCE_CHANGED: [
       409,
@@ -102,10 +104,7 @@ export function failure(error: unknown) {
       "目前讀不到這份 Sheet。請確認連結正確，並將檢視權限分享給頁面上的系統帳號。",
     ],
     SHEET_READ_FAILED: [503, "Google 暫時無法回應，請稍後重新檢查。"],
-    SHEET_REVIEW_REQUIRED: [
-      409,
-      "申請仍待核對試算表使用權限。服務人員確認後會通知你繼續。",
-    ],
+    SHEET_REVIEW_REQUIRED: [409, "請先完成帳號啟用，再重新讀取來源。"],
     LINK_INVALID: [
       400,
       "連結已過期、已使用或帳號狀態已變更。請回登入頁申請新連結，或聯絡服務人員。",

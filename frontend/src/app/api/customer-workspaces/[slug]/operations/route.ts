@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { scheduleStandardSheetForSlug } from "@/lib/customer-workspaces/standard-sheet-jobs";
 import {
   body,
   failure,
@@ -109,6 +110,7 @@ export async function POST(request: NextRequest, context: Context) {
       default:
         throw new Error("INVALID_INPUT");
     }
+    await scheduleStandardSheetForSlug(store, account.id, slug);
     return NextResponse.json(result, { headers });
   } catch (error) {
     return failure(error);

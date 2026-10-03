@@ -37,7 +37,6 @@ import {
 import {
   checkSharedSheet,
   sharedSource,
-  sheetApplicantHasAccess,
 } from "../src/lib/customer-workspaces/shared-sheet.ts";
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const password = "Synthetic customer passphrase 88!";
@@ -99,7 +98,8 @@ function fixture(t, { owner = true, readable = true } = {}) {
       return Response.json({ access_token: "synthetic-only" });
     if (!state.readable)
       return Response.json({ error: "denied" }, { status: 403 });
-    if (u.startsWith("https://www.googleapis.com/drive/v3/files/"))
+    if (u.startsWith("https://www.googleapis.com/drive/v3/files/")) {
+      state.permissionQueries = (state.permissionQueries ?? 0) + 1;
       return Response.json({
         owners: [
           {
@@ -109,6 +109,7 @@ function fixture(t, { owner = true, readable = true } = {}) {
           },
         ],
       });
+    }
     if (u.includes("/values/")) return Response.json({ values: rows });
     if (u.startsWith("https://sheets.googleapis.com/v4/spreadsheets/"))
       return Response.json({
@@ -143,7 +144,7 @@ function fixture(t, { owner = true, readable = true } = {}) {
   return { store, sent, send, input, rows, state };
 }
 async function application(f) {
-  const claim = await sheetApplicantHasAccess(f.input.sheetUrl, f.input.email);
+  const claim = (await checkSharedSheet(f.input.sheetUrl)).readable;
   await submitIntake(f.store, f.input, async (m) =>
     f.send(m.to, m.subject, m.text),
   );
@@ -218,63 +219,52 @@ test("applicant receipt is independent, safe retries do not resend, and email-li
   );
   assert.equal((await listApplications(f.store)).length, 1);
 });
-test("unknown ownership cannot expose shared content; operator review is required and access revocation is detected", async (t) => {
+test("a different Sheet creator needs no identity review; workspace access and readability still apply", async (t) => {
   const f = fixture(t, { owner: false }),
     token = await application(f),
     { account } = await consumeAccountLink(f.store, token, password, password);
   const created = await provisionVerifiedApplication(
-      f.store,
-      f.input.requestKey,
-      account,
-    ),
-    loaded = await loadWorkspace(f.store, account.id, created.slug),
-    p = loaded.workspace.properties[0].id;
-  await assert.rejects(
-    sharedImportPermission(f.store, account.id, created.slug, p),
-    /SHEET_REVIEW_REQUIRED/,
-  );
-  await assert.rejects(
-    reviewApplication(
-      f.store,
-      f.input.requestKey,
-      "operator",
-      "approve",
-      {},
-      f.send,
-    ),
-    /SHEET_REVIEW_REQUIRED/,
-  );
-  await reviewApplication(
     f.store,
     f.input.requestKey,
-    "operator",
-    "approve",
-    { confirmIdentity: true },
-    f.send,
+    account,
   );
+  const loaded = await loadWorkspace(f.store, account.id, created.slug),
+    p = loaded.workspace.properties[0].id;
+  assert.ok(loaded.workspace.onboarding.approvedAt);
   assert.equal(
     (await sharedImportPermission(f.store, account.id, created.slug, p)).url,
     f.input.sheetUrl,
   );
+  assert.equal(f.state.permissionQueries ?? 0, 0);
   await assert.rejects(
     sharedImportPermission(f.store, "outsider", created.slug, p),
     /NOT_FOUND|FORBIDDEN/,
   );
   f.state.readable = false;
-  await assert.rejects(checkSharedSheet(f.input.sheetUrl), /SHEET_NOT_SHARED/);
+  await assert.rejects(
+    sharedImportPermission(f.store, account.id, created.slug, p),
+    /SHEET_NOT_SHARED/,
+  );
 });
-test("Google permission is rechecked at activation and before later source reads", async (t) => {
+test("activation rechecks source readability without requiring Google owner metadata", async (t) => {
   const f = fixture(t),
     token = await application(f),
     { account } = await consumeAccountLink(f.store, token, password, password);
   f.state.owner = false;
+  f.state.readable = false;
+  await assert.rejects(
+    provisionVerifiedApplication(f.store, f.input.requestKey, account),
+    /SHEET_NOT_SHARED/,
+  );
+  f.state.readable = true;
   const created = await provisionVerifiedApplication(
-      f.store,
-      f.input.requestKey,
-      account,
-    ),
-    loaded = await loadWorkspace(f.store, account.id, created.slug);
-  assert.equal(loaded.workspace.onboarding.approvedAt, undefined);
+    f.store,
+    f.input.requestKey,
+    account,
+  );
+  const loaded = await loadWorkspace(f.store, account.id, created.slug);
+  assert.ok(loaded.workspace.onboarding.approvedAt);
+  assert.equal(f.state.permissionQueries ?? 0, 0);
 });
 test("five source rows produce three safe imports; missing rows block new bookings until corrected; final mail and retries stay scoped", async (t) => {
   const f = fixture(t),

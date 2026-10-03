@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { scheduleStandardSheetSync } from "@/lib/customer-workspaces/standard-sheet-jobs";
 import {
   body,
   failure,
@@ -180,6 +181,8 @@ export async function POST(
       default:
         throw new Error("INVALID_INPUT");
     }
+    if (input.action === "commit" || input.action === "undo")
+      await scheduleStandardSheetSync(store, workspace.id);
     return NextResponse.json(result, { headers });
   } catch (error) {
     return failure(error);

@@ -12,10 +12,7 @@ import * as Admin from "../src/app/api/onboarding-admin/route.ts";
 import { accountKey } from "../src/lib/customer-workspaces/auth.ts";
 import { RedisCustomerStore } from "../src/lib/customer-workspaces/store.ts";
 import { invitationUrl } from "../src/lib/customer-workspaces/invitations.ts";
-import {
-  listSupportRequests,
-  reviewSupport,
-} from "../src/lib/customer-workspaces/support.ts";
+import { listSupportRequests } from "../src/lib/customer-workspaces/support.ts";
 const origin = "https://operations.test",
   slug = "http-operations",
   context = { params: Promise.resolve({ slug }) },
@@ -33,7 +30,7 @@ async function result(response, status = 200) {
   assert.equal(response.status, status, JSON.stringify(value));
   return value;
 }
-test("HTTP multi-property, invitation, scoped prices, receipts, source proof and manual review use the same persisted authorizations", async (t) => {
+test("HTTP multi-property, invitation, scoped prices, receipts, readable sources with unrelated creator accounts use the same persisted authorizations", async (t) => {
   process.env.CUSTOMER_WORKSPACES_ENABLED = "true";
   process.env.CUSTOMER_SELF_SIGNUP_PREVIEW = "true";
   process.env.CUSTOMER_INTAKE_PREVIEW = "true";
@@ -357,50 +354,22 @@ test("HTTP multi-property, invitation, scoped prices, receipts, source proof and
       "https://docs.google.com/spreadsheets/d/other-source-synthetic-00000000/edit",
     ),
   );
-  assert.equal(review.status, "open");
+  assert.equal(review.status, "approved");
   assert.equal(JSON.stringify(review).includes("Private source title"), false);
-  await result(
-    await Import.POST(
-      request(`${base}/import`, ownerCookie, {
-        action: "tabs",
-        propertyId: third.propertyId,
-        url: ownUrl,
-      }),
-      context,
+  assert.equal(
+    external.some((url) =>
+      url.startsWith("https://www.googleapis.com/drive/v3/files/"),
     ),
-    401,
+    false,
   );
   assert.equal(
-    external.some((url) => url.includes("/values/")),
-    false,
+    (await listSupportRequests(store)).filter((r) => r.kind === "source")
+      .length,
+    0,
   );
   await result(
     await Admin.GET(request("/api/onboarding-admin", ownerCookie)),
     403,
-  );
-  const pending = (await listSupportRequests(store)).find(
-    (r) => r.id === review.id,
-  );
-  await assert.rejects(
-    reviewSupport(
-      store,
-      "synthetic-operator",
-      { id: pending.id, action: "source-approve", confirmIdentity: false },
-      async () => {
-        throw new Error("No mail in test");
-      },
-      true,
-    ),
-    /INVALID_INPUT/,
-  );
-  await reviewSupport(
-    store,
-    "synthetic-operator",
-    { id: pending.id, action: "source-approve", confirmIdentity: true },
-    async () => {
-      throw new Error("No mail in test");
-    },
-    true,
   );
   const tabs = await result(
     await Import.POST(
