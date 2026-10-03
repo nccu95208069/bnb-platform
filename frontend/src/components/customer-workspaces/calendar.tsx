@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   StaySegment,
   WorkspaceView,
@@ -50,15 +50,55 @@ export function CustomerCalendar({
   const key = useRef("");
   const canWrite =
       ["owner", "admin", "housekeeper"].includes(data.role) &&
+      !data.readiness?.[propertyId]?.connected &&
       (data.readiness?.[propertyId]?.complete ??
         (!data.onboarding || data.onboarding.complete)),
     checkOut = plusDays(checkIn, nights);
   const active = data.bookings.filter(
     (b) => b.propertyId === propertyId && b.status !== "cancelled",
   );
+  const blocks = (data.blocks ?? []).filter(
+    (b) => b.propertyId === propertyId && b.status === "active",
+  );
+  const dayKnown = (date: string) =>
+    (data.readiness?.[propertyId]?.complete ??
+      (!data.onboarding || data.onboarding.complete)) &&
+    (!data.readiness?.[propertyId]?.coverageFrom ||
+      date >= data.readiness[propertyId].coverageFrom!) &&
+    (!data.readiness?.[propertyId]?.coverageTo ||
+      date < data.readiness[propertyId].coverageTo!);
+  const isConnected = Boolean(data.readiness?.[propertyId]?.connected);
+  useEffect(() => {
+    if (!isConnected || creating || paymentLocked) return;
+    let alive = true;
+    const timer = window.setInterval(() => {
+      api<WorkspaceView>(`/api/customer-workspaces/${data.slug}`)
+        .then((next) => {
+          if (alive) setData(next);
+        })
+        .catch(() => {
+          if (alive)
+            setData((old) => ({
+              ...old,
+              readiness: {
+                ...old.readiness,
+                [propertyId]: {
+                  ...old.readiness![propertyId],
+                  complete: false,
+                  stale: true,
+                },
+              },
+            }));
+        });
+    }, 60000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+  }, [isConnected, propertyId, data.slug, creating, paymentLocked]);
   const picked = data.bookings.find((b) => b.id === selected);
   const occupied = (roomId: string) =>
-    active.some((b) =>
+    [...active, ...blocks].some((b) =>
       staysOf(b).some(
         (s) =>
           s.roomIds.includes(roomId) &&
@@ -185,7 +225,7 @@ export function CustomerCalendar({
                 className={secondary}
                 href={`/w/${data.slug}/import?property=${encodeURIComponent(propertyId)}`}
               >
-                從試算表匯入
+                匯入與核對來源
               </a>
             )}
             <button
@@ -222,7 +262,9 @@ export function CustomerCalendar({
             data.onboarding?.unresolvedCount ??
             0)
               ? `有 ${data.readiness?.[propertyId]?.unresolvedCount ?? data.onboarding?.unresolvedCount ?? 0} 列仍待核對。`
-              : "尚未完成資料匯入。"}
+              : data.readiness?.[propertyId]?.stale
+                ? "日曆同步暫未恢復。"
+                : "尚未完成資料匯入。"}
             未顯示訂單的日期不能直接視為空房。請先
             <a
               className="underline"
@@ -236,7 +278,24 @@ export function CustomerCalendar({
         {data.readiness?.[propertyId]?.coverageFrom && (
           <p className="mt-4 text-sm text-slate-600">
             本館訂單已核對範圍：{data.readiness[propertyId].coverageFrom}{" "}
-            起。更早日期的空白不能直接視為空房。
+            {data.readiness[propertyId].coverageTo
+              ? ` 至 ${data.readiness[propertyId].coverageTo}（不含末日）`
+              : "起"}
+            。範圍外的空白不能直接視為空房。
+          </p>
+        )}
+        {data.readiness?.[propertyId]?.connected && (
+          <p className="mt-4 rounded-xl bg-teal-50 p-4 text-sm leading-7">
+            本館持續同步 Google 日曆。新增訂單、入住退房與房間調整請到{" "}
+            <a
+              className="underline"
+              href="https://calendar.google.com/calendar/u/0/r"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Google Calendar
+            </a>
+            ；收退款在本系統登記。來源變更或同步中斷可到「匯入與核對來源」處理。
           </p>
         )}
         {data.properties.length > 1 && (
@@ -295,14 +354,14 @@ export function CustomerCalendar({
               <span className="p-3 text-sm">房間</span>
               {days.map((day) => (
                 <button
-                  disabled={!canWrite}
+                  disabled={!canWrite || !dayKnown(day)}
                   key={day}
                   className="border-l p-3 text-sm hover:bg-teal-50"
                   onClick={() => open(day)}
                 >
                   {day.slice(5)}
                   <span className="mt-1 block text-xs text-teal-800">
-                    {canWrite ? "＋訂房" : ""}
+                    {!dayKnown(day) ? "待核對" : canWrite ? "＋訂房" : ""}
                   </span>
                 </button>
               ))}
@@ -317,12 +376,70 @@ export function CustomerCalendar({
                   {days.map((day) => (
                     <button
                       key={day}
-                      disabled={!canWrite}
-                      aria-label={`${room.name} ${day} 新增訂房`}
+                      disabled={
+                        !canWrite ||
+                        !dayKnown(day) ||
+                        blocks.some((b) =>
+                          staysOf(b).some(
+                            (s) =>
+                              s.roomIds.includes(room.id) &&
+                              s.checkIn <= day &&
+                              day < s.checkOut,
+                          ),
+                        )
+                      }
+                      aria-label={`${room.name} ${day} ${dayKnown(day) ? "新增訂房" : "房況待核對"}`}
                       onClick={() => open(day, room.id)}
-                      className="col-span-1 row-start-1 border-l hover:bg-teal-50"
+                      className={`col-span-1 row-start-1 border-l ${dayKnown(day) ? "hover:bg-teal-50" : "bg-slate-100"}`}
                     />
                   ))}
+                  {blocks
+                    .flatMap((block) =>
+                      staysOf(block).map((stay, index) => ({
+                        ...block,
+                        ...stay,
+                        segmentKey: `${block.id}:${index}`,
+                      })),
+                    )
+                    .filter(
+                      (b) =>
+                        b.roomIds.includes(room.id) &&
+                        b.checkIn < plusDays(start, 7) &&
+                        start < b.checkOut,
+                    )
+                    .map((b) => {
+                      const first = Math.max(
+                          0,
+                          Math.round(
+                            (Date.parse(b.checkIn) - Date.parse(start)) /
+                              86400000,
+                          ),
+                        ),
+                        end = Math.min(
+                          7,
+                          Math.round(
+                            (Date.parse(b.checkOut) - Date.parse(start)) /
+                              86400000,
+                          ),
+                        );
+                      return (
+                        <div
+                          key={b.segmentKey}
+                          style={{
+                            gridColumn: `${first + 1} / ${end + 1}`,
+                            gridRow: 1,
+                          }}
+                          className="z-10 m-1 self-center overflow-hidden rounded-lg bg-slate-200 p-2 text-sm text-slate-800"
+                        >
+                          <span className="block truncate font-medium">
+                            封房 · {b.reason}
+                          </span>
+                          <span className="block truncate text-xs">
+                            {b.checkIn.slice(5)} → {b.checkOut.slice(5)}
+                          </span>
+                        </div>
+                      );
+                    })}
                   {active
                     .flatMap((order) =>
                       staysOf(order).map((stay, index) => ({
@@ -382,9 +499,11 @@ export function CustomerCalendar({
         <p className="mt-3 text-sm text-slate-500">
           每格代表當晚住宿，退房當日可接下一筆訂房。手機可左右滑動查看。
         </p>
-        {!active.length && (
+        {!active.length && !blocks.length && (
           <p className="my-10 text-center text-slate-500">
-            還沒有訂房。點日期或「＋」開始登記。
+            {canWrite
+              ? "還沒有訂房。點日期或「＋」開始登記。"
+              : "目前沒有已匯入的訂房；請先確認來源與房況範圍。"}
           </p>
         )}
         {canWrite && (

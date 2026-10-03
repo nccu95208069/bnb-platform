@@ -55,7 +55,9 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
     }, []);
     return createElement(ServiceJoin, {
       ...props,
-      initialTheme: serviceTheme(document.cookie.match(/bnb-service-theme-v1=([^;]+)/)?.[1]),
+      initialTheme: serviceTheme(
+        document.cookie.match(/bnb-service-theme-v1=([^;]+)/)?.[1],
+      ),
       contactPage,
       onOpenContact: open,
       onRestoreContact: open,
@@ -63,12 +65,15 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
     });
   }
   await act(() => root.render(createElement(Harness)));
-  const themeSelect = () => document.querySelector('select[aria-label="外觀模式"]');
+  const themeSelect = () =>
+    document.querySelector('select[aria-label="外觀模式"]');
   assert.equal(document.querySelector("main").dataset.theme, "system");
   for (const mode of ["dark", "light", "system", "dark"]) {
     await act(() => {
       themeSelect().value = mode;
-      themeSelect().dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+      themeSelect().dispatchEvent(
+        new dom.window.Event("change", { bubbles: true }),
+      );
     });
     assert.equal(document.querySelector("main").dataset.theme, mode);
     assert.ok(document.cookie.includes(`bnb-service-theme-v1=${mode}`));
@@ -133,6 +138,16 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
   await click(button("下一步：房間"));
   await fill(control("房號或房間名稱"), "101\n102");
   await click(button("下一步：目前的資料"));
+  for (const label of [
+    "Google Calendar",
+    "iOS 日曆（iPhone／iPad）",
+    "Android 日曆",
+  ]) {
+    await click(button(label));
+    assert.equal(button("下一步：聯絡資料").disabled, false);
+    assert.equal(control("Google Sheet 連結"), undefined);
+    assert.match(document.body.textContent, /ICS／ZIP/);
+  }
   await click(button("是，我用 Google Sheet"));
   assert.equal(button("下一步：聯絡資料").disabled, true);
   await fill(

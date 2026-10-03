@@ -485,3 +485,54 @@ test("email origins use an explicit deployment switch and reject arbitrary hosts
     assert.throws(customerOrigin, /FEATURE_UNAVAILABLE/);
   }
 });
+
+test("Google, iOS and Android applicants activate without a Sheet URL and reach calendar import with incomplete inventory", async (t) => {
+  for (const source of [
+    "google_calendar",
+    "ios_calendar",
+    "android_calendar",
+  ]) {
+    const f = fixture(t);
+    f.input = { ...f.input, source, sheetUrl: "", sharingDeclared: false };
+    t.mock.method(globalThis, "fetch", async () => {
+      throw Error("Calendar onboarding must not request a Sheet");
+    });
+    await submitIntake(f.store, f.input, async (m) =>
+      f.send(m.to, m.subject, m.text),
+    );
+    await beginOnboarding(f.store, f.input.requestKey, false, f.send);
+    const link = await issueAccountLink(
+        f.store,
+        "onboarding",
+        f.input.requestKey,
+        f.input.email,
+      ),
+      token = accountLinkUrl(link).split("#")[1];
+    const { account } = await consumeAccountLink(
+      f.store,
+      token,
+      password,
+      password,
+    );
+    const created = await provisionVerifiedApplication(
+        f.store,
+        f.input.requestKey,
+        account,
+      ),
+      loaded = await loadWorkspace(f.store, account.id, created.slug);
+    assert.equal(loaded.workspace.onboarding.calendarKind, source);
+    assert.equal(loaded.workspace.onboarding.sheetUrl, undefined);
+    assert.equal(loaded.workspace.properties[0].setup.mode, "calendar");
+    assert.equal(
+      view(loaded.workspace, loaded.member).readiness[
+        loaded.workspace.properties[0].id
+      ].complete,
+      false,
+    );
+    assert.match(f.sent.find((m) => m.to === f.input.email).text, /日曆/);
+    assert.doesNotMatch(
+      f.sent.find((m) => m.to === f.input.email).text,
+      /分享.*Sheet/,
+    );
+  }
+});

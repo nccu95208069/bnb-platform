@@ -1,4 +1,11 @@
 import type { OwnerCredential } from "../owner-password.ts";
+import type {
+  CalendarKind,
+  CalendarReference,
+  CalendarBinding,
+  CalendarBatch,
+  InventoryBlock,
+} from "./calendar-types.ts";
 export type Account = {
   id: string;
   email: string;
@@ -30,10 +37,12 @@ export type Property = {
   villaRoomIds: string[];
   sourceMode: "native";
   setup?: {
-    mode: "empty" | "sheet";
+    mode: "empty" | "sheet" | "calendar";
+    calendarKind?: CalendarKind;
     readyAt?: string;
     unresolvedCount?: number;
     coverageFrom?: string;
+    coverageTo?: string;
     sheetUrl?: string;
     readableAt?: string;
     approvedByEmail?: string;
@@ -81,7 +90,8 @@ export type Booking = {
   guestNotified: false;
   createdAt: string;
   actor: string;
-  entry: "os" | "sheet";
+  entry: "os" | "sheet" | "calendar";
+  calendar?: CalendarReference;
   imported?: {
     batchId: string;
     sourceKey: string;
@@ -111,7 +121,8 @@ export type Workspace = {
   version: number;
   onboarding?: {
     requestId: string;
-    sheetUrl: string;
+    sheetUrl?: string;
+    calendarKind?: CalendarKind;
     approvedAt?: string;
     readyAt?: string;
     unresolvedCount?: number;
@@ -119,6 +130,9 @@ export type Workspace = {
   members: Membership[];
   properties: Property[];
   bookings: Booking[];
+  blocks?: InventoryBlock[];
+  calendarSources?: CalendarBinding[];
+  calendarBatches?: CalendarBatch[];
   invitations?: Invitation[];
   availabilityLists?: AvailabilityList[];
   operations?: {
@@ -155,9 +169,17 @@ export type WorkspaceView = {
   onboarding?: { complete: boolean; unresolvedCount: number };
   properties: Property[];
   bookings: Omit<Booking, "requestKey" | "requestHash" | "actor">[];
+  blocks?: Omit<InventoryBlock, "calendar">[];
   readiness?: Record<
     string,
-    { complete: boolean; unresolvedCount: number; coverageFrom?: string }
+    {
+      complete: boolean;
+      unresolvedCount: number;
+      coverageFrom?: string;
+      coverageTo?: string;
+      connected?: boolean;
+      stale?: boolean;
+    }
   >;
 };
 export type Invitation = {

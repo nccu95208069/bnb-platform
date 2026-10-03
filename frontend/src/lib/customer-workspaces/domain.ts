@@ -32,6 +32,15 @@ export function bookingsOverlap(
 }
 
 export function propertyReadiness(workspace: Workspace, property: Property) {
+  const connected = (workspace.calendarSources ?? []).filter(
+    (b) => b.propertyId === property.id && b.mode === "connected",
+  );
+  const stale = connected.some(
+    (b) =>
+      Boolean(b.error) ||
+      !Number.isFinite(Date.parse(b.lastSuccessfulAt)) ||
+      Date.now() - Date.parse(b.lastSuccessfulAt) > 10 * 60000,
+  );
   const progress =
     property.setup ??
     (workspace.properties[0]?.id === property.id
@@ -39,12 +48,17 @@ export function propertyReadiness(workspace: Workspace, property: Property) {
       : undefined);
   return {
     complete:
-      !progress ||
-      (Boolean(progress.readyAt) && progress.unresolvedCount === 0),
+      !stale &&
+      (!progress ||
+        (Boolean(progress.readyAt) && progress.unresolvedCount === 0)),
     unresolvedCount: progress?.unresolvedCount ?? 0,
     ...(property.setup?.coverageFrom
       ? { coverageFrom: property.setup.coverageFrom }
       : {}),
+    ...(property.setup?.coverageTo
+      ? { coverageTo: property.setup.coverageTo }
+      : {}),
+    ...(connected.length ? { connected: true, stale } : {}),
   };
 }
 
@@ -69,7 +83,7 @@ export function financeSummary(
 ) {
   const opening =
     booking.openingReceived?.amount ??
-    (booking.entry === "sheet"
+    (booking.entry === "sheet" || booking.entry === "calendar"
       ? (booking.importedFinance?.propertyReceived ?? null)
       : 0);
   const receipts = booking.payments

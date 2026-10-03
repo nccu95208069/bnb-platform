@@ -1,5 +1,7 @@
 # Customer onboarding: shared Sheet to verified calendar
 
+October 4 implemented extension: [Calendar onboarding, backend and review](CALENDAR_ONBOARDING_2026-10-04.md). The shared entry now includes Google Calendar, iPhone/iPad Calendar and Android Calendar. Calendar applications bypass the Sheet URL/sharing gate and route to Google read-only authorization or ICS/ZIP import. The Sheet-specific flow and historical acceptance evidence below remain applicable to Sheet customers. Actual Google OAuth and mobile acceptance are pending configuration and device testing.
+
 Latest October 3 decision and implementation: [standard workbook and conversion rules](STANDARD_SHEET_2026-10-03.md). Source owner/editor identity matching is removed; grouped order, nightly and grid conversion is implemented. Historical deployment/test evidence below belongs to the earlier candidate unless explicitly updated.
 
 For the October 3 follow-up, see [customer operations](CUSTOMER_OPERATIONS_2026-10-03.md): multiple properties, independent source readiness/coverage, format suggestions, collaborator invitations, availability pricing and receipts. The deployment evidence below describes the preceding onboarding candidate; it is not verification of the new operations.

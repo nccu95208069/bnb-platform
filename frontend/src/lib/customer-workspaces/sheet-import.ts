@@ -74,6 +74,11 @@ export async function previewImport(
     slug,
     propertyId,
   );
+  if (
+    property.setup?.mode === "calendar" ||
+    workspace.calendarSources?.some((b) => b.propertyId === propertyId)
+  )
+    throw new Error("SOURCE_LOCKED");
   const sourceKey = digest(`${source.spreadsheetId}:${source.sheetId}`);
   const active = workspace.bookings.filter(
     (b) => b.propertyId === propertyId && b.status !== "cancelled",
@@ -96,7 +101,15 @@ export async function previewImport(
       )
     )
       row.issues.push("已匯入，或相同來源訂單有變更；請核對既有訂單");
-    if (active.some((b) => overlaps(b, draft)))
+    if (
+      active.some((b) => overlaps(b, draft)) ||
+      workspace.blocks?.some(
+        (b) =>
+          b.propertyId === propertyId &&
+          b.status === "active" &&
+          overlaps(b, draft),
+      )
+    )
       row.issues.push("與現有訂房衝突");
     if (
       rows.some(
@@ -239,7 +252,14 @@ export async function commitImport(
             old.propertyId === propertyId &&
             old.status !== "cancelled" &&
             overlaps(old, b),
-        ) || bookings.slice(0, i).some((other) => overlaps(other, b)),
+        ) ||
+        workspace.blocks?.some(
+          (old) =>
+            old.propertyId === propertyId &&
+            old.status === "active" &&
+            overlaps(old, b),
+        ) ||
+        bookings.slice(0, i).some((other) => overlaps(other, b)),
     )
   )
     throw new Error("ROOM_CONFLICT");

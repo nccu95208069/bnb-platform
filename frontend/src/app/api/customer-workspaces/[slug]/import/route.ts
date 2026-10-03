@@ -55,6 +55,7 @@ export async function POST(
     if (typeof input.propertyId !== "string") throw new Error("INVALID_INPUT");
     const args = [store, account.id, slug, input.propertyId] as const;
     const { workspace, property } = await importAccess(...args);
+    if (property.setup?.mode === "calendar") throw new Error("SOURCE_LOCKED");
     if (input.action === "bind")
       return NextResponse.json(
         await bindPropertySource(

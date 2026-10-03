@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { isCalendarKind } from "./calendar-types.ts";
 import {
   businessDate,
   cents,
@@ -55,7 +56,8 @@ export async function addProperty(
     !Array.isArray(input.rooms) ||
     input.rooms.length < 1 ||
     input.rooms.length > 100 ||
-    !["empty", "sheet"].includes(String(input.mode))
+    (!["empty", "sheet"].includes(String(input.mode)) &&
+      !isCalendarKind(input.mode))
   )
     throw new Error("INVALID_INPUT");
   const rooms = input.rooms.map((r) => textValue(r, 40, true)!);
@@ -89,7 +91,12 @@ export async function addProperty(
     villaRoomIds: [],
     sourceMode: "native",
     setup: {
-      mode: input.mode as "empty" | "sheet",
+      mode: isCalendarKind(input.mode)
+        ? "calendar"
+        : (input.mode as "empty" | "sheet"),
+      ...(isCalendarKind(input.mode)
+        ? { calendarKind: input.mode, unresolvedCount: 1 }
+        : {}),
       ...(input.mode === "empty"
         ? { readyAt: new Date().toISOString(), unresolvedCount: 0 }
         : {}),
@@ -245,7 +252,10 @@ export async function saveAvailabilityList(
   );
   if (!propertyReadiness(context.workspace, property).complete)
     throw new Error("IMPORT_INCOMPLETE");
-  if (property.setup?.coverageFrom && from < property.setup.coverageFrom)
+  if (
+    (property.setup?.coverageFrom && from < property.setup.coverageFrom) ||
+    (property.setup?.coverageTo && to >= property.setup.coverageTo)
+  )
     throw new Error("SOURCE_COVERAGE");
   if (input.showPrices && !property.pricing?.enabled)
     throw new Error("PRICING_NOT_ENABLED");
@@ -290,7 +300,10 @@ export async function availability(
     throw new Error("INVALID_INPUT");
   if (!propertyReadiness(workspace, property).complete)
     throw new Error("IMPORT_INCOMPLETE");
-  if (property.setup?.coverageFrom && from < property.setup.coverageFrom)
+  if (
+    (property.setup?.coverageFrom && from < property.setup.coverageFrom) ||
+    (property.setup?.coverageTo && to >= property.setup.coverageTo)
+  )
     throw new Error("SOURCE_COVERAGE");
   const showPrices =
     member.role !== "viewer_no_price" &&
@@ -309,9 +322,14 @@ export async function availability(
             ? [{ id: "villa", name: "包棟", ids: property.villaRoomIds }]
             : []),
         ];
-  const occupied = workspace.bookings
-    .filter((b) => b.propertyId === property.id && b.status === "confirmed")
-    .flatMap(staysOf);
+  const occupied = [
+    ...workspace.bookings.filter(
+      (b) => b.propertyId === property.id && b.status === "confirmed",
+    ),
+    ...(workspace.blocks ?? []).filter(
+      (b) => b.propertyId === property.id && b.status === "active",
+    ),
+  ].flatMap(staysOf);
   const rows: {
     date: string;
     roomId: string;
@@ -450,7 +468,7 @@ export async function bookingOperation(
     ];
   } else if (action === "opening") {
     if (
-      booking.entry !== "sheet" ||
+      (booking.entry !== "sheet" && booking.entry !== "calendar") ||
       booking.openingReceived ||
       booking.importedFinance?.propertyReceived != null
     )
@@ -476,6 +494,12 @@ export async function bookingOperation(
     )
       throw new Error("OVERPAYMENT_CONFIRMATION_REQUIRED");
   } else {
+    if (
+      context.workspace.calendarSources?.some(
+        (b) => b.propertyId === booking.propertyId && b.mode === "connected",
+      )
+    )
+      throw new Error("CALENDAR_SOURCE_OWNS_OCCUPANCY");
     const summary = financeSummary(booking);
     if (summary.received === null || summary.received !== 0)
       throw new Error("CANCELLATION_REQUIRES_SETTLEMENT");

@@ -9,6 +9,8 @@ This document is the top-level context for ongoing work. It supersedes older top
 
 October 3 customer-workspace update: [customer operations and verification boundaries](docs/work-handoff/CUSTOMER_OPERATIONS_2026-10-03.md) extends the isolated customer track with multiple properties, invitations, unsold lists, pricing and order-level receipts. The implementation remains in draft PR #26; customer activation, browser/live-invitation acceptance and explicit production rollout approval are pending. Older implementation-status sections below are historical baselines, not claims about this new customer slice.
 
+October 4 calendar implementation: Google Calendar, iPhone/iPad Calendar and Android Calendar now have onboarding paths with a shared ICS/ZIP importer and a read-only Google connector. The backend includes source identity, room/date conversion, blocks, atomic import/readback/retry, guarded undo and durable one-way refresh. See [implementation, review and activation boundaries](docs/work-handoff/CALENDAR_ONBOARDING_2026-10-04.md). OAuth credentials and real-device acceptance are still pending; direct iCloud/device-local readers are not implemented. The protected candidate remains separate from public rollout. [The original plan](docs/work-handoff/GOOGLE_CALENDAR_FAST_ONBOARD_2026-10-03.md) is historical design context; the implementation note governs current capabilities.
+
 ## 1. Product definition
 
 Build an operations system for approximately 3–30-room guesthouses, small hotels, and a small number of properties. The owner should be able to use natural language and visual month/week/day interfaces to:

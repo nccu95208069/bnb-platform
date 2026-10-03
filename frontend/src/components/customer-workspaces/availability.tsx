@@ -133,7 +133,7 @@ export function CustomerAvailability({
           propertyId={propertyId}
         />
         <p className="mb-5 text-sm leading-6 text-slate-600">
-          只列出沒有有效訂房的房間與日期。退房當晚可再出售；包棟需全部房間都空著。這份清單依本工作區訂單產生，平台庫存與臨時保留房仍需另行核對。
+          只列出沒有有效訂房或封房的房間與日期。退房當晚可再出售；包棟需全部房間都空著。這份清單依本工作區訂單產生，平台庫存與臨時保留房仍需另行核對。
         </p>
         <fieldset
           disabled={locked}

@@ -1,4 +1,4 @@
-export const STANDARD_SHEET_VERSION = 1;
+export const STANDARD_SHEET_VERSION = 2;
 export const STANDARD_SHEET_MARKER = "bnb-standard-workbook";
 export type StandardColumn = {
   key: string;
@@ -104,6 +104,37 @@ export const STANDARD_SHEET_TABS = [
     columns: [
       col("key", "項目", undefined, 220),
       col("value", "內容", undefined, 680),
+    ],
+  },
+  {
+    key: "calendarSources",
+    title: "日曆來源",
+    columns: [
+      col("recordId", "訂單或封房ID", undefined, 280),
+      col("bindingId", "日曆來源ID", undefined, 280),
+      col("batchId", "匯入批次ID", undefined, 280),
+      col("calendarId", "日曆ID", undefined, 300),
+      col("uid", "活動UID", undefined, 300),
+      col("eventId", "Google活動ID", undefined, 230),
+      col("recurrenceId", "重複實例", undefined, 200),
+      col("sourceOrderId", "來源訂單編號", undefined, 160),
+      col("fingerprint", "來源指紋", undefined, 330),
+    ],
+  },
+  {
+    key: "blocks",
+    title: "封房明細",
+    columns: [
+      col("blockId", "封房ID", undefined, 280),
+      col("propertyId", "館別ID", undefined, 230),
+      col("propertyName", "館別", undefined, 150),
+      col("roomId", "房間ID", undefined, 220),
+      col("roomName", "房間", undefined, 110),
+      col("date", "封房日", "date", 120),
+      col("end", "結束日", "date", 120),
+      col("reason", "原因", undefined, 240),
+      col("status", "狀態", undefined, 100),
+      col("version", "資料版本", "number", 100),
     ],
   },
 ] as const;
@@ -219,6 +250,12 @@ export const STANDARD_SHEET_RULES: (string | number)[][] = [
     "更新",
     "此帳本由系統輸出；直接改帳本不會回寫來源或工作區。偵測到外部修改時停止覆寫，請先核對。",
   ],
+  [
+    "R27",
+    "日曆來源",
+    "日曆來源保留活動 UID、重複實例與 Google 活動 ID；不把日曆資料冒充 Sheet 列號。",
+  ],
+  ["R28", "封房", "維修、自用與停賣獨立列為封房，計入占房，不製造訂單收入。"],
   [
     "R26",
     "範例",

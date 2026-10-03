@@ -1,4 +1,11 @@
 import { cookies } from "next/headers";
+import { CalendarImport } from "@/components/customer-workspaces/calendar-import";
+import { calendarStatus } from "@/lib/customer-workspaces/calendar-import";
+import {
+  calendarGoogleReady,
+  calendarSyncReady,
+} from "@/lib/customer-workspaces/calendar-google";
+import { isCalendarKind } from "@/lib/customer-workspaces/calendar-types";
 import { redirect } from "next/navigation";
 import {
   authenticate,
@@ -14,7 +21,7 @@ import { sharedSheetEmail } from "@/lib/customer-workspaces/shared-sheet";
 import type { Journey } from "@/lib/customer-intake/onboarding";
 export const dynamic = "force-dynamic";
 export const metadata = {
-  title: "從試算表匯入｜旅宿工作區",
+  title: "匯入訂單｜旅宿工作區",
   robots: { index: false, follow: false },
 };
 export default async function Page({
@@ -22,7 +29,12 @@ export default async function Page({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ property?: string; google?: string }>;
+  searchParams: Promise<{
+    property?: string;
+    google?: string;
+    calendar?: string;
+    source?: string;
+  }>;
 }) {
   if (!enabled()) return <main className="p-10">新客戶入口尚未開放。</main>;
   const { slug } = await params,
@@ -46,6 +58,27 @@ export default async function Page({
       search.property ?? loaded.workspace.properties[0]?.id,
     );
     const initialProperty = workspace.properties[0]?.id === property.id;
+    const calendarKind =
+      property.setup?.calendarKind ??
+      (initialProperty ? workspace.onboarding?.calendarKind : undefined) ??
+      (isCalendarKind(search.source) ? search.source : undefined);
+    if (calendarKind)
+      return (
+        <CalendarImport
+          slug={slug}
+          property={property}
+          initialKind={calendarKind}
+          initialStatus={await calendarStatus(
+            store,
+            account.id,
+            slug,
+            property.id,
+          )}
+          configured={calendarGoogleReady()}
+          syncReady={calendarSyncReady()}
+          connected={search.calendar === "connected"}
+        />
+      );
     const journey =
       initialProperty && workspace.onboarding
         ? (

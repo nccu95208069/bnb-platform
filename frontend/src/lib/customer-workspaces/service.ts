@@ -45,7 +45,7 @@ export async function createWorkspace(
   store: CustomerStore,
   account: Account,
   input: Record<string, unknown>,
-  onboarding?: { requestId: string; sheetUrl: string },
+  onboarding?: Workspace["onboarding"],
 ) {
   const key = accountKey(account.email),
     current = await store.read<Account>(key);
@@ -90,6 +90,15 @@ export async function createWorkspace(
     rooms: roomNames.map((name) => ({ id: randomUUID(), name })),
     villaRoomIds: [],
     sourceMode: "native",
+    ...(onboarding?.calendarKind
+      ? {
+          setup: {
+            mode: "calendar" as const,
+            calendarKind: onboarding.calendarKind,
+            unresolvedCount: 1,
+          },
+        }
+      : {}),
   };
   if (kind !== "rooms") property.villaRoomIds = property.rooms.map((r) => r.id);
   const workspace: Workspace = {
@@ -197,6 +206,7 @@ export function view(workspace: Workspace, member: Membership): WorkspaceView {
             contact: null,
             importedFinance: undefined,
             imported: undefined,
+            calendar: undefined,
             expectedDeposit: undefined,
             openingReceived: undefined,
             nightlyPrices: undefined,
@@ -221,6 +231,15 @@ export function view(workspace: Workspace, member: Membership): WorkspaceView {
       : {}),
     properties,
     bookings,
+    blocks: (workspace.blocks ?? [])
+      .filter((b) => properties.some((p) => p.id === b.propertyId))
+      .map(({ calendar: _calendar, ...block }) => {
+        void _calendar;
+        return {
+          ...block,
+          reason: member.role === "viewer_no_price" ? "封房" : block.reason,
+        };
+      }),
     readiness: Object.fromEntries(
       allowedProperties.map((p) => [p.id, propertyReadiness(workspace, p)]),
     ),
@@ -340,11 +359,21 @@ export async function createBooking(
   if (!property) throw new Error("NOT_FOUND");
   if (!propertyReadiness(workspace, property).complete)
     throw new Error("IMPORT_INCOMPLETE");
+  if (
+    workspace.calendarSources?.some(
+      (b) => b.propertyId === property.id && b.mode === "connected",
+    )
+  )
+    throw new Error("CALENDAR_SOURCE_OWNS_OCCUPANCY");
   const key = requestKey(input.requestKey),
     stays = normalizeStays(property, input);
   if (
-    property.setup?.coverageFrom &&
-    stays.some((s) => s.checkIn < property.setup!.coverageFrom!)
+    stays.some(
+      (s) =>
+        (property.setup?.coverageFrom &&
+          s.checkIn < property.setup.coverageFrom) ||
+        (property.setup?.coverageTo && s.checkOut > property.setup.coverageTo),
+    )
   )
     throw new Error("SOURCE_COVERAGE");
   const checkIn = stays.reduce(
@@ -420,7 +449,16 @@ export async function createBooking(
       b.status !== "cancelled" &&
       bookingsOverlap(b, { checkIn, checkOut, roomIds, stays }),
   );
-  if (conflict) throw new Error("ROOM_CONFLICT");
+  if (
+    conflict ||
+    workspace.blocks?.some(
+      (b) =>
+        b.propertyId === property.id &&
+        b.status === "active" &&
+        bookingsOverlap(b, { checkIn, checkOut, roomIds, stays }),
+    )
+  )
+    throw new Error("ROOM_CONFLICT");
   const { payment, ...fields } = data;
   const booking: Booking = {
     ...fields,

@@ -1,5 +1,7 @@
 # 客戶標準帳本與訂單轉換
 
+October 4 extension: [Calendar implementation](CALENDAR_ONBOARDING_2026-10-04.md) adds standard-workbook schema v2 with two tabs for calendar provenance and inventory blocks. Verified v1 destinations upgrade atomically on their next successful sync; missing v2 tabs are treated as a conflict. The native blank template and sample described below remain historical v1 artifacts and were not rewritten in this task.
+
 ## 最新產品決定
 
 2026-10-03，業主要求先規劃，再直接實作，不另設計畫審核關卡。

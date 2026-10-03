@@ -270,16 +270,16 @@ test("Google values round-trip typed dates, milliseconds and numbers while text 
   });
   assert.deepEqual(toGoogleCell(null), {});
 });
-test("atomic write is restricted to the six observed sheet IDs, clears stale records and updates table ranges", () => {
+test("atomic write is restricted to the eight observed sheet IDs, clears stale records and updates table ranges", () => {
   const f = fixture(),
     snapshot = f.snapshot(buildStandardWorkbook(f.workspace)),
     book = buildStandardWorkbook(null);
   const requests = standardWriteRequests(snapshot, book),
     updates = requests.filter((r) => r.updateCells).map((r) => r.updateCells);
-  assert.equal(updates.length, 6);
+  assert.equal(updates.length, 8);
   assert.deepEqual(
     updates.map((r) => r.range.sheetId),
-    [100, 101, 102, 103, 104, 105],
+    [100, 101, 102, 103, 104, 105, 106, 107],
   );
   assert.equal(updates[1].range.endRowIndex, 5);
   assert.equal(updates[1].fields, "userEnteredValue");
@@ -290,7 +290,7 @@ test("atomic write is restricted to the six observed sheet IDs, clears stale rec
         .every((c) => !c.userEnteredValue?.formulaValue),
     ),
   );
-  assert.equal(requests.filter((r) => r.updateTable).length, 6);
+  assert.equal(requests.filter((r) => r.updateTable).length, 8);
   const lastResize = requests.findIndex(
     (r) => r.updateTable?.table.tableId === "table0",
   );
@@ -456,4 +456,52 @@ test("uncertain creation is looked up on retry without issuing a second copy", a
   );
   await createStandardSheet(...f.args, f.gateway);
   assert.deepEqual(attempts, [false, true, true]);
+});
+
+test("intact v1 workbook upgrades atomically with two new provenance/block tabs, without colliding with other sheet IDs", async () => {
+  const f = fixture(),
+    old = f.get();
+  old.tables.calendarSources = [];
+  old.tables.blocks = [];
+  delete old.sheets.calendarSources;
+  delete old.sheets.blocks;
+  old.allSheetIds = [100, 101, 102, 103, 104, 105, 999];
+  old.tables.meta.find((r) => r[0] === "schema_version")[1] = 1;
+  old.tables.meta.find((r) => r[0] === "content_hash")[1] = standardContentHash(
+    old.tables,
+  );
+  f.set(old);
+  const requests = standardWriteRequests(
+      old,
+      buildStandardWorkbook(f.workspace),
+    ),
+    add = requests.filter((r) => r.addSheet).map((r) => r.addSheet.properties);
+  assert.deepEqual(
+    add.map((s) => s.sheetId),
+    [1000, 1001],
+  );
+  assert.deepEqual(
+    add.map((s) => s.title),
+    ["日曆來源", "封房明細"],
+  );
+  await bind(f);
+  await sync(f);
+  assert.equal(
+    f.get().tables.meta.find((r) => r[0] === "schema_version")[1],
+    2,
+  );
+  assert.ok(f.get().tables.calendarSources.length);
+  assert.ok(f.get().tables.blocks.length);
+});
+test("deleted v2 extension tab is an external layout change, never silently recreated", async () => {
+  const f = fixture(),
+    old = f.get();
+  old.tables.blocks = [];
+  delete old.sheets.blocks;
+  old.tables.meta.find((r) => r[0] === "content_hash")[1] = standardContentHash(
+    old.tables,
+  );
+  f.set(old);
+  await assert.rejects(bind(f), /STANDARD_LAYOUT_CHANGED/);
+  assert.equal(f.gateway.writes.length, 0);
 });

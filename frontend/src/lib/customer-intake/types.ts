@@ -1,9 +1,10 @@
+import type { CalendarKind } from "../customer-workspaces/calendar-types.ts";
 export type IntakeAnswers = {
   intent: "join" | "consultation";
   propertyName: string | null;
   kind: "villa" | "rooms" | "mixed" | null;
   rooms: string[];
-  source: "sheet" | "other" | "unknown";
+  source: "sheet" | "other" | "unknown" | CalendarKind;
   sourceDescription: string | null;
   sheetUrl: string | null;
   providedLink: string | null;

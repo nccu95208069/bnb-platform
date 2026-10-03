@@ -13,6 +13,10 @@ import type { IntakeResult } from "@/lib/customer-intake/types";
 import { DoorMark, ServiceLanding } from "./service-landing";
 import { ServiceThemeControl } from "./service-theme-control";
 import type { ServiceTheme } from "@/lib/customer-intake/theme";
+import {
+  CALENDAR_LABELS,
+  isCalendarKind,
+} from "@/lib/customer-workspaces/calendar-types";
 const button = "service-button service-button-primary";
 const secondary = "service-button service-button-secondary";
 const field = "service-field";
@@ -380,7 +384,7 @@ export function ServiceJoin({
                     "填寫房間資料"
                   ) : (
                     <>
-                      目前用 Google Sheet
+                      目前用什麼記錄訂單？
                       <br />
                       記錄訂房嗎？
                     </>
@@ -480,6 +484,9 @@ export function ServiceJoin({
                     <div className="grid gap-3 sm:grid-cols-2">
                       {[
                         ["sheet", "是，我用 Google Sheet"],
+                        ["google_calendar", "Google Calendar"],
+                        ["ios_calendar", "iOS 日曆（iPhone／iPad）"],
+                        ["android_calendar", "Android 日曆"],
                         ["other", "不是／我不確定"],
                       ].map(([value, label]) => (
                         <button
@@ -629,6 +636,29 @@ export function ServiceJoin({
                         <p className="text-sm service-text-muted">
                           如需分享權限或資料整理方面的協助，請選擇專人諮詢。
                         </p>
+                      </div>
+                    )}
+                    {isCalendarKind(source) && (
+                      <div className="mt-6 rounded-2xl service-help-surface p-5 space-y-4">
+                        <h3 className="text-lg font-semibold">
+                          從 {CALENDAR_LABELS[source]} 導入
+                        </h3>
+                        <p className="text-sm leading-7 service-text-muted">
+                          先確認信箱並設定密碼，再連結 Google 日曆或上傳
+                          ICS／ZIP 日曆檔。
+                          {source !== "google_calendar" &&
+                            " 手機日曆若使用 Google 帳號，可直接連結；iCloud 或其他來源可使用匯出檔。網頁無法直接讀取只存在手機的日曆。"}
+                          不需先整理成試算表；資料會先預覽，確認後才匯入。
+                        </p>
+                        <div className="flex flex-wrap gap-3">
+                          <button
+                            className={button}
+                            onClick={() => openContact("join")}
+                          >
+                            下一步：聯絡資料
+                          </button>
+                          {consultButton()}
+                        </div>
                       </div>
                     )}
                     {source === "other" && (
@@ -789,7 +819,9 @@ export function ServiceJoin({
                 <form onSubmit={submit} className="mt-5 space-y-4">
                   <p className="text-sm leading-7 service-text-muted">
                     {intent === "join"
-                      ? "我們會確認來源可讀取，再協助你核對資料並開通使用。"
+                      ? isCalendarKind(source)
+                        ? "確認信箱並設定密碼後，即可連結或上傳日曆並核對匯入內容。"
+                        : "我們會確認來源可讀取，再協助你核對資料並開通使用。"
                       : "請填寫以下資料。若已填寫旅宿問卷，提交時會一併附上。"}
                   </p>
                   {!enabled && (

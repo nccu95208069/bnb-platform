@@ -15,12 +15,25 @@ export async function principal(request: NextRequest) {
   available();
   return authenticate(store, request.cookies.get(CUSTOMER_COOKIE)?.value);
 }
-export async function body(request: NextRequest) {
+export async function body(request: NextRequest, limit = 128000) {
   available();
   if (request.headers.get("origin") !== request.nextUrl.origin)
     throw new Error("FORBIDDEN");
-  const raw = await request.text();
-  if (raw.length > 128000) throw new Error("INVALID_INPUT");
+  const reader = request.body?.getReader();
+  if (!reader) throw new Error("INVALID_INPUT");
+  let size = 0;
+  const chunks: Uint8Array[] = [];
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > limit) {
+      await reader.cancel();
+      throw new Error("INVALID_INPUT");
+    }
+    chunks.push(value);
+  }
+  const raw = Buffer.concat(chunks).toString("utf8");
   try {
     const value = JSON.parse(raw);
     if (!value || typeof value !== "object" || Array.isArray(value))
@@ -41,9 +54,64 @@ export function failure(error: unknown) {
   const code = error instanceof Error ? error.message : "";
   const errors: Record<string, [number, string]> = {
     ...standardSheetErrors,
+    CALENDAR_GOOGLE_UNAVAILABLE: [
+      503,
+      "此環境尚未設定 Google 日曆授權，請先使用日曆檔匯入。",
+    ],
+    CALENDAR_SYNC_UNAVAILABLE: [
+      409,
+      "持續同步尚未啟用，請選擇一次搬入，或聯絡管理員完成設定。",
+    ],
+    CALENDAR_CONNECT_REQUIRED: [
+      401,
+      "Google 日曆授權已失效或權限不足，請重新連結有權讀取日曆的帳號。",
+    ],
+    CALENDAR_READ_FAILED: [
+      503,
+      "Google 日曆暫時無法讀取，請稍後重試。原有房況會保留。",
+    ],
+    CALENDAR_GRANT_OWNER: [
+      403,
+      "請由原先授權 Google 日曆的管理員讀取；若需更換帳號，請重新連結並核對來源。",
+    ],
+    CALENDAR_SOURCE_OWNS_OCCUPANCY: [
+      409,
+      "本館正在同步 Google 日曆。新增、調整住宿或取消，請先在 Google 日曆操作，再回來核對。",
+    ],
+    CALENDAR_SOURCE_EXISTS: [
+      409,
+      "這個日曆已匯入，請選擇更新既有來源，避免重複。",
+    ],
+    CALENDAR_SOURCE_CHANGED: [
+      409,
+      "日曆來源與預覽不同，請重新讀取同一組日曆，再核對預覽。",
+    ],
+    CALENDAR_RELINK_REQUIRED: [
+      409,
+      "跨來源連結需逐一核對日曆。請一次更新一個日曆來源，或聯絡管理員。",
+    ],
+    CALENDAR_EXPIRED: [409, "日曆預覽已過期，請重新讀取來源。"],
+    CALENDAR_SIZE: [
+      400,
+      "日曆資料超過上限：檔案 3 MB、解壓後 8 MB、最多 30 個日曆與 2,000 個活動。請縮小日期範圍或分批匯出。",
+    ],
+    CALENDAR_FORMAT: [
+      400,
+      "無法完整讀取這個日曆檔。請重新匯出 ICS 或包含 ICS 的 ZIP。",
+    ],
+    CALENDAR_DUPLICATE_SOURCE: [
+      400,
+      "來源包含重複的日曆或活動識別，請分開核對並重新匯出。",
+    ],
+    CALENDAR_TIMEZONE: [400, "請填有效的旅宿時區，例如 Asia/Taipei。"],
+    CALENDAR_RANGE: [400, "請選擇不超過兩年的日期範圍；末日需晚於起日。"],
+    CALENDAR_DATE: [400, "活動日期或時區無法確定，請核對原始日曆。"],
+    CALENDAR_IGNORE_REASON: [400, "排除活動時請填原因，並確認它不占用房間。"],
+    CALENDAR_CHANGES_CONFIRM: [400, "請先勾選確認既有記錄的變更或取消。"],
+
     SOURCE_COVERAGE: [
       409,
-      "此日期早於已核對的匯入範圍。請先匯入涵蓋該日期的完整訂單；未顯示資料不能直接視為空房。",
+      "此日期不在已核對的匯入範圍內。請先匯入涵蓋該日期的完整訂單；未顯示資料不能直接視為空房。",
     ],
     SOURCE_EMAIL_UNVERIFIED: [403, "請先確認登入信箱，再連結試算表。"],
     SOURCE_LOCKED: [

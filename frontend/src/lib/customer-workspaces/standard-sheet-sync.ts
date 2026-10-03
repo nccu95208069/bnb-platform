@@ -49,7 +49,16 @@ function metadata(snapshot: StandardSnapshot) {
   if (
     new Set(entries.map(([key]) => key)).size !== entries.length ||
     meta.format !== STANDARD_SHEET_MARKER ||
-    meta.schema_version !== STANDARD_SHEET_VERSION
+    ![1, STANDARD_SHEET_VERSION].includes(Number(meta.schema_version))
+  )
+    throw new Error("STANDARD_LAYOUT_CHANGED");
+  if (
+    (meta.schema_version === 1 &&
+      (snapshot.tables.calendarSources?.length ||
+        snapshot.tables.blocks?.length)) ||
+    (meta.schema_version === STANDARD_SHEET_VERSION &&
+      (!snapshot.tables.calendarSources?.length ||
+        !snapshot.tables.blocks?.length))
   )
     throw new Error("STANDARD_LAYOUT_CHANGED");
   if (standardContentHash(snapshot.tables) !== meta.content_hash)
@@ -286,9 +295,17 @@ function assertSnapshot(
     meta.workspace_version === binding.exportedVersion;
   const empty =
     !meta.workspace_id &&
-    ["orders", "nights", "payments", "sources"].every(
+    [
+      "orders",
+      "nights",
+      "payments",
+      "sources",
+      "calendarSources",
+      "blocks",
+    ].every(
       (key) =>
-        snapshot.tables[key as keyof typeof snapshot.tables].length === 1,
+        (snapshot.tables[key as keyof typeof snapshot.tables]?.length ?? 0) <=
+        1,
     );
   if (!planned && !saved && !(empty && !binding.generation))
     throw new Error("STANDARD_EXTERNAL_CHANGE");
@@ -301,7 +318,7 @@ function equalTables(
   const clean = (tables: StandardWorkbook["tables"]) =>
     STANDARD_SHEET_TABS.map((t) => [
       t.key,
-      tables[t.key].map((row) => row.map((c) => (c === "" ? null : c))),
+      (tables[t.key] ?? []).map((row) => row.map((c) => (c === "" ? null : c))),
     ]);
   return standardHash(clean(a)) === standardHash(clean(b));
 }

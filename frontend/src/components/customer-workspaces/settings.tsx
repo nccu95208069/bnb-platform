@@ -421,7 +421,7 @@ export function CustomerSettings({
       setRooms("");
       setConfirmedEmpty(false);
       setNotice(
-        result.input.mode === "sheet"
+        result.input.mode !== "empty"
           ? "旅宿已建立。請在下方選擇「匯入此館訂單」，完成核對後才會顯示空房。"
           : "旅宿已建立，可開始登記訂房。",
       );
@@ -618,6 +618,15 @@ export function CustomerSettings({
                       }}
                     >
                       <option value="sheet">已有試算表，先匯入核對</option>
+                      <option value="google_calendar">
+                        使用 Google Calendar，先匯入核對
+                      </option>
+                      <option value="ios_calendar">
+                        使用 iOS 日曆，先匯入核對
+                      </option>
+                      <option value="android_calendar">
+                        使用 Android 日曆，先匯入核對
+                      </option>
                       <option value="empty">目前沒有有效訂房，直接開始</option>
                     </select>
                   </label>

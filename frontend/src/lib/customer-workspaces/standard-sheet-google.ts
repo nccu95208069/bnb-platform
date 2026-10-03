@@ -14,9 +14,12 @@ export type StandardSnapshot = {
   spreadsheetId: string;
   url: string;
   tables: StandardWorkbook["tables"];
-  sheets: Record<
-    StandardTabKey,
-    { id: number; rows: number; columns: number; tableId?: string }
+  allSheetIds?: number[];
+  sheets: Partial<
+    Record<
+      StandardTabKey,
+      { id: number; rows: number; columns: number; tableId?: string }
+    >
   >;
 };
 export interface StandardSheetGateway {
@@ -100,10 +103,66 @@ export function standardWriteRequests(
   workbook: StandardWorkbook,
 ) {
   const requests: Record<string, unknown>[] = [];
+  let nextId =
+    Math.max(
+      0,
+      ...(snapshot.allSheetIds ??
+        Object.values(snapshot.sheets).map((s) => s!.id)),
+    ) + 1;
   for (const tab of STANDARD_SHEET_TABS) {
-    const sheet = snapshot.sheets[tab.key],
-      rows = workbook.tables[tab.key];
-    const rowCount = Math.max(2, rows.length, snapshot.tables[tab.key].length);
+    let sheet = snapshot.sheets[tab.key];
+    const rows = workbook.tables[tab.key];
+    const rowCount = Math.max(
+      2,
+      rows.length,
+      snapshot.tables[tab.key]?.length ?? 0,
+    );
+    if (!sheet) {
+      if (
+        !["calendarSources", "blocks"].includes(tab.key) ||
+        nextId > 2147483647
+      )
+        throw new Error("STANDARD_LAYOUT_CHANGED");
+      sheet = { id: nextId++, rows: rowCount, columns: tab.columns.length };
+      requests.push({
+        addSheet: {
+          properties: {
+            sheetId: sheet.id,
+            title: tab.title,
+            gridProperties: {
+              rowCount,
+              columnCount: sheet.columns,
+              frozenRowCount: 1,
+            },
+          },
+        },
+      });
+      requests.push({
+        repeatCell: {
+          range: { sheetId: sheet.id, startRowIndex: 0, endRowIndex: 1 },
+          cell: {
+            userEnteredFormat: {
+              textFormat: { bold: true },
+              backgroundColor: { red: 0.92, green: 0.96, blue: 0.95 },
+            },
+          },
+          fields: "userEnteredFormat",
+        },
+      });
+      for (const [index, column] of tab.columns.entries())
+        requests.push({
+          updateDimensionProperties: {
+            range: {
+              sheetId: sheet.id,
+              dimension: "COLUMNS",
+              startIndex: index,
+              endIndex: index + 1,
+            },
+            properties: { pixelSize: column.width ?? 140 },
+            fields: "pixelSize",
+          },
+        });
+    }
     const columnCount = tab.columns.length;
     if (sheet.rows < rowCount || sheet.columns < columnCount)
       requests.push({
@@ -278,6 +337,7 @@ export class GoogleStandardSheetGateway implements StandardSheetGateway {
         (s: { properties?: { title?: string } }) =>
           s.properties?.title === tab.title,
       );
+      if (!sheet && ["calendarSources", "blocks"].includes(tab.key)) continue;
       if (
         !sheet ||
         sheet.properties.gridProperties.rowCount > 50001 ||
@@ -302,7 +362,11 @@ export class GoogleStandardSheetGateway implements StandardSheetGateway {
       `https://sheets.googleapis.com/v4/spreadsheets/${id}/values:batchGet?${query}`,
     );
     const result = {} as StandardSnapshot["tables"];
-    for (const [i, tab] of STANDARD_SHEET_TABS.entries()) {
+    for (const tab of STANDARD_SHEET_TABS)
+      if (!sheets[tab.key]) result[tab.key] = [];
+    for (const [i, tab] of STANDARD_SHEET_TABS.filter(
+      (t) => sheets[t.key],
+    ).entries()) {
       const rows: unknown[][] = values.valueRanges?.[i]?.values ?? [];
       if (
         !rows.length ||
@@ -325,6 +389,9 @@ export class GoogleStandardSheetGateway implements StandardSheetGateway {
       url: metadata.spreadsheetUrl,
       tables: result,
       sheets,
+      allSheetIds: (metadata.sheets ?? []).map(
+        (s: { properties: { sheetId: number } }) => s.properties.sheetId,
+      ),
     };
   }
   async write(snapshot: StandardSnapshot, workbook: StandardWorkbook) {

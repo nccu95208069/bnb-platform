@@ -37,7 +37,7 @@ const errors: Record<string, [number, string]> = {
   SHEET_LINK_INVALID: [400, "請貼上 Google Sheet 的完整檔案連結。"],
   JOIN_INCOMPLETE: [
     400,
-    "請填妥旅宿、房間與 Sheet 連結，並確認已分享；也可以改選專人諮詢。",
+    "請填妥旅宿、房間與資料來源；使用 Sheet 時請確認連結與分享，也可以改選專人諮詢。",
   ],
   RATE_LIMITED: [
     429,
@@ -82,6 +82,7 @@ export async function POST(request: NextRequest) {
     if (
       onboardingEnabled() &&
       answers.intent === "join" &&
+      answers.source === "sheet" &&
       (!existing || existing.sheetAccess !== "verified")
     ) {
       await checkSharedSheet(answers.sheetUrl);
@@ -107,7 +108,7 @@ export async function POST(request: NextRequest) {
           : delivery.status === "preview"
             ? "preview"
             : "pending";
-      if (answers.intent === "join") {
+      if (answers.intent === "join" && answers.source === "sheet") {
         const snapshot = await store.read<IntakeRecord>(`intake:${result.id}`);
         if (snapshot.value && snapshot.value.sheetAccess !== "verified")
           await store.commit([
@@ -125,7 +126,9 @@ export async function POST(request: NextRequest) {
         ...result,
         ...(applicantNotification ? { applicantNotification } : {}),
         sheetAccess:
-          onboardingEnabled() && answers.intent === "join"
+          onboardingEnabled() &&
+          answers.intent === "join" &&
+          answers.source === "sheet"
             ? "verified"
             : answers.sheetUrl
               ? "not_checked"

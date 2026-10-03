@@ -15,6 +15,7 @@ import { checkSharedSheet } from "../customer-workspaces/shared-sheet.ts";
 import { digest } from "../customer-workspaces/auth.ts";
 import { customerOrigin } from "../customer-workspaces/site-url.ts";
 import { importAccess } from "../customer-workspaces/sheet-import.ts";
+import { isCalendarKind } from "../customer-workspaces/calendar-types.ts";
 export type Journey = {
   id: string;
   createdAt: string;
@@ -108,12 +109,15 @@ export async function beginOnboarding(
     id,
     record.answers.email,
   );
+  const nextSteps = isCalendarKind(record.answers.source)
+    ? "接著連結 Google 日曆或上傳 ICS／ZIP 日曆檔，確認房間與住宿日期，再預覽匯入。iOS／Android 若使用 Google 帳號，可直接連結 Google；其他日曆使用匯出檔。此時不需要提供 Sheet 連結。"
+    : "接著選擇分頁、確認紀錄方式與房間對應，預覽合併後的訂單，再匯入日曆。Sheet 建立者與登入帳號可以不同。讀取成功不代表資料格式已確認。格式不適用時可要求專人協助。";
   return deliverOnce(
     store,
     `receipt:${id}`,
     record.answers.email,
     "旅宿服務｜已收到申請，請確認信箱",
-    `已收到你的加入申請。\n\n申請編號：${id}\n\n請於 24 小時內開啟下方連結，確認信箱並設定登入密碼：\n${accountLinkUrl(link)}\n\n接著選擇分頁、確認紀錄方式與房間對應，預覽合併後的訂單，再匯入日曆。Sheet 建立者與登入帳號可以不同。讀取成功不代表資料格式已確認。格式不適用時可要求專人協助。\n\n聯絡信箱：${INTAKE_RECIPIENT}\n若不是你提出的申請，請勿開啟連結，直接忽略本信。`,
+    `已收到你的加入申請。\n\n申請編號：${id}\n\n請於 24 小時內開啟下方連結，確認信箱並設定登入密碼：\n${accountLinkUrl(link)}\n\n${nextSteps}\n\n聯絡信箱：${INTAKE_RECIPIENT}\n若不是你提出的申請，請勿開啟連結，直接忽略本信。`,
     send,
     preview,
   );
@@ -135,6 +139,12 @@ export async function provisionVerifiedApplication(
     throw new Error("FORBIDDEN");
   if (journey.accountId && journey.accountId !== account.id)
     throw new Error("FORBIDDEN");
+  const calendarKind = isCalendarKind(record.answers.source)
+    ? record.answers.source
+    : undefined;
+  const sourceBinding = calendarKind
+    ? { requestId: id, calendarKind }
+    : { requestId: id, sheetUrl: record.answers.sheetUrl! };
   const created = await createWorkspace(
     store,
     account,
@@ -145,7 +155,7 @@ export async function provisionVerifiedApplication(
       slug: `stay-${id.slice(0, 8)}-${id.slice(-8)}`,
       requestKey: `application-${id}`,
     },
-    { requestId: id, sheetUrl: record.answers.sheetUrl! },
+    sourceBinding,
   );
   const loaded = await loadWorkspace(store, account.id, created.slug),
     workspace = loaded.workspace;
@@ -153,7 +163,7 @@ export async function provisionVerifiedApplication(
     throw new Error("FORBIDDEN");
   // A supplied source only needs to be readable. Its creator/editor can use a
   // different Google account from the person signing up for this workspace.
-  await checkSharedSheet(record.answers.sheetUrl);
+  if (!calendarKind) await checkSharedSheet(record.answers.sheetUrl);
   const approved = journey.approvedAt ?? new Date().toISOString();
   const next: Journey = {
     ...journey,
@@ -163,7 +173,7 @@ export async function provisionVerifiedApplication(
     workspaceId: workspace.id,
     propertyId: workspace.properties[0].id,
     approvedAt: approved,
-    approvedBy: "readable-source",
+    approvedBy: calendarKind ? "calendar-awaiting-import" : "readable-source",
     status: journey.readyAt ? journey.status : "mapping",
   };
   // A lost activation response can safely repeat; account, creation key and source
@@ -177,8 +187,7 @@ export async function provisionVerifiedApplication(
         ...workspace,
         onboarding: {
           ...workspace.onboarding,
-          requestId: id,
-          sheetUrl: record.answers.sheetUrl!,
+          ...sourceBinding,
           approvedAt: approved,
         },
       },
@@ -189,7 +198,9 @@ export async function provisionVerifiedApplication(
   const progress = (await store.read<Journey>(key)).value;
   if (
     persisted.onboarding?.requestId !== id ||
-    persisted.onboarding.sheetUrl !== record.answers.sheetUrl ||
+    (calendarKind
+      ? persisted.onboarding.calendarKind !== calendarKind
+      : persisted.onboarding.sheetUrl !== record.answers.sheetUrl) ||
     persisted.onboarding.approvedAt !== approved ||
     progress?.accountId !== account.id ||
     progress.workspaceId !== workspace.id
@@ -215,7 +226,7 @@ export async function sharedImportPermission(
   }
   if (workspace.properties[0]?.id !== propertyId) throw new Error("NOT_FOUND");
   const source = workspace.onboarding;
-  if (!source) throw new Error("NOT_FOUND");
+  if (!source?.sheetUrl) throw new Error("NOT_FOUND");
   const journey = (await store.read<Journey>(`onboarding:${source.requestId}`))
     .value;
   if (
@@ -236,7 +247,12 @@ export async function syncOnboardingProgress(
   slug: string,
 ) {
   const { workspace } = await loadWorkspace(store, accountId, slug);
-  if (!workspace.onboarding?.readyAt) return;
+  if (!workspace.onboarding) return;
+  if (
+    !workspace.onboarding.readyAt &&
+    !(workspace.calendarBatches?.length || workspace.importBatches?.length)
+  )
+    return;
   const key = `onboarding:${workspace.onboarding.requestId}`,
     current = await store.read<Journey>(key);
   if (!current.value || current.value.workspaceId !== workspace.id)
@@ -244,7 +260,7 @@ export async function syncOnboardingProgress(
   const excluded = workspace.onboarding.unresolvedCount ?? 0;
   const next: Journey = {
     ...current.value,
-    status: excluded ? "partial" : "ready",
+    status: excluded || !workspace.onboarding.readyAt ? "partial" : "ready",
     readyAt: workspace.onboarding.readyAt,
     excludedCount: excluded,
     importedCount: workspace.bookings.filter(
@@ -273,9 +289,13 @@ export async function finishOnboardingImport(
     workspace = loaded.workspace;
   if (!workspace.onboarding || workspace.properties[0]?.id !== propertyId)
     return;
-  const batch = workspace.importBatches?.find(
-    (b) => b.id === previewId && b.propertyId === propertyId,
-  );
+  const batch =
+    workspace.importBatches?.find(
+      (b) => b.id === previewId && b.propertyId === propertyId,
+    ) ??
+    workspace.calendarBatches?.find(
+      (b) => b.id === previewId && b.propertyId === propertyId,
+    );
   if (!batch) throw new Error("NOT_FOUND");
   const key = `onboarding:${workspace.onboarding.requestId}`,
     current = await store.read<Journey>(key),
@@ -290,7 +310,7 @@ export async function finishOnboardingImport(
     `calendar-ready:${previewId}`,
     record.answers.email,
     excluded ? "旅宿服務｜部分資料已匯入，仍需核對" : "旅宿服務｜日曆已建立",
-    `你的日曆已完成本次匯入，共 ${batch.bookingIds.length} 筆訂房。${excluded ? `\n另有 ${excluded} 列未匯入，請回到匯入頁核對；不能把未匯入部分視為空房。在資料確認完整前，新增訂房會暫停。` : ""}\n\n開啟日曆：\n${customerOrigin()}/w/${slug}/calendar\n\n以申請信箱及你設定的密碼登入。原 Sheet 不會被修改，也不會持續同步；之後的訂房變更請在日曆中管理。\n\n聯絡信箱：${INTAKE_RECIPIENT}`,
+    `你的日曆已完成本次匯入，共 ${batch.bookingIds.length} 筆訂房。${excluded ? `\n另有 ${excluded} 列未匯入，請回到匯入頁核對；不能把未匯入部分視為空房。在資料確認完整前，新增訂房會暫停。` : ""}\n\n開啟日曆：\n${customerOrigin()}/w/${slug}/calendar\n\n以申請信箱及你設定的密碼登入。${workspace.onboarding.calendarKind ? (workspace.calendarSources?.some((b) => b.propertyId === propertyId && b.mode === "connected") ? "Google 日曆持續同步中：住宿日期與房間請在 Google 日曆調整，實收款項在本系統登記。" : "日曆資料已一次搬入，來源之後的更動不會自動帶入。請在本系統管理後續訂房。") : "原 Sheet 不會被修改，也不會持續同步；之後的訂房變更請在日曆中管理。"}\n\n聯絡信箱：${INTAKE_RECIPIENT}`,
     send,
     previewMode,
   );
@@ -382,6 +402,7 @@ export async function reviewApplication(
   if (action === "approve") {
     if (!journey.verifiedAt || !journey.accountId || !journey.workspaceId)
       throw new Error("SHEET_REVIEW_REQUIRED");
+    if (isCalendarKind(record.answers.source)) throw new Error("INVALID_INPUT");
     await checkSharedSheet(record.answers.sheetUrl);
     const ws = await store.read<Workspace>(`workspace:${journey.workspaceId}`);
     if (!ws.value?.onboarding) throw new Error("NOT_FOUND");

@@ -4,6 +4,11 @@ import type { CustomerStore } from "../customer-workspaces/store.ts";
 import { normalizedEmail, validEmail } from "../workspace-auth/types.ts";
 import { INTAKE_RECIPIENT } from "./config.ts";
 import type { IntakeAnswers, IntakeRecord, IntakeResult } from "./types.ts";
+import {
+  CALENDAR_KINDS,
+  CALENDAR_LABELS,
+  isCalendarKind,
+} from "../customer-workspaces/calendar-types.ts";
 export type Notify = (message: {
   to: typeof INTAKE_RECIPIENT;
   subject: string;
@@ -42,7 +47,9 @@ export function sheetLink(value: unknown) {
 export function intakeAnswers(input: Record<string, unknown>): IntakeAnswers {
   if (
     !["join", "consultation"].includes(input.intent as string) ||
-    !["sheet", "other", "unknown"].includes(input.source as string) ||
+    !["sheet", "other", "unknown", ...CALENDAR_KINDS].includes(
+      input.source as string,
+    ) ||
     input.consent !== true ||
     (input.website != null && input.website !== "")
   )
@@ -89,9 +96,10 @@ export function intakeAnswers(input: Record<string, unknown>): IntakeAnswers {
     (!answers.propertyName ||
       !answers.kind ||
       !answers.rooms.length ||
-      answers.source !== "sheet" ||
-      !answers.sheetUrl ||
-      !answers.sharingDeclared)
+      (!isCalendarKind(answers.source) &&
+        (answers.source !== "sheet" ||
+          !answers.sheetUrl ||
+          !answers.sharingDeclared)))
   )
     throw new Error("JOIN_INCOMPLETE");
   return answers;
@@ -122,7 +130,7 @@ export function intakeMessage(record: IntakeRecord): Parameters<Notify>[0] {
       `旅宿名稱：${a.propertyName || "未填"}`,
       `經營型態：${kind}`,
       `房間：${a.rooms.join("、") || "尚未提供"}`,
-      `現有資料：${a.source === "sheet" ? "Google Sheet" : a.source === "other" ? "非 Google Sheet" : "尚未確認"}`,
+      `現有資料：${isCalendarKind(a.source) ? CALENDAR_LABELS[a.source] : a.source === "sheet" ? "Google Sheet" : a.source === "other" ? "其他資料" : "尚未確認"}`,
       `其他資料說明：${a.sourceDescription || "未填"}`,
       `Google Sheet：${a.sheetUrl || "未提供有效連結"}`,
       `使用者原始填寫連結（未核對）：${a.providedLink || "未填"}`,

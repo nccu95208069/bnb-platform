@@ -1,5 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
+import {
+  isCalendarKind,
+  CALENDAR_LABELS,
+} from "@/lib/customer-workspaces/calendar-types";
 import { api, button, secondary, field } from "../customer-workspaces/client";
 import type { IntakeRecord } from "@/lib/customer-intake/types";
 import type { Journey } from "@/lib/customer-intake/onboarding";
@@ -190,6 +194,14 @@ export function OnboardingAdmin() {
               旅宿型態：{r.answers.kind || "未填"} · 房間：
               {r.answers.rooms.join("、") || "未填"}
             </p>
+            <p className="text-sm">
+              來源：
+              {isCalendarKind(r.answers.source)
+                ? CALENDAR_LABELS[r.answers.source]
+                : r.answers.source === "sheet"
+                  ? "Google Sheet"
+                  : "其他／待確認"}
+            </p>
             {r.answers.sheetUrl && (
               <a
                 className="block break-all text-sm underline"
@@ -222,15 +234,17 @@ export function OnboardingAdmin() {
               >
                 重寄申請人確認信
               </button>
-              {j?.verifiedAt && !j.approvedAt && (
-                <button
-                  className={button}
-                  disabled={busy}
-                  onClick={() => act(r.id, "approve")}
-                >
-                  重新讀取來源，通知客戶確認格式
-                </button>
-              )}
+              {r.answers.source === "sheet" &&
+                j?.verifiedAt &&
+                !j.approvedAt && (
+                  <button
+                    className={button}
+                    disabled={busy}
+                    onClick={() => act(r.id, "approve")}
+                  >
+                    重新讀取來源，通知客戶確認格式
+                  </button>
+                )}
             </div>
             {j && (
               <details>

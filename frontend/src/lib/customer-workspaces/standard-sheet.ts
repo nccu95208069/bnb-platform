@@ -25,7 +25,9 @@ const nextDate = (date: string) =>
   new Date(Date.parse(date) + 86400000).toISOString().slice(0, 10);
 export function standardContentHash(tables: StandardWorkbook["tables"]) {
   return standardHash(
-    STANDARD_SHEET_TABS.filter((t) => t.key !== "meta").map((t) => [
+    STANDARD_SHEET_TABS.filter(
+      (t) => t.key !== "meta" && tables[t.key]?.length,
+    ).map((t) => [
       t.key,
       tables[t.key].map((row) =>
         row.map((cell) => (cell === "" ? null : cell)),
@@ -97,7 +99,7 @@ export function buildStandardWorkbook(
       booking.id,
       property.id,
       property.name,
-      booking.imported?.externalId ?? null,
+      booking.imported?.externalId ?? booking.calendar?.externalId ?? null,
       booking.guestName,
       booking.status === "confirmed" ? "有效" : "已取消",
       booking.checkIn,
@@ -188,6 +190,48 @@ export function buildStandardWorkbook(
         ]);
     }
   }
+  for (const record of [
+    ...(workspace?.bookings ?? []),
+    ...(workspace?.blocks ?? []),
+  ].sort((a, b) => a.id.localeCompare(b.id))) {
+    if (!record.calendar) continue;
+    for (const ref of record.calendar.references)
+      tables.calendarSources.push([
+        record.id,
+        record.calendar.bindingId,
+        record.calendar.batchId,
+        ref.calendarId,
+        ref.uid,
+        ref.eventId ?? null,
+        ref.recurrenceId ?? null,
+        record.calendar.externalId,
+        record.calendar.fingerprint,
+      ]);
+  }
+  for (const block of workspace?.blocks ?? []) {
+    const property = workspace!.properties.find(
+      (p) => p.id === block.propertyId,
+    );
+    if (!property) throw new Error("STANDARD_DATA_INVALID");
+    for (const stay of block.stays)
+      for (let date = stay.checkIn; date < stay.checkOut; date = nextDate(date))
+        for (const roomId of stay.roomIds) {
+          const room = property.rooms.find((r) => r.id === roomId);
+          if (!room || ++nightCount > 50000) throw new Error("STANDARD_SIZE");
+          tables.blocks.push([
+            block.id,
+            property.id,
+            property.name,
+            room.id,
+            room.name,
+            date,
+            nextDate(date),
+            block.reason,
+            block.status === "active" ? "封房" : "已釋放",
+            block.version,
+          ]);
+        }
+  }
   const contentHash = standardContentHash(tables);
   const generatedAt = options.generatedAt ?? new Date().toISOString();
   const generation =
@@ -211,7 +255,12 @@ export function buildStandardWorkbook(
     ["room_nights", tables.nights.length - 1],
     ["payment_records", tables.payments.length - 1],
     ["source_references", tables.sources.length - 1],
-    ["source_mode", "原表唯讀，一次性匯入；此帳本不反向回寫"],
+    [
+      "source_mode",
+      "來源唯讀；日曆依來源設定一次搬入或持續同步，此帳本不反向回寫",
+    ],
+    ["calendar_references", tables.calendarSources.length - 1],
+    ["blocked_room_nights", tables.blocks.length - 1],
     [
       "pending_properties",
       (workspace?.properties ?? [])

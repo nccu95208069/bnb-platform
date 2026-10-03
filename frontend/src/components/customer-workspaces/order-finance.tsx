@@ -146,7 +146,7 @@ export function OrderFinance({
           </span>
         </p>
       )}
-      {booking.entry === "sheet" && (
+      {(booking.entry === "sheet" || booking.entry === "calendar") && (
         <div className="my-4 rounded-xl bg-stone-50 p-3 text-sm leading-6">
           {booking.importedFinance?.receivedMeaning === "source" && (
             <p>
@@ -218,7 +218,8 @@ export function OrderFinance({
                 ...(canManage
                   ? [
                       ["terms", "修改應收與訂金"],
-                      ...(booking.entry === "sheet" &&
+                      ...((booking.entry === "sheet" ||
+                        booking.entry === "calendar") &&
                       summary.openingReceived === null
                         ? [["opening", "確認期初實收"]]
                         : []),
