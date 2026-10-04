@@ -455,7 +455,20 @@ export function HealthPage({
             列
           </p>
           <h2>{q.title}</h2>
-          {q.note && <p>{q.note}</p>}
+          {q.id === "unit" ? (
+            <article className={styles.exampleOrder} aria-label="示意訂單：201 河景雙人房，9 月 1 日入住，9 月 3 日退房，共 2 晚">
+              <div className={styles.exampleOrderHeader}>
+                <span>示意訂單</span>
+                <span className={styles.exampleOrderStay}>1 間房 · 2 晚</span>
+              </div>
+              <h3>201 河景雙人房</h3>
+              <div className={styles.exampleOrderDates}>
+                <div><span>入住</span><strong>9/1</strong></div>
+                <span className={styles.exampleOrderArrow} aria-hidden="true">→</span>
+                <div><span>退房</span><strong>9/3</strong></div>
+              </div>
+            </article>
+          ) : q.note && <p>{q.note}</p>}
           {canSuggest && <p className={styles.suggestionStatus} role="status">
             {!currentSuggestion || currentSuggestion.state === "pending" ? "AI 正在看你的資料…" :
               currentSuggestion.recommendation ? `AI 判斷依據：${currentSuggestion.recommendation.reason}` :

@@ -273,6 +273,16 @@
   gap: 12px;
   margin: 24px 0;
 }
+.exampleOrder { max-width: 480px; margin: 20px 0; padding: 20px 24px; border: 1px solid #d8e4da; border-top: 3px solid #6f947e; border-radius: 14px; background: #fcfdfb; box-shadow: 0 4px 14px #27493608; }
+.exampleOrderHeader { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12px; color: #728075; }
+.exampleOrderStay { padding: 3px 10px; border-radius: 6px; background: #edf3ea; color: #4c6c53; white-space: nowrap; }
+.exampleOrder h3 { margin: 14px 0 18px; font-size: 20px; color: #2d4839; }
+.exampleOrderDates { display: grid; grid-template-columns: 1fr 32px 1fr; align-items: center; gap: 12px; padding-top: 16px; border-top: 1px dashed #d8e2d7; }
+.exampleOrderDates > div { display: grid; gap: 2px; }
+.exampleOrderDates > div:last-child { text-align: right; }
+.exampleOrderDates div > span { font-size: 12px; color: #7a887b; }
+.exampleOrderDates strong { font-size: 28px; font-weight: 600; letter-spacing: -0.5px; line-height: 1.4; color: #304b3b; }
+.exampleOrderArrow { color: #9aaa9b; text-align: center; }
 .options button {
   display: flex;
   align-items: center;
