@@ -2,7 +2,7 @@
 
 ## Calendar onboarding implementation and acceptance
 
-[Live acceptance](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md) now verifies real Google consent, preview/save, refresh, revocation/reconnect, ICS/ZIP, email-link return and two manually invoked production worker executions in the approved synthetic scope. The [configuration guide](CALENDAR_GOOGLE_SETUP_2026-10-04.md) remains the runbook. Continuous sync is off after testing; real-device acceptance, actual scheduled delivery and primary promotion remain open.
+[Live acceptance](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md) now verifies real Google consent, preview/save, refresh, revocation/reconnect, ICS/ZIP, email-link return and two manually invoked production worker executions in the approved synthetic scope. The [configuration guide](CALENDAR_GOOGLE_SETUP_2026-10-04.md) remains the runbook. The later [owner pilot release](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md#primary-domain-owner-pilot) promotes the primary domain, enables explicitly opted-in synchronization and verifies two actual platform cron deliveries. Real-device and broader live-data acceptance remain open.
 
 Latest owner decision: [preview first and passwordless saving](CALENDAR_PREVIEW_FIRST_2026-10-04.md) is implemented. Google login/consent precedes preview; ICS/ZIP previews anonymously and asks for an email link only when saving. The former calendar contact/activation/password prerequisite is superseded.
 
@@ -15,7 +15,8 @@ Owner request: implement Google Calendar, iOS and Android onboarding and backend
 - [x] **CAL-IOS / CAL-ANDROID-WEB** — Separate intake options, account identification instructions, Google-backed connection and ICS/ZIP file paths, with explicit local-device limitations.
 - [x] **CAL-REVIEW** — Review and regression coverage for authorization, money, source completeness, stale availability, retry and dependency critical vulnerabilities. See the repair record.
 - [x] **CAL-GOOGLE-PROVIDER-LIVE** — Real consent, preview/save, refresh, revoke/reconnect, email/ICS/ZIP and persisted synthetic records verified in the protected candidate.
-- [ ] **CAL-GOOGLE-SCHEDULE-LIVE** — Two actual scheduled deliveries remain unverified. Two authenticated manual executions of the real worker passed; continuous sync was turned off after acceptance.
+- [x] **CAL-GOOGLE-SCHEDULE-LIVE** — Vercel automatically invoked the promoted production worker at 06:45:25 and 06:50:25 UTC on October 4, both HTTP 200 with `vercel-cron/1.0`. No manual run was issued. The production registry was empty; real Google source-change processing was separately verified in the protected acceptance run.
+- [x] **CAL-OWNER-PILOT-READY** — Primary domain, persistent customer configuration, approved owner Google account, real email login, three saved/reloaded synthetic bookings and guarded undo are verified. The owner can now import their own data; this is not a completed real-sample pilot.
 - [ ] **CAL-MOBILE-LIVE** — Real-device file selection and OAuth return, including multiple accounts and cancellation recovery. Mac iCloud export is documented; iPhone-only/iCloud direct and Android device-local readers require a separate native/provider adapter.
 - [ ] **CAL-PILOT** — Scoped real samples for per-room calendars, titles that identify rooms and check-in reminders; measure corrections and verify overlaps, recurrence exceptions and unknown money.
 

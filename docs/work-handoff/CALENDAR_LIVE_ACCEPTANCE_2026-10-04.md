@@ -1,5 +1,7 @@
 # Calendar live acceptance — 2026-10-04
 
+**Latest state:** the later [primary-domain owner pilot](#primary-domain-owner-pilot) supersedes the protected-only, primary-unchanged and sync-off completion state in the original acceptance record below.
+
 The desktop browser journey now has real-provider evidence: Google read-only consent, preview, explicit save, token refresh, revocation and reconnect; anonymous ICS/ZIP preview; actual email-link delivery and same-browser return; persisted bookings and two real sync-worker executions. This supersedes earlier statements that Google configuration and all browser acceptance were pending. It does **not** establish real-phone acceptance, automatic scheduler delivery or public release readiness.
 
 ## Environment and scope
@@ -49,3 +51,45 @@ Remaining before a broader rollout: real iOS Safari and Android Chrome consent/f
 Cleanup deleted 38 remaining keys in the exact approved prefix and a bounded scan read back **zero** keys. The three workspaces, nine bookings, test account, encrypted grants and job registration were removed. Expiring draft records had already expired where absent. Only sanitized counts/date evidence is retained locally; the consumed email-link file and temporary local worker secret were removed.
 
 The Google calendar month view contains no test events after recoverable deletion; the empty calendar itself remains. The exact application grant was revoked, and Google connection search no longer returns it. Final anonymous checks against both the fixed alias and deployment returned HTTP 302 to `vercel.com`, preserving authentication protection. The fixed alias resolves to `dpl_BZHBQAgmzjVoxnqJSAVbPDbXzTpc`; primary `sweetfun-os.vercel.app` still resolves to `dpl_4RtToxbsPMUWt1bw25Mn2cvUvg82`.
+
+
+## Primary-domain owner pilot
+
+After the protected acceptance run, the owner explicitly requested completion through direct testing with their own data. They approved production configuration, the primary callback URL, durable customer storage, five-minute opt-in synchronization, promotion, one login email and one synthetic workspace with up to three bookings followed by guarded undo. This authorization supersedes the earlier no-production-mutation boundary. It does not authorize publishing the Google app to all accounts or merging PR #26.
+
+### Released state
+
+- Entry: `https://sweetfun-os.vercel.app/join`; returning users use `/start`.
+- Runtime source: `fcbb05c525a40e381cf0ce95aa5652aa20d69e34`. Vercel production deployment `dpl_GRkexAWJq8Toyj5cyTh1ZEaXQNX2`, `https://sweetfun-byrqds9oh-sweetfuns-projects.vercel.app`, is READY. The primary hostname was read back against that exact deployment after promotion.
+- Previous primary `dpl_4RtToxbsPMUWt1bw25Mn2cvUvg82` remains available for rollback. No PR merge was performed.
+- Existing Google client credentials and stable token-encryption key are sensitive Production settings. The primary callback is registered alongside the prior acceptance callback. The existing session and cron secrets were retained. No secret values appear in this report.
+- Customer data uses the existing durable `bnb:customers:v1` namespace. No acceptance-prefix cleanup may target this namespace. User accounts and future imports must remain intact.
+- The Google Calendar worker is enabled at `*/5 * * * *`; the three existing minute schedules are unchanged. It reads only sources explicitly selected and confirmed for continuous mode. ICS/ZIP remains a file import with no automatic device polling. Google events are never written.
+- The legacy public calendar remains anonymized; customer workspace reads and writes still require server-side account/property authorization.
+
+### Primary-domain acceptance
+
+One clearly named synthetic verification workspace was created through the public UI. Three ICS stays previewed before login. Exactly one email login link was requested, delivered from the existing transport, and opened in the requesting browser. Its destination used the primary origin. Login restored dates, room mapping and selected records; saving still required an explicit account confirmation.
+
+The three bookings saved and remained visible after a full reload: October 18–20, October 20–22 and October 24–25 in the intended room. Missing money remained unknown. The import page reported three orders and zero blocks. Its guarded undo then reported **three undone, zero retained due to modification/payment**. The calendar readback showed no imported bookings and correctly removed the ability to treat unverified dates as available. The account and empty, clearly labelled verification workspace remain; neither is deleted. The consumed local login-link file was removed. No other customer bookings or source events were changed.
+
+Anonymous requests to the new workspace returned **401**; `/join` and `/start` returned **200**. The uncredentialed cron request returned **401**. These checks verify application authorization without weakening Vercel deployment protection. The new deployment's post-release error-level log scan returned zero entries in the observed window; this is a bounded check, not ongoing monitoring.
+
+### Actual scheduled delivery
+
+Vercel's enabled Cron Jobs screen lists `/api/cron/customer-calendars` every five minutes. The production logs contain two automatic requests:
+
+| UTC time, October 4 | Taipei time | Status | Platform user agent |
+| --- | --- | --- | --- |
+| 06:45:25.142 | 14:45:25 | 200 | `vercel-cron/1.0` |
+| 06:50:25.181 | 14:50:25 | 200 | `vercel-cron/1.0` |
+
+Both identify the released deployment and show the worker's Redis call. No authenticated manual invocation or dashboard Run button was used in this pilot. The production calendar-job registry contained zero jobs before release; the file-only verification workspace registers no Google sync job. This proves automatic platform delivery and worker/store availability, not processing of an already-connected real customer source. Real-provider refresh/source updates were exercised separately in the protected acceptance above; a user's future selected-source synchronization remains subject to their grant and explicit opt-in.
+
+### Verification and remaining limits
+
+The release also repairs Google refresh HTTP 400 `invalid_grant` handling: expired/revoked grants now ask the user to reconnect, while other refresh errors stay generic and existing bookings/grants remain unchanged. **133 service/API/auth and 20 DOM tests pass (153 total, no failures/skips)**; TypeScript and local webpack build pass; lint has zero errors and seven existing warnings; the cloud production build is READY. GitHub CI run `37183490218` on the runtime source was not started because the GitHub account is locked for billing; this is separate from local/cloud checks.
+
+Google remains External / Testing with the approved owner account on its test-user list. Other Google accounts require a separately approved audience change or test-user setup. Google states that refresh tokens for External apps in Testing expire after seven days for these scopes; the user may need to reconnect. See [Google's token-expiration documentation](https://developers.google.com/identity/protocols/oauth2#expiration). Physical iOS/Android file pickers and OAuth/mail-app transitions, broader multi-account and collaborator flows, and real booking samples remain unverified. The pilot is ready for the owner to supply their own data; it is not a claim of general-availability acceptance.
+
+To begin, open `/join`, choose **申請使用**, enter the real property and room names, then choose Google Calendar or the iOS/Android file path. Review room/date mapping and the selected period before saving. Google users can choose continuous mode explicitly; files must be reimported when their source changes. Start a fresh real-property workspace rather than reuse the clearly labelled verification workspace.

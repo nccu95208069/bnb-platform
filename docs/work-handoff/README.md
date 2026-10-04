@@ -1,8 +1,10 @@
 # Work Handoff Index — 2026-09-05
 
-2026-10-04 Google acceptance preparation: [verified missing settings, fixed callback/email origin, offline checker and live test procedure](CALENDAR_GOOGLE_SETUP_2026-10-04.md). Google Cloud project/client selection remains pending; no production mutation or primary rollout is implied.
+2026-10-04 owner pilot release: [primary-domain promotion, persistent settings, delivered email/save/undo and two automatic cron deliveries](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md#primary-domain-owner-pilot). Ready for the authorized owner to import their own data at `https://sweetfun-os.vercel.app/join`. Google remains in Testing; real-phone and broader multi-account acceptance remain pending. This supersedes the earlier no-promotion/sync-off state below.
 
-2026-10-04 live calendar acceptance: [real Google consent/refresh/reconnect, email-link return, ICS/ZIP, persisted synthetic data and worker verification](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md). Real-device and automatic-schedule acceptance remain open; the primary domain is unchanged.
+2026-10-04 Google acceptance preparation: [verified missing settings, fixed callback/email origin, offline checker and live test procedure](CALENDAR_GOOGLE_SETUP_2026-10-04.md). The setup-stage missing-settings report is historical; the live report records subsequent configuration and the later owner-authorized production pilot.
+
+2026-10-04 live calendar acceptance: [real Google consent/refresh/reconnect, email-link return, ICS/ZIP, persisted synthetic data and worker verification](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md). The later pilot section records primary promotion and actual scheduled delivery; physical-device acceptance remains open.
 
 2026-10-04 latest calendar flow: [preview before signup, Google identity and email-link login, repeated review and verification](CALENDAR_PREVIEW_FIRST_2026-10-04.md). Calendar import no longer requires setting a password or completing the contact form first.
 
