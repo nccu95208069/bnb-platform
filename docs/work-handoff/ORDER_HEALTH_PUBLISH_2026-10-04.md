@@ -38,7 +38,15 @@
 - 第一個雲端候選版本建置成功（17 秒），隔離的短期驗收帳號確認登入、空白工作區、真實 Google API 回應及 `checking_access → awaiting_share`。
 - 目前正式來源 commit `fcbb05c` 是本分支祖先；發布包含其既有日曆授權修復。
 - 候選部署分享連結的建立也被自動審查拒絕；沒有建立公開 bypass 連結或關閉部署保護。
-- 正式入口發布結果及最後驗證另於發布完成後補記。
+- 正式入口：`https://sweetfun-os.vercel.app/order-health`，發布程式 commit `b3f8517`，最終部署 `dpl_EKFeYme7Hyd6LgMQXQRtWZAkrGHF`（`sweetfun-6bbs6lrrc-sweetfuns-projects.vercel.app`），Production / READY，Next.js 16.3.8，最後建置 8 秒。
+- `/order-health` 未登入會導到保留返回位置的登入頁；實際擁有者登入狀態已在瀏覽器確認，可直接看到空白真實資料入口，CTA 為「檢查試算表連線」。
+- 瀏覽器驗證貼上連結後自動提交，真實 Google API 拒絕讀取時進入分享指引；沒有點擊範例或手動啟動按鈕。
+- 發布後回讀 Vercel 排程定義，已綁定最終部署。23:32:30、23:33:30 的 `/api/cron/order-health` 均為 200；離開分析頁 201 秒後，伺服器仍記錄新的分享檢查。這確認背景排程獨立於頁面輪詢。
+- 分析 API 與 cron 的匿名請求均為 401。最終部署錯誤記錄掃描沒有發現錯誤。
+- 短期驗收帳號、工作區和來源已清除。擁有者工作區保持空白，不植入範例報告或試算表。
+- 舊本機入口 8793 已改成轉向 HTTPS 正式入口；正式站不依賴本機服務。
+
+注意：CLI `--skip-domain` 候選部署會更新專案別名，但並未更新 cron 的 deploymentId。後續使用正常 `vercel deploy --prod --yes` 完成正式發布並回讀排程；不能以手動 alias 成功推論 cron 已更新。
 
 ## 回復方式
 
