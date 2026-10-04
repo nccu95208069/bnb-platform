@@ -8,6 +8,7 @@ import {
 import {
   CALENDAR_STATE_COOKIE,
   calendarGoogleConfig,
+  calendarGoogleReturnTarget,
   finishCalendarGoogle,
 } from "@/lib/customer-workspaces/calendar-google";
 import {
@@ -26,7 +27,9 @@ import {
 import type { Account } from "@/lib/customer-workspaces/types";
 export const runtime = "nodejs";
 export async function GET(request: NextRequest) {
-  let location = "/start?calendar=failed",
+  let location = request.cookies.get(ONBOARDING_COOKIE)?.value
+      ? "/join/calendar?calendar=failed"
+      : "/start?google=failed",
     origin = request.nextUrl.origin;
   let signedIn: Account | null = null;
   try {
@@ -49,6 +52,12 @@ export async function GET(request: NextRequest) {
       signedIn = result.account;
     } else {
       const account = await principal(request);
+      location = await calendarGoogleReturnTarget(
+        store,
+        account.id,
+        state,
+        request.cookies.get(CALENDAR_STATE_COOKIE)?.value ?? "",
+      );
       const result = await finishCalendarGoogle(
         store,
         account.id,

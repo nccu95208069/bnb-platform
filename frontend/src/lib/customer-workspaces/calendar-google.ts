@@ -206,18 +206,15 @@ export async function beginCalendarGoogle(
   }).toString();
   return { url: url.toString(), nonce };
 }
-export async function finishCalendarGoogle(
+async function calendarGoogleState(
   store: CustomerStore,
   actor: string,
   state: string,
   nonce: string,
-  code: string,
 ) {
   if (
     !/^[\w-]{43}$/.test(state) ||
-    !/^[\w-]{43}$/.test(nonce) ||
-    !code ||
-    code.length > 4096
+    !/^[\w-]{43}$/.test(nonce)
   )
     throw new Error("FORBIDDEN");
   const key = `calendar-oauth:${digest(state)}`,
@@ -238,6 +235,31 @@ export async function finishCalendarGoogle(
     data.propertyId,
   );
   if (workspace.id !== data.workspaceId) throw new Error("FORBIDDEN");
+  return { key, saved, data, workspace };
+}
+export async function calendarGoogleReturnTarget(
+  store: CustomerStore,
+  actor: string,
+  state: string,
+  nonce: string,
+) {
+  const { data } = await calendarGoogleState(store, actor, state, nonce);
+  return `/w/${data.slug}/import?property=${encodeURIComponent(data.propertyId)}&calendar=failed`;
+}
+export async function finishCalendarGoogle(
+  store: CustomerStore,
+  actor: string,
+  state: string,
+  nonce: string,
+  code: string,
+) {
+  if (!code || code.length > 4096) throw new Error("FORBIDDEN");
+  const { key, saved, data, workspace } = await calendarGoogleState(
+    store,
+    actor,
+    state,
+    nonce,
+  );
   await store.commit([
     { key, before: saved.raw, after: { ...data, used: true }, ttlSeconds: 600 },
   ]);

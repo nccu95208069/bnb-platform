@@ -7,12 +7,15 @@ import * as Callback from "../src/app/api/customer-calendar/callback/route.ts";
 import * as Cron from "../src/app/api/cron/customer-calendars/route.ts";
 import { store as routeStore } from "../src/lib/customer-workspaces/http.ts";
 import { login, sessionFor } from "../src/lib/customer-workspaces/auth.ts";
+import { beginCalendarGoogle, finishCalendarGoogle } from "../src/lib/customer-workspaces/calendar-google.ts";
 import {
   fixture,
   ics,
   event,
   range,
   mapping,
+  googleConfig,
+  scopes,
 } from "./helpers/calendar-fixture.mjs";
 const origin = "https://test.local";
 async function setup(t) {
@@ -245,4 +248,39 @@ test("calendar feature gate, callback sanitization and cron authentication canno
   );
   assert.equal(disabled.status, 200);
   assert.equal((await disabled.json()).enabled, false);
+});
+test("cancelled or partial workspace consent returns to its validated property despite an unrelated onboarding cookie, retaining bookings and the previous grant", async (t) => {
+  const f = await setup(t);
+  googleConfig();
+  let partial = false, exchanges = 0;
+  t.mock.method(globalThis, "fetch", async () => {
+    exchanges++;
+    return Response.json({
+      access_token: "synthetic-access",
+      refresh_token: "synthetic-refresh",
+      expires_in: 3600,
+      scope: partial ? scopes.split(" ")[0] : scopes,
+    });
+  });
+  const existing = await beginCalendarGoogle(...f.args);
+  await finishCalendarGoogle(f.store, f.args[1], new URL(existing.url).searchParams.get("state"), existing.nonce, "initial-code");
+  const beforeWorkspace = await f.current();
+  const grants = () => [...f.store.data.entries()].filter(([key]) => key.startsWith("calendar-connection:"));
+  const beforeGrants = grants();
+  partial = true;
+  for (const responseQuery of ["error=access_denied", "code=partial-code"]) {
+    const started = await beginCalendarGoogle(...f.args);
+    const state = new URL(started.url).searchParams.get("state");
+    const cookie = `${f.cookie}; bnb_calendar_state=${started.nonce}; bnb_calendar_preview=unrelated-draft`;
+    const result = await Callback.GET(request(`/api/customer-calendar/callback?state=${state}&${responseQuery}`, {method:"GET",cookie}));
+    assert.equal(result.headers.get("location"), `${origin}/w/${f.workspace.slug}/import?property=property&calendar=failed`);
+    assert.deepEqual(await f.current(), beforeWorkspace);
+    assert.deepEqual(grants(), beforeGrants);
+  }
+  assert.equal(exchanges, 2, "cancel must not contact the token endpoint");
+  const swapped = await beginCalendarGoogle(...f.args);
+  const state = new URL(swapped.url).searchParams.get("state");
+  const bad = await Callback.GET(request(`/api/customer-calendar/callback?state=${state}&code=unused`, {method:"GET",cookie:`${f.cookie}; bnb_calendar_state=${"x".repeat(43)}`}));
+  assert.equal(new URL(bad.headers.get("location")).pathname, "/start");
+  assert.equal(exchanges, 2, "invalid state proof cannot exchange tokens or expose the workspace destination");
 });

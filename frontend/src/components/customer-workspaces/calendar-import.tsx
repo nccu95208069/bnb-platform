@@ -48,6 +48,7 @@ export function CalendarImport({
   configured,
   syncReady,
   connected,
+  googleFailed = false,
   onboarding,
 }: {
   slug: string;
@@ -57,6 +58,7 @@ export function CalendarImport({
   configured: boolean;
   syncReady: boolean;
   connected: boolean;
+  googleFailed?: boolean;
   onboarding?: {
     source: CalendarSnapshot | null;
     preview: CalendarPreview | null;
@@ -121,7 +123,7 @@ export function CalendarImport({
     ),
     [busy, setBusy] = useState(false),
     [error, setError] = useState(
-      onboarding?.googleFailed
+      googleFailed || onboarding?.googleFailed
         ? "Google 登入或授權未完成。你可以重試，或先使用日曆檔預覽。"
         : "",
     ),

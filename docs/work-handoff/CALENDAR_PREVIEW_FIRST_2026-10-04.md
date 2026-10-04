@@ -1,5 +1,7 @@
 # Calendar preview before signup — 2026-10-04
 
+Latest state: [October 4 live acceptance](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md) supersedes the historical missing-configuration and untested-browser statements below. It records 152 passing checks, real provider/email/import evidence, the callback/layout fixes and the remaining phone/scheduler limits.
+
 The latest owner decision replaces the account/password-first calendar flow: Google login and read-only consent → preview → explicit import; ICS/ZIP selection → preview → email login only when saving, with no new password. It supersedes the activation-first wording in `CALENDAR_ONBOARDING_2026-10-04.md`. Existing Sheet and consultation onboarding remain supported.
 
 ## Delivered flow

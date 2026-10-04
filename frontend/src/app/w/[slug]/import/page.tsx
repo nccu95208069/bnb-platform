@@ -77,6 +77,7 @@ export default async function Page({
           configured={calendarGoogleReady()}
           syncReady={calendarSyncReady()}
           connected={search.calendar === "connected"}
+          googleFailed={search.calendar === "failed"}
         />
       );
     const journey =

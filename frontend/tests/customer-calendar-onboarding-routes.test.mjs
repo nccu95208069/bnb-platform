@@ -344,6 +344,42 @@ test("public flow rejects CSRF, swapped tenants/accounts, unprepared mail, stale
     503,
   );
 });
+test("expired Google consent returns to the existing draft without creating an account or exposing provider details", async (t) => {
+  const f = await setup(t);
+  googleConfig();
+  const start = await PublicCalendar.POST(
+    request(path, {
+      action: "start",
+      name: "Expired Consent Inn",
+      kind: "rooms",
+      rooms: ["101"],
+      calendarKind: "google_calendar",
+    }),
+  );
+  const cookie = start.headers.get("set-cookie").split(";")[0];
+  const before = [...f.store.data.entries()];
+  const response = await Callback.GET(
+    request(
+      "/api/customer-calendar/callback?state=expired&error=access_denied&error_description=private-provider-detail",
+      undefined,
+      cookie,
+    ),
+  );
+  assert.equal(response.status, 307);
+  assert.equal(
+    new URL(response.headers.get("location")).pathname +
+      new URL(response.headers.get("location")).search,
+    "/join/calendar?calendar=failed",
+  );
+  assert.equal(response.headers.get("location").includes("private-provider-detail"), false);
+  assert.equal(response.headers.get("set-cookie").includes("bnb_customer_session"), false);
+  assert.deepEqual([...f.store.data.entries()], before);
+  assert.equal((await PublicCalendar.GET(request(path, undefined, cookie))).status, 200);
+  const noDraft = await Callback.GET(
+    request("/api/customer-calendar/callback?state=expired&error=access_denied"),
+  );
+  assert.equal(new URL(noDraft.headers.get("location")).search, "?google=failed");
+});
 test("feature-disabled Google callback cannot consume public OAuth state or issue a session", async (t) => {
   const f = await setup(t);
   googleConfig();

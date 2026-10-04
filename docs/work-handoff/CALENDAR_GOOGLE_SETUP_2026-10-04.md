@@ -2,9 +2,9 @@
 
 ## Current verified state
 
-The implementation and repeated security review are recorded in [preview-first onboarding](CALENDAR_PREVIEW_FIRST_2026-10-04.md). A read-only inspection of `sweetfuns-projects/sweetfun-os` Production variable **names**, on October 4, confirmed that all four `CUSTOMER_CALENDAR_CLIENT_ID`, `CUSTOMER_CALENDAR_CLIENT_SECRET`, `CUSTOMER_CALENDAR_REDIRECT_URI` and `CUSTOMER_CALENDAR_TOKEN_KEY` settings are absent. No values were exported or changed. A Google Cloud Project ID and web OAuth client have not been selected for this rollout.
+Real Google configuration and desktop end-to-end acceptance are now complete within the owner-approved test scope. See [live acceptance and remaining rollout boundaries](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md) for provider, email, storage, refresh/reconnect and worker evidence. The dedicated OAuth client and encryption key are applied to the protected fixed alias through deployment overrides. The Google app remains in Testing, continuous sync is disabled after testing, and the primary domain is unchanged.
 
-The protected deployed candidate is still implementation commit `9ba7e29`; the fixed-origin addition below must be deployed before using a stable acceptance alias. No real Google consent, mobile return, refresh or revocation has passed acceptance. Continuous sync remains disabled. The primary domain has not been promoted.
+The procedure below remains the setup/runbook reference. Its configuration-presence checker is not a substitute for the recorded live tests.
 
 ## 1. Select the acceptance environment
 

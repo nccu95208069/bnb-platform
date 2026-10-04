@@ -24,12 +24,14 @@ export function ServiceIntakeRouter(
     [router],
   );
   return (
-    <ServiceJoin
-      {...props}
-      contactPage={pathname === "/join/contact"}
-      onOpenContact={open}
-      onRestoreContact={restore}
-      onBack={back}
-    />
+    <div hidden={pathname !== "/join" && pathname !== "/join/contact"}>
+      <ServiceJoin
+        {...props}
+        contactPage={pathname === "/join/contact"}
+        onOpenContact={open}
+        onRestoreContact={restore}
+        onBack={back}
+      />
+    </div>
   );
 }

@@ -2,7 +2,7 @@
 
 ## Calendar onboarding implementation and acceptance
 
-Live setup now has a [configuration and acceptance guide](CALENDAR_GOOGLE_SETUP_2026-10-04.md) and an offline checker. October 4 re-inspection confirmed all four Google OAuth/encryption settings are absent. Select the Cloud project/client and approved acceptance environment before real consent or customer-store tests. The fixed-origin code is prepared for a protected alias; no alias has been created or repointed by this follow-up.
+[Live acceptance](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md) now verifies real Google consent, preview/save, refresh, revocation/reconnect, ICS/ZIP, email-link return and two manually invoked production worker executions in the approved synthetic scope. The [configuration guide](CALENDAR_GOOGLE_SETUP_2026-10-04.md) remains the runbook. Continuous sync is off after testing; real-device acceptance, actual scheduled delivery and primary promotion remain open.
 
 Latest owner decision: [preview first and passwordless saving](CALENDAR_PREVIEW_FIRST_2026-10-04.md) is implemented. Google login/consent precedes preview; ICS/ZIP previews anonymously and asks for an email link only when saving. The former calendar contact/activation/password prerequisite is superseded.
 
@@ -14,7 +14,8 @@ Owner request: implement Google Calendar, iOS and Android onboarding and backend
 - [x] **CAL-G3-CODE** — Durable jobs, leases, retries, field ownership, source changes/cancellations and freshness checks. Continuous mode is gated by explicit configuration.
 - [x] **CAL-IOS / CAL-ANDROID-WEB** — Separate intake options, account identification instructions, Google-backed connection and ICS/ZIP file paths, with explicit local-device limitations.
 - [x] **CAL-REVIEW** — Review and regression coverage for authorization, money, source completeness, stale availability, retry and dependency critical vulnerabilities. See the repair record.
-- [ ] **CAL-GOOGLE-LIVE** — Configure Calendar API/OAuth consent, exact callback, encryption key and cron secret in an approved deployment; verify real consent, refresh, revocation and two scheduled cycles before enabling continued use.
+- [x] **CAL-GOOGLE-PROVIDER-LIVE** — Real consent, preview/save, refresh, revoke/reconnect, email/ICS/ZIP and persisted synthetic records verified in the protected candidate.
+- [ ] **CAL-GOOGLE-SCHEDULE-LIVE** — Two actual scheduled deliveries remain unverified. Two authenticated manual executions of the real worker passed; continuous sync was turned off after acceptance.
 - [ ] **CAL-MOBILE-LIVE** — Real-device file selection and OAuth return, including multiple accounts and cancellation recovery. Mac iCloud export is documented; iPhone-only/iCloud direct and Android device-local readers require a separate native/provider adapter.
 - [ ] **CAL-PILOT** — Scoped real samples for per-room calendars, titles that identify rooms and check-in reminders; measure corrections and verify overlaps, recurrence exceptions and unknown money.
 

@@ -86,9 +86,11 @@ test("calendar wizard uploads, maps rooms, previews unknown finances, freezes un
         configured: false,
         syncReady: false,
         connected: false,
+        googleFailed: true,
       }),
     ),
   );
+  assert.match(document.body.textContent, /Google 登入或授權未完成/);
   const button = (text) =>
       [...document.querySelectorAll("button")].find(
         (b) => b.textContent.trim() === text,
