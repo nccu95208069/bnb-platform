@@ -96,6 +96,8 @@ export type Job = {
   sourceHash: string;
   sourceKind: "file" | "sheet";
   state:
+    | "checking_access"
+    | "awaiting_share"
     | "reading"
     | "confirm"
     | "ready"
@@ -112,5 +114,12 @@ export type Job = {
   error: string | null;
   leaseUntil: number;
   attempts: number;
+  connection?: {
+    status: "checking" | "waiting" | "connected" | "paused" | "error";
+    checkedAt: string | null;
+    nextCheckAt: number;
+    retryUntil: number;
+    checks: number;
+  };
   usage: { input: number; output: number };
 };

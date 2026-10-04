@@ -183,6 +183,26 @@
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+.connectionCard { max-width: 820px; margin-inline: auto; }
+.connectionHeading { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; }
+.connectionHeading .eyebrow { margin: 0 0 4px !important; }
+.connectionHeading h2 { margin-bottom: 0; }
+.connectionIcon { flex-shrink: 0; display: grid; place-items: center; width: 56px; height: 56px; border-radius: 16px; background: #e9f4ed; color: #23634f; font-size: 28px; }
+.shareSteps { counter-reset: share; list-style: none; margin: 26px 0; padding: 0; }
+.shareSteps li { counter-increment: share; position: relative; margin: 0; padding: 0 0 24px 44px; }
+.shareSteps li::before { content: counter(share); position: absolute; left: 0; top: 0; width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid #cdded3; border-radius: 50%; color: #23634f; font-size: 13px; font-weight: 650; }
+.shareSteps li:last-child { padding-bottom: 0; }
+.shareSteps strong { display: block; color: #2f493d; font-size: 15px; }
+.shareSteps li > span { display: block; font-size: 13px; margin-top: 6px; color: #748277; }
+.readerBox { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; background: #f4f7f4; border: 1px solid #e0e8e1; padding: 15px; border-radius: 12px; margin-top: 12px; }
+.readerBox code { flex: 1; font-size: 12px; overflow-wrap: anywhere; min-width: 160px; color: #385646; }
+.readerBox button { font-size: 12px; padding: 8px 12px; }
+.connectionStatus { display: flex; align-items: center; gap: 12px; padding: 16px; border: 1px solid #e3e9e2; border-radius: 12px; background: #fafbf8; color: #55715d; font-size: 13px; }
+.connectionStatus .spinner { width: 22px; height: 22px; margin: 0; flex-shrink: 0; }
+.connectionStatus small { display: block; color: #849183; margin-top: 3px; }
+.statusDot { flex-shrink: 0; width: 9px; height: 9px; border-radius: 50%; background: #57966f; box-shadow: 0 0 0 5px #e7f0e4; margin: 0 5px; }
+.connected { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; padding: 14px 18px; border: 1px solid #cee4d2; border-radius: 12px; background: #edf7ef; color: #286142; margin-bottom: 20px; font-size: 14px; }
+.connected span { font-size: 12px; color: #6c8874; }
 .small {
   font-size: 12px !important;
   color: #7b8881 !important;

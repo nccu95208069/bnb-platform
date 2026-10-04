@@ -16,7 +16,10 @@ type ViewJob = Pick<
   | "answers"
   | "error"
   | "report"
+  | "sourceKind"
+  | "connection"
 > & {
+  sheetUrl: string | null;
   summary: {
     id: string;
     title: string;
@@ -41,6 +44,14 @@ type State = {
 };
 const num = (n: number | null) =>
   n === null ? "—" : n.toLocaleString("zh-TW", { maximumFractionDigits: 2 });
+function validSheetLink(value: string) {
+  try {
+    const u = new URL(value.trim());
+    return u.protocol === "https:" && u.hostname === "docs.google.com" &&
+      !u.username && !u.password && !u.port &&
+      /^\/spreadsheets\/d\/[\w-]{20,150}(?:\/|$)/.test(u.pathname);
+  } catch { return false; }
+}
 export function HealthPage({
   workspace,
   property,
@@ -63,7 +74,7 @@ export function HealthPage({
     [index, setIndex] = useState<number | null>(null),
     [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
-  const requestId = useRef(""),
+  const requestId = useRef(""), attemptedUrl = useRef(""),
     selectedRef = useRef<HTMLInputElement>(null);
   const job = state?.job;
   const refresh = useCallback(async () => {
@@ -88,14 +99,14 @@ export function HealthPage({
     };
   }, [endpoint]);
   useEffect(() => {
-    if (!job || !["reading", "analyzing"].includes(job.state)) return;
+    if (!job || !["checking_access", "awaiting_share", "reading", "analyzing"].includes(job.state)) return;
     const interval = setInterval(
       () => refresh().catch((e) => setError(e.message)),
       2500,
     );
     return () => clearInterval(interval);
   }, [job, refresh]);
-  async function send(input: Record<string, unknown> | FormData) {
+  const send = useCallback(async (input: Record<string, unknown> | FormData) => {
     setBusy(true);
     setError("");
     try {
@@ -121,8 +132,8 @@ export function HealthPage({
     } finally {
       setBusy(false);
     }
-  }
-  async function read() {
+  }, [endpoint, refresh]);
+  const read = useCallback(async () => {
     if (!requestId.current) requestId.current = crypto.randomUUID();
     setIndex(null);
     setEditing(false);
@@ -135,8 +146,12 @@ export function HealthPage({
       form.set("file", file);
       form.set("requestId", requestId.current);
       await send(form);
-    } else await send({ action: "sheet", url, requestId: requestId.current });
-  }
+    } else {
+      if (!validSheetLink(url)) { setError("請貼上完整的 Google 試算表連結。"); return; }
+      attemptedUrl.current = url.trim();
+      await send({ action: "sheet", url: url.trim(), requestId: requestId.current });
+    }
+  }, [mode, file, send, url]);
   function chooseFile(f: File | null) {
     if (f && (!/\.(xlsx|xls|csv)$/i.test(f.name) || f.size > 3000000)) {
       setError("請選擇 3 MB 以內的 xlsx、xls 或 CSV。");
@@ -148,6 +163,16 @@ export function HealthPage({
   }
   const report = job?.state === "complete" ? job.report : state?.latest;
   const showInput = upload || (!job && !report);
+  useEffect(() => {
+    if (!showInput || mode !== "sheet" || busy || !state?.configured || !state.canWrite ||
+      !state.readerEmail || !validSheetLink(url) || attemptedUrl.current === url.trim()) return;
+    const timer = setTimeout(() => { void read(); }, 800);
+    return () => clearTimeout(timer);
+  }, [showInput, mode, busy, state?.configured, state?.canWrite, state?.readerEmail, url, read]);
+  const connecting = Boolean(job?.connection && (
+    ["checking_access", "awaiting_share"].includes(job.state) ||
+    (job.state === "blocked" && ["HEALTH_SHARE_TIMEOUT", "SHEET_READ_FAILED", "SHEET_NOT_SHARED"].includes(job.error ?? ""))
+  ));
   const qIndex =
       index ??
       Math.max(0, job?.questions.findIndex((q) => !job.answers[q.id]) ?? 0),
@@ -201,7 +226,7 @@ export function HealthPage({
             <li
               key={s}
               aria-current={
-                (showInput
+                (showInput || connecting || job?.state === "reading"
                   ? 0
                   : job?.state === "confirm" || job?.state === "ready"
                     ? 1
@@ -218,8 +243,9 @@ export function HealthPage({
       )}
       {showInput && state && (
         <section className={styles.card}>
-          <h2>提供一份訂單資料</h2>
-          <p>唯讀分析，不會修改你的訂單或來源檔案。</p>
+          <p className={styles.eyebrow}>從你的訂單開始</p>
+          <h2>連接你的 Google 試算表</h2>
+          <p>貼上連結，我們會先檢查讀取權限，再幫你辨識訂單資料。</p>
           <div className={styles.tabs} role="group" aria-label="資料來源">
             <button
               aria-pressed={mode === "sheet"}
@@ -244,33 +270,13 @@ export function HealthPage({
                 value={url}
                 onChange={(e) => {
                   setUrl(e.target.value);
+                  setError("");
                   requestId.current = "";
+                  attemptedUrl.current = "";
                 }}
               />
-              {state.readerEmail ? (
-                <div className={styles.notice}>
-                  <strong>將這個帳號加入「檢視者」</strong>
-                  <div className={styles.share}>
-                    <code>{state.readerEmail}</code>
-                    <button
-                      className={styles.secondary}
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(
-                            state.readerEmail!,
-                          );
-                          setCopied(true);
-                        } catch {
-                          setError("請手動複製上方帳號。");
-                        }
-                      }}
-                    >
-                      {copied ? "已複製" : "複製帳號"}
-                    </button>
-                  </div>
-                  <small>不需要將試算表設為公開。</small>
-                </div>
-              ) : (
+              <p className={styles.small}>貼上後會自動檢查。若尚未分享，下一步會帶你完成。</p>
+              {!state.readerEmail && (
                 <div className={styles.notice}>
                   Google 試算表接收帳號尚未設定，請先上傳檔案。
                 </div>
@@ -310,11 +316,11 @@ export function HealthPage({
                 busy ||
                 !state.canWrite ||
                 !state.configured ||
-                (mode === "sheet" ? !state.readerEmail || !url : !file)
+                (mode === "sheet" ? !state.readerEmail || !validSheetLink(url) : !file)
               }
               onClick={read}
             >
-              {busy ? "正在讀取…" : "讀取資料"}
+              {busy ? "正在連接…" : mode === "sheet" ? "檢查試算表連線" : "讀取我的訂單"}
             </button>
             {upload && (
               <button
@@ -325,6 +331,7 @@ export function HealthPage({
               </button>
             )}
           </div>
+          <p className={styles.small}>唯讀分析 · 不修改原始資料 · 最多確認 5 題</p>
           <details className={styles.privacy}>
             <summary>資料如何保存？</summary>
             <p>
@@ -334,6 +341,56 @@ export function HealthPage({
             </p>
           </details>
         </section>
+      )}
+      {!showInput && job && connecting && (
+        <section className={`${styles.card} ${styles.connectionCard}`} aria-live="polite">
+          <div className={styles.connectionHeading}>
+            <span className={styles.connectionIcon}>{job.state === "checking_access" ? "↗" : "◎"}</span>
+            <div>
+              <p className={styles.eyebrow}>Google 試算表連線</p>
+              <h2>{job.state === "checking_access" ? "正在檢查讀取權限" :
+                job.error === "SHEET_READ_FAILED" ? "Google 暫時無法回應" :
+                job.connection?.status === "paused" ? "分享完成後，繼續檢查" : "還差一步：分享試算表"}</h2>
+            </div>
+          </div>
+          {job.state === "checking_access" ? (
+            <div className={styles.connectionStatus} role="status"><div className={styles.spinner} /><span>正在向 Google 確認連線，請稍候…</span></div>
+          ) : (
+            <>
+              <p>{job.error === "SHEET_READ_FAILED" ? "這次未能確認權限，請稍後重試。你的分享設定不一定有問題。" :
+                "我們目前還讀不到這份試算表。請先確認連結正確，再完成以下分享設定。"}</p>
+              <ol className={styles.shareSteps}>
+                <li><strong>開啟試算表，點右上角「共用」</strong>{job.sheetUrl && <a className={styles.link} href={job.sheetUrl} target="_blank" rel="noopener noreferrer">開啟我的試算表 ↗</a>}</li>
+                <li><strong>加入以下帳號，權限選「檢視者」</strong><div className={styles.readerBox}>
+                  <code>{state?.readerEmail}</code>
+                  <button className={styles.secondary} onClick={async () => {
+                    try { await navigator.clipboard.writeText(state?.readerEmail ?? ""); setCopied(true); }
+                    catch { setError("請手動複製上方帳號。"); }
+                  }}>{copied ? "已複製" : "複製帳號"}</button>
+                </div></li>
+                <li><strong>按「傳送」或「分享」，回到這裡</strong><span>不用設成公開。偵測成功後，會自動讀取資料並進入下一步。</span></li>
+              </ol>
+              <div className={styles.connectionStatus} role="status">
+                {job.state === "awaiting_share" && <span className={styles.statusDot} />}
+                <span>{job.state === "awaiting_share" ? "自動偵測中 · 每 10 秒檢查一次" : "自動檢查已暫停，可隨時繼續"}
+                  {job.connection?.checkedAt && <small>上次檢查 {new Date(job.connection.checkedAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</small>}
+                </span>
+              </div>
+            </>
+          )}
+          <div className={styles.actions}>
+            {job.state !== "checking_access" && <button className={styles.primary} disabled={busy || !state?.canWrite}
+              onClick={() => send({ action: "check_access", id: job.id })}>{busy ? "正在確認…" : job.state === "awaiting_share" ? "我已分享，立即檢查" : "重新檢查"}</button>}
+            <button className={styles.secondary} disabled={busy || !state?.canWrite} onClick={async () => {
+              const result = await send({ action: "delete-source", id: job.id });
+              if (result) { setUpload(true); setUrl(""); requestId.current = ""; attemptedUrl.current = ""; }
+            }}>更換連結</button>
+          </div>
+          <p className={styles.small}>自動檢查會持續 15 分鐘；關閉頁面後，背景仍會每分鐘檢查。</p>
+        </section>
+      )}
+      {!showInput && job?.connection?.status === "connected" && !["complete", "failed", "blocked"].includes(job.state) && (
+        <div className={styles.connected} role="status">✓ 已取得讀取權限 · {job.sourceTitle}<span>僅讀取，不修改試算表</span></div>
       )}
       {!showInput && job && ["reading", "analyzing"].includes(job.state) && (
         <section className={styles.card} role="status">
@@ -365,7 +422,7 @@ export function HealthPage({
           <h2>{q.title}</h2>
           <p>{q.note}</p>
           <details>
-            <summary>查看資料範例</summary>
+            <summary>查看來源資料</summary>
             {job.summary
               .filter(
                 (t) =>
@@ -492,6 +549,7 @@ export function HealthPage({
       {!showInput &&
         job &&
         ["blocked", "failed"].includes(job.state) &&
+        !connecting &&
         !editing && (
           <section className={styles.card}>
             <h2>目前資料不足以產生可信報告</h2>

@@ -9,6 +9,26 @@ import { principalFor, type CookieRequest } from "../workspace-auth/session.ts";
 import { PROPERTY_IDS } from "../workspace-auth/types.ts";
 import type { CustomerStore } from "../customer-workspaces/store.ts";
 import type { Scope } from "./types.ts";
+import { ownerAccessConfigured } from "../calendar-owner-session.ts";
+import { RedisWorkspaceStore } from "../workspace-auth/store.ts";
+import type { Workspace } from "../customer-workspaces/types.ts";
+export async function backgroundAccess(store: CustomerStore, s: Scope) {
+  if (!s.canWrite) return false;
+  if (s.workspace === "legacy") {
+    if (!ownerAccessConfigured() || !PROPERTY_IDS.includes(s.property)) return false;
+    if (s.actor === "calendar-owner") return true;
+    const member = (await new RedisWorkspaceStore().read()).value.members.find((m) => m.id === s.actor);
+    return Boolean(member && member.status === "active" && !member.mustResetPassword &&
+      ["god", "admin"].includes(member.role) &&
+      (member.allProperties || member.propertyIds.includes(s.property)));
+  }
+  if (!enabled()) return false;
+  const w = (await store.read<Workspace>(`workspace:${s.workspace}`)).value;
+  const member = w?.members.find((m) => m.accountId === s.actor && m.active);
+  return Boolean(member && ["owner", "admin"].includes(member.role) &&
+    w?.properties.some((p) => p.id === s.property) &&
+    (member.allProperties || member.propertyIds.includes(s.property)));
+}
 export async function access(
   store: CustomerStore,
   request: CookieRequest,

@@ -13,6 +13,7 @@ import {
   revise,
   chatHistory,
   saveChat,
+  retryConnection,
 } from "@/lib/order-health/service";
 import { parseFile, MAX_BYTES } from "@/lib/order-health/parser";
 import { readerEmail } from "@/lib/order-health/google";
@@ -20,7 +21,7 @@ import { chat } from "@/lib/order-health/chat";
 import { messageFor, messages } from "@/lib/order-health/messages";
 import { spreadsheetId } from "@/lib/customer-workspaces/customer-google";
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 180;
 const store = new RedisCustomerStore(),
   headers = {
     "Cache-Control": "private, no-store",
@@ -73,9 +74,12 @@ export async function GET(request: NextRequest) {
     if (
       s.canWrite &&
       state.job &&
-      ["reading", "analyzing"].includes(state.job.state)
+      ["checking_access", "awaiting_share", "reading", "analyzing"].includes(state.job.state)
     )
-      after(() => run(store, s, state.job!.id).catch(() => {}));
+      after(async () => {
+        await run(store, s, state.job!.id).catch(() => {});
+        await run(store, s, state.job!.id).catch(() => {});
+      });
     return NextResponse.json(
       {
         ...state,
@@ -150,7 +154,9 @@ export async function POST(request: NextRequest) {
           title: "Google 試算表",
           url: input.url,
         });
-      } else if (input.action === "answer")
+      } else if (input.action === "check_access")
+        job = await retryConnection(store, s, input.id);
+      else if (input.action === "answer")
         job = await answer(store, s, input.id, input.answers, input.version);
       else if (input.action === "start")
         job = await start(store, s, input.id, input.version);
@@ -177,8 +183,11 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ deleted: true }, { headers });
       } else throw Error("INVALID_INPUT");
     }
-    if (["reading", "analyzing"].includes(job.state))
-      after(() => run(store, s, job.id).catch(() => {}));
+    if (["checking_access", "awaiting_share", "reading", "analyzing"].includes(job.state))
+      after(async () => {
+        await run(store, s, job.id).catch(() => {});
+        await run(store, s, job.id).catch(() => {});
+      });
     return NextResponse.json({ job }, { headers });
   } catch (e) {
     return fail(e);

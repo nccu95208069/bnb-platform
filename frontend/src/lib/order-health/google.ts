@@ -3,7 +3,10 @@ import { spreadsheetId } from "../customer-workspaces/customer-google.ts";
 import { tablesFromMatrices } from "./parser.ts";
 function credential() {
   try {
-    const v = JSON.parse(process.env.CUSTOMER_SHEET_READER_CREDENTIALS || "");
+    const v = JSON.parse(
+      process.env.ORDER_HEALTH_SHEET_READER_CREDENTIALS ||
+        process.env.CUSTOMER_SHEET_READER_CREDENTIALS || "",
+    );
     if (
       !/^[^\s@]+@[^\s@]+\.gserviceaccount\.com$/.test(v.client_email) ||
       !v.private_key?.includes("PRIVATE KEY")
@@ -21,11 +24,17 @@ export function readerEmail() {
     return null;
   }
 }
-async function json(r: Response) {
-  if (!r.ok)
-    throw Error(
-      [403, 404].includes(r.status) ? "SHEET_NOT_SHARED" : "SHEET_READ_FAILED",
-    );
+async function json(r: Response, sharing = false) {
+  if (!r.ok) {
+    if (sharing && [403, 404].includes(r.status)) {
+      const error = await r.json().catch(() => null);
+      const reasons = JSON.stringify(error?.error?.details ?? error?.error?.errors ?? []);
+      if (/SERVICE_DISABLED|accessNotConfigured|API_KEY|CONSUMER_INVALID|rateLimitExceeded|quotaExceeded/.test(reasons))
+        throw Error("SHEET_READ_FAILED");
+      throw Error("SHEET_NOT_SHARED");
+    }
+    throw Error("SHEET_READ_FAILED");
+  }
   if (!r.body) throw Error("SHEET_READ_FAILED");
   let size = 0;
   const chunks: Uint8Array[] = [];
@@ -41,7 +50,7 @@ async function json(r: Response) {
   }
   return JSON.parse(Buffer.concat(chunks).toString());
 }
-export async function readGoogle(url: string) {
+async function reader(url: string) {
   const id = spreadsheetId(url),
     c = credential(),
     now = Math.floor(Date.now() / 1000),
@@ -58,12 +67,23 @@ export async function readGoogle(url: string) {
       cache: "no-store",
     }),
   );
-  const get = (path: string) =>
+  return (path: string) =>
     fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}${path}`, {
       headers: { Authorization: `Bearer ${token.access_token}` },
       signal: AbortSignal.timeout(20000),
       cache: "no-store",
-    }).then(json);
+    }).then((r) => json(r, true));
+}
+// This proves readable access using a read-only OAuth scope. It does not claim
+// that the share's exact Drive role is Viewer (an Editor grant can also read).
+export async function checkGoogleAccess(url: string) {
+  const get = await reader(url);
+  const meta = await get("?fields=spreadsheetId,properties(title)");
+  if (!meta.spreadsheetId) throw Error("SHEET_READ_FAILED");
+  return { title: String(meta.properties?.title || "Google 試算表").slice(0, 100) };
+}
+export async function readGoogle(url: string) {
+  const get = await reader(url);
   const meta = await get(
     "?fields=properties(title),sheets(properties(sheetId,title,gridProperties))",
   );

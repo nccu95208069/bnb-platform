@@ -20,6 +20,8 @@ import {
   unseal,
   reportFor,
   removeSource,
+  retryConnection,
+  runPending,
 } from "../../src/lib/order-health/service.ts";
 import type {
   CustomerStore,
@@ -521,7 +523,9 @@ test("Google reader uses read-only scope and rejects revoked sharing", async () 
     );
     assert.equal(result.tables[0].rows.length, 1);
     assert.equal(calls, 3);
-    globalThis.fetch = async () => new Response("{}", { status: 403 });
+    globalThis.fetch = async (input) => String(input).includes("oauth2.googleapis.com")
+      ? Response.json({ access_token: "synthetic-token" })
+      : new Response("{}", { status: 403 });
     await assert.rejects(
       readGoogle("synthetic-spreadsheet-123456789"),
       /SHEET_NOT_SHARED/,
@@ -530,6 +534,87 @@ test("Google reader uses read-only scope and rejects revoked sharing", async () 
     globalThis.fetch = original;
     delete process.env.CUSTOMER_SHEET_READER_CREDENTIALS;
   }
+});
+
+test("permission worker waits without using read retries, then cron advances automatically", async () => {
+  const { generateKeyPairSync } = await import("node:crypto");
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  process.env.ORDER_HEALTH_SHEET_READER_CREDENTIALS = JSON.stringify({
+    client_email: "worker@synthetic.iam.gserviceaccount.com",
+    private_key: privateKey.export({ type: "pkcs8", format: "pem" }),
+  });
+  const fetchBefore = globalThis.fetch, nowBefore = Date.now;
+  let now = nowBefore(), shared = false, sheetReads = 0;
+  try {
+    Date.now = () => now;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("oauth2.googleapis.com")) return Response.json({ access_token: "synthetic-token" });
+      sheetReads++;
+      if (!shared) return Response.json({ error: { code: 403 } }, { status: 403 });
+      if (url.includes("values:batchGet")) return Response.json({ valueRanges: [{ values: [headers, row()] }] });
+      return Response.json({ spreadsheetId: "synthetic-spreadsheet-123456789", properties: { title: "Private orders" },
+        sheets: [{ properties: { title: "訂單", gridProperties: { rowCount: 10, columnCount: 11 } } }] });
+    };
+    const store = new Memory();
+    const created = await createJob(store, scope, { requestId: "permission-worker-request", title: "Google 試算表", url: "synthetic-spreadsheet-123456789" });
+    assert.equal(created.state, "checking_access");
+    await runPending(store, async () => true);
+    let current = (await status(store, scope)).job!;
+    assert.equal(current.state, "awaiting_share");
+    assert.equal(current.error, null);
+    assert.equal(current.connection?.checks, 1);
+    assert.equal(sheetReads, 1);
+    await runPending(store, async () => true);
+    assert.equal(sheetReads, 1, "throttled until next check");
+    for (let i = 0; i < 4; i++) { now += 10001; await runPending(store, async () => true); }
+    assert.equal((await status(store, scope)).job?.state, "awaiting_share", "waiting does not consume 3 processing retries");
+    shared = true; now += 10001;
+    await runPending(store, async () => true);
+    current = (await status(store, scope)).job!;
+    assert.equal(current.state, "confirm");
+    assert.equal(current.connection?.status, "connected");
+    assert.equal(current.sourceTitle, "Private orders");
+    assert.equal(current.summary[0].rows, 1);
+    assert.deepEqual(unseal(JSON.parse(store.data.get("health:pending")!)), []);
+  } finally { globalThis.fetch = fetchBefore; Date.now = nowBefore; delete process.env.ORDER_HEALTH_SHEET_READER_CREDENTIALS; }
+});
+
+test("share timeout is resumable and worker revalidates revoked actor access", async () => {
+  const nowBefore = Date.now;
+  try {
+    let now = nowBefore(); Date.now = () => now;
+    const store = new Memory();
+    const created = await createJob(store, scope, { requestId: "permission-timeout-request", title: "Google 試算表", url: "synthetic-spreadsheet-123456789" });
+    now += 15 * 60000 + 1;
+    await runPending(store, async () => true);
+    const paused = (await status(store, scope)).job!;
+    assert.equal(paused.state, "blocked");
+    assert.equal(paused.connection?.status, "paused");
+    assert.equal(paused.error, "HEALTH_SHARE_TIMEOUT");
+    const resumed = await retryConnection(store, scope, created.id);
+    assert.equal(resumed.state, "checking_access");
+    assert.ok(resumed.connection!.retryUntil > now);
+    await runPending(store, async () => false);
+    assert.equal((await status(store, scope)).job?.error, "FORBIDDEN");
+    await assert.rejects(retryConnection(store, { ...scope, canWrite: false }, created.id), /FORBIDDEN/);
+  } finally { Date.now = nowBefore; }
+});
+
+test("Google API configuration errors are not presented as missing Sheet sharing", async () => {
+  const { generateKeyPairSync } = await import("node:crypto");
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  process.env.ORDER_HEALTH_SHEET_READER_CREDENTIALS = JSON.stringify({
+    client_email: "worker@synthetic.iam.gserviceaccount.com", private_key: privateKey.export({ type: "pkcs8", format: "pem" }),
+  });
+  const original = globalThis.fetch;
+  try {
+    const { checkGoogleAccess } = await import("../../src/lib/order-health/google.ts");
+    globalThis.fetch = async (input) => String(input).includes("oauth2.googleapis.com")
+      ? Response.json({ access_token: "synthetic" })
+      : Response.json({ error: { details: [{ reason: "SERVICE_DISABLED" }] } }, { status: 403 });
+    await assert.rejects(checkGoogleAccess("synthetic-spreadsheet-123456789"), /SHEET_READ_FAILED/);
+  } finally { globalThis.fetch = original; delete process.env.ORDER_HEALTH_SHEET_READER_CREDENTIALS; }
 });
 
 test("compatible worksheets merge only by explicit selection and retain sheet evidence", () => {
