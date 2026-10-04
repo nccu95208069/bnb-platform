@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-04 Google acceptance preparation: [verified missing settings, fixed callback/email origin, offline checker and live test procedure](CALENDAR_GOOGLE_SETUP_2026-10-04.md). Google Cloud project/client selection remains pending; no production mutation or primary rollout is implied.
+
 2026-10-04 latest calendar flow: [preview before signup, Google identity and email-link login, repeated review and verification](CALENDAR_PREVIEW_FIRST_2026-10-04.md). Calendar import no longer requires setting a password or completing the contact form first.
 
 2026-10-04 calendar implementation: [three onboarding options, backend, self-review and activation boundaries](CALENDAR_ONBOARDING_2026-10-04.md). Includes ICS/ZIP import for Google/iOS/Android, Google read-only OAuth, durable polling, freshness guards, source conflicts, unknown financials and standard-workbook v2 extensions. Google credentials and actual mobile/OAuth acceptance remain pending. The [original plan](GOOGLE_CALENDAR_FAST_ONBOARD_2026-10-03.md) is retained as design history; [Next Work](NEXT_WORK.md#calendar-onboarding-implementation-and-acceptance) distinguishes implemented code from live acceptance.

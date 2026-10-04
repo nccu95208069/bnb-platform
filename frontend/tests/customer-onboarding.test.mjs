@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { customerOrigin } from "../src/lib/customer-workspaces/site-url.ts";
+import { checkCalendarSetup } from "../scripts/check-calendar-setup.mjs";
 import { submitIntake } from "../src/lib/customer-intake/service.ts";
 import {
   beginOnboarding,
@@ -40,6 +41,104 @@ import {
 } from "../src/lib/customer-workspaces/shared-sheet.ts";
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const password = "Synthetic customer passphrase 88!";
+test("calendar preflight detects origin drift and disabled gates without leaking secrets or making requests", (t) => {
+  const values = {
+    CUSTOMER_DEPLOYMENT_LINKS: "true",
+    CUSTOMER_DEPLOYMENT_ORIGIN: "https://synthetic-pilot.vercel.app",
+    VERCEL_URL: "synthetic-next-build.vercel.app",
+    CUSTOMER_CALENDAR_CLIENT_ID: "synthetic.apps.googleusercontent.com",
+    CUSTOMER_CALENDAR_CLIENT_SECRET: "synthetic-private-client-secret",
+    CUSTOMER_CALENDAR_REDIRECT_URI:
+      "https://synthetic-pilot.vercel.app/api/customer-calendar/callback",
+    CUSTOMER_CALENDAR_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"),
+    CUSTOMER_CALENDAR_SYNC_ENABLED: "false",
+    CUSTOMER_WORKSPACES_ENABLED: "true",
+    CUSTOMER_SESSION_SECRET:
+      "synthetic-private-session-secret-at-least-32-characters",
+    CUSTOMER_INTAKE_ENABLED: "true",
+    CUSTOMER_ONBOARDING_ENABLED: "true",
+    UPSTASH_REDIS_REST_URL: "https://synthetic-store.example.test",
+    UPSTASH_REDIS_REST_TOKEN: "synthetic-private-store-token",
+  };
+  const previous = Object.fromEntries(
+    Object.keys(values).map((key) => [key, process.env[key]]),
+  );
+  Object.assign(process.env, values);
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  let requests = 0;
+  t.mock.method(globalThis, "fetch", () => {
+    requests++;
+    throw Error("No network expected");
+  });
+  const origin = values.CUSTOMER_DEPLOYMENT_ORIGIN;
+  const report = checkCalendarSetup(origin);
+  assert.equal(report.configured, true);
+  assert.equal(report.liveAcceptanceVerified, false);
+  for (const value of Object.values(values)) {
+    if (
+      value.startsWith("synthetic-private") ||
+      value === values.CUSTOMER_CALENDAR_TOKEN_KEY
+    )
+      assert.ok(!JSON.stringify(report).includes(value));
+  }
+  for (const [key, value, name] of [
+    [
+      "CUSTOMER_CALENDAR_CLIENT_SECRET",
+      "",
+      "google_oauth_and_encryption_configured",
+    ],
+    [
+      "CUSTOMER_CALENDAR_REDIRECT_URI",
+      "https://different.vercel.app/api/customer-calendar/callback",
+      "google_callback_matches_entry_origin",
+    ],
+    [
+      "CUSTOMER_CALENDAR_REDIRECT_URI",
+      `${values.CUSTOMER_CALENDAR_REDIRECT_URI}?secret=never-print-this`,
+      "google_oauth_and_encryption_configured",
+    ],
+    [
+      "CUSTOMER_DEPLOYMENT_ORIGIN",
+      "https://different.vercel.app",
+      "email_links_match_entry_origin",
+    ],
+    [
+      "CUSTOMER_ONBOARDING_ENABLED",
+      "false",
+      "workspace_and_onboarding_enabled",
+    ],
+    ["CUSTOMER_SESSION_SECRET", "short", "workspace_and_onboarding_enabled"],
+    [
+      "UPSTASH_REDIS_REST_URL",
+      "http://synthetic-store.example.test",
+      "storage_configured_not_connected",
+    ],
+    [
+      "CUSTOMER_CALENDAR_SYNC_ENABLED",
+      "true",
+      "continuous_sync_disabled_for_initial_acceptance",
+    ],
+  ]) {
+    process.env[key] = value;
+    const invalid = checkCalendarSetup(origin);
+    assert.equal(invalid.configured, false, key);
+    assert.equal(
+      invalid.checks.find((item) => item.name === name).pass,
+      false,
+      key,
+    );
+    assert.ok(!JSON.stringify(invalid).includes("never-print-this"));
+    process.env[key] = values[key];
+  }
+  assert.equal(checkCalendarSetup(undefined).configured, false);
+  assert.equal(requests, 0);
+});
+
 test("disabled Google APIs report service setup failure, not incorrect customer sharing", async (t) => {
   const f = fixture(t);
   t.mock.method(globalThis, "fetch", async (url) => {
@@ -462,13 +561,17 @@ test("failed applicant email remains visible, admin resend is explicit, and prev
 
 test("email origins use an explicit deployment switch and reject arbitrary hosts", (t) => {
   const before = process.env.CUSTOMER_DEPLOYMENT_LINKS,
-    host = process.env.VERCEL_URL;
+    host = process.env.VERCEL_URL,
+    fixed = process.env.CUSTOMER_DEPLOYMENT_ORIGIN;
   t.after(() => {
     if (before === undefined) delete process.env.CUSTOMER_DEPLOYMENT_LINKS;
     else process.env.CUSTOMER_DEPLOYMENT_LINKS = before;
     if (host === undefined) delete process.env.VERCEL_URL;
     else process.env.VERCEL_URL = host;
+    if (fixed === undefined) delete process.env.CUSTOMER_DEPLOYMENT_ORIGIN;
+    else process.env.CUSTOMER_DEPLOYMENT_ORIGIN = fixed;
   });
+  delete process.env.CUSTOMER_DEPLOYMENT_ORIGIN;
   delete process.env.CUSTOMER_DEPLOYMENT_LINKS;
   process.env.VERCEL_URL = "ignored.invalid";
   assert.equal(customerOrigin(), "https://sweetfun-os.vercel.app");
@@ -484,6 +587,26 @@ test("email origins use an explicit deployment switch and reject arbitrary hosts
     process.env.VERCEL_URL = bad;
     assert.throws(customerOrigin, /FEATURE_UNAVAILABLE/);
   }
+  process.env.CUSTOMER_DEPLOYMENT_ORIGIN = "https://synthetic-pilot.vercel.app";
+  assert.equal(customerOrigin(), "https://synthetic-pilot.vercel.app");
+  process.env.VERCEL_URL = "synthetic-next-build.vercel.app";
+  assert.equal(customerOrigin(), "https://synthetic-pilot.vercel.app");
+  for (const bad of [
+    "",
+    "http://synthetic-pilot.vercel.app",
+    "https://synthetic-pilot.vercel.app/",
+    "https://synthetic-pilot.vercel.app/path",
+    "https://synthetic-pilot.vercel.app?query=1",
+    "https://synthetic-pilot.vercel.app#fragment",
+    "https://synthetic-pilot.vercel.app@evil.invalid",
+    "https://synthetic-pilot.vercel.app.evil.invalid",
+    "https://synthetic-pilot.vercel.app:443",
+  ]) {
+    process.env.CUSTOMER_DEPLOYMENT_ORIGIN = bad;
+    assert.throws(customerOrigin, /FEATURE_UNAVAILABLE/);
+  }
+  process.env.CUSTOMER_DEPLOYMENT_LINKS = "false";
+  assert.equal(customerOrigin(), "https://sweetfun-os.vercel.app");
 });
 
 test("Google, iOS and Android applicants activate without a Sheet URL and reach calendar import with incomplete inventory", async (t) => {

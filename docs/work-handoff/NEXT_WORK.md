@@ -2,6 +2,8 @@
 
 ## Calendar onboarding implementation and acceptance
 
+Live setup now has a [configuration and acceptance guide](CALENDAR_GOOGLE_SETUP_2026-10-04.md) and an offline checker. October 4 re-inspection confirmed all four Google OAuth/encryption settings are absent. Select the Cloud project/client and approved acceptance environment before real consent or customer-store tests. The fixed-origin code is prepared for a protected alias; no alias has been created or repointed by this follow-up.
+
 Latest owner decision: [preview first and passwordless saving](CALENDAR_PREVIEW_FIRST_2026-10-04.md) is implemented. Google login/consent precedes preview; ICS/ZIP previews anonymously and asks for an email link only when saving. The former calendar contact/activation/password prerequisite is superseded.
 
 Owner request: implement Google Calendar, iOS and Android onboarding and backend, then review and repair critical issues. See [actual implementation and review](CALENDAR_ONBOARDING_2026-10-04.md); the [original plan](GOOGLE_CALENDAR_FAST_ONBOARD_2026-10-03.md) records the earlier design.

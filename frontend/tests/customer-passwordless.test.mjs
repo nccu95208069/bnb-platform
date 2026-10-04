@@ -31,8 +31,15 @@ function environment() {
   process.env.VERCEL_URL = "synthetic-login.vercel.app";
 }
 const mailToken = (text) => text.match(/\/signin#([^\s]+)/)[1];
-test("email login is same-browser, scoped, short-lived and retryable without a password or duplicate mail", async () => {
+test("email login is same-browser, scoped, short-lived and retryable without a password or duplicate mail", async (t) => {
   environment();
+  const previousOrigin = process.env.CUSTOMER_DEPLOYMENT_ORIGIN;
+  process.env.CUSTOMER_DEPLOYMENT_ORIGIN = "https://synthetic-pilot.vercel.app";
+  t.after(() => {
+    if (previousOrigin === undefined)
+      delete process.env.CUSTOMER_DEPLOYMENT_ORIGIN;
+    else process.env.CUSTOMER_DEPLOYMENT_ORIGIN = previousOrigin;
+  });
   const { store } = fixture();
   store.data.clear();
   const proof = newLoginProof(),
@@ -55,6 +62,8 @@ test("email login is same-browser, scoped, short-lived and retryable without a p
   );
   await requestEmailLogin(store, input, send);
   assert.equal(sent.length, 1);
+  assert.match(sent[0][2], /https:\/\/synthetic-pilot\.vercel\.app\/signin#/);
+  assert.ok(!sent[0][2].includes("https://synthetic-login.vercel.app"));
   assert.equal((await store.read(accountKey(input.email))).value, null);
   const token = mailToken(sent[0][2]);
   await assert.rejects(
