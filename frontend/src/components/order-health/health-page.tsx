@@ -414,42 +414,15 @@ export function HealthPage({
           </div>
           <p className={styles.small}>
             {job.sourceTitle} · {job.summary.reduce((s, t) => s + t.rows, 0)}{" "}
-            資料列 ·{" "}
-            {job.mappingMode === "gemini"
-              ? "AI 已協助檢查欄位"
-              : "已依欄名辨識"}
+            列
           </p>
           <h2>{q.title}</h2>
-          <p>{q.note}</p>
-          <details key={q.id} className={styles.sourcePreview} open={q.id === "unit" || q.id === "money"}>
-            <summary>對照你的表格資料</summary>
-            <p className={styles.small}>以下是本次讀取的前幾列，供你確認記錄方式。</p>
-            {job.summary
-              .filter(
-                (t) =>
-                  job.summary.length === 1 ||
-                  job.answers.table === "all" ||
-                  t.id === job.answers.table,
-              )
-              .map((t) => (
-                <div key={t.id} className={styles.sourceTable}>
-                  <strong>{t.title}</strong>
-                  {t.samples?.map((r) => (
-                    <div className={styles.sourceRow} key={r.row}>
-                      <span className={styles.rowNumber}>第 {r.row} 列</span>
-                      <dl>{r.values.map((v, i) => (
-                        <div key={i}><dt>{v.label}</dt><dd>{v.value}</dd></div>
-                      ))}</dl>
-                    </div>
-                  ))}
-                </div>
-              ))}
-          </details>
+          {q.note && <p>{q.note}</p>}
           <div className={styles.options}>
             {q.options.map((o) => (
               <button
                 key={o.value}
-                className={job.answers[q.id] === o.value ? styles.selected : ""}
+                className={`${job.answers[q.id] === o.value ? styles.selected : ""} ${o.value === "skip" ? styles.skipOption : ""}`}
                 aria-pressed={job.answers[q.id] === o.value}
                 disabled={
                   busy ||
@@ -485,6 +458,29 @@ export function HealthPage({
               </button>
             ))}
           </div>
+          <details key={q.id} className={styles.sourcePreview}>
+            <summary>查看我的資料</summary>
+            {job.summary
+              .filter(
+                (t) =>
+                  job.summary.length === 1 ||
+                  job.answers.table === "all" ||
+                  t.id === job.answers.table,
+              )
+              .map((t) => (
+                <div key={t.id} className={styles.sourceTable}>
+                  <strong>{t.title}</strong>
+                  {t.samples?.map((r) => (
+                    <div className={styles.sourceRow} key={r.row}>
+                      <span className={styles.rowNumber}>第 {r.row} 列</span>
+                      <dl>{r.values.map((v, i) => (
+                        <div key={i}><dt>{v.label}</dt><dd>{v.value}</dd></div>
+                      ))}</dl>
+                    </div>
+                  ))}
+                </div>
+              ))}
+          </details>
           {editing && (
             <button
               className={styles.link}

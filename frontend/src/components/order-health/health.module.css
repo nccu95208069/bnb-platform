@@ -289,6 +289,9 @@
 .optionCopy strong { font-size: 16px; font-weight: 600; }
 .optionCopy > span { font-size: 13px; line-height: 1.7; color: #67796e; }
 .optionArrow { flex-shrink: 0; color: #628471; }
+.options button.skipOption { border-color: transparent; padding: 4px 0; justify-content: flex-start; background: transparent; color: #77837b; }
+.skipOption .optionCopy strong { font-size: 13px; font-weight: 400; text-decoration: underline; text-underline-offset: 3px; }
+.skipOption .optionArrow { display: none; }
 .sourcePreview { padding: 8px 16px; border-radius: 12px; background: #f6f8f5; border: 1px solid #e2e8df; }
 .sourcePreview > summary { font-size: 13px; color: #536d5c; }
 .sourceTable { margin: 0 0 12px; min-width: 0; }
