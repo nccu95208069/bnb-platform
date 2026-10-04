@@ -327,6 +327,56 @@
   margin: 18px 0;
   gap: 12px;
 }
+.analysisFilters { padding: 20px; }
+.periodPresets, .metricSwitch { display: flex; flex-wrap: wrap; gap: 6px; }
+.periodPresets button, .metricSwitch button { padding: 7px 13px; border-radius: 8px; font-size: 13px; color: #657769; min-height: 36px; }
+.periodPresets button[aria-pressed="true"], .metricSwitch button[aria-pressed="true"] { background: #e7f0e5; color: #2e6247; font-weight: 650; }
+.filterControls { display: flex; align-items: end; flex-wrap: wrap; gap: 14px; margin: 16px 0 12px; }
+.filterControls form { display: flex; align-items: end; flex-wrap: wrap; gap: 9px; }
+.filterControls label { display: grid; gap: 4px; font-size: 11px; color: #758477; font-weight: 500; min-width: 0; }
+.page .filterControls input, .filterControls select { border: 1px solid #d9e2d6; border-radius: 8px; padding: 8px 10px; margin: 0; color: #3e5846; background: #fff; font-size: 13px; min-height: 40px; max-width: 230px; }
+.filterControls select:focus-visible { outline: 3px solid #7dbba5; outline-offset: 3px; }
+.filterControls .secondary { min-height: 40px; padding: 6px 12px; font-size: 12px; }
+.brief { padding: 26px 28px; border-radius: 16px; background: #edf4e9; border: 1px solid #d5e3ce; margin-bottom: 22px; }
+.brief .eyebrow { margin: 0 0 5px !important; }
+.brief h2 { font-size: 25px; margin-bottom: 8px; color: #2d5036; }
+.brief > p { color: #47634e; max-width: 900px; }
+.briefNext { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px; font-size: 14px; color: #4b6650; border-top: 1px solid #d8e4d1; padding-top: 16px; }
+.briefNext > span { font-size: 11px; font-weight: 650; color: #567847; padding: 3px 8px; background: #dfead6; border-radius: 5px; white-space: nowrap; }
+.trendChart { display: block; width: 100%; height: auto; min-height: 160px; margin: 14px 0 6px; }
+.trendViewport { overflow-x: auto; }
+.metricSwitch { margin-top: 12px; }
+.page .dimensionLink { min-height: 30px; color: #3d7254; text-align: left; text-decoration: underline; text-underline-offset: 3px; }
+.weekdayChart { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; margin: 24px 0 18px; text-align: center; }
+.weekdayChart > div { min-width: 0; }
+.weekdayChart strong { font-size: 12px; font-weight: 600; color: #4f6d55; }
+.weekdayChart > div > div { height: 100px; display: flex; align-items: end; justify-content: center; margin: 8px 0; border-bottom: 1px solid #e3e9de; }
+.weekdayChart i { display: block; width: 70%; min-width: 9px; max-width: 32px; border-radius: 5px 5px 0 0; }
+.weekdayChart span { font-size: 12px; color: #7e8a7a; white-space: nowrap; }
+.bookingNote { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 5px 15px; padding: 15px; border: 1px solid #e3e8dd; border-radius: 10px; margin-top: 20px; background: #fafbf7; }
+.bookingNote strong { font-size: 12px; font-weight: 500; }
+.bookingNote > span { font-size: 19px; color: #496c4f; font-weight: 650; }
+.bookingNote small { width: 100%; color: #81917d; font-size: 11px; }
+.behaviorGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 40px; margin: 15px 0 20px; }
+.distribution { margin-top: 22px; }
+.distribution h3 { font-size: 13px; }
+.distributionRow { display: grid; grid-template-columns: 78px minmax(30px, 1fr) 50px; align-items: center; gap: 10px; margin: 11px 0; font-size: 12px; color: #70806c; }
+.distributionRow > div { height: 7px; border-radius: 5px; background: #eff3e9; }
+.distributionRow i { display: block; height: 100%; background: #82a180; border-radius: 5px; }
+.distributionRow b { text-align: right; font-weight: 500; color: #52714d; }
+.actionCards { display: grid; gap: 0; }
+.actionCards article { display: flex; gap: 18px; padding: 20px 0; border-top: 1px solid #e5ebe0; }
+.actionCards article:first-child { border-top: none; padding-top: 6px; }
+.actionCards article > span { color: #9eb493; font-size: 25px; font-weight: 500; padding-top: 2px; }
+.actionCards h3 { margin: 0 0 6px; }
+.actionCards p { font-size: 13px; margin: 0 0 7px; }
+.actionCards strong { font-size: 13px; font-weight: 500; color: #496d46; }
+.dataGaps { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 20px 0; }
+.dataGaps > div { padding: 15px; border: 1px solid #e6eadf; border-radius: 10px; background: #fbfcf8; }
+.dataGaps strong { font-size: 13px; font-weight: 600; }
+.dataGaps p { font-size: 12px; margin: 5px 0 0; }
+.chatPrompts { display: flex; flex-wrap: wrap; gap: 7px; margin: 5px 0 15px; }
+.chatPrompts button { min-height: 34px; border: 1px solid #dce6d6; border-radius: 18px; padding: 5px 10px; font-size: 11px; color: #5f7856; background: #f8fbf4; }
 .badge {
   font-size: 12px;
   background: #e7f3eb;
@@ -378,6 +428,7 @@
   font-size: 30px;
   line-height: 1.5;
   margin: 8px 0;
+  overflow-wrap: anywhere;
 }
 .metric small {
   font-size: 11px;
@@ -387,6 +438,7 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
+  margin-bottom: 20px;
 }
 .grid .card {
   margin: 0;
@@ -558,6 +610,19 @@
   }
 }
 @media (max-width: 760px) {
+  .trendChart { min-width: 520px; }
+  .trendChart text { font-size: 17px; }
+  .brief { padding: 22px 20px; }
+  .brief h2 { font-size: 22px; }
+  .brief .cardHeading { align-items: flex-start; flex-wrap: wrap; }
+  .brief .secondary { font-size: 12px; }
+  .behaviorGrid, .dataGaps { grid-template-columns: 1fr; gap: 18px; }
+  .filterControls { gap: 12px; }
+  .filterControls > label { flex: 1; min-width: 110px; }
+  .filterControls > label select { max-width: 100%; width: 100%; }
+  .page .filterControls input { width: 132px; max-width: 100%; }
+  .periodPresets button { padding: 7px 10px; font-size: 12px; }
+  .weekdayChart { gap: 6px; }
   .page {
     padding: 18px 12px 100px;
   }

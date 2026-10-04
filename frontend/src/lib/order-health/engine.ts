@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { buildAnalysis, taipeiDate } from "./analytics.ts";
 import type {
   Answers,
   Field,
@@ -203,6 +204,7 @@ function amountValue(v: string): number | null {
 }
 export function analyze(
   job: Pick<Job, "id" | "sourceHash" | "sourceTitle" | "tables" | "answers">,
+  now = new Date(),
 ): Report {
   const tables = selectedTables(job),
     a: Answers = job.answers;
@@ -481,7 +483,7 @@ export function analyze(
     .sort((a, b) => a - b);
   limitations.add("未核實每日可售庫存與停賣歷史，因此不顯示住房率與未來空檔。");
   limitations.add(
-    "只分析所提供的有效明細，不代表期間完整，也不自動做同比或環比。",
+    "只分析所提供的有效明細，不代表期間完整；前期對照只比較本次可見紀錄，不能視為已核實的全店成長率。",
   );
   limitations.add("房號／房型依來源分組，無法辨識房型內實體房間的重疊庫存。");
   if (expanded.some((n) => n.allocated))
@@ -569,8 +571,8 @@ export function analyze(
   }
   return {
     id: job.id,
-    snapshot: hash({ version: 1, source: job.sourceHash, answers: a }),
-    createdAt: new Date().toISOString(),
+    snapshot: hash({ version: 2, source: job.sourceHash, answers: a }),
+    createdAt: now.toISOString(),
     sourceTitle: job.sourceTitle,
     from,
     to,
@@ -607,6 +609,7 @@ export function analyze(
     includedRows: safe.length,
     excluded,
     unknownAmountNights,
+    analysis: buildAnalysis(expanded, safe, a, excluded, taipeiDate(now)),
     limitations: [...limitations],
     facts,
     insights: [

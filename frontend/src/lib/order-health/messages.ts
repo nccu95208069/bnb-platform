@@ -1,4 +1,5 @@
 export const messages: Record<string, string> = {
+  HEALTH_DIMENSIONS: "這份大型報告目前保留日期總覽，無法再按通路或房間切分。請縮小來源範圍後重新匯入。",
   HEALTH_SOURCE_BOUND:
     "這份試算表已綁定其他工作區，請提供本工作區的來源或聯絡管理者。",
   HEALTH_SHARE_TIMEOUT: "自動檢查已暫停。分享完成後，點「重新檢查」即可繼續。",

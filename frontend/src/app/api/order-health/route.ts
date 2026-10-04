@@ -172,6 +172,8 @@ export async function POST(request: NextRequest) {
           await reportFor(store, s, input.id),
           input.message,
           input.chart,
+          input.filter,
+          await chatHistory(store, s, input.id),
         );
         await saveChat(store, s, input.id, {
           question: input.message,
@@ -179,6 +181,8 @@ export async function POST(request: NextRequest) {
           facts: result.facts,
           snapshot: result.snapshot,
           mode: result.mode,
+          context: result.context,
+          intent: result.intent,
           createdAt: new Date().toISOString(),
         });
         return NextResponse.json(result, { headers });

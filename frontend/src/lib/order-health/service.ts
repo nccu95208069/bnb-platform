@@ -9,6 +9,7 @@ import type { Job, Scope, Table, Answers, Report, Field } from "./types.ts";
 import { questions, analyze } from "./engine.ts";
 import { presentQuestion } from "./question-copy.ts";
 import { recommend, recommendationEvidence, type Recommendation } from "./recommend.ts";
+import type { ViewFilter } from "./analytics.ts";
 import { recognize } from "./ai.ts";
 import { checkGoogleAccess, readGoogle } from "./google.ts";
 import { spreadsheetId } from "../customer-workspaces/customer-google.ts";
@@ -297,13 +298,38 @@ export async function retryConnection(store: CustomerStore, s: Scope, id: string
   return publicJob(job);
 }
 export async function status(store: CustomerStore, s: Scope, id?: string) {
-  const latest = (await read<Report>(store, `${root(s)}:latest`)).value;
+  let latest = (await read<Report>(store, `${root(s)}:latest`)).value;
   const active =
     id ?? (await read<{ id: string }>(store, `${root(s)}:active`)).value?.id;
   let job: Job | null = null;
   if (active) {
     try {
-      job = (await load(store, s, active)).value;
+      const entry = await load(store, s, active);
+      job = entry.value;
+      if (s.canWrite && job.state === "complete" && job.report && !job.report.analysis) {
+        try {
+          const upgraded = analyze({ ...job, id: digest([job.id, "analytics-v2", job.report.snapshot]).slice(0, 32) }, new Date(job.report.createdAt));
+          if (upgraded.nights !== job.report.nights || upgraded.amount !== job.report.amount || upgraded.adr !== job.report.adr)
+            throw Error("HEALTH_UPGRADE_MISMATCH");
+          const nextJob = { ...job, report: upgraded, version: job.version + 1 };
+          const nextKey = `${root(s)}:report:${upgraded.id}`;
+          const prior = await read<Report>(store, nextKey);
+          const latestEntry = await read<Report>(store, `${root(s)}:latest`);
+          const ttl = Math.max(1, Math.ceil((Date.parse(upgraded.createdAt) + 30 * 86400000 - Date.now()) / 1000));
+          const changes: Change[] = [
+            { key: jobKey(s, job.id), before: entry.raw, after: seal(nextJob), ttlSeconds: Math.max(1, Math.ceil((Date.parse(job.expiresAt) - Date.now()) / 1000)) },
+            { key: nextKey, before: prior.raw, after: seal(upgraded), ttlSeconds: ttl },
+          ];
+          if (latestEntry.value?.id === job.report.id)
+            changes.push({ key: `${root(s)}:latest`, before: latestEntry.raw, after: seal(upgraded), ttlSeconds: ttl });
+          await store.commit(changes);
+          job = (await load(store, s, active)).value;
+          latest = (await read<Report>(store, `${root(s)}:latest`)).value;
+        } catch (error) {
+          console.warn("[order-health] report upgrade deferred", error instanceof Error ? error.message : "UNKNOWN");
+          job = (await load(store, s, active)).value;
+        }
+      }
     } catch (e) {
       if (id) throw e;
     }
@@ -575,6 +601,8 @@ export type ChatEntry = {
   snapshot: string;
   createdAt: string;
   mode: string;
+  context?: ViewFilter;
+  intent?: string;
 };
 export async function chatHistory(store: CustomerStore, s: Scope, id: string) {
   await reportFor(store, s, id);

@@ -54,6 +54,31 @@ export type Fact = {
   basis: string;
   refs: string[];
 };
+export type AnalysisCell = {
+  date: string;
+  channel: string;
+  room: string;
+  nights: number;
+  amount: number;
+  knownNights: number;
+  pricedNights: number;
+  arrivals: number;
+  stayNights: number;
+  leadTotal: number;
+  leadCount: number;
+  los: number[];
+  lead: number[];
+  refs: string[];
+};
+export type Analysis = {
+  version: 2;
+  asOf: string;
+  unit: string;
+  dimensions: boolean;
+  cells: AnalysisCell[];
+  bookingDates: { date: string; channel: string; room: string; nights: number; refs: string[] }[];
+  quality: { included: number; excluded: number; cancelled: number; conflicts: number; unknownStatus: number };
+};
 export type Report = {
   id: string;
   snapshot: string;
@@ -81,6 +106,7 @@ export type Report = {
   limitations: string[];
   facts: Fact[];
   insights: { title: string; body: string; factIds: string[] }[];
+  analysis?: Analysis;
 };
 export type Job = {
   id: string;
