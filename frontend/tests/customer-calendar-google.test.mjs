@@ -206,6 +206,23 @@ test("Google reads every page only for selected calendars, renews expired access
   await listGoogleCalendars(...f.args);
   assert.equal(f.refreshes(), 1);
 });
+test("expired or revoked refresh grants require reconnect without changing retained credentials or bookings", async (t) => {
+  const f = await connected(t);
+  const before = [...f.store.data.entries()];
+  const now = Date.now();
+  t.mock.method(Date, "now", () => now + 31000);
+  let providerError = "invalid_grant";
+  t.mock.method(globalThis, "fetch", async (url, options) => {
+    assert.equal(new URL(url).hostname, "oauth2.googleapis.com");
+    assert.equal(new URLSearchParams(options.body).get("grant_type"), "refresh_token");
+    return Response.json({error:providerError,error_description:"private-provider-detail"}, {status:400});
+  });
+  await assert.rejects(listGoogleCalendars(...f.args), {message:"CALENDAR_CONNECT_REQUIRED"});
+  assert.deepEqual([...f.store.data.entries()], before);
+  providerError = "invalid_client";
+  await assert.rejects(listGoogleCalendars(...f.args), {message:"CALENDAR_READ_FAILED"});
+  assert.deepEqual([...f.store.data.entries()], before);
+});
 test("connected import registers durable work atomically; sync updates stays without changing money and holds cancellations/financial changes", async (t) => {
   const f = await connected(t);
   const source = await readGoogleCalendar(...f.args, {

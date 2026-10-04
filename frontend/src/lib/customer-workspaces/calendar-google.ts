@@ -149,20 +149,28 @@ async function json(
 }
 async function exchange(fields: Record<string, string>) {
   const config = calendarGoogleConfig();
-  return json(
-    await fetch("https://oauth2.googleapis.com/token", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        client_id: config.clientId,
-        client_secret: config.clientSecret,
-        ...fields,
-      }),
-      signal: AbortSignal.timeout(15000),
-      cache: "no-store",
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: config.clientId,
+      client_secret: config.clientSecret,
+      ...fields,
     }),
-    20000,
-  );
+    signal: AbortSignal.timeout(15000),
+    cache: "no-store",
+  });
+  if (response.status === 400) {
+    // Parse the bounded error body without exposing provider details. A revoked
+    // or expired refresh grant needs reconnection, rather than a blind retry.
+    const failure = await json(new Response(response.body), 20000);
+    throw new Error(
+      failure.error === "invalid_grant"
+        ? "CALENDAR_CONNECT_REQUIRED"
+        : "CALENDAR_READ_FAILED",
+    );
+  }
+  return json(response, 20000);
 }
 export async function beginCalendarGoogle(
   store: CustomerStore,
