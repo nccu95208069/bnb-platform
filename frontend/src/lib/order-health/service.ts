@@ -7,6 +7,7 @@ import {
 import type { Change, CustomerStore } from "../customer-workspaces/store.ts";
 import type { Job, Scope, Table, Answers, Report, Field } from "./types.ts";
 import { questions, analyze } from "./engine.ts";
+import { presentQuestion } from "./question-copy.ts";
 import { recognize } from "./ai.ts";
 import { checkGoogleAccess, readGoogle } from "./google.ts";
 import { spreadsheetId } from "../customer-workspaces/customer-google.ts";
@@ -125,7 +126,7 @@ export function publicJob(job: Job) {
     sheetUrl: job.sourceKind === "sheet" && "sourceUrl" in job && typeof job.sourceUrl === "string"
       ? `https://docs.google.com/spreadsheets/d/${spreadsheetId(job.sourceUrl)}/edit`
       : null,
-    questions: job.questions,
+    questions: job.questions.map(presentQuestion),
     answers: job.answers,
     error: job.error,
     report: job.report,

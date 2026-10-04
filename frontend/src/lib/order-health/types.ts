@@ -33,7 +33,7 @@ export type Question = {
   id: string;
   title: string;
   note: string;
-  options: { value: string; label: string }[];
+  options: { value: string; label: string; description?: string }[];
 };
 export type Answers = Record<string, string>;
 export type Night = {

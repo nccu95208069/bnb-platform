@@ -275,6 +275,8 @@
 }
 .options button {
   display: flex;
+  align-items: center;
+  gap: 20px;
   justify-content: space-between;
   text-align: left;
   padding: 17px;
@@ -283,6 +285,20 @@
   background: #fff;
   color: #395547;
 }
+.optionCopy { display: grid; gap: 5px; }
+.optionCopy strong { font-size: 16px; font-weight: 600; }
+.optionCopy > span { font-size: 13px; line-height: 1.7; color: #67796e; }
+.optionArrow { flex-shrink: 0; color: #628471; }
+.sourcePreview { padding: 8px 16px; border-radius: 12px; background: #f6f8f5; border: 1px solid #e2e8df; }
+.sourcePreview > summary { font-size: 13px; color: #536d5c; }
+.sourceTable { margin: 0 0 12px; min-width: 0; }
+.sourceTable > strong { font-size: 12px; color: #69806f; overflow-wrap: anywhere; }
+.sourceRow { display: flex; align-items: flex-start; gap: 18px; padding: 9px 0; border-top: 1px solid #e1e7df; }
+.rowNumber { font-size: 12px; color: #7a897c; white-space: nowrap; padding-top: 2px; }
+.sourceRow dl { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 0; min-width: 0; }
+.sourceRow dl > div { min-width: 0; }
+.sourceRow dt { font-size: 11px; color: #7a897c; }
+.sourceRow dd { font-size: 13px; margin: 0; color: #435c4b; overflow-wrap: anywhere; }
 .options button:hover,
 .options button.selected {
   border-color: #448269;

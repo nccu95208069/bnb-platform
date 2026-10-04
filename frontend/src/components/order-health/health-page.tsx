@@ -421,8 +421,9 @@ export function HealthPage({
           </p>
           <h2>{q.title}</h2>
           <p>{q.note}</p>
-          <details>
-            <summary>查看來源資料</summary>
+          <details key={q.id} className={styles.sourcePreview} open={q.id === "unit" || q.id === "money"}>
+            <summary>對照你的表格資料</summary>
+            <p className={styles.small}>以下是本次讀取的前幾列，供你確認記錄方式。</p>
             {job.summary
               .filter(
                 (t) =>
@@ -431,14 +432,15 @@ export function HealthPage({
                   t.id === job.answers.table,
               )
               .map((t) => (
-                <div key={t.id}>
+                <div key={t.id} className={styles.sourceTable}>
+                  <strong>{t.title}</strong>
                   {t.samples?.map((r) => (
-                    <p className={styles.small} key={r.row}>
-                      {t.title}!{r.row} ·{" "}
-                      {r.values
-                        .map((v) => `${v.label}：${v.value}`)
-                        .join(" ／ ")}
-                    </p>
+                    <div className={styles.sourceRow} key={r.row}>
+                      <span className={styles.rowNumber}>第 {r.row} 列</span>
+                      <dl>{r.values.map((v, i) => (
+                        <div key={i}><dt>{v.label}</dt><dd>{v.value}</dd></div>
+                      ))}</dl>
+                    </div>
                   ))}
                 </div>
               ))}
@@ -448,6 +450,7 @@ export function HealthPage({
               <button
                 key={o.value}
                 className={job.answers[q.id] === o.value ? styles.selected : ""}
+                aria-pressed={job.answers[q.id] === o.value}
                 disabled={
                   busy ||
                   !state?.canWrite ||
@@ -474,8 +477,11 @@ export function HealthPage({
                   }
                 }}
               >
-                {o.label}
-                <span>→</span>
+                <span className={styles.optionCopy}>
+                  <strong>{o.label}</strong>
+                  {o.description && <span>{o.description}</span>}
+                </span>
+                <span className={styles.optionArrow} aria-hidden="true">→</span>
               </button>
             ))}
           </div>
