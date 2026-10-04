@@ -8,6 +8,7 @@ import type { Change, CustomerStore } from "../customer-workspaces/store.ts";
 import type { Job, Scope, Table, Answers, Report, Field } from "./types.ts";
 import { questions, analyze } from "./engine.ts";
 import { presentQuestion } from "./question-copy.ts";
+import { recommend, recommendationEvidence, type Recommendation } from "./recommend.ts";
 import { recognize } from "./ai.ts";
 import { checkGoogleAccess, readGoogle } from "./google.ts";
 import { spreadsheetId } from "../customer-workspaces/customer-google.ts";
@@ -309,6 +310,43 @@ export async function status(store: CustomerStore, s: Scope, id?: string) {
   }
   return { job: job ? publicJob(job) : null, latest };
 }
+export async function suggest(store: CustomerStore, s: Scope, id: string, questionId: string) {
+  if (!s.canWrite) throw Error("FORBIDDEN");
+  const { value: job } = await load(store, s, id);
+  const question = job.questions.find((q) => q.id === questionId);
+  if (!question || !["confirm", "ready", "blocked"].includes(job.state)) throw Error("INVALID_INPUT");
+  const candidates = recommendationEvidence(job, question);
+  const fingerprint = digest([job.sourceHash, questionId, job.answers, candidates]);
+  const cacheKey = `${jobKey(s, id)}:suggest:${fingerprint}`;
+  type Cached = { state: "pending" | "done" | "unavailable"; until: number; recommendation: Recommendation | null };
+  const cached = await read<Cached>(store, cacheKey);
+  if (cached.value && cached.value.until > Date.now()) return cached.value;
+  const ttl = Math.max(1, Math.ceil((Date.parse(job.expiresAt) - Date.now()) / 1000));
+  const claim = seal({ state: "pending", until: Date.now() + 30000, recommendation: null });
+  try {
+    await store.commit([{ key: cacheKey, before: cached.raw, after: claim, ttlSeconds: ttl }]);
+  } catch (e) {
+    if (!(e instanceof Error) || e.message !== "VERSION_CONFLICT") throw e;
+    return (await read<Cached>(store, cacheKey)).value ??
+      { state: "pending", until: Date.now() + 30000, recommendation: null };
+  }
+  let recommendation: Recommendation | null = null;
+  let state: Cached["state"] = "done";
+  try {
+    if (candidates.length) {
+      await store.limit(`health-suggest:${s.actor}`, 20);
+      recommendation = await recommend(candidates);
+    }
+  } catch { state = "unavailable"; }
+  // A recommendation never changes answers, questions, job version, or reports.
+  // Recheck the source still exists before returning or saving model output.
+  await load(store, s, id);
+  const result: Cached = { state, until: state === "unavailable" ? Date.now() + 60000 : Date.parse(job.expiresAt), recommendation };
+  await store.commit([{ key: cacheKey, before: JSON.stringify(claim), after: seal(result),
+    ttlSeconds: Math.max(1, Math.ceil((Date.parse(job.expiresAt) - Date.now()) / 1000)) }]);
+  return result;
+}
+
 export async function answer(
   store: CustomerStore,
   s: Scope,

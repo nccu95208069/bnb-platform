@@ -14,6 +14,7 @@ import {
   chatHistory,
   saveChat,
   retryConnection,
+  suggest,
 } from "@/lib/order-health/service";
 import { parseFile, MAX_BYTES } from "@/lib/order-health/parser";
 import { readerEmail } from "@/lib/order-health/google";
@@ -156,6 +157,9 @@ export async function POST(request: NextRequest) {
         });
       } else if (input.action === "check_access")
         job = await retryConnection(store, s, input.id);
+      else if (input.action === "suggest") {
+        return NextResponse.json(await suggest(store, s, input.id, input.question), { headers });
+      }
       else if (input.action === "answer")
         job = await answer(store, s, input.id, input.answers, input.version);
       else if (input.action === "start")

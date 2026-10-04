@@ -4,9 +4,9 @@ import type { Question } from "./types";
 export function presentQuestion(question: Question): Question {
   const labels: Record<string, Record<string, string>> = {
     unit: {
-      stay: "一間房，整段住宿記一列",
-      night: "一間房，每晚分開記",
-      multi: "多間房，合併記一列（有房數欄）",
+      stay: "A. 每間房一列：201 房，9/1 入住、9/3 退房",
+      night: "B. 每晚一列：201 房，9/1 一列、9/2 一列",
+      multi: "C. 整筆訂單一列，房數填 1；訂多間也合在這列",
       skip: "不確定／都不符合",
     },
     money: {
@@ -20,8 +20,8 @@ export function presentQuestion(question: Question): Question {
   if (!copy) return question;
   return {
     ...question,
-    title: question.id === "unit" ? "一列記的是？" : question.title,
-    note: "",
+    title: question.id === "unit" ? "這筆訂單，你會怎麼記？" : question.title,
+    note: question.id === "unit" ? "例如：9/1 入住、9/3 退房，住「201 河景雙人房」，共 2 晚。" : "",
     options: question.options.map((option) => ({
       value: option.value,
       label: copy[option.value] ?? option.label,

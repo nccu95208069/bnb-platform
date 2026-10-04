@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Job, Report, Fact } from "@/lib/order-health/types";
 import { messageFor } from "@/lib/order-health/messages";
+import type { Recommendation } from "@/lib/order-health/recommend";
 import styles from "./health.module.css";
 type ViewJob = Pick<
   Job,
@@ -74,6 +75,11 @@ export function HealthPage({
     [index, setIndex] = useState<number | null>(null),
     [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [suggestion, setSuggestion] = useState<{
+    key: string;
+    state: "pending" | "done" | "unavailable";
+    recommendation: Recommendation | null;
+  } | null>(null);
   const requestId = useRef(""), attemptedUrl = useRef(""),
     selectedRef = useRef<HTMLInputElement>(null);
   const job = state?.job;
@@ -177,6 +183,38 @@ export function HealthPage({
       index ??
       Math.max(0, job?.questions.findIndex((q) => !job.answers[q.id]) ?? 0),
     q = job?.questions[qIndex];
+  const suggestionKey = job && q ? `${job.id}:${job.version}:${q.id}` : "";
+  const suggestionJobId = job?.id, suggestionQuestionId = q?.id;
+  const canSuggest = Boolean(!showInput && job && q && state?.canWrite &&
+    (job.state === "confirm" || editing) && ["unit", "money", "date", "booked"].includes(q.id));
+  useEffect(() => {
+    if (!canSuggest || !suggestionJobId || !suggestionQuestionId) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    async function fetchSuggestion() {
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "suggest", id: suggestionJobId, question: suggestionQuestionId }),
+          signal: controller.signal,
+        });
+        if (!response.ok) throw Error("SUGGESTION_UNAVAILABLE");
+        const data = await response.json();
+        if (controller.signal.aborted) return;
+        const pending = data.state === "pending" && attempts++ < 12;
+        setSuggestion({ key: suggestionKey, state: pending ? "pending" : data.state === "done" ? "done" : "unavailable", recommendation: data.recommendation });
+        if (pending) timer = setTimeout(fetchSuggestion, 2500);
+      } catch {
+        if (!controller.signal.aborted)
+          setSuggestion({ key: suggestionKey, state: "unavailable", recommendation: null });
+      }
+    }
+    void fetchSuggestion();
+    return () => { controller.abort(); if (timer) clearTimeout(timer); };
+  }, [canSuggest, endpoint, suggestionKey, suggestionJobId, suggestionQuestionId]);
+  const currentSuggestion = suggestion?.key === suggestionKey ? suggestion : null;
   return (
     <div className={styles.page}>
       <header className={styles.heading}>
@@ -337,7 +375,7 @@ export function HealthPage({
             <p>
               排除已辨識的姓名、電話、信箱與備註欄位。解析後的明細加密保存 24
               小時，報告保存 30 天；可在資料與口徑中提前清除明細。AI
-              欄位辨識只接收遮蔽後的欄名；問答只使用本報告的彙總數字。來源更新是完整替換快照，不會把消失的資料判定為取消。
+              欄位辨識只接收遮蔽後的欄名；選項建議只使用記錄方式的統計線索，不傳送原始資料列；問答只使用本報告的彙總數字。來源更新是完整替換快照，不會把消失的資料判定為取消。
             </p>
           </details>
         </section>
@@ -418,11 +456,16 @@ export function HealthPage({
           </p>
           <h2>{q.title}</h2>
           {q.note && <p>{q.note}</p>}
+          {canSuggest && <p className={styles.suggestionStatus} role="status">
+            {!currentSuggestion || currentSuggestion.state === "pending" ? "AI 正在看你的資料…" :
+              currentSuggestion.recommendation ? `AI 判斷依據：${currentSuggestion.recommendation.reason}` :
+                currentSuggestion.state === "unavailable" ? "AI 暫時無法判斷，你可以直接選擇。" : "目前線索不足，請選最接近的記法。"}
+          </p>}
           <div className={styles.options}>
             {q.options.map((o) => (
               <button
                 key={o.value}
-                className={`${job.answers[q.id] === o.value ? styles.selected : ""} ${o.value === "skip" ? styles.skipOption : ""}`}
+                className={`${job.answers[q.id] === o.value ? styles.selected : ""} ${o.value === "skip" ? styles.skipOption : ""} ${currentSuggestion?.recommendation?.value === o.value ? styles.recommended : ""}`}
                 aria-pressed={job.answers[q.id] === o.value}
                 disabled={
                   busy ||
@@ -452,6 +495,7 @@ export function HealthPage({
               >
                 <span className={styles.optionCopy}>
                   <strong>{o.label}</strong>
+                  {currentSuggestion?.recommendation?.value === o.value && <span className={styles.recommendBadge}>AI 判斷較可能</span>}
                   {o.description && <span>{o.description}</span>}
                 </span>
                 <span className={styles.optionArrow} aria-hidden="true">→</span>

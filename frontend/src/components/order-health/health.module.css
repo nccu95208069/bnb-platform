@@ -289,6 +289,9 @@
 .optionCopy strong { font-size: 16px; font-weight: 600; }
 .optionCopy > span { font-size: 13px; line-height: 1.7; color: #67796e; }
 .optionArrow { flex-shrink: 0; color: #628471; }
+.page .suggestionStatus { font-size: 13px; color: #52745f; margin: 10px 0; }
+.options button.recommended { border-color: #83ad94; background: #f4f9f3; }
+.optionCopy .recommendBadge { justify-self: start; font-size: 11px; padding: 2px 8px; border-radius: 5px; background: #e4f0e2; color: #357047; }
 .options button.skipOption { border-color: transparent; padding: 4px 0; justify-content: flex-start; background: transparent; color: #77837b; }
 .skipOption .optionCopy strong { font-size: 13px; font-weight: 400; text-decoration: underline; text-underline-offset: 3px; }
 .skipOption .optionArrow { display: none; }
