@@ -1,3 +1,4 @@
+import { sourceDefinition } from "@/lib/booking-sources/config";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { principalFor } from "@/lib/workspace-auth/session";
@@ -31,7 +32,7 @@ export default async function Page({
             aria-current={id === property ? "page" : undefined}
             href={`/revenue?property=${id}`}
           >
-            {id === "sweetfun" ? "水芳民宿" : "離島民宿"}
+            {sourceDefinition(id).property.name}
           </a>
         ))}
       </nav>
@@ -39,7 +40,7 @@ export default async function Page({
         key={property}
         workspace="legacy"
         property={property}
-        name={property === "sweetfun" ? "水芳民宿" : "離島民宿"}
+        name={sourceDefinition(property).property.name}
       />
     </>
   );

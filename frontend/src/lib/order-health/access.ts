@@ -1,3 +1,4 @@
+import { sourceDefinition } from "../booking-sources/config.ts";
 import {
   authenticate,
   CUSTOMER_COOKIE,
@@ -27,7 +28,7 @@ export async function access(
       workspace: "legacy",
       property,
       actor: p.id,
-      name: property === "sweetfun" ? "水芳民宿" : "離島民宿",
+      name: sourceDefinition(property).property.name,
       canWrite: ["owner", "god", "admin"].includes(p.role),
     };
   }

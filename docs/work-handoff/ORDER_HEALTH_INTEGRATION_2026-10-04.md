@@ -31,9 +31,10 @@ Google 接收帳號未配置時，頁面明示不可用並保留檔案入口。G
 - 23 項 Node 測試通過：三種檔案格式、個資欄排除、跨月、零元、缺值、混合幣別、多房、重複與實體重疊、日期、五題、合併工作表、保存／恢復、revision 不可變、問答隔離及真實 session 權限判斷。
 - Google adapter 以合成金鑰及模擬 transport 驗證唯讀 scope、三段讀取與撤權錯誤。**尚未以真實分享的 Google Sheet 驗證此新入口。**
 - Gemini 實際 API：以合成欄名辨識成功，119 input tokens、62 output tokens；合成報告問答回覆「2 房晚」，模式為 Gemini 且快照一致。未傳送真實客人／訂單資料。
-- 本機 Next + 獨立合成 store 跑完整瀏覽器流程：CSV 48 列 → 3 題 → 45 有效列／3 取消列 → 90 房晚、203,100 房費；刷新保留題目進度，修改已回答題目不增加計數，图表問答核對相同報告。
+- 本機 Next + 獨立合成 store 跑完整瀏覽器流程：CSV 48 列 → 3 題 → 45 有效列／3 取消列 → 90 房晚、203,100 房費；刷新保留題目進度，修改已回答題目不增加計數，圖表問答核對相同報告。
 - HTTP：未登入 401、其他旅宿 403、跨來源 POST 403；授權讀取 private/no-store，報告數值一致。
-- 桌面與 390 px 手機版已檢查。既有 CalendarAppearanceProvider 在開發模式的 abort log 仍可見，非此功能新增；不宣稱整站零 console log。
+- 正式 build 的本機預覽另跑通設定 revision 與 Gemini 圖表問答；「2026-02 有多少房晚」回覆 15 房晚，後端保存 mode=gemini，刷新後手機仍可讀到同一回答。
+- 桌面與 390 px 手機版已檢查（document scrollWidth 375，無橫向溢出）。既有 CalendarAppearanceProvider 在開發模式的 abort log 仍可見，非此功能新增；不宣稱整站零 console log。
 - TypeScript 與新功能 ESLint 通過；全站 lint 無 errors，保留既有 7 warnings。
 - 正式 webpack build 通過。預設 Turbopack 在本機隔離環境建立 CSS worker port 時受限；以 `next build --webpack` 完成相同 production routes 建置，未更改正式 build script。
 
@@ -43,7 +44,7 @@ Google 接收帳號未配置時，頁面明示不可用並保留檔案入口。G
 
 尚未提供可信每日庫存、同／環比、訂單增刪異動逐筆比較、自動定時讀 Sheet、自由文字經營建議及任意期間工具查詢。小芳目前引用已計算 Fact；不宣稱完整任意分析代理。
 
-正式發布前應在候選部署中，以真實授權 Sheet 驗證分享／撤權、既有 Redis 方案的容量與 TTL、正式登入角色以及模型設定，再決定发布。此分支未變更正式訂單、帳本或現有公開服務。
+正式發布前應在候選部署中，以真實授權 Sheet 驗證分享／撤權、既有 Redis 方案的容量與 TTL、正式登入角色以及模型設定，再決定發布。此分支未變更正式訂單、帳本或現有公開服務。
 
 ## 重跑
 
@@ -54,4 +55,4 @@ npm run lint
 npx next build --webpack
 ```
 
-測試使用 Node 24；單元測試不需要真實憑證或外部網路。瀏覽器證據與合成 store 放在工作区輸出／暫存位置，不提交任何測試登入入口或真實憑證。
+測試使用 Node 24；單元測試不需要真實憑證或外部網路。瀏覽器證據與合成 store 放在工作區輸出／暫存位置，不提交任何測試登入入口或真實憑證。
