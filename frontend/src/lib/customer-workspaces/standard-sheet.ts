@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { cents, financeSummary, propertyReadiness, staysOf } from "./domain.ts";
+import { tagsFor } from "./order-query.ts";
 import type { Workspace } from "./types.ts";
 import {
   STANDARD_SHEET_MARKER,
@@ -116,6 +117,14 @@ export function buildStandardWorkbook(
       summary.remaining,
       "TWD",
       booking.version,
+      booking.platform ?? null,
+      booking.bookedAt ?? null,
+      booking.notes,
+      tagsFor(property)
+        .filter((t) => booking.tagIds?.includes(t.id))
+        .map((t) => `${t.short} ${t.name}`)
+        .join("、") || null,
+      summary.extraReceived,
     ]);
     if (sourcePaid !== null)
       tables.payments.push([
@@ -133,6 +142,9 @@ export function buildStandardWorkbook(
         null,
         "來源期初摘要；沒有逐筆收款日期，不計入本期交易。",
         "TWD",
+        null,
+        null,
+        null,
       ]);
     if (booking.openingReceived)
       tables.payments.push([
@@ -146,6 +158,9 @@ export function buildStandardWorkbook(
         null,
         booking.openingReceived.note,
         "TWD",
+        null,
+        null,
+        null,
       ]);
     const labels = {
       deposit: "訂金",
@@ -169,6 +184,9 @@ export function buildStandardWorkbook(
         payment.method,
         payment.note ?? null,
         "TWD",
+        payment.allocation === "extra" ? "其他費用（不抵房費）" : "房費",
+        payment.receiptAccount?.name ?? null,
+        payment.receiptAccount?.last4 ?? null,
       ]);
     if (booking.imported) {
       const batch = workspace!.importBatches?.find(
@@ -331,8 +349,11 @@ export function fromGoogleCell(
 export function normalizedTable(
   rows: unknown[][],
   key: StandardTabKey,
+  columnCount?: number,
 ): SheetCell[][] {
-  const columns = STANDARD_SHEET_TABS.find((tab) => tab.key === key)!.columns;
+  const columns = STANDARD_SHEET_TABS.find(
+    (tab) => tab.key === key,
+  )!.columns.slice(0, columnCount);
   const values = rows.map((row, i) =>
     columns.map((column, c) =>
       fromGoogleCell(row[c], i === 0 ? undefined : column),

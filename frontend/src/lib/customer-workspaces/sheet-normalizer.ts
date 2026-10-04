@@ -3,6 +3,17 @@ import { dateValue, textValue } from "./service.ts";
 import type { Booking, Property, StaySegment } from "./types.ts";
 
 export const NORMALIZATION_VERSION = 1;
+
+// Split only an explicitly labelled request suffix; keep the full source text in notes.
+export function splitGuestNotes(value: string | null) {
+  const match =
+    value &&
+    /^(.*?)\s*[（(]\s*(?:備註|需求)\s*[:：]\s*(.+)[）)]\s*$/u.exec(value);
+  return match && match[1].trim()
+    ? { guestName: match[1].trim(), notes: `姓名欄原文：${value}` }
+    : { guestName: value, notes: null };
+}
+
 export type SourceReference = { row: number; column?: number };
 export type SheetSource = {
   spreadsheetId: string;
@@ -21,6 +32,9 @@ export type Mapping = {
     total: number;
     received: number;
     status?: number;
+    platform?: number;
+    bookedAt?: number;
+    notes?: number;
   };
   roomMap: Record<string, string[]>;
   granularity: "order" | "stay" | "night" | "grid";
@@ -45,7 +59,13 @@ export type ImportDraft = Pick<
   | "total"
   | "importedFinance"
   | "nightlyPrices"
-> & { externalId: string | null };
+> &
+  Partial<
+    Pick<
+      Booking,
+      "platform" | "bookedAt" | "bookedAtSource" | "bookedAtTimeZone" | "notes"
+    >
+  > & { externalId: string | null };
 export type NormalizedOrder = {
   // Kept as the stable preview selection token. Grid cells use a unique token;
   // sourceRows/references, rather than this number, are shown as provenance.
@@ -67,6 +87,9 @@ type Line = {
   roomIds: string[];
   total: number | null;
   paid: number | null;
+  platform?: string | null;
+  bookedAt?: string | null;
+  notes?: string | null;
 };
 type Group = {
   selection: number;
@@ -90,6 +113,9 @@ export function importFingerprint(draft: ImportDraft) {
     importedFinance: draft.importedFinance,
     ...(draft.stays ? { stays: draft.stays } : {}),
     ...(draft.nightlyPrices ? { nightlyPrices: draft.nightlyPrices } : {}),
+    ...(draft.platform ? { platform: draft.platform } : {}),
+    ...(draft.bookedAt ? { bookedAt: draft.bookedAt } : {}),
+    ...(draft.notes ? { notes: draft.notes } : {}),
   });
 }
 const cell = (row: string[], index: number | undefined) =>
@@ -155,8 +181,13 @@ export function validateMapping(mapping: Mapping) {
     "total",
     "received",
     "status",
+    "platform",
+    "bookedAt",
+    "notes",
   ] as const) {
-    const index = mapping.columns[key] ?? (key === "status" ? -1 : NaN);
+    const index =
+      mapping.columns[key] ??
+      (["status", "platform", "bookedAt", "notes"].includes(key) ? -1 : NaN);
     if (
       !Number.isInteger(index) ||
       index < -1 ||
@@ -362,6 +393,11 @@ export function normalizeSheet(
         ),
         total: money(cell(row, c.total)),
         paid: money(cell(row, c.received)),
+        platform: textValue(cell(row, c.platform), 80),
+        bookedAt: cell(row, c.bookedAt)
+          ? sourceDate(cell(row, c.bookedAt))
+          : null,
+        notes: textValue(cell(row, c.notes), 2000),
       });
     } catch (error) {
       if (error instanceof Error && error.message === "IMPORT_SIZE")
@@ -400,7 +436,7 @@ export function normalizeSheet(
       const names = [
         ...new Set(
           group.lines.flatMap((line) =>
-            line.guestName ? [line.guestName] : [],
+            line.guestName ? [splitGuestNotes(line.guestName).guestName!] : [],
           ),
         ),
       ];
@@ -467,7 +503,40 @@ export function normalizeSheet(
         (d, s) => (d > s.checkOut ? d : s.checkOut),
         stays[0].checkOut,
       );
+      const platforms = [
+        ...new Set(
+          group.lines.flatMap((l) => (l.platform ? [l.platform] : [])),
+        ),
+      ];
+      const dates = [
+        ...new Set(
+          group.lines.flatMap((l) => (l.bookedAt ? [l.bookedAt] : [])),
+        ),
+      ];
+      if (platforms.length > 1 || dates.length > 1)
+        throw new Error("同一訂單編號的平台或訂房日期不一致，請核對整組資料");
+      const sourceNotes = textValue(
+        [
+          ...new Set(
+            group.lines.flatMap((l) =>
+              [l.notes, splitGuestNotes(l.guestName).notes].filter(
+                (note): note is string => !!note,
+              ),
+            ),
+          ),
+        ].join("\n"),
+        2000,
+      );
       const draft: ImportDraft = {
+        ...(platforms.length ? { platform: platforms[0] } : {}),
+        ...(dates.length
+          ? {
+              bookedAt: dates[0],
+              bookedAtSource: "sheet",
+              bookedAtTimeZone: "Asia/Taipei",
+            }
+          : {}),
+        ...(sourceNotes ? { notes: sourceNotes } : {}),
         guestName: names[0] ?? null,
         externalId: group.externalId,
         checkIn,

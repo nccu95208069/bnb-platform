@@ -466,6 +466,8 @@ test("intact v1 workbook upgrades atomically with two new provenance/block tabs,
   delete old.sheets.calendarSources;
   delete old.sheets.blocks;
   old.allSheetIds = [100, 101, 102, 103, 104, 105, 999];
+  old.tables.orders = old.tables.orders.map((r) => r.slice(0, 18));
+  old.tables.payments = old.tables.payments.map((r) => r.slice(0, 10));
   old.tables.meta.find((r) => r[0] === "schema_version")[1] = 1;
   old.tables.meta.find((r) => r[0] === "content_hash")[1] = standardContentHash(
     old.tables,
@@ -488,7 +490,7 @@ test("intact v1 workbook upgrades atomically with two new provenance/block tabs,
   await sync(f);
   assert.equal(
     f.get().tables.meta.find((r) => r[0] === "schema_version")[1],
-    2,
+    3,
   );
   assert.ok(f.get().tables.calendarSources.length);
   assert.ok(f.get().tables.blocks.length);
@@ -504,4 +506,24 @@ test("deleted v2 extension tab is an external layout change, never silently recr
   f.set(old);
   await assert.rejects(bind(f), /STANDARD_LAYOUT_CHANGED/);
   assert.equal(f.gateway.writes.length, 0);
+});
+
+test("intact v2 workbook appends order metadata and receipt allocation/account columns without treating old columns as an external edit", async () => {
+  const f = fixture(),
+    old = f.get();
+  old.tables.orders = old.tables.orders.map((row) => row.slice(0, 18));
+  old.tables.payments = old.tables.payments.map((row) => row.slice(0, 10));
+  old.tables.meta.find((r) => r[0] === "schema_version")[1] = 2;
+  old.tables.meta.find((r) => r[0] === "content_hash")[1] = standardContentHash(
+    old.tables,
+  );
+  f.set(old);
+  await bind(f);
+  await sync(f);
+  assert.equal(
+    f.get().tables.meta.find((r) => r[0] === "schema_version")[1],
+    3,
+  );
+  assert.equal(f.get().tables.orders[0].length, 23);
+  assert.equal(f.get().tables.payments[0].length, 13);
 });

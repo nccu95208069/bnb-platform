@@ -5,6 +5,7 @@ import type { CustomerStore } from "./store.ts";
 import type { Workspace } from "./types.ts";
 import {
   STANDARD_SHEET_MARKER,
+  LEGACY_COLUMN_COUNTS,
   STANDARD_SHEET_TABS,
   STANDARD_SHEET_VERSION,
 } from "./standard-sheet-schema.ts";
@@ -49,18 +50,27 @@ function metadata(snapshot: StandardSnapshot) {
   if (
     new Set(entries.map(([key]) => key)).size !== entries.length ||
     meta.format !== STANDARD_SHEET_MARKER ||
-    ![1, STANDARD_SHEET_VERSION].includes(Number(meta.schema_version))
+    ![1, 2, STANDARD_SHEET_VERSION].includes(Number(meta.schema_version))
   )
     throw new Error("STANDARD_LAYOUT_CHANGED");
   if (
     (meta.schema_version === 1 &&
       (snapshot.tables.calendarSources?.length ||
         snapshot.tables.blocks?.length)) ||
-    (meta.schema_version === STANDARD_SHEET_VERSION &&
+    (Number(meta.schema_version) >= 2 &&
       (!snapshot.tables.calendarSources?.length ||
         !snapshot.tables.blocks?.length))
   )
     throw new Error("STANDARD_LAYOUT_CHANGED");
+  for (const tab of STANDARD_SHEET_TABS) {
+    if (!snapshot.tables[tab.key]?.length) continue;
+    const count =
+      Number(meta.schema_version) < 3
+        ? (LEGACY_COLUMN_COUNTS[tab.key] ?? tab.columns.length)
+        : tab.columns.length;
+    if (snapshot.tables[tab.key][0].length !== count)
+      throw new Error("STANDARD_LAYOUT_CHANGED");
+  }
   if (standardContentHash(snapshot.tables) !== meta.content_hash)
     throw new Error("STANDARD_EXTERNAL_CHANGE");
   return meta;

@@ -19,7 +19,12 @@ export default async function Page({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ property?: string }>;
+  searchParams: Promise<{
+    property?: string;
+    month?: string;
+    day?: string;
+    room?: string;
+  }>;
 }) {
   const { slug } = await params;
   if (!enabled()) return <main className="p-10">新客戶入口尚未開放。</main>;
@@ -48,10 +53,23 @@ export default async function Page({
     );
   }
   const { workspace, member } = loaded;
+  const query = await searchParams;
   return (
     <CustomerCalendar
       initial={view(workspace, member)}
-      initialPropertyId={(await searchParams).property}
+      initialPropertyId={query.property}
+      initialMonth={
+        typeof query.month === "string" &&
+        /^(20\d{2}|2100)-(0[1-9]|1[0-2])$/.test(query.month)
+          ? query.month
+          : undefined
+      }
+      initialDay={
+        typeof query.day === "string" && /^\d{4}-\d{2}-\d{2}$/.test(query.day)
+          ? query.day
+          : undefined
+      }
+      initialRoom={query.room}
     />
   );
 }

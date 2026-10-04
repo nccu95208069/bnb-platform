@@ -5,7 +5,7 @@ export function WorkspaceNav({
   propertyId,
 }: {
   data: WorkspaceView;
-  current: "calendar" | "availability" | "finance" | "settings";
+  current: "orders" | "calendar" | "availability" | "finance" | "settings";
   propertyId?: string;
 }) {
   const suffix = propertyId
@@ -13,6 +13,7 @@ export function WorkspaceNav({
     : "";
   const tabs = [
     ["calendar", "房況日曆"],
+    ["orders", "訂單查詢"],
     ["availability", "尚未出售"],
     ...(data.role !== "viewer_no_price" ? [["finance", "收款記帳"]] : []),
     ...(["owner", "admin"].includes(data.role)

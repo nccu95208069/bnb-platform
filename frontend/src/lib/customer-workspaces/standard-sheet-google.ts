@@ -2,6 +2,7 @@ import { createSign } from "node:crypto";
 import { spreadsheetId } from "./customer-google.ts";
 import {
   STANDARD_SHEET_TABS,
+  LEGACY_COLUMN_COUNTS,
   type StandardTabKey,
 } from "./standard-sheet-schema.ts";
 import {
@@ -377,10 +378,21 @@ export class GoogleStandardSheetGateway implements StandardSheetGateway {
         )
       )
         throw new Error("STANDARD_LAYOUT_CHANGED");
-      result[tab.key] = normalizedTable(rows, tab.key);
+      const header = rows[0];
+      const legacyCount = LEGACY_COLUMN_COUNTS[tab.key];
+      const count =
+        legacyCount &&
+        header.slice(legacyCount).every((v) => v == null || v === "")
+          ? legacyCount
+          : tab.columns.length;
+      if (
+        rows.some((row) => row.slice(count).some((v) => v != null && v !== ""))
+      )
+        throw new Error("STANDARD_LAYOUT_CHANGED");
+      result[tab.key] = normalizedTable(rows, tab.key, count);
       if (
         JSON.stringify(result[tab.key][0]) !==
-        JSON.stringify(tab.columns.map((c) => c.label))
+        JSON.stringify(tab.columns.slice(0, count).map((c) => c.label))
       )
         throw new Error("STANDARD_LAYOUT_CHANGED");
     }

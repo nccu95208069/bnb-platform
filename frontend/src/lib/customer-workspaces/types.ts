@@ -30,7 +30,16 @@ export type Membership = {
   allProperties: boolean;
   propertyIds: string[];
 };
+export type OrderTag = {
+  id: string;
+  name: string;
+  short: string;
+  color: "blue" | "orange" | "purple" | "green" | "rose" | "slate";
+};
+export type ReceiptAccount = { id: string; name: string; last4: string };
 export type Property = {
+  tags?: OrderTag[];
+  receiptAccounts?: ReceiptAccount[];
   id: string;
   name: string;
   kind: "villa" | "rooms" | "mixed";
@@ -69,9 +78,16 @@ export type Payment = {
   receivedAt: string;
   method: string | null;
   actor: string;
+  allocation?: "room" | "extra";
+  receiptAccount?: ReceiptAccount;
   note?: string | null;
 };
 export type Booking = {
+  platform?: string | null;
+  bookedAt?: string | null; // Source booking date, never the import/creation date.
+  bookedAtSource?: "manual" | "sheet";
+  bookedAtTimeZone?: "Asia/Taipei";
+  tagIds?: string[];
   id: string;
   version: number;
   propertyId: string;
@@ -115,7 +131,20 @@ export type Booking = {
   requestKey: string;
   requestHash: string;
 };
+export type OrderReviewRecord = {
+  id: string;
+  propertyId: string;
+  sourceId: string;
+  source: "sheet" | "calendar";
+  label: string;
+  guestName: string | null;
+  checkIn: string | null;
+  checkOut: string | null;
+  roomIds: string[];
+  issues: string[];
+};
 export type Workspace = {
+  reviewRecords?: OrderReviewRecord[];
   id: string;
   slug: string;
   name: string;
@@ -162,6 +191,7 @@ export type Workspace = {
   audit: { at: string; actor: string; action: string; targetId: string }[];
 };
 export type WorkspaceView = {
+  reviewRecords?: OrderReviewRecord[];
   id: string;
   slug: string;
   name: string;
@@ -180,6 +210,7 @@ export type WorkspaceView = {
       coverageTo?: string;
       connected?: boolean;
       stale?: boolean;
+      sourceUpdatedAt?: string;
     }
   >;
 };

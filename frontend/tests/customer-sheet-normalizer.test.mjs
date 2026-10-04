@@ -373,3 +373,72 @@ test("a conflicting multi-line order cannot be partially selected by its second 
   );
   assert.equal((await f.current()).bookings.length, 0);
 });
+
+test("explicit platform, source booking date and order notes survive grouped import; conflicting source dates remain reviewable", async () => {
+  const f = workspaceFixture();
+  const config = mapping({
+    columns: { ...mapping().columns, platform: 7, bookedAt: 8, notes: 9 },
+  });
+  const input = source([
+    [
+      ...line("2026-10-10", "2026-10-12", "101", "A"),
+      "Booking",
+      "2026/9/15",
+      "需要收據",
+    ],
+    [
+      ...line("2026-10-10", "2026-10-12", "102", "A"),
+      "Booking",
+      "2026/9/15",
+      "嬰兒用品",
+    ],
+    [...line("2026-10-15", "2026-10-16", "101", "B"), "LINE", "2026/9/14", ""],
+    [...line("2026-10-16", "2026-10-17", "101", "B"), "LINE", "2026/9/16", ""],
+  ]);
+  const preview = await previewImport(...f.args, input, config);
+  assert.match(
+    preview.rows.find((r) => !r.draft).issues.join(""),
+    /訂房日期不一致/,
+  );
+  await commitImport(...f.args, preview.id, [2]);
+  const w = await f.current();
+  assert.equal(w.bookings.length, 1);
+  assert.equal(w.bookings[0].platform, "Booking");
+  assert.equal(w.bookings[0].bookedAt, "2026-09-15");
+  assert.equal(w.bookings[0].bookedAtSource, "sheet");
+  assert.equal(w.bookings[0].notes, "需要收據\n嬰兒用品");
+  assert.equal(w.reviewRecords.length, 1);
+  assert.match(w.reviewRecords[0].issues.join(""), /訂房日期不一致/);
+  assert.match(w.reviewRecords[0].label, /4、5/);
+});
+
+test("explicit request suffixes move out of the guest identity and keep their original source text searchable", () => {
+  const rows = [
+    line(
+      "2026-10-10",
+      "2026-10-12",
+      "101",
+      "A",
+      "12000",
+      "",
+      "測試旅客（需求：嬰兒用品）",
+    ),
+    line(
+      "2026-10-10",
+      "2026-10-12",
+      "102",
+      "A",
+      "12000",
+      "",
+      "測試旅客（備註：晚到）",
+    ),
+  ];
+  const [order] = ok(rows);
+  assert.equal(order.draft.guestName, "測試旅客");
+  assert.match(order.draft.notes, /姓名欄原文：測試旅客（需求：嬰兒用品）/);
+  assert.match(order.draft.notes, /晚到/);
+  const [unlabelled] = ok([
+    line("2026-10-20", "2026-10-21", "101", "B", "", "", "Test (Guest)"),
+  ]);
+  assert.equal(unlabelled.draft.guestName, "Test (Guest)");
+});

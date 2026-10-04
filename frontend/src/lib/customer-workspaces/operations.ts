@@ -413,7 +413,11 @@ export async function bookingOperation(
     (b) => b.id === input.bookingId,
   );
   if (!booking) throw new Error("NOT_FOUND");
-  scopedProperty(context.workspace, context.member, booking.propertyId);
+  const property = scopedProperty(
+    context.workspace,
+    context.member,
+    booking.propertyId,
+  );
   if (context.previous)
     return {
       workspace: view(context.workspace, context.member),
@@ -440,15 +444,30 @@ export async function bookingOperation(
       throw new Error("INVALID_INPUT");
     const receivedAt = receiptTime(input.receivedAt);
     if (booking.payments.length >= 1000) throw new Error("LIMIT_REACHED");
+    const allocation =
+      input.kind === "other" ||
+      (input.kind === "refund" && input.allocation === "extra")
+        ? "extra"
+        : "room";
+    const account = input.receiptAccountId
+      ? property.receiptAccounts?.find((a) => a.id === input.receiptAccountId)
+      : undefined;
+    if (input.receiptAccountId && !account) throw new Error("NOT_FOUND");
     const previous = financeSummary(booking);
     if (input.kind === "refund") {
       if (!["owner", "admin"].includes(context.member.role))
         throw new Error("FORBIDDEN");
-      if (previous.received === null)
+      if (allocation === "room" && previous.received === null)
         throw new Error("OPENING_BALANCE_REQUIRED");
-      if (cents(amount) > cents(previous.received))
+      if (
+        cents(amount) >
+        cents(
+          allocation === "extra" ? previous.extraReceived : previous.received!,
+        )
+      )
         throw new Error("REFUND_TOO_LARGE");
     } else if (
+      allocation === "room" &&
       previous.remaining !== null &&
       amount > previous.remaining &&
       input.allowOverpayment !== true
@@ -463,6 +482,8 @@ export async function bookingOperation(
         kind: input.kind as Booking["payments"][number]["kind"],
         receivedAt,
         method: textValue(input.method, 100),
+        allocation,
+        ...(account ? { receiptAccount: { ...account } } : {}),
         note: textValue(input.note, 500),
       },
     ];
@@ -501,7 +522,11 @@ export async function bookingOperation(
     )
       throw new Error("CALENDAR_SOURCE_OWNS_OCCUPANCY");
     const summary = financeSummary(booking);
-    if (summary.received === null || summary.received !== 0)
+    if (
+      summary.received === null ||
+      summary.received !== 0 ||
+      summary.extraReceived !== 0
+    )
       throw new Error("CANCELLATION_REQUIRES_SETTLEMENT");
     next.status = "cancelled";
   }

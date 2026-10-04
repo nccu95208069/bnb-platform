@@ -81,6 +81,9 @@ const aliases: Record<Column, string[]> = {
     "已付訂金",
     "訂金",
   ],
+  platform: ["平台", "預訂平台", "訂房平台", "通路", "channel", "platform"],
+  bookedAt: ["訂房日期", "預訂日期", "下單日期", "bookingdate", "bookedat"],
+  notes: ["備註", "訂單備註", "特殊需求", "notes", "requests"],
   status: ["狀態", "訂單狀態", "訂房狀態", "status", "bookingstatus"],
 };
 const normalize = (value: string) =>

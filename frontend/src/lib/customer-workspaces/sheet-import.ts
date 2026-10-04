@@ -223,7 +223,7 @@ export async function commitImport(
       propertyId,
       payments: [],
       contact: null,
-      notes: null,
+      notes: draft.notes ?? null,
       status: "confirmed",
       guestNotified: false,
       createdAt: at,
@@ -273,7 +273,7 @@ export async function commitImport(
     selectionHash,
     bookingIds: bookings.map((b) => b.id),
   };
-  const unresolvedCount = preview.rows.filter(
+  const unresolved = preview.rows.filter(
     (row) =>
       !row.issues.includes("已在選定範圍之前退房") &&
       ![...workspace.bookings, ...bookings].some(
@@ -283,7 +283,28 @@ export async function commitImport(
           b.imported?.sourceKey === preview.sourceKey &&
           b.imported.fingerprint === row.fingerprint,
       ),
-  ).length;
+  );
+  const unresolvedCount = unresolved.length;
+  const reviewRecords = [
+    ...(workspace.reviewRecords ?? []).filter(
+      (r) => r.propertyId !== propertyId || r.sourceId !== preview.sourceKey,
+    ),
+    ...unresolved.map((r) => ({
+      id: `sheet:${preview.sourceKey}:${r.row}`,
+      propertyId,
+      sourceId: preview.sourceKey,
+      source: "sheet" as const,
+      label: `${preview.sourceTitle} · 來源列 ${(r.sourceRows ?? [r.row]).join("、")}`,
+      guestName: r.draft?.guestName ?? null,
+      checkIn: r.draft?.checkIn ?? null,
+      checkOut: r.draft?.checkOut ?? null,
+      roomIds: r.draft?.roomIds ?? [],
+      issues: r.issues.length
+        ? r.issues
+        : ["尚未選取匯入，請核對訂單分組與來源"],
+    })),
+  ];
+  if (reviewRecords.length > 5000) throw new Error("LIMIT_REACHED");
   await store.commit([
     {
       key: `workspace:${workspace.id}`,
@@ -292,6 +313,7 @@ export async function commitImport(
         ...workspace,
         version: workspace.version + 1,
         bookings: [...workspace.bookings, ...bookings],
+        reviewRecords,
         properties: workspace.properties.map((p) =>
           p.id === propertyId
             ? {

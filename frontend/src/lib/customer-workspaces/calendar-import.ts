@@ -728,6 +728,29 @@ export async function commitCalendar(
     version: workspace.version + 1,
     bookings,
     blocks,
+    reviewRecords: [
+      ...(workspace.reviewRecords ?? []).filter(
+        (r) => r.propertyId !== propertyId || r.sourceId !== binding.id,
+      ),
+      ...unresolved.map((r) => ({
+        id: `calendar:${binding.id}:${r.id}`,
+        propertyId,
+        sourceId: binding.id,
+        source: "calendar" as const,
+        label: r.titles.join("、").slice(0, 300),
+        guestName: r.draft?.guestName ?? null,
+        checkIn: r.draft?.checkIn ?? null,
+        checkOut: r.draft?.checkOut ?? null,
+        roomIds: r.draft?.roomIds ?? [],
+        issues: r.issues.length
+          ? r.issues
+          : [
+              r.disposition === "cancelled"
+                ? "來源取消或活動消失，尚未確認"
+                : "來源異動尚未確認",
+            ],
+      })),
+    ],
     calendarSources: sources,
     calendarBatches: [...(workspace.calendarBatches ?? []), batch],
     properties: workspace.properties.map((p) =>
@@ -748,6 +771,8 @@ export async function commitCalendar(
       { at, actor: accountId, action: "calendar.imported", targetId: batch.id },
     ].slice(-1000),
   };
+  if ((next.reviewRecords?.length ?? 0) > 5000)
+    throw new Error("LIMIT_REACHED");
   if (workspace.onboarding && workspace.properties[0]?.id === propertyId)
     next.onboarding = {
       ...workspace.onboarding,

@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-05 order finder: [implementation and verification](ORDER_FINDER_2026-10-05.md) adds protected order search, monthly occupancy, complete details, receipt accounts, editable notes/shared tags, persistent source issues and workbook v3. Code is ready for review in draft PR #26; browser acceptance and production promotion remain outstanding.
+
 2026-10-04 owner pilot release: [primary-domain promotion, persistent settings, delivered email/save/undo and two automatic cron deliveries](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md#primary-domain-owner-pilot). Ready for the authorized owner to import their own data at `https://sweetfun-os.vercel.app/join`. Google remains in Testing; real-phone and broader multi-account acceptance remain pending. This supersedes the earlier no-promotion/sync-off state below.
 
 2026-10-04 Google acceptance preparation: [verified missing settings, fixed callback/email origin, offline checker and live test procedure](CALENDAR_GOOGLE_SETUP_2026-10-04.md). The setup-stage missing-settings report is historical; the live report records subsequent configuration and the later owner-authorized production pilot.

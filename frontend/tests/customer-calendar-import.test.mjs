@@ -240,6 +240,9 @@ test("updated occupancy preserves accepted terms/payments, cancellation requires
   ];
   b.total = 9000;
   b.notes = "Keep accepted notes";
+  b.platform = "LINE";
+  b.bookedAt = "2026-09-25";
+  b.tagIds = ["pet"];
   b.version++;
   w.version++;
   await f.put(w);
@@ -269,6 +272,9 @@ test("updated occupancy preserves accepted terms/payments, cancellation requires
   assert.equal(b.checkIn, "2026-10-13");
   assert.equal(b.total, 9000);
   assert.equal(b.notes, "Keep accepted notes");
+  assert.equal(b.platform, "LINE");
+  assert.equal(b.bookedAt, "2026-09-25");
+  assert.deepEqual(b.tagIds, ["pet"]);
   assert.equal(financeSummary(b).received, 3000);
   const empty = await upload(f, ics([])),
     cancel = await previewCalendar(

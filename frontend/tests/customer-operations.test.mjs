@@ -786,7 +786,11 @@ test("concurrent receipt writes have one winner and housekeepers cannot refund o
       receivedAt,
     }),
   );
-  assert.equal(financeSummary((await f.current()).bookings[0]).received, 150);
+  assert.equal(financeSummary((await f.current()).bookings[0]).received, 100);
+  assert.equal(
+    financeSummary((await f.current()).bookings[0]).extraReceived,
+    50,
+  );
 });
 test("Sheet paid-to-platform totals remain unknown cash until opening receipts are confirmed; edited imports cannot be undone", async () => {
   const f = await fixture();

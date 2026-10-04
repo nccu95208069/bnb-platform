@@ -1,4 +1,4 @@
-export const STANDARD_SHEET_VERSION = 2;
+export const STANDARD_SHEET_VERSION = 3;
 export const STANDARD_SHEET_MARKER = "bnb-standard-workbook";
 export type StandardColumn = {
   key: string;
@@ -40,6 +40,11 @@ export const STANDARD_SHEET_TABS = [
       col("cashRemaining", "已確認實收後尾款", "money", 180),
       col("currency", "幣別", undefined, 80),
       col("version", "資料版本", "number", 105),
+      col("platform", "預訂平台", undefined, 130),
+      col("bookedAt", "訂房日期", "date", 120),
+      col("notes", "訂單備註", undefined, 300),
+      col("tags", "快速標籤", undefined, 220),
+      col("extraReceived", "其他費用淨收款", "money", 160),
     ],
   },
   {
@@ -72,6 +77,9 @@ export const STANDARD_SHEET_TABS = [
       col("method", "方式", undefined, 135),
       col("note", "說明", undefined, 300),
       col("currency", "幣別", undefined, 80),
+      col("allocation", "款項用途", undefined, 120),
+      col("receiptAccount", "旅宿收款帳戶", undefined, 180),
+      col("receiptAccountLast4", "收款帳號末四碼", undefined, 150),
     ],
   },
   {
@@ -138,9 +146,23 @@ export const STANDARD_SHEET_TABS = [
     ],
   },
 ] as const;
+export const LEGACY_COLUMN_COUNTS: Partial<Record<string, number>> = {
+  orders: 18,
+  payments: 10,
+};
 export type StandardTabKey = (typeof STANDARD_SHEET_TABS)[number]["key"];
 
 export const STANDARD_SHEET_RULES: (string | number)[][] = [
+  [
+    "R23",
+    "訂單查詢",
+    "訂房日期保留實際來源日期；缺值不以建檔時間代替。平台、備註與標籤由同一訂單保存。",
+  ],
+  [
+    "R24",
+    "其他費用",
+    "新登記的其他收款單獨列示，不扣抵房費。舊款項保留既有用途；帳戶只顯示名稱與末四碼。",
+  ],
   [
     "R01",
     "來源",

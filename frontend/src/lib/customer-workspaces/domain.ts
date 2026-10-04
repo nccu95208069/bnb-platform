@@ -52,6 +52,8 @@ export function propertyReadiness(workspace: Workspace, property: Property) {
       (!progress ||
         (Boolean(progress.readyAt) && progress.unresolvedCount === 0)),
     unresolvedCount: progress?.unresolvedCount ?? 0,
+    sourceUpdatedAt:
+      connected.map((b) => b.lastSuccessfulAt).sort()[0] || progress?.readyAt,
     ...(property.setup?.coverageFrom
       ? { coverageFrom: property.setup.coverageFrom }
       : {}),
@@ -87,10 +89,10 @@ export function financeSummary(
       ? (booking.importedFinance?.propertyReceived ?? null)
       : 0);
   const receipts = booking.payments
-    .filter((p) => p.kind !== "refund")
+    .filter((p) => p.kind !== "refund" && p.allocation !== "extra")
     .reduce((sum, p) => sum + cents(p.amount), 0);
   const refunds = booking.payments
-    .filter((p) => p.kind === "refund")
+    .filter((p) => p.kind === "refund" && p.allocation !== "extra")
     .reduce((sum, p) => sum + cents(p.amount), 0);
   const deposit = booking.payments
     .filter((p) => p.kind === "deposit")
@@ -102,6 +104,13 @@ export function financeSummary(
       ? null
       : cents(booking.total) - received;
   return {
+    extraReceived:
+      booking.payments
+        .filter((p) => p.allocation === "extra")
+        .reduce(
+          (sum, p) => sum + (p.kind === "refund" ? -1 : 1) * cents(p.amount),
+          0,
+        ) / 100,
     openingReceived: opening,
     recordedReceived: receipts / 100,
     refunds: refunds / 100,

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type {
   StaySegment,
   WorkspaceView,
@@ -8,14 +9,22 @@ import { Modal } from "./modal";
 import { api, button, field, plusDays, secondary, today } from "./client";
 import { staysOf } from "@/lib/customer-workspaces/domain";
 import { WorkspaceNav } from "./workspace-nav";
-import { OrderFinance } from "./order-finance";
+import { OrderDetail } from "./order-detail";
+import { MonthCalendar } from "./month-calendar";
 export function CustomerCalendar({
   initial,
   initialPropertyId,
+  initialMonth,
+  initialDay,
+  initialRoom,
 }: {
   initial: WorkspaceView;
   initialPropertyId?: string;
+  initialMonth?: string;
+  initialDay?: string;
+  initialRoom?: string;
 }) {
+  const router = useRouter();
   const [data, setData] = useState(initial),
     [start, setStart] = useState(today()),
     [propertyId, setPropertyId] = useState(
@@ -32,7 +41,6 @@ export function CustomerCalendar({
   const [checkIn, setCheckIn] = useState(start),
     [nights, setNights] = useState(1),
     [roomIds, setRoomIds] = useState<string[]>([]);
-  const [paymentLocked, setPaymentLocked] = useState(false);
   const [extraStays, setExtraStays] = useState<StaySegment[]>([]),
     [expectedDeposit, setExpectedDeposit] = useState(""),
     [allowOverpayment, setAllowOverpayment] = useState(false);
@@ -43,7 +51,9 @@ export function CustomerCalendar({
     [method, setMethod] = useState(""),
     [receivedAt, setReceivedAt] = useState(""),
     [contact, setContact] = useState(""),
-    [notes, setNotes] = useState("");
+    [notes, setNotes] = useState(""),
+    [platform, setPlatform] = useState(""),
+    [bookedAt, setBookedAt] = useState("");
   const [busy, setBusy] = useState(false),
     [uncertain, setUncertain] = useState(false);
   const pending = useRef<Record<string, unknown> | null>(null);
@@ -69,7 +79,7 @@ export function CustomerCalendar({
       date < data.readiness[propertyId].coverageTo!);
   const isConnected = Boolean(data.readiness?.[propertyId]?.connected);
   useEffect(() => {
-    if (!isConnected || creating || paymentLocked) return;
+    if (!isConnected || creating || selected) return;
     let alive = true;
     const timer = window.setInterval(() => {
       api<WorkspaceView>(`/api/customer-workspaces/${data.slug}`)
@@ -95,7 +105,7 @@ export function CustomerCalendar({
       alive = false;
       window.clearInterval(timer);
     };
-  }, [isConnected, propertyId, data.slug, creating, paymentLocked]);
+  }, [isConnected, propertyId, data.slug, creating, selected]);
   const picked = data.bookings.find((b) => b.id === selected);
   const occupied = (roomId: string) =>
     [...active, ...blocks].some((b) =>
@@ -126,8 +136,10 @@ export function CustomerCalendar({
     setPaymentKind("none");
     setContact("");
     setNotes("");
+    setPlatform("");
+    setBookedAt("");
     setMethod("");
-    const local = new Date(Date.now() - new Date().getTimezoneOffset() * 60000)
+    const local = new Date(Date.now() + 8 * 60 * 60000)
       .toISOString()
       .slice(0, 16);
     setReceivedAt(local);
@@ -168,6 +180,8 @@ export function CustomerCalendar({
       total: total === "" ? null : Number(total),
       contact,
       notes,
+      platform,
+      bookedAt,
       payment:
         paymentKind === "none"
           ? null
@@ -175,7 +189,7 @@ export function CustomerCalendar({
               kind: paymentKind,
               amount: paid === "" ? null : Number(paid),
               method,
-              receivedAt: new Date(receivedAt).toISOString(),
+              receivedAt: new Date(`${receivedAt}+08:00`).toISOString(),
             },
     };
     try {
@@ -206,6 +220,15 @@ export function CustomerCalendar({
       setBusy(false);
     }
   }
+  if (picked && !creating)
+    return (
+      <OrderDetail
+        key={picked.id}
+        initial={data}
+        bookingId={picked.id}
+        backHref={`/w/${data.slug}/calendar?${new URLSearchParams({ property: propertyId, month: picked.checkIn.slice(0, 7), day: picked.checkIn })}`}
+      />
+    );
   return (
     <main className="min-h-dvh bg-stone-50 p-4 text-slate-800 sm:p-8">
       <div className="mx-auto max-w-6xl">
@@ -233,7 +256,7 @@ export function CustomerCalendar({
               onClick={async () => {
                 try {
                   await api("/api/customer-session", "DELETE", {});
-                  location.assign("/start");
+                  router.replace("/start");
                 } catch (e) {
                   setError((e as Error).message);
                 }
@@ -317,188 +340,207 @@ export function CustomerCalendar({
             </select>
           </label>
         )}
-        <div className="my-6 flex flex-wrap items-center gap-2">
-          <button
-            aria-label="上一週"
-            className={secondary}
-            onClick={() => setStart(plusDays(start, -7))}
-          >
-            ←
-          </button>
-          <input
-            aria-label="日曆起始日期"
-            className="rounded-xl border p-2"
-            type="date"
-            value={start}
-            min="2000-01-01"
-            max="2100-12-24"
-            onChange={(e) => e.target.value && setStart(e.target.value)}
-          />
-          <button
-            aria-label="下一週"
-            className={secondary}
-            onClick={() => setStart(plusDays(start, 7))}
-          >
-            →
-          </button>
-          <button className={secondary} onClick={() => setStart(today())}>
-            今天
-          </button>
-          <button className={secondary} onClick={refresh}>
-            重新載入
-          </button>
-        </div>
-        <div className="overflow-x-auto rounded-2xl border bg-white">
-          <div className="min-w-[720px]">
-            <div className="grid grid-cols-[100px_repeat(7,minmax(0,1fr))] border-b bg-stone-100">
-              <span className="p-3 text-sm">房間</span>
-              {days.map((day) => (
-                <button
-                  disabled={!canWrite || !dayKnown(day)}
-                  key={day}
-                  className="border-l p-3 text-sm hover:bg-teal-50"
-                  onClick={() => open(day)}
+        <MonthCalendar
+          loadWindow
+          key={propertyId}
+          data={data}
+          propertyId={propertyId}
+          initialMonth={initialMonth}
+          initialDay={initialDay}
+          initialRoom={initialRoom}
+        />
+        <details className="my-5">
+          <summary className="cursor-pointer text-sm text-teal-800">
+            週房況與快速新增訂房
+          </summary>
+          <div className="my-6 flex flex-wrap items-center gap-2">
+            <button
+              aria-label="上一週"
+              className={secondary}
+              onClick={() => setStart(plusDays(start, -7))}
+            >
+              ←
+            </button>
+            <input
+              aria-label="日曆起始日期"
+              className="rounded-xl border p-2"
+              type="date"
+              value={start}
+              min="2000-01-01"
+              max="2100-12-24"
+              onChange={(e) => e.target.value && setStart(e.target.value)}
+            />
+            <button
+              aria-label="下一週"
+              className={secondary}
+              onClick={() => setStart(plusDays(start, 7))}
+            >
+              →
+            </button>
+            <button className={secondary} onClick={() => setStart(today())}>
+              今天
+            </button>
+            <button className={secondary} onClick={refresh}>
+              重新載入
+            </button>
+          </div>
+          <div className="overflow-x-auto rounded-2xl border bg-white">
+            <div className="min-w-[720px]">
+              <div className="grid grid-cols-[100px_repeat(7,minmax(0,1fr))] border-b bg-stone-100">
+                <span className="p-3 text-sm">房間</span>
+                {days.map((day) => (
+                  <button
+                    disabled={!canWrite || !dayKnown(day)}
+                    key={day}
+                    className="border-l p-3 text-sm hover:bg-teal-50"
+                    onClick={() => open(day)}
+                  >
+                    {day.slice(5)}
+                    <span className="mt-1 block text-xs text-teal-800">
+                      {!dayKnown(day) ? "待核對" : canWrite ? "＋訂房" : ""}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              {property?.rooms.map((room) => (
+                <div
+                  key={room.id}
+                  className="grid grid-cols-[100px_minmax(0,1fr)] border-b last:border-0"
                 >
-                  {day.slice(5)}
-                  <span className="mt-1 block text-xs text-teal-800">
-                    {!dayKnown(day) ? "待核對" : canWrite ? "＋訂房" : ""}
-                  </span>
-                </button>
-              ))}
-            </div>
-            {property?.rooms.map((room) => (
-              <div
-                key={room.id}
-                className="grid grid-cols-[100px_minmax(0,1fr)] border-b last:border-0"
-              >
-                <div className="p-4 text-sm font-medium">{room.name}</div>
-                <div className="relative grid min-h-20 grid-cols-7">
-                  {days.map((day) => (
-                    <button
-                      key={day}
-                      disabled={
-                        !canWrite ||
-                        !dayKnown(day) ||
-                        blocks.some((b) =>
-                          staysOf(b).some(
-                            (s) =>
-                              s.roomIds.includes(room.id) &&
-                              s.checkIn <= day &&
-                              day < s.checkOut,
+                  <div className="p-4 text-sm font-medium">{room.name}</div>
+                  <div className="relative grid min-h-20 grid-cols-7">
+                    {days.map((day) => (
+                      <button
+                        key={day}
+                        disabled={
+                          !canWrite ||
+                          !dayKnown(day) ||
+                          blocks.some((b) =>
+                            staysOf(b).some(
+                              (s) =>
+                                s.roomIds.includes(room.id) &&
+                                s.checkIn <= day &&
+                                day < s.checkOut,
+                            ),
+                          )
+                        }
+                        aria-label={`${room.name} ${day} ${dayKnown(day) ? "新增訂房" : "房況待核對"}`}
+                        onClick={() => open(day, room.id)}
+                        className={`col-span-1 row-start-1 border-l ${dayKnown(day) ? "hover:bg-teal-50" : "bg-slate-100"}`}
+                      />
+                    ))}
+                    {blocks
+                      .flatMap((block) =>
+                        staysOf(block).map((stay, index) => ({
+                          ...block,
+                          ...stay,
+                          segmentKey: `${block.id}:${index}`,
+                        })),
+                      )
+                      .filter(
+                        (b) =>
+                          b.roomIds.includes(room.id) &&
+                          b.checkIn < plusDays(start, 7) &&
+                          start < b.checkOut,
+                      )
+                      .map((b) => {
+                        const first = Math.max(
+                            0,
+                            Math.round(
+                              (Date.parse(b.checkIn) - Date.parse(start)) /
+                                86400000,
+                            ),
                           ),
-                        )
-                      }
-                      aria-label={`${room.name} ${day} ${dayKnown(day) ? "新增訂房" : "房況待核對"}`}
-                      onClick={() => open(day, room.id)}
-                      className={`col-span-1 row-start-1 border-l ${dayKnown(day) ? "hover:bg-teal-50" : "bg-slate-100"}`}
-                    />
-                  ))}
-                  {blocks
-                    .flatMap((block) =>
-                      staysOf(block).map((stay, index) => ({
-                        ...block,
-                        ...stay,
-                        segmentKey: `${block.id}:${index}`,
-                      })),
-                    )
-                    .filter(
-                      (b) =>
-                        b.roomIds.includes(room.id) &&
-                        b.checkIn < plusDays(start, 7) &&
-                        start < b.checkOut,
-                    )
-                    .map((b) => {
-                      const first = Math.max(
+                          end = Math.min(
+                            7,
+                            Math.round(
+                              (Date.parse(b.checkOut) - Date.parse(start)) /
+                                86400000,
+                            ),
+                          );
+                        return (
+                          <div
+                            key={b.segmentKey}
+                            style={{
+                              gridColumn: `${first + 1} / ${end + 1}`,
+                              gridRow: 1,
+                            }}
+                            className="z-10 m-1 self-center overflow-hidden rounded-lg bg-slate-200 p-2 text-sm text-slate-800"
+                          >
+                            <span className="block truncate font-medium">
+                              封房 · {b.reason}
+                            </span>
+                            <span className="block truncate text-xs">
+                              {b.checkIn.slice(5)} → {b.checkOut.slice(5)}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    {active
+                      .flatMap((order) =>
+                        staysOf(order).map((stay, index) => ({
+                          ...order,
+                          ...stay,
+                          segmentKey: `${order.id}:${index}`,
+                        })),
+                      )
+                      .filter(
+                        (b) =>
+                          b.roomIds.includes(room.id) &&
+                          b.checkIn < plusDays(start, 7) &&
+                          start < b.checkOut,
+                      )
+                      .map((b) => {
+                        const first = Math.max(
                           0,
                           Math.round(
                             (Date.parse(b.checkIn) - Date.parse(start)) /
                               86400000,
                           ),
-                        ),
-                        end = Math.min(
+                        );
+                        const end = Math.min(
                           7,
                           Math.round(
                             (Date.parse(b.checkOut) - Date.parse(start)) /
                               86400000,
                           ),
                         );
-                      return (
-                        <div
-                          key={b.segmentKey}
-                          style={{
-                            gridColumn: `${first + 1} / ${end + 1}`,
-                            gridRow: 1,
-                          }}
-                          className="z-10 m-1 self-center overflow-hidden rounded-lg bg-slate-200 p-2 text-sm text-slate-800"
-                        >
-                          <span className="block truncate font-medium">
-                            封房 · {b.reason}
-                          </span>
-                          <span className="block truncate text-xs">
-                            {b.checkIn.slice(5)} → {b.checkOut.slice(5)}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  {active
-                    .flatMap((order) =>
-                      staysOf(order).map((stay, index) => ({
-                        ...order,
-                        ...stay,
-                        segmentKey: `${order.id}:${index}`,
-                      })),
-                    )
-                    .filter(
-                      (b) =>
-                        b.roomIds.includes(room.id) &&
-                        b.checkIn < plusDays(start, 7) &&
-                        start < b.checkOut,
-                    )
-                    .map((b) => {
-                      const first = Math.max(
-                        0,
-                        Math.round(
-                          (Date.parse(b.checkIn) - Date.parse(start)) /
-                            86400000,
-                        ),
-                      );
-                      const end = Math.min(
-                        7,
-                        Math.round(
-                          (Date.parse(b.checkOut) - Date.parse(start)) /
-                            86400000,
-                        ),
-                      );
-                      return (
-                        <button
-                          key={b.segmentKey}
-                          onClick={() => setSelected(b.id)}
-                          style={{
-                            gridColumn: `${first + 1} / ${end + 1}`,
-                            gridRow: 1,
-                          }}
-                          className={`z-10 m-1 self-center overflow-hidden rounded-lg p-2 text-left text-sm ${highlight === b.id ? "bg-teal-800 text-white ring-2 ring-teal-400" : "bg-teal-100 text-teal-950"}`}
-                        >
-                          <span className="block truncate font-medium">
-                            {b.guestName || "未填姓名"}
-                          </span>
-                          <span className="block truncate text-xs">
-                            {b.checkIn.slice(5)} → {b.checkOut.slice(5)}
-                            {b.roomIds.length > 1
-                              ? ` · ${b.roomIds.length} 房`
-                              : ""}
-                          </span>
-                        </button>
-                      );
-                    })}
+                        return (
+                          <button
+                            key={b.segmentKey}
+                            onClick={() => {
+                              const back = `/w/${data.slug}/calendar?${new URLSearchParams({ property: propertyId, month: start.slice(0, 7), day: start })}`;
+                              router.push(
+                                `/w/${data.slug}/orders/${encodeURIComponent(b.id)}?${new URLSearchParams({ back, date: start, room: room.id })}`,
+                              );
+                            }}
+                            style={{
+                              gridColumn: `${first + 1} / ${end + 1}`,
+                              gridRow: 1,
+                            }}
+                            className={`z-10 m-1 self-center overflow-hidden rounded-lg p-2 text-left text-sm ${highlight === b.id ? "bg-teal-800 text-white ring-2 ring-teal-400" : "bg-teal-100 text-teal-950"}`}
+                          >
+                            <span className="block truncate font-medium">
+                              {b.guestName || "未填姓名"}
+                            </span>
+                            <span className="block truncate text-xs">
+                              {b.checkIn.slice(5)} → {b.checkOut.slice(5)}
+                              {b.roomIds.length > 1
+                                ? ` · ${b.roomIds.length} 房`
+                                : ""}
+                            </span>
+                          </button>
+                        );
+                      })}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
-        <p className="mt-3 text-sm text-slate-500">
-          每格代表當晚住宿，退房當日可接下一筆訂房。手機可左右滑動查看。
-        </p>
+          <p className="mt-3 text-sm text-slate-500">
+            每格代表當晚住宿，退房當日可接下一筆訂房。手機可左右滑動查看。
+          </p>
+        </details>
         {!active.length && !blocks.length && (
           <p className="my-10 text-center text-slate-500">
             {canWrite
@@ -519,65 +561,6 @@ export function CustomerCalendar({
           <p role="status" className="mt-5 rounded-xl bg-amber-50 p-4">
             {error}
           </p>
-        )}
-        {picked && !creating && (
-          <Modal
-            label="訂房詳情"
-            locked={paymentLocked}
-            onClose={() => {
-              if (!paymentLocked) setSelected("");
-            }}
-          >
-            <div className="max-h-[90dvh] w-full max-w-lg overflow-auto rounded-2xl bg-white p-6">
-              <div className="flex justify-between">
-                <h2 className="text-xl font-semibold">
-                  {picked.guestName || "未填姓名"}
-                </h2>
-                <button
-                  className={secondary}
-                  disabled={paymentLocked}
-                  onClick={() => setSelected("")}
-                >
-                  關閉
-                </button>
-              </div>
-              <div className="mt-5 space-y-3">
-                {staysOf(picked).map((stay, index) => (
-                  <p key={index} className="rounded-xl bg-stone-50 p-3 text-sm">
-                    住宿項目 {index + 1}：{stay.checkIn} → {stay.checkOut}
-                    <span className="mt-1 block">
-                      {data.properties
-                        .find((p) => p.id === picked.propertyId)
-                        ?.rooms.filter((r) => stay.roomIds.includes(r.id))
-                        .map((r) => r.name)
-                        .join("、")}
-                    </span>
-                  </p>
-                ))}
-              </div>
-              {data.role !== "viewer_no_price" && (
-                <>
-                  <OrderFinance
-                    key={picked.id}
-                    data={data}
-                    booking={picked}
-                    onSaved={setData}
-                    onPendingChange={setPaymentLocked}
-                  />
-                  {picked.notes && (
-                    <p className="mt-4 whitespace-pre-wrap">{picked.notes}</p>
-                  )}
-                  {picked.contact && (
-                    <p className="mt-2">聯絡方式：{picked.contact}</p>
-                  )}
-                </>
-              )}
-              <p className="mt-4 text-sm text-slate-500">通知客人：尚未通知</p>
-              <p className="mt-2 break-all text-xs text-slate-400">
-                訂單 {picked.id}
-              </p>
-            </div>
-          </Modal>
         )}
         {creating && property && (
           <Modal
@@ -901,7 +884,7 @@ export function CustomerCalendar({
                           />
                         </label>
                         <label className="block">
-                          收款時間
+                          收款時間（臺北）
                           <input
                             className={field}
                             required
@@ -940,6 +923,26 @@ export function CustomerCalendar({
                   <summary className="cursor-pointer font-medium">
                     ＋聯絡方式／備註
                   </summary>
+                  <label className="mt-4 block">
+                    預訂平台
+                    <input
+                      className={field}
+                      value={platform}
+                      maxLength={80}
+                      onChange={(e) => setPlatform(e.target.value)}
+                    />
+                  </label>
+                  <label className="mt-4 block">
+                    實際訂房日期（可留空）
+                    <input
+                      type="date"
+                      className={field}
+                      value={bookedAt}
+                      min="2000-01-01"
+                      max="2100-12-31"
+                      onChange={(e) => setBookedAt(e.target.value)}
+                    />
+                  </label>
                   <label className="mt-4 block">
                     聯絡方式
                     <input

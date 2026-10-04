@@ -1,3 +1,9 @@
+import { orderMutation } from "@/lib/customer-workspaces/order-mutations";
+import {
+  calendarWindow,
+  queryOrders,
+} from "@/lib/customer-workspaces/order-query";
+import { loadWorkspace, view } from "@/lib/customer-workspaces/service";
 import { NextRequest, NextResponse } from "next/server";
 import { scheduleStandardSheetForSlug } from "@/lib/customer-workspaces/standard-sheet-jobs";
 import {
@@ -32,6 +38,20 @@ export async function GET(request: NextRequest, context: Context) {
     const account = await principal(request),
       { slug } = await context.params;
     const query = Object.fromEntries(request.nextUrl.searchParams);
+    if (query.view === "calendar") {
+      const loaded = await loadWorkspace(store, account.id, slug);
+      return NextResponse.json(
+        calendarWindow(view(loaded.workspace, loaded.member), query),
+        { headers },
+      );
+    }
+    if (query.view === "orders") {
+      const loaded = await loadWorkspace(store, account.id, slug);
+      return NextResponse.json(
+        queryOrders(view(loaded.workspace, loaded.member), query),
+        { headers },
+      );
+    }
     if (query.view === "members")
       return NextResponse.json(await memberSettings(store, account.id, slug), {
         headers,
@@ -57,6 +77,12 @@ export async function POST(request: NextRequest, context: Context) {
     const args = [store, account.id, slug, input] as const;
     let result: unknown;
     switch (input.action) {
+      case "order-details":
+      case "order-tags":
+      case "tag":
+      case "receipt-account":
+        result = await orderMutation(...args);
+        break;
       case "property":
         result = await addProperty(...args);
         break;

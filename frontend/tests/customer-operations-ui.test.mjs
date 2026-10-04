@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { JSDOM } from "jsdom";
 import { act, createElement } from "react";
+import { mount } from "./helpers/customer-dom.mjs";
 import { CustomerSettings } from "../src/components/customer-workspaces/settings.tsx";
 import { CustomerCalendar } from "../src/components/customer-workspaces/calendar.tsx";
 import { CustomerAvailability } from "../src/components/customer-workspaces/availability.tsx";
@@ -47,78 +47,7 @@ const order = {
   createdAt: "2026-10-01T12:00:00Z",
   entry: "os",
 };
-async function mount(t, component, props = {}, hash = "") {
-  const dom = new JSDOM('<div id="root"></div>', {
-    url: "https://operations.test/" + hash,
-  });
-  const original = {};
-  for (const key of [
-    "window",
-    "document",
-    "location",
-    "history",
-    "FormData",
-    "IS_REACT_ACT_ENVIRONMENT",
-  ])
-    original[key] = globalThis[key];
-  Object.assign(globalThis, {
-    window: dom.window,
-    document: dom.window.document,
-    location: dom.window.location,
-    history: dom.window.history,
-    FormData: dom.window.FormData,
-    IS_REACT_ACT_ENVIRONMENT: true,
-  });
-  dom.window.HTMLDialogElement.prototype.showModal = function () {
-    this.open = true;
-  };
-  dom.window.HTMLDialogElement.prototype.close = function () {
-    this.open = false;
-  };
-  const { createRoot } = await import("react-dom/client");
-  const root = createRoot(document.getElementById("root"));
-  t.after(async () => {
-    await act(() => root.unmount());
-    Object.assign(globalThis, original);
-    dom.window.close();
-  });
-  await act(() => root.render(createElement(component, props)));
-  const button = (label) =>
-    [...document.querySelectorAll("button")].find(
-      (b) => b.textContent.trim() === label,
-    );
-  const control = (label, parent = document) =>
-    [...parent.querySelectorAll("label")]
-      .find(
-        (l) =>
-          [...l.childNodes]
-            .filter((n) => n.nodeType === 3)
-            .map((n) => n.textContent)
-            .join("")
-            .trim() === label,
-      )
-      ?.querySelector("input,textarea,select");
-  const click = async (el) => {
-    assert.ok(el, "control exists");
-    assert.equal(el.disabled, false);
-    await act(() => el.click());
-  };
-  const fill = async (el, value) => {
-    assert.ok(el, "field exists");
-    await act(() => {
-      const proto =
-        el.tagName === "SELECT"
-          ? dom.window.HTMLSelectElement.prototype
-          : el.tagName === "TEXTAREA"
-            ? dom.window.HTMLTextAreaElement.prototype
-            : dom.window.HTMLInputElement.prototype;
-      Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
-      el.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
-      el.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
-    });
-  };
-  return { dom, root, button, control, click, fill };
-}
+
 test("owner creates a second property and invites a cleaner only to selected properties; admin has no member controls", async (t) => {
   const calls = [];
   t.mock.method(globalThis, "fetch", async (url, options = {}) => {
@@ -264,8 +193,9 @@ test("lost payment response locks fields and retries the identical request witho
     booking: order,
     onSaved: (value) => saved.push(value),
   });
+  await click(button("＋已收款"));
   await fill(control("本次實收金額"), "3000");
-  await fill(control("實際收退款時間"), "2026-01-01T10:00");
+  await fill(control("實際收退款時間（臺北）"), "2026-01-01T10:00");
   await click(button("保存並核對"));
   assert.equal(control("本次實收金額").closest("fieldset").disabled, true);
   assert.equal(saved.length, 0);

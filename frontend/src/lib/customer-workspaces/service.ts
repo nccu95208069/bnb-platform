@@ -179,11 +179,11 @@ export function view(workspace: Workspace, member: Membership): WorkspaceView {
     (p) => member.allProperties || member.propertyIds.includes(p.id),
   );
   const properties = allowedProperties.map((p) => {
-    const { setup: _setup, pricing, ...property } = p;
+    const { setup: _setup, pricing, receiptAccounts, ...property } = p;
     void _setup;
     return member.role === "viewer_no_price"
       ? property
-      : { ...property, pricing };
+      : { ...property, pricing, receiptAccounts };
   });
   const bookings = workspace.bookings
     .filter((b) => properties.some((p) => p.id === b.propertyId))
@@ -231,6 +231,17 @@ export function view(workspace: Workspace, member: Membership): WorkspaceView {
       : {}),
     properties,
     bookings,
+    reviewRecords: (workspace.reviewRecords ?? [])
+      .filter((r) => properties.some((p) => p.id === r.propertyId))
+      .map((r) =>
+        member.role === "viewer_no_price"
+          ? {
+              ...r,
+              label:
+                r.source === "sheet" ? "來源試算表待核對" : "來源日曆待核對",
+            }
+          : r,
+      ),
     blocks: (workspace.blocks ?? [])
       .filter((b) => properties.some((p) => p.id === b.propertyId))
       .map(({ calendar: _calendar, ...block }) => {
@@ -399,6 +410,16 @@ export async function createBooking(
     guestName: textValue(input.guestName, 100),
     notes: textValue(input.notes, 2000),
     contact: textValue(input.contact, 200),
+    ...(input.platform !== undefined
+      ? { platform: textValue(input.platform, 80) }
+      : {}),
+    ...(input.bookedAt !== undefined
+      ? {
+          bookedAt: input.bookedAt ? dateValue(input.bookedAt) : null,
+          bookedAtSource: "manual" as const,
+          bookedAtTimeZone: "Asia/Taipei" as const,
+        }
+      : {}),
     payment: null as null | Omit<Booking["payments"][number], "id" | "actor">,
   };
   if (input.payment != null) {
@@ -418,6 +439,7 @@ export async function createBooking(
       kind: p.kind as "deposit" | "balance" | "full" | "other",
       receivedAt: receiptTime(p.receivedAt),
       method: textValue(p.method, 100),
+      ...(p.kind === "other" ? { allocation: "extra" as const } : {}),
     };
   }
   if (
@@ -428,6 +450,7 @@ export async function createBooking(
     throw new Error("INVALID_INPUT");
   if (
     data.payment &&
+    data.payment.allocation !== "extra" &&
     data.total !== null &&
     data.payment.amount > data.total &&
     input.allowOverpayment !== true

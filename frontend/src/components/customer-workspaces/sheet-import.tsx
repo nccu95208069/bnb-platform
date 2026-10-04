@@ -20,6 +20,9 @@ const columnLabels = {
   total: "房費（選填）",
   received: "累計已付／訂金（選填）",
   status: "訂單狀態（選填）",
+  platform: "預訂平台（選填）",
+  bookedAt: "實際訂房日期（選填）",
+  notes: "訂單備註／需求（選填）",
 };
 export function SheetImport({
   slug,
