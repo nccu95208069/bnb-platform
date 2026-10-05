@@ -1,3 +1,4 @@
+import { analysisCopy, type ReceptionKind, type StayKind } from "../hospitality-mode.ts";
 import type { Analysis, AnalysisCell, Answers, Fact, Night, Report } from "./types.ts";
 
 const DAY = 86400000;
@@ -9,7 +10,7 @@ export const daysBetween = (from: string, to: string) => Math.round((Date.parse(
 export const validDate = (s: unknown): s is string => typeof s === "string" && /^20\d{2}-\d{2}-\d{2}$/.test(s) &&
   Number.isFinite(Date.parse(s)) && new Date(s).toISOString().slice(0, 10) === s;
 export type Period = { from: string; to: string };
-export type ViewFilter = Period & { channel?: string; room?: string };
+export type ViewFilter = Period & { kind?: StayKind; channel?: string; room?: string };
 export const PRESETS = [
   ["last30", "近 30 天"], ["last7", "近 7 天"], ["thisMonth", "本月至今"],
   ["lastMonth", "上個月"], ["next30", "未來 30 天"], ["all", "全部資料"],
@@ -31,28 +32,31 @@ export function presetPeriod(key: string, report: Report, today = taipeiDate()):
 }
 export function checkedFilter(value: unknown, report: Report): ViewFilter {
   const fallback = presetPeriod("last30", report);
-  if (!value || typeof value !== "object") return fallback;
+  if (!value || typeof value !== "object") value = fallback;
   const input = value as Partial<ViewFilter>;
   if (!validDate(input.from) || !validDate(input.to) || input.from > input.to || daysBetween(input.from, input.to) > 3660)
     throw Error("INVALID_INPUT");
   if (input.channel && !report.channels.some((c) => c.channel === input.channel)) throw Error("INVALID_INPUT");
   if (input.room && !report.rooms.some((r) => r.room === input.room)) throw Error("INVALID_INPUT");
   if (report.analysis && !report.analysis.dimensions && (input.channel || input.room)) throw Error("HEALTH_DIMENSIONS");
-  return { from: input.from, to: input.to, ...(input.channel ? { channel: input.channel } : {}), ...(input.room ? { room: input.room } : {}) };
+  if (input.kind && input.kind !== "villa" && input.kind !== "rooms") throw Error("INVALID_INPUT");
+  const kind = report.receptionKind === "mixed" ? input.kind ?? (report.analysis?.cells.some((c) => c.kind === "villa") ? "villa" : "rooms") : report.receptionKind === "villa" ? "villa" : "rooms";
+  if (report.receptionKind !== "mixed" && input.kind && input.kind !== kind) throw Error("INVALID_INPUT");
+  return { kind, from: input.from, to: input.to, ...(input.channel ? { channel: input.channel } : {}), ...(input.room ? { room: input.room } : {}) };
 }
 
-type Stay = { start: string; end: string; count: number; booked: string | null; room: string; channel: string; ref: string };
-export function buildAnalysis(nights: Night[], stays: Stay[], answers: Answers, excluded: Report["excluded"], asOf = taipeiDate()): Analysis {
+type Stay = { kind?: StayKind; refs?: string[]; start: string; end: string; count: number; booked: string | null; room: string; channel: string; ref: string };
+export function buildAnalysis(nights: Night[], stays: Stay[], answers: Answers, excluded: Report["excluded"], asOf = taipeiDate(), receptionKind: ReceptionKind = "rooms"): Analysis {
   // Keep report data aggregated. Source rows and guest fields are not persisted here.
-  const detailedKeys = new Set(nights.map((n) => JSON.stringify([n.date, n.channel, n.room])));
+  const detailedKeys = new Set(nights.map((n) => JSON.stringify([n.kind, n.date, n.channel, n.room])));
   const dimensions = detailedKeys.size <= 25000;
   const map = new Map<string, AnalysisCell>();
-  const keyFor = (date: string, channel: string, room: string) => JSON.stringify([date, dimensions ? channel : "全部通路", dimensions ? room : "全部房間"]);
+  const keyFor = (date: string, channel: string, room: string, kind?: StayKind) => JSON.stringify([kind, date, dimensions ? channel : "全部通路", dimensions ? room : "全部房間"]);
   for (const n of nights) {
-    const key = keyFor(n.date, n.channel, n.room);
+    const key = keyFor(n.date, n.channel, n.room, n.kind);
     let cell = map.get(key);
     if (!cell) {
-      cell = { date: n.date, channel: dimensions ? n.channel : "全部通路", room: dimensions ? n.room : "全部房間",
+      cell = { kind: n.kind, date: n.date, channel: dimensions ? n.channel : "全部通路", room: dimensions ? n.room : "全部房間",
         nights: 0, amount: 0, knownNights: 0, pricedNights: 0, arrivals: 0, stayNights: 0, leadTotal: 0, leadCount: 0,
         los: [0, 0, 0, 0], lead: [0, 0, 0, 0, 0], refs: [] };
       map.set(key, cell);
@@ -62,10 +66,10 @@ export function buildAnalysis(nights: Night[], stays: Stay[], answers: Answers, 
     if (n.amount !== null && n.amount > 0) cell.pricedNights += n.count;
     cell.refs.push(...n.refs);
   }
-  const booked = new Map<string, { date: string; channel: string; room: string; nights: number; refs: string[] }>();
+  const booked = new Map<string, { kind?: StayKind; date: string; channel: string; room: string; nights: number; refs: string[] }>();
   for (const s of stays) {
     const length = daysBetween(s.start, s.end) - 1;
-    const cell = map.get(keyFor(s.start, s.channel, s.room));
+    const cell = map.get(keyFor(s.start, s.channel, s.room, s.kind));
     if (cell && answers.unit !== "night") {
       cell.arrivals += s.count;
       cell.stayNights += length * s.count;
@@ -78,18 +82,18 @@ export function buildAnalysis(nights: Night[], stays: Stay[], answers: Answers, 
       }
     }
     if (s.booked) {
-      const key = keyFor(s.booked, s.channel, s.room);
-      const entry = booked.get(key) ?? { date: s.booked, channel: dimensions ? s.channel : "全部通路", room: dimensions ? s.room : "全部房間", nights: 0, refs: [] };
+      const key = keyFor(s.booked, s.channel, s.room, s.kind);
+      const entry = booked.get(key) ?? { kind: s.kind, date: s.booked, channel: dimensions ? s.channel : "全部通路", room: dimensions ? s.room : "全部房間", nights: 0, refs: [] };
       entry.nights += length * s.count;
-      entry.refs.push(s.ref);
+      entry.refs.push(...(s.refs ?? [s.ref]));
       booked.set(key, entry);
     }
   }
   return {
-    version: 2, asOf, unit: answers.unit, dimensions,
+    version: 2, receptionKind, asOf, unit: answers.unit, dimensions,
     cells: [...map.values()].sort((a, b) => a.date.localeCompare(b.date)).map((c) => ({ ...c, refs: [...new Set(c.refs)] })),
     bookingDates: [...booked.values()].sort((a, b) => a.date.localeCompare(b.date)).map((b) => ({ ...b, refs: [...new Set(b.refs)] })),
-    quality: { included: stays.length, excluded: excluded.length,
+    quality: { included: stays.reduce((n, s) => n + (s.refs?.length ?? 1), 0), excluded: excluded.length,
       cancelled: excluded.filter((e) => /取消或作廢/.test(e.reason)).length,
       conflicts: excluded.filter((e) => /重疊|重複|改期/.test(e.reason)).length,
       unknownStatus: excluded.filter((e) => /狀態無法確認/.test(e.reason)).length },
@@ -107,8 +111,11 @@ export function totalCells(cells: AnalysisCell[]) {
 export type Totals = ReturnType<typeof totalCells>;
 export type Insight = { id: string; title: string; body: string; action: string; factIds: string[] };
 export function analysisView(report: Report, filter: ViewFilter, today = taipeiDate()) {
+  filter = checkedFilter(filter, report);
+  const kind = filter.kind!;
+  const copy = (text: string) => analysisCopy(text, kind);
   const analysis = report.analysis;
-  const matches = (c: AnalysisCell) => (!filter.channel || c.channel === filter.channel) && (!filter.room || c.room === filter.room);
+  const matches = (c: AnalysisCell) => (c.kind ?? "rooms") === kind && (!filter.channel || c.channel === filter.channel) && (!filter.room || c.room === filter.room);
   const scoped = (analysis?.cells ?? []).filter(matches);
   const cells = scoped.filter((c) => c.date >= filter.from && c.date <= filter.to);
   const countDays = daysBetween(filter.from, filter.to);
@@ -139,19 +146,20 @@ export function analysisView(report: Report, filter: ViewFilter, today = taipeiD
   for (const c of cells) seriesGroups.get(countDays > 62 ? c.date.slice(0, 7) : c.date)?.push(c);
   const series = [...seriesGroups].map(([date, list]) => ({ date, ...totalCells(list), observed: list.length > 0 }));
   const bookingRows = (analysis?.bookingDates ?? []).filter((b) => b.date >= shiftDate(today, -7) && b.date < today &&
-    (!filter.channel || b.channel === filter.channel) && (!filter.room || b.room === filter.room));
+    (b.kind ?? "rooms") === kind && (!filter.channel || b.channel === filter.channel) && (!filter.room || b.room === filter.room));
   const bookingNights = bookingRows.reduce((n, b) => n + b.nights, 0);
   const futureCells = scoped.filter((c) => c.date >= today && c.date <= shiftDate(today, 29));
   const future = totalCells(futureCells);
   const facts: Fact[] = [];
   const evidence = (id: string, label: string, value: number | null, unit: string, basis: string, refs = total.refs) => {
-    if (value !== null) facts.push({ id, label, value, unit, basis, refs });
+    if (value !== null) facts.push({ id, label: copy(label), value, unit: copy(unit), basis: copy(basis), refs });
   };
   const basis = `${filter.from}～${filter.to}，本次匯入的有效住宿紀錄${filter.channel ? `，通路 ${filter.channel}` : ""}${filter.room ? `，房間 ${filter.room}` : ""}；退房日不計`;
   evidence("view-nights", "期間已訂房晚", total.nights, "房晚", basis);
   evidence("view-amount", "期間已知房費", total.amount, "來源幣別", `${basis}；不是實收或淨利，跨晚總價平均分攤`);
   evidence("view-adr", "期間平均房晚價格", total.adr, "來源幣別／房晚", `${basis}；只計正金額房晚，稅費口徑依來源`);
   evidence("view-coverage", "房費資料覆蓋", total.coverage, "%", "已知金額房晚 ÷ 期間房晚（含零元）");
+  if (kind === "villa" && analysis?.unit !== "night") evidence("view-arrivals", "期間入住組數", total.arrivals, "組", `${basis}；按實際入住日計算，每筆包棟住宿一組`);
   evidence("view-los", "平均住幾晚", total.los, "晚／房次", `${basis}；按期間入住的房次加權，整次住宿長度不裁切`);
   evidence("view-lead", "平均提前預訂", total.lead, "天", `${basis}；期間入住且有可信下訂日的房次加權`);
   if (comparison) {
@@ -193,9 +201,18 @@ export function analysisView(report: Report, filter: ViewFilter, today = taipeiD
         action: "檢查最短入住限制是否貼近客人常見住法，再評估連住方案。", factIds: ["view-los"] });
   } else insights.push({ id: "empty", title: "這段期間沒有可見紀錄", body: `本次資料在 ${filter.from}～${filter.to} 沒有符合篩選的有效住宿。`,
     action: `可先切換「全部資料」；原始報告有紀錄的日期為 ${report.from}～${report.to}。`, factIds: ["view-nights"] });
-  return { filter, total, previous, previousPeriod, comparison, change: { nights: delta(total.nights, previous.nights), amount: delta(total.amount, previous.amount), adr: delta(total.adr, previous.adr) },
+  const futureCalendar = kind === "villa" ? Array.from({ length: 30 }, (_, i) => {
+    const date = shiftDate(today, i);
+    const conflict = report.uncertainDates?.includes(date);
+    const records = analysis?.cells.filter((c) => c.date === date) ?? [];
+    const state = conflict ? "review" : records.some((c) => c.kind === "villa") ? "booked" : records.some((c) => (c.kind ?? "rooms") === "rooms") ? "rooms" : "unknown";
+    return { date, state, weekend: [5, 6].includes(new Date(date).getUTCDay()) };
+  }) : [];
+  const singleNightGaps = futureCalendar.filter((d, i, rows) => d.state === "unknown" && i > 0 && i < rows.length - 1 &&
+    ["booked", "rooms"].includes(rows[i - 1].state) && ["booked", "rooms"].includes(rows[i + 1].state)).map((d) => d.date);
+  return { kind, futureCalendar, singleNightGaps, filter, total, previous, previousPeriod, comparison, change: { nights: delta(total.nights, previous.nights), amount: delta(total.amount, previous.amount), adr: delta(total.adr, previous.adr) },
     channels, rooms, weekdays, series, los: distributions("los", 4), lead: distributions("lead", 5),
-    bookingNights, future, facts, insights, futurePeriod: { from: today, to: shiftDate(today, 29) },
+    bookingNights, future, facts, insights: insights.map((i) => ({ ...i, title: copy(i.title), body: copy(i.body), action: copy(i.action) })), futurePeriod: { from: today, to: shiftDate(today, 29) },
     warning: "只比較本次匯入的紀錄，尚未核實期間完整性；未見紀錄不等於沒有訂房。" };
 }
 export type AnalysisView = ReturnType<typeof analysisView>;

@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { receptionChoices, nightLabel, type ReceptionKind } from "@/lib/hospitality-mode";
 import type { Job, Report } from "@/lib/order-health/types";
 import { messageFor } from "@/lib/order-health/messages";
 import type { Recommendation } from "@/lib/order-health/recommend";
@@ -7,6 +8,7 @@ import styles from "./health.module.css";
 import { AnalysisDashboard } from "./analysis-dashboard";
 type ViewJob = Pick<
   Job,
+  | "receptionKind"
   | "id"
   | "state"
   | "version"
@@ -33,6 +35,8 @@ type ViewJob = Pick<
     includedRows: number;
     excluded: number;
     nights: number;
+    villaNights?: number;
+    roomNights?: number;
     money: boolean;
     error?: string;
   } | null;
@@ -43,6 +47,7 @@ type State = {
   readerEmail: string | null;
   configured: boolean;
   canWrite: boolean;
+  receptionKind: ReceptionKind | null;
 };
 const num = (n: number | null) =>
   n === null ? "—" : n.toLocaleString("zh-TW", { maximumFractionDigits: 2 });
@@ -76,6 +81,7 @@ export function HealthPage({
     [index, setIndex] = useState<number | null>(null),
     [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [modeEditing, setModeEditing] = useState(false);
   const [suggestion, setSuggestion] = useState<{
     key: string;
     state: "pending" | "done" | "unavailable";
@@ -128,7 +134,8 @@ export function HealthPage({
         }),
         data = await response.json();
       if (!response.ok) throw Error(data.error);
-      if (data.job) {
+      if ("receptionKind" in data) { setState(data); setUpload(false); }
+      else if (data.job) {
         setState((s) => (s ? { ...s, job: data.job } : s));
         setUpload(false);
       } else await refresh();
@@ -169,7 +176,8 @@ export function HealthPage({
     requestId.current = "";
   }
   const report = job?.state === "complete" ? job.report : state?.latest;
-  const showInput = upload || (!job && !report);
+  const needsReception = Boolean(state && (!state.receptionKind || modeEditing || (job && job.receptionKind !== state.receptionKind)));
+  const showInput = !needsReception && (upload || (!job && !report));
   useEffect(() => {
     if (!showInput || mode !== "sheet" || busy || !state?.configured || !state.canWrite ||
       !state.readerEmail || !validSheetLink(url) || attemptedUrl.current === url.trim()) return;
@@ -186,7 +194,7 @@ export function HealthPage({
     q = job?.questions[qIndex];
   const suggestionKey = job && q ? `${job.id}:${job.version}:${q.id}` : "";
   const suggestionJobId = job?.id, suggestionQuestionId = q?.id;
-  const canSuggest = Boolean(!showInput && job && q && state?.canWrite &&
+  const canSuggest = Boolean(!needsReception && !showInput && job && q && state?.canWrite &&
     (job.state === "confirm" || editing) && ["unit", "money", "date", "booked"].includes(q.id));
   useEffect(() => {
     if (!canSuggest || !suggestionJobId || !suggestionQuestionId) return;
@@ -240,6 +248,22 @@ export function HealthPage({
           </button>
         )}
       </header>
+      {state?.receptionKind && !needsReception && <div className={styles.receptionSummary}>
+        <span>接客形式：{receptionChoices.find((c) => c.value === state.receptionKind)?.label}</span>
+        {state.canWrite && <button className={styles.link} disabled={busy} onClick={() => setModeEditing(true)}>修改</button>}
+      </div>}
+      {needsReception && <section className={styles.card}>
+        <p className={styles.eyebrow}>先認識你的民宿</p><h2>你如何接待客人？</h2>
+        <div className={styles.options}>{receptionChoices.map((choice) => <button key={choice.value}
+          disabled={busy || !state?.canWrite} aria-pressed={state?.receptionKind === choice.value}
+          onClick={async () => {
+            const result = await send({ action: "reception", kind: choice.value, expected: state?.receptionKind ?? null, requestId: crypto.randomUUID() });
+            if (result) { setModeEditing(false); setEditing(false); setIndex(null); requestId.current = ""; attemptedUrl.current = ""; }
+          }}><span className={styles.optionCopy}><strong>{choice.label}</strong><span>{choice.detail}</span></span><span aria-hidden="true">→</span></button>)}</div>
+        <p className={styles.small}>這會決定晚數與平均價格的算法。既有資料會再確認記法，舊報告保留原口徑。</p>
+        {modeEditing && state?.receptionKind && <button className={styles.link} onClick={() => setModeEditing(false)}>取消修改</button>}
+        {!state?.canWrite && <p>請旅宿管理者完成設定。</p>}
+      </section>}
       {error && (
         <div role="alert" className={styles.error}>
           {error}
@@ -381,7 +405,7 @@ export function HealthPage({
           </details>
         </section>
       )}
-      {!showInput && job && connecting && (
+      {!needsReception && !showInput && job && connecting && (
         <section className={`${styles.card} ${styles.connectionCard}`} aria-live="polite">
           <div className={styles.connectionHeading}>
             <span className={styles.connectionIcon}>{job.state === "checking_access" ? "↗" : "◎"}</span>
@@ -428,10 +452,10 @@ export function HealthPage({
           <p className={styles.small}>自動檢查會持續 15 分鐘；關閉頁面後，背景仍會每分鐘檢查。</p>
         </section>
       )}
-      {!showInput && job?.connection?.status === "connected" && !["complete", "failed", "blocked"].includes(job.state) && (
+      {!needsReception && !showInput && job?.connection?.status === "connected" && !["complete", "failed", "blocked"].includes(job.state) && (
         <div className={styles.connected} role="status">✓ 已取得讀取權限 · {job.sourceTitle}<span>僅讀取，不修改試算表</span></div>
       )}
-      {!showInput && job && ["reading", "analyzing"].includes(job.state) && (
+      {!needsReception && !showInput && job && ["reading", "analyzing"].includes(job.state) && (
         <section className={styles.card} role="status">
           <div className={styles.spinner} />
           <h2>
@@ -443,7 +467,7 @@ export function HealthPage({
           <p className={styles.small}>可以關閉頁面，稍後回來接續查看。</p>
         </section>
       )}
-      {!showInput && job && (job.state === "confirm" || editing) && q && (
+      {!needsReception && !showInput && job && (job.state === "confirm" || editing) && q && (
         <section className={styles.card}>
           <div className={styles.questionTop}>
             <span>
@@ -456,13 +480,13 @@ export function HealthPage({
             列
           </p>
           <h2>{q.title}</h2>
-          {q.id === "unit" ? (
-            <article className={styles.exampleOrder} aria-label="示意訂單：201 河景雙人房，9 月 1 日入住，9 月 3 日退房，共 2 晚">
+          {q.id === "unit" && job.receptionKind !== "mixed" ? (
+            <article className={styles.exampleOrder} aria-label={job.receptionKind === "villa" ? "示意包棟訂單，9 月 1 日入住，9 月 3 日退房，共 2 晚" : "示意訂單：201 河景雙人房，9 月 1 日入住，9 月 3 日退房，共 2 晚"}>
               <div className={styles.exampleOrderHeader}>
                 <span>示意訂單</span>
-                <span className={styles.exampleOrderStay}>1 間房 · 2 晚</span>
+                <span className={styles.exampleOrderStay}>{job.receptionKind === "villa" ? "1 組客人 · 2 晚" : "1 間房 · 2 晚"}</span>
               </div>
-              <h3>201 河景雙人房</h3>
+              <h3>{job.receptionKind === "villa" ? "整棟包棟" : "201 河景雙人房"}</h3>
               <div className={styles.exampleOrderDates}>
                 <div><span>入住</span><strong>9/1</strong></div>
                 <span className={styles.exampleOrderArrow} aria-hidden="true">→</span>
@@ -563,7 +587,7 @@ export function HealthPage({
           )}
         </section>
       )}
-      {!showInput && job && job.state === "ready" && !editing && (
+      {!needsReception && !showInput && job && job.state === "ready" && !editing && (
         <section className={styles.card}>
           <p className={styles.eyebrow}>已完成 {job.questions.length} 題確認</p>
           <h2>準備好查看分析</h2>
@@ -573,8 +597,9 @@ export function HealthPage({
           ) : (
             job.preview && (
               <div className={styles.notice}>
-                可納入 {job.preview.includedRows} 列、{num(job.preview.nights)}{" "}
-                房晚；排除 {job.preview.excluded} 列。
+                可納入 {job.preview.includedRows} 列；{job.receptionKind === "mixed"
+                  ? `包棟 ${num(job.preview.villaNights ?? 0)} 晚、散客 ${num(job.preview.roomNights ?? 0)} 房晚`
+                  : `${num(job.preview.nights)} ${nightLabel(job.receptionKind)}`}；排除 {job.preview.excluded} 列。
                 <br />
                 {job.preview.money ? "可分析已知房費。" : "暫不分析房費。"}
                 住房率與未來空檔尚未啟用。
@@ -606,7 +631,7 @@ export function HealthPage({
           </div>
         </section>
       )}
-      {!showInput &&
+      {!needsReception && !showInput &&
         job &&
         ["blocked", "failed"].includes(job.state) &&
         !connecting &&
@@ -638,18 +663,16 @@ export function HealthPage({
             </div>
           </section>
         )}
-      {!showInput && report && (
+      {!needsReception && !showInput && report && (!state?.receptionKind || report.receptionKind === state.receptionKind) && (
         <>
           {job && job.state !== "complete" && (
             <p className={styles.notice}>
-              以下保留上次成功報告，更新失敗不會覆蓋。
+              以下保留上次成功報告，仍採用當時接客形式與口徑；完成新分析後才會更新。
             </p>
           )}
           <AnalysisDashboard
             key={report.snapshot}
             report={report}
-            endpoint={endpoint}
-            canWrite={state?.canWrite ?? false}
           />
           {state?.canWrite && job?.state === "complete" && (
             <button
@@ -681,6 +704,10 @@ export function HealthPage({
           )}
         </>
       )}
+      {!needsReception && report && report.receptionKind !== state?.receptionKind && !showInput && !job && <section className={styles.card}>
+        <h2>請重新讀取訂單</h2><p>原始明細已到期，舊報告尚未套用接客形式。重新匯入後會以正確單位計算。</p>
+        <button className={styles.primary} disabled={!state?.canWrite} onClick={() => setUpload(true)}>更新資料</button>
+      </section>}
       {state && !state.canWrite && (
         <p className={styles.small}>
           目前為唯讀權限，更新資料請聯絡工作區管理者。

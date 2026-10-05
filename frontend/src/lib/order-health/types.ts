@@ -1,4 +1,6 @@
+import type { ReceptionKind, StayKind } from "../hospitality-mode.ts";
 export const FIELDS = [
+  "stayKind",
   "checkIn",
   "checkOut",
   "booked",
@@ -28,6 +30,7 @@ export type Scope = {
   actor: string;
   name: string;
   canWrite: boolean;
+  receptionKind?: ReceptionKind;
 };
 export type Question = {
   id: string;
@@ -37,6 +40,7 @@ export type Question = {
 };
 export type Answers = Record<string, string>;
 export type Night = {
+  kind?: StayKind;
   date: string;
   room: string;
   channel: string;
@@ -55,6 +59,7 @@ export type Fact = {
   refs: string[];
 };
 export type AnalysisCell = {
+  kind?: StayKind;
   date: string;
   channel: string;
   room: string;
@@ -70,16 +75,39 @@ export type AnalysisCell = {
   lead: number[];
   refs: string[];
 };
+export type BookingCohort = {
+  kind: StayKind;
+  channel: string;
+  booked: string | null;
+  /** Exclusive checkout; anonymous cohorts, no original order identifiers. */
+  stays: { from: string; to: string }[];
+  nightSpans: { from: string; to: string; count: number }[];
+  orders: number | null;
+  nights: number;
+  amount: number;
+  knownNights: number;
+  pricedNights: number;
+  fullPriceOrders: number;
+  fullPriceAmount: number;
+  fullStayOrders: number;
+  fullStayNights: number;
+  refs: string[];
+};
 export type Analysis = {
+  momentumVersion?: 1;
+  cohorts?: BookingCohort[];
   version: 2;
+  receptionKind?: ReceptionKind;
   asOf: string;
   unit: string;
   dimensions: boolean;
   cells: AnalysisCell[];
-  bookingDates: { date: string; channel: string; room: string; nights: number; refs: string[] }[];
+  bookingDates: { kind?: StayKind; date: string; channel: string; room: string; nights: number; refs: string[] }[];
   quality: { included: number; excluded: number; cancelled: number; conflicts: number; unknownStatus: number };
 };
 export type Report = {
+  receptionKind?: ReceptionKind;
+  uncertainDates?: string[];
   id: string;
   snapshot: string;
   createdAt: string;
@@ -109,6 +137,7 @@ export type Report = {
   analysis?: Analysis;
 };
 export type Job = {
+  receptionKind?: ReceptionKind;
   id: string;
   workspace: string;
   property: string;

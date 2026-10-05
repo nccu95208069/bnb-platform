@@ -18,6 +18,28 @@ export function recommendationEvidence(job: Job, question: Question): Recommenda
   if (!rows.length || job.answers.property === "skip") return [];
   const header = (field: Field) => norm(table.headers[table.mapping[field] ?? -1] ?? "");
   const candidates: Recommendation[] = [];
+  if (question.id === "unit" && job.receptionKind === "villa") {
+    if (rows.length < 3) return [];
+    const dates = rows.map((row) => {
+      const from = dateValue(get(row, "checkIn"), job.answers.date), to = dateValue(get(row, "checkOut"), job.answers.date);
+      const length = from && to ? (Date.parse(to) - Date.parse(from)) / 86400000 : Number(get(row, "nights")) || null;
+      return { from, to, length };
+    });
+    const groups = new Map<string, number[]>();
+    rows.forEach((row, i) => { const id = get(row, "orderId"); if (id) { const group = groups.get(id) ?? []; group.push(i); groups.set(id, group); } });
+    const repeated = [...groups.values()].filter((g) => g.length > 1);
+    const split = repeated.length && repeated.every((g) => g.every((i) => dates[i].from && dates[i].to && dates[i].from === dates[g[0]].from && dates[i].to === dates[g[0]].to && get(rows[i], "room")) &&
+      new Set(g.map((i) => get(rows[i], "room"))).size === g.length);
+    if (split) return [{ value: "split", reason: `有 ${repeated.length} 組共同訂單編號，各組日期一致、房號不同，較像同筆包棟按房間拆列。` }];
+    if (repeated.length) return [];
+    const longer = dates.filter((d) => d.length !== null && d.length > 1 && d.length <= 366).length;
+    if (longer >= 2 && dates.filter((d) => d.from && d.length !== null && d.length > 0 && d.length <= 366).length >= rows.length * .8)
+      return [{ value: "stay", reason: `${longer} 列涵蓋超過一晚，較像一筆包棟整段住宿記一列；請確認沒有按房間拆列。` }];
+    if (header("checkIn") === "住宿日期" && table.mapping.checkOut === undefined && dates.every((d) => d.from && (d.length === null || d.length === 1)))
+      return [{ value: "night", reason: "每列記住宿日期、沒有退房日期，較像包棟每晚分開記錄。" }];
+    return [];
+  }
+  if (question.id === "unit" && job.receptionKind === "mixed") return [];
   if (question.id === "unit" && rows.length >= 3) {
     // Conflicting dates/counts, combined room labels, and whole-villa records
     // should not receive an apparently confident room-based recommendation.
@@ -50,11 +72,12 @@ export function recommendationEvidence(job: Job, question: Question): Recommenda
       candidates.push({ value: "night", reason: "每列以住宿日期記錄，沒有退房日期，較像每晚分開記；請確認每列是一間房。" });
     }
   } else if (question.id === "money") {
+    if (job.receptionKind === "villa" && job.answers.unit === "split") return [];
     const name = header("amount");
     if (["總額", "總金額", "訂單金額", "總房費", "total"].includes(name))
       candidates.push({ value: "total", reason: "金額欄名明確標示為總額，較像這一列的完整房費。" });
     else if (["每晚房費", "rate"].includes(name))
-      candidates.push({ value: "night", reason: "金額欄名標示每晚房費或費率，較像一間房一晚的價格。" });
+      candidates.push({ value: "night", reason: "金額欄名標示每晚房費或費率，較像已確認住宿單位每晚的價格。" });
     else if (["訂金", "平台撥款", "payout"].includes(name))
       candidates.push({ value: "none", reason: "金額欄名標示訂金或平台撥款，通常不是完整房費。" });
   } else if (question.id === "booked" &&

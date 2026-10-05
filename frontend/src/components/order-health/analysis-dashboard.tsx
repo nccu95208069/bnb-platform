@@ -1,207 +1,102 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { Fact, Report } from "@/lib/order-health/types";
-import { analysisView, checkedFilter, formatNumber as num, PRESETS, presetPeriod, taipeiDate, type AnalysisView, type ViewFilter } from "@/lib/order-health/analytics";
+import { useMemo, useState } from "react";
+import { nightLabel, type StayKind } from "@/lib/hospitality-mode";
+import type { Report } from "@/lib/order-health/types";
+import { analysisView, checkedFilter, formatNumber as num, taipeiDate } from "@/lib/order-health/analytics";
+import { momentumView, monthlyView, monthPeriod, pacingView, previousYearMonth, percentChange, type CohortSummary } from "@/lib/order-health/momentum";
+import { InteractiveBarChart, type BarPoint } from "./interactive-bar-chart";
 import styles from "./health.module.css";
 
-type Metric = "nights" | "amount" | "adr";
-const metricLabels: Record<Metric, string> = { nights: "已訂房晚", amount: "已知房費", adr: "平均房晚價格" };
-const changeText = (value: number | null) => value === null ? "未建立可比前期" : `${value > 0 ? "↑" : value < 0 ? "↓" : "→"} ${num(Math.abs(value))}% · 較前期紀錄`;
-function Trend({ points, metric }: { points: AnalysisView["series"]; metric: Metric }) {
-  const maximum = Math.max(1, ...points.map((p) => p[metric] ?? 0));
-  const x = (i: number) => points.length === 1 ? 400 : 42 + i / (points.length - 1) * 706;
-  const y = (v: number) => 184 - v / maximum * 142;
-  let path = "", connected = false;
-  points.forEach((p, i) => {
-    const value = p[metric];
-    if (value === null) { connected = false; return; }
-    path += `${connected ? "L" : "M"}${x(i)},${y(value)} `;
-    connected = true;
-  });
-  const ticks = [...new Set([0, Math.floor((points.length - 1) / 2), points.length - 1])].filter((i) => i >= 0);
-  return <svg className={styles.trendChart} viewBox="0 0 790 224" role="img" aria-label={`${metricLabels[metric]}趨勢，可展開下方數據表查看精確數字`}>
-    {[0, .5, 1].map((fraction) => <g key={fraction}>
-      <line x1="42" x2="748" y1={y(maximum * fraction)} y2={y(maximum * fraction)} stroke="#e4ebe5" strokeDasharray="4 5" />
-      <text x="38" y={y(maximum * fraction) - 7} fill="#839084" fontSize="11">{num(maximum * fraction)}</text>
-    </g>)}
-    <path d={path} fill="none" stroke="#37775d" strokeWidth="2.5" strokeLinejoin="round" />
-    {points.map((p, i) => p[metric] !== null && <circle key={p.date} cx={x(i)} cy={y(p[metric]!)} r="3" fill="#37775d">
-      <title>{p.date} · {metricLabels[metric]} {num(p[metric])}{!p.observed ? "（本次資料未見紀錄）" : ""}</title>
-    </circle>)}
-    {ticks.map((i) => <text key={i} x={x(i)} y="212" textAnchor={i === 0 ? "start" : i === points.length - 1 ? "end" : "middle"} fill="#6b7f70" fontSize="12">{points[i].date}</text>)}
-  </svg>;
-}
-function Distribution({ title, labels, values }: { title: string; labels: string[]; values: number[] }) {
-  const total = values.reduce((sum, n) => sum + n, 0);
-  return <div className={styles.distribution}>
-    <h3>{title}</h3>
-    {labels.map((label, i) => <div className={styles.distributionRow} key={label}>
-      <span>{label}</span><div><i style={{ width: `${total ? values[i] / total * 100 : 0}%` }} /></div>
-      <b>{total ? num(values[i] / total * 100) : "—"}%</b>
-    </div>)}
-  </div>;
-}
-export function AnalysisDashboard({ report: r, endpoint, canWrite }: { report: Report; endpoint: string; canWrite: boolean }) {
-  const [today] = useState(() => taipeiDate());
-  const [filter, setFilter] = useState<ViewFilter>(() => presetPeriod("last30", r, today));
-  const [preset, setPreset] = useState("last30");
-  const [from, setFrom] = useState(filter.from), [to, setTo] = useState(filter.to), [filterError, setFilterError] = useState("");
-  const [metric, setMetric] = useState<Metric>("nights");
-  const v = useMemo(() => analysisView(r, filter, today), [r, filter, today]);
-  const [chatOpen, setChatOpen] = useState(false), [chart, setChart] = useState("overview"),
-    [input, setInput] = useState(""), [busy, setBusy] = useState(false), [chatError, setChatError] = useState("");
-  const [messages, setMessages] = useState<{ question: string; answer: string; facts: Fact[] }[]>([]);
-  const messageEnd = useRef<HTMLDivElement>(null);
-  const chatInput = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    let active = true;
-    fetch(`${endpoint}&chat=${r.id}`, { cache: "no-store" }).then(async (response) => {
-      const data = await response.json();
-      if (active && response.ok) setMessages((current) => current.length ? current : data.history ?? []);
-    }).catch(() => {});
-    return () => { active = false; };
-  }, [endpoint, r.id]);
-  useEffect(() => { if (chatOpen) chatInput.current?.focus(); }, [chatOpen]);
-  useEffect(() => { if (chatOpen) messageEnd.current?.scrollIntoView({ block: "nearest" }); }, [messages.length, chatOpen, busy]);
-  const choosePeriod = (key: string) => {
-    const period = presetPeriod(key, r, today);
-    setPreset(key); setFrom(period.from); setTo(period.to); setFilterError("");
-    setFilter((current) => ({ ...current, ...period }));
-  };
-  async function ask(question = input, focus = chart) {
-    if (!question.trim() || busy) return;
-    setBusy(true); setChatError(""); setChatOpen(true);
-    try {
-      const response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "chat", id: r.id, message: question, chart: focus, filter }) });
-      const data = await response.json();
-      if (!response.ok) throw Error(data.error);
-      if (data.snapshot !== r.snapshot) throw Error("報告已更新，請重新整理。");
-      setMessages((current) => [...current, { question, answer: data.answer, facts: data.facts }]); setInput("");
-    } catch (e) { setChatError(e instanceof Error ? e.message : "暫時無法回答，請稍後重試。"); }
-    finally { setBusy(false); }
-  }
-  const askChart = (focus: string, question: string) => { setChart(focus); void ask(question, focus); };
-  const exportCsv = () => {
-    const rows = [["期間", "已訂房晚", "已知房費", "平均房晚價格", "金額覆蓋率%"],
-      ...v.series.map((p) => [p.date, p.nights, p.amount ?? "", p.adr ?? "", p.coverage ?? ""])];
-    const csv = "\uFEFF" + rows.map((row) => row.map((value) => `"${String(value).replace(/"/g, '""')}"`).join(",")).join("\r\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
-    const link = document.createElement("a"); link.href = url; link.download = `訂房分析-${filter.from}-${filter.to}.csv`; link.click(); URL.revokeObjectURL(url);
-  };
-  const scopeLabel = [filter.channel, filter.room].filter(Boolean).join(" · ");
+type Metric = "orders" | "nights" | "amount" | "adr";
+const changeText = (value: number | null) => value === null ? "尚無可比數字" : `${value > 0 ? "↑" : value < 0 ? "↓" : "→"} ${num(Math.abs(value))}%`;
+const money = (value: number | null) => value === null ? "—" : `NT$ ${num(value)}`;
+const count = (s: Pick<CohortSummary, "orders" | "knownOrders">, ready = true) => !ready ? "—" : s.orders === null ? `至少 ${num(s.knownOrders)} 筆` : `${num(s.orders)} 筆`;
+const detail = (s: { orders: number | null; nights: number; amount: number | null; adr: number | null }, unit: string) => `${s.orders === null ? "訂單筆數未完整識別" : `${num(s.orders)} 筆訂單`} · ${num(s.nights)} ${unit} · 已知房費 ${money(s.amount)} · 每晚均價 ${money(s.adr)}`;
+export function AnalysisDashboard({ report }: { report: Report }) {
+  const [kind, setKind] = useState<StayKind>(() => checkedFilter(null, report).kind!);
   return <>
-    <div className={styles.reportHead}>
-      <div><strong>經營報告</strong><p className={styles.small}>來源：{r.sourceTitle} · 匯入快照 {new Date(r.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}<br />資料有紀錄的範圍：{r.from} — {r.to}；來源更新時間未知。</p></div>
-      <span className={styles.badge}>依你的資料分析</span>
+    {report.receptionKind === "mixed" && <><div className={styles.receptionTabs} aria-label="分開查看接客形式">
+      <button aria-pressed={kind === "villa"} onClick={() => setKind("villa")}>包棟</button>
+      <button aria-pressed={kind === "rooms"} onClick={() => setKind("rooms")}>散客</button>
+    </div><p className={styles.small}>共用同一棟庫存，兩種形式的晚數與均價分開計算。</p></>}
+    <DashboardPanel key={`${report.snapshot}:${kind}`} report={report} kind={kind} />
+  </>;
+}
+function DashboardPanel({ report: r, kind }: { report: Report; kind: StayKind }) {
+  const villa = kind === "villa", unit = nightLabel(kind);
+  const [today] = useState(taipeiDate);
+  const asOf = r.analysis?.asOf ?? today;
+  const ready = Boolean(r.analysis?.cohorts);
+  const [channel, setChannel] = useState("");
+  const [metric, setMetric] = useState<Metric>("orders");
+  const [basis, setBasis] = useState<"stay" | "booked">("stay");
+  const [month, setMonth] = useState(asOf.slice(0, 7));
+  const [selectedChannel, setSelectedChannel] = useState("");
+  const scope = useMemo(() => ({ kind, channel: channel || undefined }), [kind, channel]);
+  const m = useMemo(() => momentumView(r, scope), [r, scope]);
+  const year = Number(month.slice(0, 4));
+  const months = useMemo(() => Array.from({ length: 12 }, (_, i) => monthlyView(r, scope, `${year}-${String(i + 1).padStart(2, "0")}`, basis)), [r, scope, year, basis]);
+  const selected = months[Number(month.slice(5, 7)) - 1];
+  const pace = useMemo(() => pacingView(r, scope, month), [r, scope, month]);
+  const v = useMemo(() => analysisView(r, { ...monthPeriod(month), ...scope }, asOf), [r, scope, month, asOf]);
+  const metricLabels = { orders: "訂單數", nights: unit, amount: "已知房費", adr: "每晚均價" };
+  const dailyMetric = metric === "orders" && !m.countable ? "nights" : metric;
+  const selectedMetric = basis === "stay" && dailyMetric === "orders" ? "nights" : dailyMetric;
+  const points = (rows: { date: string; orders: number | null; nights: number; amount: number | null; adr: number | null }[], key: Metric): BarPoint[] => rows.map((p) => ({ key: p.date, label: p.date.slice(5).replace("-", "/"), value: p[key], detail: detail(p, unit) }));
+  const pickedChannel = m.channels.find((c) => c.channel === selectedChannel);
+  const years = [...new Set([year, Number(asOf.slice(0, 4)) - 1, Number(asOf.slice(0, 4)), Number(asOf.slice(0, 4)) + 1, ...r.monthly.map((x) => Number(x.month.slice(0, 4)))])].sort((a, b) => a - b);
+  return <>
+    <div className={styles.reportHead}><div><strong>{villa ? "包棟經營報告" : "散客經營報告"}</strong><p className={styles.small}>來源：{r.sourceTitle} · 匯入 {new Date(r.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}<br />資料快照截至 {asOf}；來源更新時間未知。</p></div><span className={styles.badge}>依你的訂單分析</span></div>
+    {asOf < today && <p className={styles.notice}>這份快照截至 {asOf}；以下「今天」及近 7 天均以快照日為準。用上方「更新資料」納入後續訂房。</p>}
+    {r.analysis?.dimensions && <div className={styles.momentumToolbar}><label>分析通路 <select value={channel} onChange={(e) => { setChannel(e.target.value); setSelectedChannel(""); }}><option value="">全部通路</option>{r.channels.map((c) => <option key={c.channel}>{c.channel}</option>)}</select></label>{channel && <button className={styles.link} onClick={() => setChannel("")}>回到全部通路</button>}</div>}
+    {!ready && <p className={styles.notice}>這份舊報告尚無訂單動能資料，請更新資料。原有住宿晚數與金額仍保留。</p>}
+    <section className={styles.brief} data-tone={m.tone}><p className={styles.eyebrow}>最近接單如何 {channel && `／ ${channel}`}</p><h2>{ready ? m.headline : "更新資料，查看最近接單變化"}</h2><p>{m.detail}</p>
+      {m.available && <p>近 7 天已知房費 <strong>{money(m.recent.amount)}</strong>，前 7 天 {money(m.previous.amount)} · 金額變化 {changeText(m.amountChange)}</p>}
+      <div className={styles.briefNext}><span>判讀範圍</span>按實際下訂日期、目前仍有效的紀錄計算。近 7 天不含今天；下訂日期覆蓋 {num(m.dateCoverage)}%。取消與改期歷程尚未納入。</div>
+    </section>
+    <div className={styles.metrics}>
+      {[["今天接單", m.today, `${asOf} · 截至匯入時`], ["昨天接單", m.yesterday, "按快照前一天"], ["近 7 天接單", m.recent, `${m.recentPeriod.from} — ${m.recentPeriod.to}`]].map(([label, raw, note]) => { const s = raw as CohortSummary; return <div className={styles.metric} key={label as string}><span>{label as string}</span><strong>{count(s, m.available)}</strong><b>{m.available ? money(s.amount) : "—"}</b><small>{note as string}</small></div>; })}
+      <div className={styles.metric}><span>接下來 30 天住宿</span><strong>{count(m.futureOrders, ready)}</strong><b>{r.analysis ? money(m.future.amount) : "—"}</b><small>{num(m.future.nights)} {unit} · 跨期房費按晚分攤</small></div>
     </div>
-    {r.analysis ? <>
-      {r.analysis.asOf < today && <p className={styles.notice}>這份資料快照截至 {r.analysis.asOf}，之後的訂房變動尚未納入；可用上方「更新資料」重新讀取。</p>}
-      <section className={`${styles.card} ${styles.analysisFilters}`} aria-label="分析範圍">
-        <div className={styles.periodPresets}>{PRESETS.map(([key, label]) => <button key={key} aria-pressed={preset === key} onClick={() => choosePeriod(key)}>{label}</button>)}</div>
-        <div className={styles.filterControls}>
-          <form onSubmit={(e) => { e.preventDefault(); try { const next = checkedFilter({ ...filter, from, to }, r); setFilter(next); setPreset("custom"); setFilterError(""); } catch { setFilterError("請選擇有效的起訖日期，範圍最多 10 年。"); } }}>
-            <label>從<input aria-label="分析開始日期" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
-            <label>到<input aria-label="分析結束日期" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></label>
-            <button className={styles.secondary} type="submit">套用</button>
-          </form>
-          {r.analysis.dimensions && <>
-            <label>通路<select value={filter.channel ?? ""} onChange={(e) => setFilter((current) => ({ ...current, channel: e.target.value || undefined }))}><option value="">全部通路</option>{r.channels.map((c) => <option key={c.channel}>{c.channel}</option>)}</select></label>
-            <label>房號／房型<select value={filter.room ?? ""} onChange={(e) => setFilter((current) => ({ ...current, room: e.target.value || undefined }))}><option value="">全部房間</option>{r.rooms.map((room) => <option key={room.room}>{room.room}</option>)}</select></label>
-          </>}
-        </div>
-        {filterError && <p role="alert" className={styles.error}>{filterError}</p>}
-        <p className={styles.small}>住宿日期 {filter.from} — {filter.to}{scopeLabel ? ` · ${scopeLabel}` : ""}{v.comparison ? ` ／ 前期 ${v.previousPeriod.from} — ${v.previousPeriod.to}` : ""}。{v.warning}</p>
+    {m.available && <>
+      <section className={styles.card}><div className={styles.cardHeading}><div><h2>近 30 天，每天接了多少單</h2><p className={styles.small}>按下訂日 · 截至昨天 · 滑動可看完整日期</p></div><span className={styles.badge}>目前仍有效的訂單</span></div>
+        <div className={styles.metricSwitch}>{([...(m.countable ? ["orders"] : []), "nights", "amount", "adr"] as Metric[]).map((key) => <button key={key} aria-pressed={dailyMetric === key} onClick={() => setMetric(key)}>{metricLabels[key]}</button>)}</div>
+        <InteractiveBarChart points={points(m.daily, dailyMetric)} label={metricLabels[dailyMetric]} />
+        <p className={styles.small}>0 表示本次資料未見紀錄；— 表示無法計算。缺少訂單編號的拆列不當成訂單數；房費尚未扣除佣金、稅費與成本。</p>
       </section>
-      <section className={styles.brief} aria-labelledby="analysis-brief-title">
-        <div className={styles.cardHeading}><div><p className={styles.eyebrow}>這段期間，先看重點</p><h2 id="analysis-brief-title">{v.insights[0].title}</h2></div>
-          {canWrite && <button className={styles.secondary} disabled={busy} onClick={() => askChart("overview", "幫我解讀目前這段期間的訂房表現")}>讓小芳解讀 ↗</button>}
-        </div>
-        <p>{v.insights[0].body}</p>
-        <div className={styles.briefNext}><span>先做這件事</span>{v.insights[0].action}</div>
-        {!v.total.nights && <button className={styles.link} onClick={() => choosePeriod("all")}>查看全部資料 →</button>}
+      <section className={styles.card}><div className={styles.cardHeading}><div><p className={styles.eyebrow}>預訂速度</p><h2>{m.baselineChange === null ? "看看最近 8 週的接單節奏" : m.baselineChange < -20 ? "最近一週低於前 4 週常態" : "最近一週與前 4 週相比"}</h2></div><strong className={styles.big}>{changeText(m.baselineChange)}</strong></div>
+        <p>近 7 天 {num(m.recent[m.measure])} {m.measureLabel}；前 4 週每週中位數 {num(m.baseline)}。{m.baseline === null ? "可比週數或下訂日期不足，暫不判定速度過慢。" : "每週使用相同 7 天長度，減少單日波動影響。"}</p>
+        <InteractiveBarChart label={metricLabels[m.measure]} points={m.weeks.map((w) => ({ key: w.from, label: `${w.from.slice(5)}～${w.to.slice(5)}`, value: w[m.measure], detail: detail(w, unit) }))} />
+        <p className={styles.small}>不同週的可售庫存與季節可能不同。此處只比較本次匯入可見的接單量，無法直接判斷市場需求或營業淨利。</p>
       </section>
-      <div className={styles.metrics}>
-        {[
-          ["已訂房晚", num(v.total.nights), changeText(v.change.nights)],
-          ["已知房費", num(v.total.amount), v.total.coverage !== null && v.total.coverage < 100 ? `金額覆蓋 ${num(v.total.coverage)}% · 非完整營收` : changeText(v.change.amount)],
-          ["平均房晚價格", num(v.total.adr), "正金額房費 ÷ 正金額房晚"],
-          ["金額覆蓋", v.total.coverage === null ? "—" : `${num(v.total.coverage)}%`, `${num(v.total.knownNights)}／${num(v.total.nights)} 房晚有金額`],
-        ].map(([label, value, note]) => <div className={styles.metric} key={label}><span>{label}</span><strong>{value}</strong><small>{note}</small></div>)}
-      </div>
-      <section className={styles.card}>
-        <div className={styles.cardHeading}><div><h2>表現趨勢</h2><p className={styles.small}>{v.series[0]?.date.length === 7 ? "按月彙總" : "按住宿日期"} · 金額依來源幣別，跨晚房費平均分攤。</p></div>
-          {canWrite && <button className={styles.link} disabled={busy} onClick={() => askChart("monthly", "這段期間的表現有什麼變化？")}>問小芳 ↗</button>}
-        </div>
-        <div className={styles.metricSwitch}>{(["nights", "amount", "adr"] as Metric[]).map((key) => <button key={key} aria-pressed={metric === key} onClick={() => setMetric(key)}>{metricLabels[key]}</button>)}</div>
-        <div className={styles.trendViewport}><Trend points={v.series} metric={metric} /></div>
-        <p className={styles.small}>房晚 0 代表本次匯入未見紀錄；缺少金額的日期不連線，並不表示房價為 0。</p>
-        <details><summary>查看數據表</summary><button className={styles.link} onClick={exportCsv}>下載這段期間 CSV</button><div className={styles.tableWrap}><table>
-          <thead><tr><th>日期</th><th>房晚</th><th>已知房費</th><th>平均房晚價格</th><th>金額覆蓋</th></tr></thead>
-          <tbody>{v.series.map((p) => <tr key={p.date}><td>{p.date}</td><td>{num(p.nights)}</td><td>{num(p.amount)}</td><td>{num(p.adr)}</td><td>{p.coverage === null ? "—" : `${num(p.coverage)}%`}</td></tr>)}</tbody>
-        </table></div></details>
+      <section className={styles.card}><div className={styles.cardHeading}><div><p className={styles.eyebrow}>通路要注意什麼</p><h2>找出接單與價格的變化</h2></div><span className={styles.badge}>近 7 天 vs 前 7 天</span></div>
+        <div className={styles.tableWrap}><table><thead><tr><th>通路</th><th>近 7 天訂單</th><th>前 7 天訂單</th><th>接單變化</th><th>新單均價</th><th>提醒</th></tr></thead><tbody>{m.channels.map((c) => <tr key={c.channel} data-selected={c.channel === selectedChannel}><td><button className={styles.dimensionLink} aria-expanded={c.channel === selectedChannel} onClick={() => setSelectedChannel(c.channel === selectedChannel ? "" : c.channel)}>{c.channel} ↗</button></td><td>{count(c.current)}</td><td>{count(c.prior)}</td><td>{changeText(c.change)}{!m.countable && <small>（按{unit}）</small>}</td><td>{money(c.current.adr)}<br /><small>{changeText(c.priceChange)}</small></td><td><span className={styles.attentionBadge} data-tone={c.tone}>{c.attention}</span></td></tr>)}</tbody></table></div>
+        {pickedChannel && <div className={styles.channelDetail}><h3>{pickedChannel.channel} · {pickedChannel.attention}</h3><p>{pickedChannel.reason}</p><p>近 7 天已知房費 {money(pickedChannel.current.amount)} · {num(pickedChannel.current.nights)} {unit} · 金額覆蓋 {num(pickedChannel.current.coverage)}%</p><p>前 7 天已知房費 {money(pickedChannel.prior.amount)} · 每晚均價 {money(pickedChannel.prior.adr)}</p>{r.analysis?.dimensions && !channel && <button className={styles.secondary} onClick={() => setChannel(pickedChannel.channel)}>整份報告只看這個通路</button>}</div>}
+        <p className={styles.small}>點選通路查看原因。提醒用於安排檢查順序，資料缺漏、季節與庫存變化都可能影響結果。</p>
       </section>
-      {r.analysis.dimensions && <div className={styles.grid}>
-        {(["channels", "rooms"] as const).map((kind) => <section className={styles.card} key={kind}>
-          <div className={styles.cardHeading}><h2>{kind === "channels" ? "訂房從哪裡來" : "哪些房間帶來訂房"}</h2>{canWrite && <button className={styles.link} disabled={busy} onClick={() => askChart(kind, kind === "channels" ? "這段期間哪個通路值得注意？" : "這段期間各房型表現如何？")}>問小芳 ↗</button>}</div>
-          <p className={styles.small}>{kind === "channels" ? "先看房晚，再看房價；尚未扣除佣金與成本。" : "依來源房號／房型分組；未提供各房型庫存，無法比較住房率。"}</p>
-          <div className={styles.tableWrap}><table><thead><tr><th>{kind === "channels" ? "通路" : "來源房間"}</th><th>房晚</th><th>占比</th><th>已知房費</th><th>均價</th></tr></thead>
-            <tbody>{v[kind].map((g) => <tr key={g.name}><td><button className={styles.dimensionLink} onClick={() => setFilter((current) => ({ ...current, [kind === "channels" ? "channel" : "room"]: g.name }))}>{g.name}</button></td><td>{num(g.nights)}</td><td>{num(v.total.nights ? g.nights / v.total.nights * 100 : 0)}%</td><td>{num(g.amount)}</td><td>{num(g.adr)}</td></tr>)}</tbody>
-          </table></div>{!v[kind].length && <p>這段期間沒有符合篩選的紀錄。</p>}
-        </section>)}
-      </div>}
-      <div className={styles.grid}>
-        <section className={styles.card}>
-          <div className={styles.cardHeading}><h2>一週哪幾天較有訂房</h2>{canWrite && <button className={styles.link} disabled={busy} onClick={() => askChart("weekday", "平日和週末的訂房分布如何？")}>問小芳 ↗</button>}</div>
-          <p className={styles.small}>每個星期的平均可見房晚，已除以期間內該星期出現次數。</p>
-          <div className={styles.weekdayChart}>{[1, 2, 3, 4, 5, 6, 0].map((day) => { const d = v.weekdays[day]; return <div key={day}>
-            <strong>{num(d.perDay)}</strong><div><i style={{ height: `${d.perDay / Math.max(1, ...v.weekdays.map((w) => w.perDay)) * 100}%`, background: day === 5 || day === 6 ? "#47785e" : "#a0b7a3" }} /></div><span>週{"日一二三四五六"[day]}</span>
-          </div>; })}</div>
-          <p className={styles.small}>深色標示週五、週六住宿夜；國定假日尚未另外分類。</p>
-        </section>
-        <section className={styles.card}>
-          <div className={styles.cardHeading}><h2>接下來的已訂情況</h2>{canWrite && <button className={styles.link} disabled={busy} onClick={() => askChart("overview", "未來30天的訂房狀況如何？")}>問小芳 ↗</button>}</div>
-          <p className={styles.small}>{v.futurePeriod.from} — {v.futurePeriod.to} · 依目前快照</p>
-          <strong className={styles.big}>{num(v.future.nights)} <small>房晚已訂</small></strong>
-          <p>已知房費 {num(v.future.amount)}。這是目前已存在的訂房，後續可能新增、改期或取消。</p>
-          {r.analysis.bookingDates.length > 0 && <div className={styles.bookingNote}><strong>近 7 天建立、目前仍有效</strong><span>{num(v.bookingNights)} 房晚</span><small>按下訂日期；不是淨新增訂房（Pickup）。</small></div>}
-        </section>
+      <section className={styles.card}><p className={styles.eyebrow}>近期新訂單的價格</p><h2>接單量之外，成交價格有沒有守住</h2><div className={styles.priceGrid}>
+        {[["每晚均價", money(m.recent.adr), changeText(m.priceChange), `前 7 天 ${money(m.previous.adr)}`], ["每筆完整訂單平均房費", money(m.recent.ticket), changeText(percentChange(m.recent.ticket, m.previous.ticket)), `完整金額 ${num(m.recent.fullPriceOrders)} 筆`], ["每筆平均住宿天數", m.recent.los === null ? "—" : `${num(m.recent.los)} 晚`, "", "只採用可確認完整住宿的訂單"]].map(([label, value, change, note]) => <div key={label}><span>{label}</span><strong>{value}</strong><b>{change}</b><small>{note}</small></div>)}
       </div>
-      {(v.total.los !== null || v.total.lead !== null) && <section className={styles.card}>
-        <div className={styles.cardHeading}><h2>客人的預訂習慣</h2>{canWrite && <button className={styles.link} disabled={busy} onClick={() => askChart("behavior", "客人通常提前多久訂、住幾晚？")}>問小芳 ↗</button>}</div>
-        <div className={styles.behaviorGrid}>
-          {v.total.los !== null && <div><p className={styles.small}>平均住宿長度</p><strong className={styles.big}>{num(v.total.los)} <small>晚／房次</small></strong><Distribution title="常見住法" labels={["1 晚", "2 晚", "3–4 晚", "5 晚以上"]} values={v.los} /></div>}
-          {v.total.lead !== null && <div><p className={styles.small}>平均提前預訂</p><strong className={styles.big}>{num(v.total.lead)} <small>天</small></strong><Distribution title="提前多久訂" labels={["0–2 天", "3–7 天", "8–30 天", "31–60 天", "61 天以上"]} values={v.lead} /></div>}
-        </div><p className={styles.small}>以這段期間入住的房次加權，住宿長度包含整次住宿；提前天數只採用可確認的下訂日。每間房的一次住宿算一房次。</p>
-      </section>}
-      <section className={styles.card}>
-        <div className={styles.cardHeading}><h2>接著可以做什麼</h2>{canWrite && <button className={styles.link} disabled={busy} onClick={() => askChart("overview", "根據目前這段期間，先做哪幾件事最有幫助？")}>和小芳討論 ↗</button>}</div>
-        <div className={styles.actionCards}>{v.insights.map((i, index) => <article key={i.id}><span>{String(index + 1).padStart(2, "0")}</span><div><h3>{i.title}</h3><p>{i.body}</p><strong>{i.action}</strong></div></article>)}</div>
+        {r.analysis?.unit !== "night" && <div className={styles.tableWrap}><table><thead><tr><th>依開始住宿日分組</th><th>近 7 天新單均價</th><th>前 7 天新單均價</th><th>變化</th></tr></thead><tbody>{m.priceByStayDay.map((p) => <tr key={p.label}><td>{p.label}</td><td>{money(p.recent.adr)}</td><td>{money(p.previous.adr)}</td><td>{changeText(percentChange(p.recent.adr, p.previous.adr))}</td></tr>)}</tbody></table></div>}
+        <p className={styles.small}>均價採用正金額房費與對應{unit}；近 7 天金額覆蓋 {num(m.recent.coverage)}%。房型、方案、平假日及住宿長短改變都會影響均價；開始住宿日分組未另分類國定假日。</p>
       </section>
-    </> : <section className={styles.card}><h2>這份報告的總覽</h2><p>{r.from} — {r.to} · {num(r.nights)} 房晚 · 已知房費 {num(r.amount)}</p><p>原始資料已到期或尚未完成新版整理。重新匯入可使用期間比較、房型拆解與接單習慣分析；小芳仍可說明這份報告的已有數字。</p><div className={styles.tableWrap}><table><thead><tr><th>月份</th><th>房晚</th><th>已知房費</th></tr></thead><tbody>{r.monthly.map((m) => <tr key={m.month}><td>{m.month}</td><td>{num(m.nights)}</td><td>{num(m.amount)}</td></tr>)}</tbody></table></div></section>}
-    <details id="health-evidence" className={styles.card}>
-      <summary>資料依據與待補項目 · 納入 {r.includedRows} 列／排除 {r.excluded.length} 列</summary>
-      <div className={styles.dataGaps}>
-        <div><strong>住房率、RevPAR、空房</strong><p>需要每日可售實體房數、停賣紀錄及包棟共用庫存規則。</p></div>
-        <div><strong>淨收益</strong><p>需要佣金、稅費與成本；目前呈現的是來源中的已知房費。</p></div>
-        <div><strong>淨新增訂房、去年同時點比較</strong><p>需要歷史快照與取消／改期紀錄；單次匯入不能還原完整接單變化。</p></div>
-        {r.analysis?.unit === "night" && <div><strong>住宿長度與提前預訂</strong><p>每晚拆列的資料尚未還原成整次住宿，需補上可識別的訂單及真正入住日。</p></div>}
-      </div>
-      <details><summary>這段期間的指標依據</summary>{(r.analysis ? v.facts : r.facts).map((f) => <details key={f.id}><summary>{f.label}：{num(f.value)} {f.unit}</summary><p>{f.basis}</p><p className={styles.references}>{f.refs.join("、") || "本次資料在此期間未見有效紀錄。"}</p></details>)}</details>
-      <details><summary>完整計算口徑</summary><ul>{r.limitations.map((l) => <li key={l}>{l}</li>)}</ul></details>
-      {r.excluded.length > 0 && <details><summary>查看排除清單</summary><div className={styles.tableWrap}><table><thead><tr><th>來源列</th><th>原因</th></tr></thead><tbody>{r.excluded.slice(0, 200).map((e, i) => <tr key={i}><td>{e.ref}</td><td>{e.reason}</td></tr>)}</tbody></table></div>{r.excluded.length > 200 && <p className={styles.small}>顯示前 200 列，共 {r.excluded.length} 列。</p>}</details>}
-      <p className={styles.small}>報告快照 {r.snapshot.slice(0, 12)} · {r.analysis ? "分析版本 2" : "原始彙總版本"}</p>
-    </details>
-    {canWrite && <button className={styles.chatLauncher} onClick={() => { setChart("overview"); setChatOpen(true); }}>✦ 問小芳</button>}
-    {chatOpen && <aside className={styles.chat} role="dialog" aria-modal="false" aria-labelledby="health-chat-title">
-      <div className={styles.cardHeading}><div><h2 id="health-chat-title">小芳，幫我看訂房</h2><small>{filter.from} — {filter.to}{scopeLabel ? ` · ${scopeLabel}` : ""}</small></div><button aria-label="關閉問答" className={styles.secondary} onClick={() => setChatOpen(false)}>✕</button></div>
-      <div className={styles.chatPrompts}>{["最近訂房表現如何？", "哪個通路值得加強？", "接下來先改善什麼？"].map((question) => <button key={question} disabled={busy} onClick={() => void ask(question)}>{question}</button>)}</div>
-      <div className={styles.messages}>
-        {!messages.length && <p>直接問我最近的表現、變化和建議。我會先說明看的期間，再用這份資料回答。</p>}
-        {messages.map((m, i) => <div key={i}><p className={styles.userMessage}>{m.question}</p><p className={styles.answer}>{m.answer}</p>{m.facts.length > 0 && <details><summary>查看回答依據（{m.facts.length} 項）</summary>{m.facts.map((f) => <details key={f.id}><summary>{f.label}：{num(f.value)} {f.unit}</summary><p>{f.basis}</p><small>{f.refs.join("、") || "本次資料在此期間未見紀錄。"}</small></details>)}</details>}</div>)}
-        {busy && <p role="status">正在整理這段期間的表現與建議…</p>}{chatError && <p role="alert" className={styles.error}>{chatError}</p>}<div ref={messageEnd} />
-      </div>
-      <form onSubmit={(e) => { e.preventDefault(); void ask(); }}><label htmlFor="health-chat-input" className={styles.small}>你的問題</label><input ref={chatInput} id="health-chat-input" maxLength={1000} value={input} onChange={(e) => setInput(e.target.value)} placeholder="最近訂房表現如何？" /><button className={styles.primary} disabled={busy || !input.trim()}>送出</button></form>
-    </aside>}
+    </>}
+    {r.analysis && <section className={styles.card}><div className={styles.cardHeading}><div><p className={styles.eyebrow}>每月表現</p><h2>每個月，有多少訂單與房費</h2></div><label>年份 <select value={year} onChange={(e) => setMonth(`${e.target.value}${month.slice(4)}`)}>{years.map((y) => <option key={y}>{y}</option>)}</select></label></div>
+      <div className={styles.metricSwitch}><button aria-pressed={basis === "stay"} onClick={() => setBasis("stay")}>按住宿月份</button><button aria-pressed={basis === "booked"} disabled={!m.available} onClick={() => setBasis("booked")}>按下訂月份</button></div>
+      <p className={styles.small}>{basis === "stay" ? "入住跨月的訂單，在有住宿的月份各計一次；房費按晚分攤，月份筆數不可直接相加。" : "每筆訂單歸入下訂月份，金額是該筆全部已知房費；只納入有下訂日期的紀錄。"} ← 左右滑動 →</p>
+      <div className={styles.monthCards}>{months.map((s) => { const prior = monthlyView(r, scope, previousYearMonth(s.month), basis); return <button key={s.month} className={styles.monthCard} ref={(el) => { if (el && month === s.month && el.parentElement) el.parentElement.scrollLeft = el.offsetLeft - (el.parentElement.clientWidth - el.clientWidth) / 2; }} aria-pressed={month === s.month} onClick={() => setMonth(s.month)}><span>{s.month.replace("-", "/")} 月</span><strong>{count(s, ready)}</strong><small>{basis === "stay" ? "本月有住宿的訂單" : "本月新訂、目前有效"}</small><b>{money(s.amount)}</b><small>已知房費 · {num(s.nights)} {unit}</small><hr /><small>{prior.observed ? `去年同月可見 ${count(prior)}` : "去年同月未見紀錄"}</small><small>{s.observed ? `金額覆蓋 ${num(s.coverage)}%` : "本次資料未見紀錄"}</small></button>; })}</div>
+      <div className={styles.monthDetail}><h3>{month.replace("-", "/")} · {basis === "stay" ? "每日住宿表現" : "每日接單表現"}</h3><div className={styles.metricSwitch}>{([...(basis === "booked" && m.countable ? ["orders"] : []), "nights", "amount", "adr"] as Metric[]).map((key) => <button key={key} aria-pressed={selectedMetric === key} onClick={() => setMetric(key)}>{metricLabels[key]}</button>)}</div><InteractiveBarChart points={points(selected.daily, selectedMetric)} label={metricLabels[selectedMetric]} /></div>
+      {ready && basis === "stay" && <div className={styles.monthDetail}><p className={styles.eyebrow}>這個月份，訂房累積到哪裡</p><h3>{pace.title}</h3><p>截至 {pace.cutoff} 可見 {num(pace.current.nights)} {unit}；去年相同提前天數 {pace.previousExists ? num(pace.previous.nights) : "—"} {unit}。{changeText(pace.change)}</p><InteractiveBarChart label={unit} comparison="去年相同提前天數" points={pace.points.map((p) => ({ key: p.date, label: p.label, value: p.value, secondary: p.previous, detail: `本期截止日 ${p.date}` }))} /><p className={styles.notice}>依目前仍保留的有效訂單與下訂日回推，並非去年當時的歷史快照；無法還原已取消、改期或移除的訂單。{!pace.dateComplete && "兩期資料或下訂日期不完整，暫不判定超前或落後。"}</p></div>}
+    </section>}
+    {r.analysis && <details className={styles.card}><summary>{month.replace("-", "/")} 住宿分布與預訂習慣</summary>
+      <p className={styles.small}>依所選住宿月份與通路計算，與上方按下訂日的接單分析分開。</p>
+      <div className={styles.priceGrid}><div><span>已訂{unit}</span><strong>{num(v.total.nights)}</strong><small>本月有紀錄的住宿晚數</small></div><div><span>平均住宿長度</span><strong>{num(v.total.los)} 晚</strong><small>按可確認的入住房次／組數加權</small></div><div><span>平均提前預訂</span><strong>{num(v.total.lead)} 天</strong><small>只採用可確認下訂日的入住紀錄</small></div></div>
+      <h3>一週哪幾天有訂房</h3><InteractiveBarChart label={`平均${unit}／日`} points={[1, 2, 3, 4, 5, 6, 0].map((day) => ({ key: String(day), label: `週${"日一二三四五六"[day]}`, value: v.weekdays[day].perDay, detail: "已除以本月該星期出現次數；不代表住房率。" }))} />
+      {!villa && r.analysis.dimensions && <><h3>各房號／房型的住宿表現</h3><div className={styles.tableWrap}><table><thead><tr><th>來源房間</th><th>房晚</th><th>已知房費</th><th>每晚均價</th></tr></thead><tbody>{v.rooms.map((room) => <tr key={room.name}><td>{room.name}</td><td>{num(room.nights)}</td><td>{money(room.amount)}</td><td>{money(room.adr)}</td></tr>)}</tbody></table></div></>}
+    </details>}
+    {villa && r.analysis && <section className={styles.card}><div className={styles.cardHeading}><h2>接下來 30 天的包棟日期</h2><span className={styles.badge}>全棟所有通路</span></div><div className={styles.villaCalendar}>{v.futureCalendar.map((d) => <div key={d.date} className={styles.villaDay} data-state={d.state}><small>週{"日一二三四五六"[new Date(d.date).getUTCDay()]}</small><strong>{d.date.slice(5).replace("-", "/")}</strong><span>{d.state === "booked" ? "包棟已訂" : d.state === "rooms" ? "已有散客" : d.state === "review" ? "資料衝突" : "待核對"}</span></div>)}</div><p className={styles.small}>「待核對」不代表可售空房；仍需核對停賣、公休與資料完整性。</p>{v.singleNightGaps.length > 0 && <p>住宿間只隔一晚：{v.singleNightGaps.map((d) => d.slice(5).replace("-", "/")).join("、")}。確認可售後，可評估單晚或連住方案。</p>}</section>}
+    <section className={styles.card}><h2>接著先做什麼</h2><div className={styles.actionCards}>{m.actions.map((a, i) => <article key={a.id} data-tone={a.tone}><span>{String(i + 1).padStart(2, "0")}</span><div><h3>{a.title}</h3><p>{a.detail}</p><strong>{a.action}</strong></div></article>)}</div></section>
+    {!r.analysis && <section className={styles.card}><h2>這份報告的每月總覽</h2><div className={styles.tableWrap}><table><thead><tr><th>月份</th><th>{unit}</th><th>已知房費</th></tr></thead><tbody>{r.monthly.map((s) => <tr key={s.month}><td>{s.month}</td><td>{num(s.nights)}</td><td>{money(s.amount)}</td></tr>)}</tbody></table></div></section>}
+    <details id="health-evidence" className={styles.card}><summary>資料依據與待補項目 · 納入 {r.includedRows} 列／排除 {r.excluded.length} 列</summary><p>已知房費不等於淨收益。住房率需要完整可售庫存；淨新增訂房與真正的去年同時點比較需要歷史快照及取消、改期紀錄。缺少下訂日期的紀錄仍列入住宿月份，但不列入近期接單。</p><details><summary>本月住宿指標依據</summary>{(r.analysis ? v.facts : r.facts).map((f) => <details key={f.id}><summary>{f.label}：{num(f.value)} {f.unit}</summary><p>{f.basis}</p><p className={styles.references}>{f.refs.join("、") || "本次資料未見有效紀錄。"}</p></details>)}</details>{ready && <details><summary>近 7 天接單來源列</summary><p className={styles.references}>{m.recent.refs.join("、") || "本次資料未見有效紀錄。"}</p></details>}<details><summary>完整計算口徑</summary><ul>{r.limitations.map((l) => <li key={l}>{l}</li>)}</ul></details>{r.excluded.length > 0 && <details><summary>查看排除清單</summary><div className={styles.tableWrap}><table><thead><tr><th>來源列</th><th>原因</th></tr></thead><tbody>{r.excluded.slice(0, 200).map((e, i) => <tr key={i}><td>{e.ref}</td><td>{e.reason}</td></tr>)}</tbody></table></div><p className={styles.small}>顯示前 {Math.min(200, r.excluded.length)} 列，共 {r.excluded.length} 列。</p></details>}</details>
   </>;
 }

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api, button, field, secondary } from "./client";
+import { receptionChoices } from "@/lib/hospitality-mode";
 import { PasswordlessLogin } from "./passwordless-login";
 type Profile = {
   email: string;
@@ -22,7 +23,7 @@ export function Onboarding({
   const [step, setStep] = useState(1),
     [name, setName] = useState(""),
     [slug, setSlug] = useState(""),
-    [kind, setKind] = useState("rooms"),
+    [kind, setKind] = useState(""),
     [rooms, setRooms] = useState("");
   const [key, setKey] = useState("");
   const [slugEdited, setSlugEdited] = useState(false);
@@ -271,13 +272,9 @@ export function Onboarding({
                   </span>
                 </label>
                 <fieldset>
-                  <legend className="mb-2">經營型態</legend>
+                  <legend className="mb-2">你如何接待客人？</legend>
                   <div className="flex flex-wrap gap-2">
-                    {[
-                      ["villa", "包棟"],
-                      ["rooms", "單房"],
-                      ["mixed", "兩者皆有"],
-                    ].map(([value, label]) => (
+                    {receptionChoices.map(({ value, label, detail }) => (
                       <button
                         type="button"
                         key={value}
@@ -285,7 +282,7 @@ export function Onboarding({
                         className={kind === value ? button : secondary}
                         onClick={() => setKind(value)}
                       >
-                        {label}
+                        <span className="block">{label}</span><small className="mt-1 block">{detail}</small>
                       </button>
                     ))}
                   </div>
@@ -293,7 +290,7 @@ export function Onboarding({
                 <button
                   className={button}
                   disabled={
-                    !name.trim() || !/^[a-z0-9][a-z0-9-]{2,47}$/.test(slug)
+                    !kind || !name.trim() || !/^[a-z0-9][a-z0-9-]{2,47}$/.test(slug)
                   }
                   onClick={() => setStep(2)}
                 >

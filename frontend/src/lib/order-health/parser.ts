@@ -5,6 +5,7 @@ export const MAX_BYTES = 3_000_000,
   MAX_ROWS = 10000,
   MAX_COLS = 64;
 export const aliases: Record<Field, string[]> = {
+  stayKind: ["接客形式", "接待形式", "訂房形式", "住宿形式", "出租形式", "bookingtype", "staykind", "receptionkind"],
   checkIn: [
     "入住日期",
     "入住日",

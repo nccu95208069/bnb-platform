@@ -71,6 +71,7 @@ export async function access(
   return {
     workspace: w.id,
     property: p.id,
+    receptionKind: p.kind,
     actor: account.id,
     name: p.name,
     canWrite: ["owner", "admin"].includes(m.role),

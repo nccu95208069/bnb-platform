@@ -52,6 +52,8 @@
 - [x] 「已收款」可登記多次款項與方式／時間／收款帳戶；財務、訂單、月曆狀態來自同一筆已核對資料；重試不重複收款，現金不強制帳號，未知歷史不誤算尾款。
 - [x] 備註可新增、編輯、取消及重新查回；收款備註與訂單備註不互相覆蓋。標籤可新增／編輯／選色／套用／移除，月曆單字色標與完整名稱同步，跨日期與多房顯示一致。
 
+Latest order-report decision: [booking momentum and interactive charts](ORDER_MOMENTUM_2026-10-05.md) supersedes report chat. During the payment release preflight, production `dpl_CsvRTNQ1jj9rtFnkHfZn5vveehKG` was observed serving commit `6179335`; this already-live source is preserved in the payment branch. Report delivery authorization and browser acceptance remain separate.
+
 ## Calendar onboarding implementation and acceptance
 
 [Live acceptance](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md) now verifies real Google consent, preview/save, refresh, revocation/reconnect, ICS/ZIP, email-link return and two manually invoked production worker executions in the approved synthetic scope. The [configuration guide](CALENDAR_GOOGLE_SETUP_2026-10-04.md) remains the runbook. The later [owner pilot release](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md#primary-domain-owner-pilot) promotes the primary domain, enables explicitly opted-in synchronization and verifies two actual platform cron deliveries. Real-device and broader live-data acceptance remain open.

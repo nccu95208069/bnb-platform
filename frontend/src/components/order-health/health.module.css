@@ -683,3 +683,72 @@
     max-width: 160px;
   }
 }
+
+.receptionSummary { display: flex; align-items: center; gap: 16px; margin: 0 0 24px; color: #536b5d; font-size: 14px; }
+.receptionTabs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+.receptionTabs button { border: 1px solid #cbdcd0; border-radius: 12px; padding: 10px 18px; background: white; color: #42624f; cursor: pointer; }
+.receptionTabs button[aria-pressed="true"] { color: white; background: #37775d; }
+.villaCalendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 7px; margin: 18px 0; }
+.villaDay { text-align: center; border: 1px solid #dce4de; border-radius: 9px; padding: 10px 2px; font-size: 12px; color: #69796e; background: #fafbf9; }
+.villaDay[data-state="booked"] { background: #e3efe7; color: #28583e; border-color: #a8c3b0; }
+.villaDay[data-state="rooms"], .villaDay[data-state="review"] { background: #fff4df; color: #805f26; }
+.villaDay strong, .villaDay span { display: block; }
+.villaDay small { display: block; margin-bottom: 5px; }
+.villaSectionTitle { font-size: 22px; margin: 28px 0 16px; color: #2b513c; }
+
+.analysisDetail { margin: 24px 0; }
+.analysisDetail > summary { cursor: pointer; padding: 18px 0; font-weight: 600; color: #42624f; }
+
+/* Booking momentum: touch-friendly charts and monthly navigation. */
+.momentumToolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 18px; }
+.momentumToolbar select, .cardHeading select { border: 1px solid #d6e2db; border-radius: 9px; background: white; padding: 9px 12px; min-height: 44px; }
+.interactiveChart { min-width: 0; margin-top: 18px; }
+.chartReadout { min-height: 80px; display: flex; flex-direction: column; gap: 4px; padding: 12px 16px; background: #f2f8f4; border-radius: 12px; }
+.chartReadout strong { color: #20674f; font-size: 16px; font-variant-numeric: tabular-nums; }
+.chartReadout span { color: #66756f; font-size: 12px; }
+.barScroll { overflow-x: auto; overscroll-behavior-x: contain; padding: 4px 0 8px; }
+.barPlot { display: flex; height: 250px; align-items: stretch; padding-top: 50px; background: repeating-linear-gradient(to top, transparent 0, transparent 49px, #edf1ed 49px, #edf1ed 50px); }
+.barButton { flex: 1 0 44px; position: relative; display: flex; flex-direction: column; align-items: center; padding: 0 5px; border: 0; background: transparent; min-width: 44px; color: #64766c; }
+.barButton:focus-visible { outline-offset: -3px; }
+.barTrack { position: relative; display: block; flex: 1; width: 100%; border-bottom: 1px solid #dce5df; }
+.primaryBar, .comparisonBar { position: absolute; bottom: 0; display: block; border-radius: 6px 6px 0 0; min-height: 2px; }
+.primaryBar { left: 24%; width: 52%; background: #97c9b3; transition: background .12s; font-style: normal; }
+.primaryBar[data-missing="true"] { background: transparent; border-bottom: 2px dashed #b7c0ba; }
+.comparisonBar { left: 10%; width: 80%; background: #e0e5e1; }
+.barButton[data-active="true"] .primaryBar { background: #09815b; box-shadow: 0 0 0 2px #b9e7d2; }
+.barButton[data-active="true"] .barLabel { color: #087652; font-weight: 700; }
+.barValue { position: absolute; left: 50%; bottom: calc(100% + 8px); transform: translateX(-50%); font-size: 13px; line-height: 1.3; font-variant-numeric: tabular-nums; white-space: nowrap; background: #e7f7ee; color: #096747; border-radius: 6px; padding: 4px 6px; opacity: 0; pointer-events: none; z-index: 2; }
+.barButton:first-child .barValue { left: 0; transform: none; }
+.barButton:last-child .barValue { left: auto; right: 0; transform: none; }
+.barButton[data-active="true"] .barValue { opacity: 1; }
+.barLabel { display: flex; align-items: center; justify-content: center; min-height: 42px; max-width: 100%; font-size: 11px; line-height: 1.3; overflow-wrap: anywhere; padding-top: 5px; }
+.priceGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 22px 0; }
+.priceGrid > div { display: flex; flex-direction: column; padding: 18px; background: #f6f8f6; border-radius: 14px; gap: 7px; }
+.priceGrid strong { font-size: 25px; font-variant-numeric: tabular-nums; }
+.priceGrid span, .priceGrid small { color: #66756f; }
+.priceGrid b { color: #37715a; font-size: 14px; }
+.monthCards { position: relative; display: flex; gap: 14px; overflow-x: auto; padding: 5px 3px 18px; scroll-snap-type: x proximity; overscroll-behavior-x: contain; }
+.monthCard { flex: 0 0 222px; display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 8px; padding: 22px; border-radius: 19px; background: #f7f9f7; border: 2px solid #e8ede9; color: #3d5147; scroll-snap-align: center; }
+.monthCard[aria-pressed="true"] { background: #edf9f2; border-color: #5cbd94; box-shadow: 0 0 0 2px #d4eee0; }
+.monthCard[aria-pressed="true"] > span { color: #157d55; }
+.monthCard > span { font-size: 18px; }
+.monthCard > strong { font-size: 28px; line-height: 1.4; color: #1c392c; font-variant-numeric: tabular-nums; }
+.monthCard > b { font-size: 19px; color: #24734f; margin-top: 9px; font-variant-numeric: tabular-nums; }
+.monthCard small { font-size: 12px; color: #728076; }
+.monthCard hr { border: 0; border-top: 1px solid #dbe6dd; width: 100%; margin: 8px 0; }
+.monthDetail { border-top: 1px solid #e5ece6; margin-top: 18px; padding-top: 20px; }
+.attentionBadge { display: inline-block; padding: 4px 9px; border-radius: 8px; font-size: 12px; white-space: nowrap; background: #f0f3f0; color: #65776a; }
+.attentionBadge[data-tone="watch"] { background: #fff3df; color: #8e601c; }
+.attentionBadge[data-tone="positive"] { background: #e5f4eb; color: #24714f; }
+.channelDetail { margin-top: 16px; padding: 18px 22px; background: #f4f8f5; border-radius: 12px; }
+.tableWrap tr[data-selected="true"] { background: #f0f8f2; }
+.brief[data-tone="watch"] { border-color: #dcca9e; }
+@media (max-width: 700px) {
+  .priceGrid { grid-template-columns: 1fr; gap: 10px; }
+  .priceGrid > div { padding: 16px; }
+  .monthCard { flex-basis: 205px; }
+  .chartReadout { min-height: 100px; padding: 10px 12px; }
+  .barPlot { height: 225px; }
+  .barScroll, .monthCards { margin-right: -8px; }
+}
+@media (prefers-reduced-motion: reduce) { .primaryBar { transition: none; } }
