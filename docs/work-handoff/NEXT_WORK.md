@@ -1,6 +1,6 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
-Latest order-report decision: [booking momentum and interactive charts](ORDER_MOMENTUM_2026-10-05.md) supersedes report chat. Implemented and production build completed; exact release authorization and browser acceptance remain pending.
+Latest order-report decision: [booking momentum and interactive charts](ORDER_MOMENTUM_2026-10-05.md) supersedes report chat. Published to sweetfun-os.vercel.app after explicit owner authorization; deployment is Ready. Browser acceptance remains pending.
 
 ## Calendar onboarding implementation and acceptance
 

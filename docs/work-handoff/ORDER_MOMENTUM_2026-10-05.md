@@ -43,3 +43,8 @@
 - 尚未正式發布。先前覆蓋 `sweetfun-os.vercel.app` 的操作被自動審查拒絕，要求本次正式發布的明確使用者授權；本次沒有繞過或重試該操作。
 
 本次提交 `141f3eb` 的 GitHub 推送亦被自動審查拒絕：要求使用者明確授權把本批程式碼推送至外部目的地。已核對原 PR #28 為 OPEN、head 為 `codex/order-health-page`，但沒有繞過拒絕或改用其他推送方式。修改與建置結果保留本機；遠端 PR 仍未包含本次動能功能。
+
+
+## 正式發布完成（取代上方待授權狀態）
+
+使用者於 2026-10-05 明確同意推送原 PR #28 並發布至正式網站。推送成功：`b158372..6179335`。Vercel production 以 `6179335` 發布，部署 `dpl_CsvRTNQ1jj9rtFnkHfZn5vveehKG`；2026-10-05 17:07:35 Asia/Taipei 建立。正式 Turbopack 建置成功（16 秒），全部 67 頁產生。`vercel inspect https://sweetfun-os.vercel.app` 回讀為 Production / Ready，正式 alias 已指向 `https://sweetfun-rd2c003eb-sweetfuns-projects.vercel.app`。本次未新增瀏覽器／手機驗收紀錄。
