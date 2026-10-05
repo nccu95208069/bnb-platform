@@ -267,7 +267,6 @@ const scope: Scope = {
   name: "測試旅宿",
   receptionKind: "rooms",
   canWrite: true,
-  receptionKind: "rooms",
 };
 test("persistent workflow survives refresh, idempotency and parallel workers", async () => {
   const store = new Memory(),
