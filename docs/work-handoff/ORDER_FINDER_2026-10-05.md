@@ -1,6 +1,6 @@
 # Order finder — implementation and verification, 2026-10-05
 
-The owner-approved interface is implemented in the existing customer workspace on `codex/customer-onboarding`, for draft PR #26. This is a persisted customer feature, separate from the earlier synthetic HTML proposal. This change has not been promoted to production.
+The owner-approved interface is implemented in the existing customer workspace on `codex/customer-onboarding`, for draft PR #26. This is a persisted customer feature, separate from the earlier synthetic HTML proposal. The later [owner-authorized release](#owner-authorized-production-release) below supersedes the initial pre-deployment and browser-blocked state.
 
 ## Operator flow
 
@@ -33,4 +33,18 @@ Append-only order columns add platform, booking date, notes, tag names and extra
 - Browser acceptance is **not completed**: the browser tool refused the local synthetic page because the administrator-enforced security check was unavailable. No alternate browser/indirect workaround was used. Temporary local synthetic servers were stopped.
 - No real guest data, bank details or credentials were added to fixtures or commits. No new production deployment or live customer-data mutation was performed.
 
-Before promoting this feature, verify desktop and 360px mobile layouts, keyboard/return focus, calendar-to-detail navigation and the actual persistent receipt/note/tag workflow through an authorized browser. The existing owner-pilot production release remains governed by `CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md`; its prior acceptance does not constitute acceptance of this new interface.
+The remaining full acceptance covers desktop and 360px mobile layouts, keyboard/return focus, calendar-to-detail navigation and the actual persistent receipt/note/tag workflow through an authorized browser. The earlier calendar pilot is recorded in `CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md`; its prior acceptance does not constitute acceptance of this new interface.
+
+## Owner-authorized production release
+
+On October 5 (Taipei), the owner explicitly requested publication to the production website for their own walkthrough. This authorization supersedes the preceding pre-deployment boundary without claiming that the walkthrough is complete.
+
+- Entry: `https://sweetfun-os.vercel.app/start`. Select a property, then **訂單查詢** or **房況日曆**. New applicants can still use `/join`.
+- Runtime source: `9dc8978db0dec34955007feec13310a687f9a2c7`. Production deployment `dpl_GF1nYqzyYmxe8xUavTMs7zJEBQyj`, `https://sweetfun-ibvonnaxc-sweetfuns-projects.vercel.app`, is READY. The primary hostname was read back against this exact deployment. Cloud build completed in 18 seconds using Next.js 16.3.8, including TypeScript and the new order routes.
+- Preflight found that production had moved to analytics source `9eea2f4` on `codex/order-health-page`. That already-live code was merged before deployment, preserving its analysis dashboard, assistant and background worker. The shared navigation keeps both order search and order health. A regression check found that “明年房晚會增加嗎” fell into historical trend handling; it now retains forecast intent and explicitly declines to predict final demand. The updated test verifies snapshot-only numbers and empty-period caveats, and the analytics suite is included in CI.
+- Rollback target is the deployment that was live immediately before this release: `dpl_GbnEEnEXrEbgskSgFdXhA8z432hy`, `https://sweetfun-iq4650deb-sweetfuns-projects.vercel.app`. PR #26 remains draft; no PR merge was performed.
+- All **194 local checks** pass: 142 customer service/API/auth/data, 26 customer DOM and 26 order-health checks. TypeScript and changed-file lint pass; full lint has zero errors and six existing warnings. Hosted GitHub CI remains separate from these checks and has been blocked by the account billing lock.
+- All five existing schedules remain enabled and their project configuration points to the new deployment: customer calendars every five minutes; order health, manager, Sweetfun Sheet and OFFLAND Sheet every minute. This is schedule-binding readback, not a new claim of observed scheduled executions.
+- Browser access recovered during this release. The existing authenticated, clearly labelled synthetic workspace showed the new month calendar and order search, retained search in the URL, rendered the empty result and cleared criteria successfully. A requested 360px override produced an actual 400px CSS viewport in this browser; measured document width was 383px with no horizontal overflow. The viewport override was reset. Exact 360px, nonempty complete-order navigation, persistent write flows and physical phones remain pending owner acceptance.
+- Anonymous order-search, month-window, order-health and customer-calendar cron requests all returned 401. A bounded error-level log query for the new deployment returned no entries. No ongoing monitoring was created.
+- Existing production settings were used without changing credentials, storage namespaces or source bindings. No guest records, notes, tags, payments or workbooks were written during these post-release checks.
