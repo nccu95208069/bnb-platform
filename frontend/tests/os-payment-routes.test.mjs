@@ -20,7 +20,7 @@ function setup(t){
  const grid=values.map(row=>row.map(v=>({formattedValue:v,userEnteredValue:{stringValue:v}})));
  const normalized=normalizeRows(values,source),snapshot=adaptSheetBookings([HEADERS,...normalized.map(r=>r.cells)],source.sourceId,new Date().toISOString(),[],normalized.map(r=>r.sourceRow),source.property);
  const db=new Map([['sweetfun-os:owner-auth:v1:credential',JSON.stringify({schema:1,kind:'bootstrap',hash:process.env.CALENDAR_OWNER_CODE_HASH})],['sweetfun:sheet-monitor:v1:sweetfun-operations-sheet-v1:state','gz1:'+gzipSync(JSON.stringify(initialState(snapshot))).toString('base64')],[financeKey('sweetfun',2026),JSON.stringify({version:1,entries:[],operations:[],payment_accounts:[account]})]]);
- const state={db,grid,writes:0,loseResponse:false,rejectWrites:false,skipApply:false,scopes:[]};
+ const state={db,grid,writes:0,loseResponse:false,rejectWrites:false,skipApply:false,rejectReads:false,scopes:[]};
  t.mock.method(globalThis,'fetch',async(url,options={})=>{
   const u=String(url);
   if(u==='https://redis.invalid'){
@@ -45,6 +45,7 @@ function setup(t){
    if(!state.skipApply)for(const {updateCells:r} of JSON.parse(options.body).requests){const cell=grid[r.start.rowIndex][r.start.columnIndex];Object.assign(cell,r.rows[0].values[0]);if(r.fields.includes('userEnteredValue'))cell.formattedValue=cell.userEnteredValue.stringValue;}
    if(state.loseResponse){state.loseResponse=false;return Response.json({}, {status:503});}return Response.json({});
   }
+  if(state.rejectReads)return Response.json({}, {status:403});
   if(u.includes('/values/'))return Response.json({majorDimension:'ROWS',values:grid.map(r=>r.map(c=>c.formattedValue))});
   if(u.includes('includeGridData'))return Response.json({sheets:[{properties:{sheetId:source.sheetId},data:[{rowData:grid.map(values=>({values}))}]}]});
   return Response.json({properties:{timeZone:'Asia/Taipei'},sheets:[{properties:{sheetId:source.sheetId,title:source.sheetTitle,gridProperties:{rowCount:100,columnCount:38}}}]});
@@ -69,7 +70,7 @@ test('HTTP status-only confirmation updates all main rows and permits immediate 
 test('lost Sheet response leaves a durable pending receipt; refresh/retry verifies it without duplicate income or note',async t=>{
  const f=setup(t),check=await json(await GET(f.request()));f.loseResponse=true;const input=receiptInput(check);
  const failure=await json(await POST(f.request(input)),503);assert.equal(failure.code,'SHEET_SYNC_PENDING');const pending=await json(await GET(f.request()));assert.equal(pending.ledger.receipts[0].sheet_sync.state,'pending');
- await json(await POST(f.request(receiptInput(pending))),503);assert.equal((await readLedger('sweetfun',order)).ledger.receipts.length,1);
+ const blocked=await json(await POST(f.request(receiptInput(pending))),409);assert.equal(blocked.code,'ORDER_SYNC_PENDING');assert.equal((await readLedger('sweetfun',order)).ledger.receipts.length,1);
  await json(await POST(f.request({property_id:'sweetfun',order_id:order,action:'retry_sync',request_id:input.request_id})));assert.equal(f.writes,1);assert.equal(f.grid[1][7].note.split(input.request_id).length,2);assert.equal((await readLedger('sweetfun',order)).ledger.receipts[0].sheet_sync.state,'verified');
 });
 test('successful write response without matching readback remains pending and can be repaired',async t=>{
@@ -86,4 +87,41 @@ test('server-side connection probe checks write permission without touching cell
 test('connection probe surfaces missing Sheet permission without creating a pending payment',async t=>{
  const f=setup(t);f.rejectWrites=true;
  const result=await json(await POST(f.request({property_id:'sweetfun',action:'check_sheet_access'})),503);assert.equal(result.code,'SHEET_PAYMENT_PERMISSION');assert.equal((await readLedger('sweetfun',order)).ledger.receipts.length,0);
+});
+
+test('saved payment stays recoverable while the Sheet is unavailable or its order has changed',async t=>{
+ const f=setup(t),check=await json(await GET(f.request()));f.loseResponse=true;
+ const input=receiptInput(check);await json(await POST(f.request(input)),503);f.rejectReads=true;
+ await json(await GET(f.request(undefined,false)),401);
+ const unavailable=await json(await GET(f.request()));assert.equal(unavailable.total,undefined);assert.equal(unavailable.recovery.ledger.receipts[0].request_id,input.request_id);assert.equal(unavailable.recovery.ledger.receipts[0].sheet_sync.targets,undefined);
+ const blocked=await json(await POST(f.request(receiptInput(check))),409);assert.equal(blocked.code,'ORDER_SYNC_PENDING');
+ f.rejectReads=false;f.grid[1][6].formattedValue='2500';
+ const changed=await json(await GET(f.request()));assert.equal(changed.recovery.code,'SOURCE_CHANGED');assert.equal(changed.recovery.ledger.receipts.length,1);
+ f.grid[1][6].formattedValue='2000';await json(await POST(f.request({property_id:'sweetfun',order_id:order,action:'retry_sync',request_id:input.request_id})));
+ assert.equal(f.writes,1);assert.equal((await readLedger('sweetfun',order)).ledger.receipts.length,1);
+});
+test('a paid retry detects a manual reversal, records investigation and does not overwrite it',async t=>{
+ const f=setup(t),check=await json(await GET(f.request()));f.loseResponse=true;
+ const input=receiptInput(check,{status_only:true,amount:0,payment_type:'full',payment_method:'other',payment_account_id:undefined,settles_room:true});
+ await json(await POST(f.request(input)),503);
+ f.grid[1][7].formattedValue='not_yet';f.grid[1][7].userEnteredValue={stringValue:'not_yet'};
+ const failure=await json(await POST(f.request({property_id:'sweetfun',order_id:order,action:'retry_sync',request_id:input.request_id})),503);assert.equal(failure.code,'SHEET_SYNC_REVIEW_REQUIRED');
+ assert.equal(f.writes,1);assert.equal(f.grid[1][7].formattedValue,'not_yet');
+ const pending=await json(await GET(f.request()));assert.equal(pending.payment_status,'unknown');assert.equal(pending.ledger.receipts[0].sheet_sync.failure.requires_review,true);
+ assert.ok([...f.db.values()].filter(v=>typeof v==='string'&&v.startsWith('{')).map(v=>JSON.parse(v)).some(v=>v.status==='blocked'&&v.child?.reason==='SOURCE_CHANGED'));
+});
+test('other fee retry preserves a changed main Sheet payment flag',async t=>{
+ const f=setup(t);for(const row of f.grid.slice(1)){row[7].formattedValue='done';row[7].userEnteredValue={stringValue:'done'};}
+ const check=await json(await GET(f.request()));f.loseResponse=true;
+ const input=receiptInput(check,{payment_type:'other'});await json(await POST(f.request(input)),503);
+ f.grid[1][7].formattedValue='not_yet';f.grid[1][7].userEnteredValue={stringValue:'not_yet'};
+ await json(await POST(f.request({property_id:'sweetfun',order_id:order,action:'retry_sync',request_id:input.request_id})));
+ assert.equal(f.grid[1][7].formattedValue,'not_yet');assert.equal(f.writes,1);assert.equal((await readLedger('sweetfun',order)).ledger.receipts[0].sheet_sync.paid,false);
+});
+test('missing receipt account and an already full Sheet note fail before saving any payment',async t=>{
+ const f=setup(t),check=await json(await GET(f.request()));
+ const missing=await json(await POST(f.request(receiptInput(check,{payment_account_id:undefined}))),400);assert.equal(missing.code,'PAYMENT_ACCOUNT_REQUIRED');
+ f.grid[1][7].note='x'.repeat(45000);
+ const full=await json(await POST(f.request(receiptInput(check))),409);assert.equal(full.code,'SHEET_NOTE_FULL');
+ assert.equal((await readLedger('sweetfun',order)).ledger.receipts.length,0);assert.equal(f.writes,0);
 });

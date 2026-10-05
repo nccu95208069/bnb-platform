@@ -3,7 +3,7 @@ import {SWEETFUN_SOURCE,type SheetSourceDefinition} from './booking-sources/conf
 import {accessToken} from './sheet-monitor/google.ts';
 import {HEADERS,normalizeRows} from './sheet-monitor/reconcile.ts';
 import {adaptSheetBookings} from './booking-sources/sweetfun-sheet.ts';
-import {checkRows,type OrderCheck,type Receipt,type SheetSync} from './os-payments.ts';
+import {checkRows,shouldMarkSheetPaid,type OrderCheck,type Receipt,type SheetSync} from './os-payments.ts';
 import {redisCommand} from './workspace-auth/store.ts';
 
 type Cell={formattedValue?:string;userEnteredValue?:{stringValue?:string;numberValue?:number;boolValue?:boolean;formulaValue?:string};note?:string};
@@ -52,16 +52,19 @@ export function inspectPaymentGrid(grid:PaymentGrid,source:SheetSourceDefinition
   const targets=normalized.filter(r=>`SF-${opaque(`${source.sourceId}:order:${r.cells[11]||`ungrouped:${r.cells[9]}`}`)}`===order).map(r=>{
     const cell=grid.cells[r.sourceRow-1]?.[7]??{};
     if(cell.userEnteredValue?.formulaValue)throw new Error('SHEET_PAYMENT_FORMULA');
-    return {uid:String(r.cells[9]),fingerprint:hash(r.cells.filter((_,i)=>i!==7)),row:r.sourceRow,cell};
+    return {uid:String(r.cells[9]),fingerprint:hash(r.cells.filter((_,i)=>i!==7)),payment_flag:r.cells[7],row:r.sourceRow,cell};
   });
   if(!targets.length||targets.length!==check.nights||new Set(targets.map(r=>r.uid)).size!==targets.length)throw new Error('SOURCE_CONFLICT');
   return {check,targets};
 }
-export async function prepareSheetSync(source:SheetSourceDefinition,order:string,check:OrderCheck,paid:boolean):Promise<SheetSync>{
+export async function prepareSheetSync(source:SheetSourceDefinition,order:string,check:OrderCheck,receipt:Receipt):Promise<SheetSync>{
   const request=await client(source);
-  const current=inspectPaymentGrid(await readGrid(source,request),source,order);
+  const grid=await readGrid(source,request),current=inspectPaymentGrid(grid,source,order);
   if(current.check.source_version!==check.source_version)throw new Error('SOURCE_CHANGED');
-  return {state:'pending',paid,targets:current.targets.map(({uid,fingerprint})=>({uid,fingerprint}))};
+  const plan:SheetSync={state:'pending',paid:shouldMarkSheetPaid(check,receipt),targets:current.targets.map(({uid,fingerprint,payment_flag})=>({uid,fingerprint,payment_flag}))};
+  // Reject a known full/invalid note before committing a durable receipt.
+  sheetPaymentRequests(grid,source,order,{...receipt,sheet_sync:plan});
+  return plan;
 }
 const methodLabels:Record<string,string>={bank_transfer:'銀行轉帳',credit_card:'刷卡',cash:'現金',ota:'OTA 代收',other:'其他'};
 export function receiptSheetNote(receipt:Receipt){
@@ -80,6 +83,12 @@ export function sheetPaymentRequests(grid:PaymentGrid,source:SheetSourceDefiniti
   const requests=current.targets.flatMap(t=>{
     const old=t.cell.note??'';
     if(old.includes(marker)&&!old.includes(note))throw new Error('SOURCE_CONFLICT');
+    if(receipt.sheet_sync!.paid){
+      const prior=expected.find(e=>e.uid===t.uid)!;
+      // An existing receipt marker proves our earlier atomic batch reached this
+      // cell. A later reversal is a human/source correction, not a missing write.
+      if(old.includes(note)?t.payment_flag!=='done':prior.payment_flag!==undefined&&prior.payment_flag!==t.payment_flag)throw new Error('SOURCE_CHANGED');
+    }
     const nextNote=old.includes(note)?old:[old,note].filter(Boolean).join('\n\n');
     if(nextNote.length>45000)throw new Error('SHEET_NOTE_FULL');
     const needsPaid=receipt.sheet_sync!.paid&&t.cell.formattedValue!=='done'&&t.cell.userEnteredValue?.stringValue!=='done';
