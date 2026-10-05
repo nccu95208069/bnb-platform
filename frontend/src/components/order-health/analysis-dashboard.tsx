@@ -1,17 +1,18 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { nightLabel, type StayKind } from "@/lib/hospitality-mode";
 import type { Report } from "@/lib/order-health/types";
 import { analysisView, checkedFilter, formatNumber as num, taipeiDate } from "@/lib/order-health/analytics";
 import { momentumView, monthlyView, monthPeriod, pacingView, previousYearMonth, percentChange, type CohortSummary } from "@/lib/order-health/momentum";
 import { InteractiveBarChart, type BarPoint } from "./interactive-bar-chart";
+import { MonthNavigation } from "./month-navigation";
 import styles from "./health.module.css";
 
 type Metric = "orders" | "nights" | "amount" | "adr";
 const changeText = (value: number | null) => value === null ? "尚無可比數字" : `${value > 0 ? "↑" : value < 0 ? "↓" : "→"} ${num(Math.abs(value))}%`;
 const money = (value: number | null) => value === null ? "—" : `NT$ ${num(value)}`;
-const count = (s: Pick<CohortSummary, "orders" | "knownOrders">, ready = true) => !ready ? "—" : s.orders === null ? `至少 ${num(s.knownOrders)} 筆` : `${num(s.orders)} 筆`;
-const detail = (s: { orders: number | null; nights: number; amount: number | null; adr: number | null }, unit: string) => `${s.orders === null ? "訂單筆數未完整識別" : `${num(s.orders)} 筆訂單`} · ${num(s.nights)} ${unit} · 已知房費 ${money(s.amount)} · 每晚均價 ${money(s.adr)}`;
+const count = (s: Pick<CohortSummary, "orders" | "knownOrders">, ready = true) => !ready ? "—" : s.orders === null ? "筆數待確認" : `${num(s.orders)} 筆`;
+const detail = (s: { orders: number | null; nights: number | null; amount: number | null; adr: number | null }, unit: string) => `${s.orders === null ? "訂單筆數未完整識別" : `${num(s.orders)} 筆訂單`} · ${num(s.nights)} ${unit} · 已知房費 ${money(s.amount)} · 每晚均價 ${money(s.adr)}`;
 export function AnalysisDashboard({ report }: { report: Report }) {
   const [kind, setKind] = useState<StayKind>(() => checkedFilter(null, report).kind!);
   return <>
@@ -32,6 +33,11 @@ function DashboardPanel({ report: r, kind }: { report: Report; kind: StayKind })
   const [basis, setBasis] = useState<"stay" | "booked">("stay");
   const [month, setMonth] = useState(asOf.slice(0, 7));
   const [selectedChannel, setSelectedChannel] = useState("");
+  const selectedMonthCard = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const card = selectedMonthCard.current;
+    if (card?.parentElement) card.parentElement.scrollLeft = card.offsetLeft - (card.parentElement.clientWidth - card.clientWidth) / 2;
+  }, [month]);
   const scope = useMemo(() => ({ kind, channel: channel || undefined }), [kind, channel]);
   const m = useMemo(() => momentumView(r, scope), [r, scope]);
   const year = Number(month.slice(0, 4));
@@ -42,9 +48,8 @@ function DashboardPanel({ report: r, kind }: { report: Report; kind: StayKind })
   const metricLabels = { orders: "訂單數", nights: unit, amount: "已知房費", adr: "每晚均價" };
   const dailyMetric = metric === "orders" && !m.countable ? "nights" : metric;
   const selectedMetric = basis === "stay" && dailyMetric === "orders" ? "nights" : dailyMetric;
-  const points = (rows: { date: string; orders: number | null; nights: number; amount: number | null; adr: number | null }[], key: Metric): BarPoint[] => rows.map((p) => ({ key: p.date, label: p.date.slice(5).replace("-", "/"), value: p[key], detail: detail(p, unit) }));
+  const points = (rows: { date: string; orders: number | null; nights: number | null; amount: number | null; adr: number | null; future?: boolean }[], key: Metric): BarPoint[] => rows.map((p) => ({ key: p.date, label: p.date.slice(5).replace("-", "/"), value: p[key], detail: p.future ? "快照日之後，尚未到下訂日期。" : detail(p, unit) }));
   const pickedChannel = m.channels.find((c) => c.channel === selectedChannel);
-  const years = [...new Set([year, Number(asOf.slice(0, 4)) - 1, Number(asOf.slice(0, 4)), Number(asOf.slice(0, 4)) + 1, ...r.monthly.map((x) => Number(x.month.slice(0, 4)))])].sort((a, b) => a - b);
   return <>
     <div className={styles.reportHead}><div><strong>{villa ? "包棟經營報告" : "散客經營報告"}</strong><p className={styles.small}>來源：{r.sourceTitle} · 匯入 {new Date(r.createdAt).toLocaleString("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}<br />資料快照截至 {asOf}；來源更新時間未知。</p></div><span className={styles.badge}>依你的訂單分析</span></div>
     {asOf < today && <p className={styles.notice}>這份快照截至 {asOf}；以下「今天」及近 7 天均以快照日為準。用上方「更新資料」納入後續訂房。</p>}
@@ -81,11 +86,34 @@ function DashboardPanel({ report: r, kind }: { report: Report; kind: StayKind })
         <p className={styles.small}>均價採用正金額房費與對應{unit}；近 7 天金額覆蓋 {num(m.recent.coverage)}%。房型、方案、平假日及住宿長短改變都會影響均價；開始住宿日分組未另分類國定假日。</p>
       </section>
     </>}
-    {r.analysis && <section className={styles.card}><div className={styles.cardHeading}><div><p className={styles.eyebrow}>每月表現</p><h2>每個月，有多少訂單與房費</h2></div><label>年份 <select value={year} onChange={(e) => setMonth(`${e.target.value}${month.slice(4)}`)}>{years.map((y) => <option key={y}>{y}</option>)}</select></label></div>
+    {r.analysis && <section className={styles.card}><div className={styles.cardHeading}><div><p className={styles.eyebrow}>每月表現</p><h2>每個月，有多少訂單與房費</h2></div><MonthNavigation month={month} currentMonth={asOf.slice(0, 7)} onChange={setMonth} label="月份卡片切換" /></div>
       <div className={styles.metricSwitch}><button aria-pressed={basis === "stay"} onClick={() => setBasis("stay")}>按住宿月份</button><button aria-pressed={basis === "booked"} disabled={!m.available} onClick={() => setBasis("booked")}>按下訂月份</button></div>
       <p className={styles.small}>{basis === "stay" ? "入住跨月的訂單，在有住宿的月份各計一次；房費按晚分攤，月份筆數不可直接相加。" : "每筆訂單歸入下訂月份，金額是該筆全部已知房費；只納入有下訂日期的紀錄。"} ← 左右滑動 →</p>
-      <div className={styles.monthCards}>{months.map((s) => { const prior = monthlyView(r, scope, previousYearMonth(s.month), basis); return <button key={s.month} className={styles.monthCard} ref={(el) => { if (el && month === s.month && el.parentElement) el.parentElement.scrollLeft = el.offsetLeft - (el.parentElement.clientWidth - el.clientWidth) / 2; }} aria-pressed={month === s.month} onClick={() => setMonth(s.month)}><span>{s.month.replace("-", "/")} 月</span><strong>{count(s, ready)}</strong><small>{basis === "stay" ? "本月有住宿的訂單" : "本月新訂、目前有效"}</small><b>{money(s.amount)}</b><small>已知房費 · {num(s.nights)} {unit}</small><hr /><small>{prior.observed ? `去年同月可見 ${count(prior)}` : "去年同月未見紀錄"}</small><small>{s.observed ? `金額覆蓋 ${num(s.coverage)}%` : "本次資料未見紀錄"}</small></button>; })}</div>
-      <div className={styles.monthDetail}><h3>{month.replace("-", "/")} · {basis === "stay" ? "每日住宿表現" : "每日接單表現"}</h3><div className={styles.metricSwitch}>{([...(basis === "booked" && m.countable ? ["orders"] : []), "nights", "amount", "adr"] as Metric[]).map((key) => <button key={key} aria-pressed={selectedMetric === key} onClick={() => setMetric(key)}>{metricLabels[key]}</button>)}</div><InteractiveBarChart points={points(selected.daily, selectedMetric)} label={metricLabels[selectedMetric]} /></div>
+      {ready && m.all.unidentifiedRows > 0 && <p className={styles.notice}>部分住宿明細無法合併成完整訂單，卡片改以{unit}顯示，訂單筆數標示待確認。房費與晚數仍按有效住宿明細加總；需有同一訂單共用的編號，才能核對完整筆數。</p>}
+      <div className={styles.monthCards}>{months.map((s) => {
+        const prior = monthlyView(r, scope, previousYearMonth(s.month), basis);
+        const countKnown = ready && s.orders !== null;
+        const primary = s.future ? "尚未到來" : countKnown ? count(s) : `${num(s.nights)} ${villa ? "晚" : "房晚"}`;
+        const caption = s.future ? "尚未到下訂月份" : countKnown ? basis === "stay" ? "本月有住宿的訂單" : "本月新訂、目前有效" : villa ? "已訂包棟晚數" : "已訂房晚";
+        return <button key={s.month} className={styles.monthCard} ref={month === s.month ? selectedMonthCard : undefined} aria-pressed={month === s.month} onClick={() => setMonth(s.month)}>
+          <span>{s.month.replace("-", "/")} 月</span><strong>{primary}</strong><small>{caption}</small>
+          {!s.future && !countKnown && <small className={styles.countPending}>{s.knownOrders > 0 ? `已識別 ${num(s.knownOrders)} 筆，完整筆數待確認` : "訂單筆數待確認"}</small>}
+          <b>{money(s.amount)}</b><small>{s.future ? "尚無本月下訂資料" : `已知房費 · ${num(s.nights)} ${unit}`}</small><hr />
+          <small>{prior.observed ? prior.orders === null ? `去年同月可見 ${num(prior.nights)} ${unit}；筆數待確認` : `去年同月可見 ${count(prior)}` : "去年同月未見紀錄"}</small>
+          <small>{s.observed ? `已納入晚數的房費填寫率 ${num(s.coverage)}%` : s.future ? "以快照日為準" : "本次資料未見紀錄"}</small>
+        </button>;
+      })}</div>
+      <div className={styles.monthDetail}>
+        <div className={styles.cardHeading}><h3>{month.replace("-", "/")} · {basis === "stay" ? "每日住宿表現" : "每日接單表現"}</h3><MonthNavigation month={month} currentMonth={asOf.slice(0, 7)} onChange={setMonth} label="每日圖表月份切換" /></div>
+        <div className={styles.metricSwitch}>{([...(basis === "booked" && m.countable ? ["orders"] : []), "nights", "amount", "adr"] as Metric[]).map((key) => <button key={key} aria-pressed={selectedMetric === key} onClick={() => setMetric(key)}>{metricLabels[key]}</button>)}</div>
+        <p className={styles.small}>用上個月／下個月跨月查看，或直接選月份。橫向捲動查看本月日期。{basis === "booked" && "快照日之後的日期留白，不當成零筆接單。"}</p>
+        <InteractiveBarChart key={`${month}:${basis}`} points={points(selected.daily, selectedMetric)} label={metricLabels[selectedMetric]} />
+        <details><summary>核對本月數字與來源</summary>
+          <p>{selected.future ? "尚未到下訂月份，沒有可核對的本期接單資料。" : `${month} · ${basis === "stay" ? "住宿日期" : "下訂日期"} · ${num(selected.nights)} ${unit} · 已知房費 ${money(selected.amount)}。`}</p>
+          <p>{selected.orders === null ? `完整訂單筆數待確認${selected.knownOrders > 0 ? `，已識別 ${num(selected.knownOrders)} 筆` : ""}。` : `本次資料可識別 ${num(selected.orders)} 筆訂單。`}房費填寫率只表示已納入的住宿晚數有金額，不代表所有訂單都已匯入。</p>
+          <p className={styles.references}>{selected.refs.join("、") || "此月份未見有效來源列。"}</p>
+        </details>
+      </div>
       {ready && basis === "stay" && <div className={styles.monthDetail}><p className={styles.eyebrow}>這個月份，訂房累積到哪裡</p><h3>{pace.title}</h3><p>截至 {pace.cutoff} 可見 {num(pace.current.nights)} {unit}；去年相同提前天數 {pace.previousExists ? num(pace.previous.nights) : "—"} {unit}。{changeText(pace.change)}</p><InteractiveBarChart label={unit} comparison="去年相同提前天數" points={pace.points.map((p) => ({ key: p.date, label: p.label, value: p.value, secondary: p.previous, detail: `本期截止日 ${p.date}` }))} /><p className={styles.notice}>依目前仍保留的有效訂單與下訂日回推，並非去年當時的歷史快照；無法還原已取消、改期或移除的訂單。{!pace.dateComplete && "兩期資料或下訂日期不完整，暫不判定超前或落後。"}</p></div>}
     </section>}
     {r.analysis && <details className={styles.card}><summary>{month.replace("-", "/")} 住宿分布與預訂習慣</summary>

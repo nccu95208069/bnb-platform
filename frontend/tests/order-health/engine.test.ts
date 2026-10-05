@@ -265,6 +265,7 @@ const scope: Scope = {
   property: "p1",
   actor: "a1",
   name: "測試旅宿",
+  receptionKind: "rooms",
   canWrite: true,
 };
 test("persistent workflow survives refresh, idempotency and parallel workers", async () => {
@@ -459,21 +460,19 @@ test("actual customer sessions enforce active role, workspace and property scope
   );
 });
 
-test("fallback chat answers requested period and rejects unsupported predictions", async () => {
+test("legacy fallback helper distinguishes observed metrics from forecasts", async () => {
   const { chat } = await import("../../src/lib/order-health/chat.ts");
   const r = analyze(job([row()]));
   const answer = await chat(r, "2026-02 有多少房晚？", "overview");
   assert.equal(answer.facts.length, 1);
   assert.equal(answer.facts[0].value, 1);
   assert.ok(answer.facts[0].refs.length);
-  assert.equal(
-    (await chat(r, "明年房晚會增加嗎？", "overview")).facts.length,
-    0,
-  );
-  assert.equal(
-    (await chat(r, "2026-03 有多少房晚？", "overview")).facts.length,
-    0,
-  );
+  const forecast = await chat(r, "預測明年房晚", "overview");
+  assert.equal(forecast.intent, "forecast");
+  assert.match(forecast.answer, /不能當作最終需求預測/);
+  const empty = await chat(r, "2026-03 有多少房晚？", "overview");
+  assert.equal(empty.facts[0].value, 0);
+  assert.equal(empty.facts[0].refs.length, 0);
 });
 test("Google reader uses read-only scope and rejects revoked sharing", async () => {
   const { generateKeyPairSync } = await import("node:crypto");
