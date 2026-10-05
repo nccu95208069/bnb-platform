@@ -7,19 +7,15 @@ import {
   answer,
   start,
   run,
-  reportFor,
   removeSource,
   configured,
   revise,
-  chatHistory,
-  saveChat,
   retryConnection,
   suggest,
   setReception,
 } from "@/lib/order-health/service";
 import { parseFile, MAX_BYTES } from "@/lib/order-health/parser";
 import { readerEmail } from "@/lib/order-health/google";
-import { chat } from "@/lib/order-health/chat";
 import { messageFor, messages } from "@/lib/order-health/messages";
 import { spreadsheetId } from "@/lib/customer-workspaces/customer-google";
 export const runtime = "nodejs";
@@ -62,12 +58,7 @@ async function scope(r: NextRequest) {
 export async function GET(request: NextRequest) {
   try {
     const s = await scope(request);
-    const chatId = request.nextUrl.searchParams.get("chat");
-    if (chatId)
-      return NextResponse.json(
-        { history: await chatHistory(store, s, chatId) },
-        { headers },
-      );
+    if (request.nextUrl.searchParams.has("chat")) throw Error("HEALTH_CHAT_DISABLED");
     const state = await status(
       store,
       s,
@@ -173,25 +164,7 @@ export async function POST(request: NextRequest) {
       else if (input.action === "revise")
         job = await revise(store, s, input.id, input.requestId);
       else if (input.action === "chat") {
-        await store.limit(`health-chat:${s.actor}`, 20);
-        const result = await chat(
-          await reportFor(store, s, input.id),
-          input.message,
-          input.chart,
-          input.filter,
-          await chatHistory(store, s, input.id),
-        );
-        await saveChat(store, s, input.id, {
-          question: input.message,
-          answer: result.answer,
-          facts: result.facts,
-          snapshot: result.snapshot,
-          mode: result.mode,
-          context: result.context,
-          intent: result.intent,
-          createdAt: new Date().toISOString(),
-        });
-        return NextResponse.json(result, { headers });
+        throw Error("HEALTH_CHAT_DISABLED");
       } else if (input.action === "delete-source") {
         await removeSource(store, s, input.id);
         return NextResponse.json({ deleted: true }, { headers });

@@ -1,5 +1,6 @@
 import { analysisCopy, sourceStayKind, type StayKind } from "../hospitality-mode.ts";
 import { createHash } from "node:crypto";
+import { buildBookingCohorts } from "./momentum.ts";
 import { buildAnalysis, taipeiDate } from "./analytics.ts";
 import type {
   Answers,
@@ -623,7 +624,7 @@ export function analyze(
     id: job.id,
     receptionKind: reception,
     uncertainDates: [...uncertainDates].sort(),
-    snapshot: hash({ version: 3, reception, source: job.sourceHash, answers: a }),
+    snapshot: hash({ version: 4, reception, source: job.sourceHash, answers: a }),
     createdAt: now.toISOString(),
     sourceTitle: job.sourceTitle,
     from,
@@ -661,7 +662,7 @@ export function analyze(
     includedRows: refs.length,
     excluded,
     unknownAmountNights,
-    analysis: buildAnalysis(expanded, safe, a, excluded, taipeiDate(now), reception),
+    analysis: { ...buildAnalysis(expanded, safe, a, excluded, taipeiDate(now), reception), momentumVersion: 1, cohorts: buildBookingCohorts(safe, a, taipeiDate(now)) },
     limitations: [...limitations].map((s) => analysisCopy(s, reception)),
     facts: (reception === "mixed" ? facts.filter((f) => f.id === "amount" || f.id.endsWith("-amount")) : facts).map((f) => ({ ...f, label: analysisCopy(f.label, reception), unit: analysisCopy(f.unit, reception), basis: analysisCopy(f.basis, reception) })),
     insights: reception === "mixed" ? [{ title: "兩種接客形式分開查看", body: "包棟晚數與散客房晚使用不同單位，請分別查看表現。", factIds: [] }] : [

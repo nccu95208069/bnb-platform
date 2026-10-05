@@ -1,5 +1,7 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
+Latest order-report decision: [booking momentum and interactive charts](ORDER_MOMENTUM_2026-10-05.md) supersedes report chat. Implemented and production build completed; exact release authorization and browser acceptance remain pending.
+
 ## Calendar onboarding implementation and acceptance
 
 [Live acceptance](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md) now verifies real Google consent, preview/save, refresh, revocation/reconnect, ICS/ZIP, email-link return and two manually invoked production worker executions in the approved synthetic scope. The [configuration guide](CALENDAR_GOOGLE_SETUP_2026-10-04.md) remains the runbook. The later [owner pilot release](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md#primary-domain-owner-pilot) promotes the primary domain, enables explicitly opted-in synchronization and verifies two actual platform cron deliveries. Real-device and broader live-data acceptance remain open.

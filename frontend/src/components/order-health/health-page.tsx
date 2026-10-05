@@ -673,8 +673,6 @@ export function HealthPage({
           <AnalysisDashboard
             key={report.snapshot}
             report={report}
-            endpoint={endpoint}
-            canWrite={state?.canWrite ?? false}
           />
           {state?.canWrite && job?.state === "complete" && (
             <button

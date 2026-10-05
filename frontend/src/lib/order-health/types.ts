@@ -75,7 +75,27 @@ export type AnalysisCell = {
   lead: number[];
   refs: string[];
 };
+export type BookingCohort = {
+  kind: StayKind;
+  channel: string;
+  booked: string | null;
+  /** Exclusive checkout; anonymous cohorts, no original order identifiers. */
+  stays: { from: string; to: string }[];
+  nightSpans: { from: string; to: string; count: number }[];
+  orders: number | null;
+  nights: number;
+  amount: number;
+  knownNights: number;
+  pricedNights: number;
+  fullPriceOrders: number;
+  fullPriceAmount: number;
+  fullStayOrders: number;
+  fullStayNights: number;
+  refs: string[];
+};
 export type Analysis = {
+  momentumVersion?: 1;
+  cohorts?: BookingCohort[];
   version: 2;
   receptionKind?: ReceptionKind;
   asOf: string;

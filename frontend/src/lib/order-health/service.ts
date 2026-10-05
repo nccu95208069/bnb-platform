@@ -351,9 +351,9 @@ export async function status(store: CustomerStore, s: Scope, id?: string) {
     try {
       const entry = await load(store, s, active);
       job = entry.value;
-      if (s.canWrite && job.receptionKind && job.state === "complete" && job.report && !job.report.analysis) {
+      if (s.canWrite && job.receptionKind && job.state === "complete" && job.report && job.report.analysis?.momentumVersion !== 1) {
         try {
-          const upgraded = analyze({ ...job, id: digest([job.id, "analytics-v2", job.report.snapshot]).slice(0, 32) }, new Date(job.report.createdAt));
+          const upgraded = analyze({ ...job, id: digest([job.id, "momentum-v1", job.report.snapshot]).slice(0, 32) }, new Date(job.report.createdAt));
           if (upgraded.nights !== job.report.nights || upgraded.amount !== job.report.amount || upgraded.adr !== job.report.adr)
             throw Error("HEALTH_UPGRADE_MISMATCH");
           const nextJob = { ...job, report: upgraded, version: job.version + 1 };
