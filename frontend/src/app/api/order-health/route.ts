@@ -15,6 +15,7 @@ import {
   saveChat,
   retryConnection,
   suggest,
+  setReception,
 } from "@/lib/order-health/service";
 import { parseFile, MAX_BYTES } from "@/lib/order-health/parser";
 import { readerEmail } from "@/lib/order-health/google";
@@ -146,6 +147,11 @@ export async function POST(request: NextRequest) {
       });
     } else {
       const input = JSON.parse(body.toString());
+      if (input.action === "reception") {
+        const result = await setReception(store, s, input.kind, input.expected, input.requestId);
+        if (result.job && ["checking_access", "reading"].includes(result.job.state)) after(async () => { await run(store, s, result.job!.id); await run(store, s, result.job!.id); });
+        return NextResponse.json({ ...await status(store, s), canWrite: s.canWrite, configured: configured(), readerEmail: readerEmail() }, { headers });
+      }
       if (input.action === "sheet") {
         if (typeof input.url !== "string" || input.url.length > 500)
           throw Error("INVALID_INPUT");

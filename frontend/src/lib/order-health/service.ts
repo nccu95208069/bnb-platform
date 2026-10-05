@@ -6,6 +6,7 @@ import {
 } from "node:crypto";
 import type { Change, CustomerStore } from "../customer-workspaces/store.ts";
 import type { Job, Scope, Table, Answers, Report, Field } from "./types.ts";
+import { isReceptionKind, type ReceptionKind } from "../hospitality-mode.ts";
 import { questions, analyze } from "./engine.ts";
 import { presentQuestion } from "./question-copy.ts";
 import { recommend, recommendationEvidence, type Recommendation } from "./recommend.ts";
@@ -102,6 +103,8 @@ export function publicJob(job: Job) {
         includedRows: r.includedRows,
         excluded: r.excluded.length,
         nights: r.nights,
+        villaNights: r.analysis?.cells.filter((c) => c.kind === "villa").reduce((n, c) => n + c.nights, 0) ?? 0,
+        roomNights: r.analysis?.cells.filter((c) => c.kind === "rooms").reduce((n, c) => n + c.nights, 0) ?? 0,
         money: r.amount !== null,
       };
     } catch (e) {
@@ -116,6 +119,7 @@ export function publicJob(job: Job) {
   }
   return {
     preview,
+    receptionKind: job.receptionKind,
     id: job.id,
     state: job.state,
     version: job.version,
@@ -128,7 +132,7 @@ export function publicJob(job: Job) {
     sheetUrl: job.sourceKind === "sheet" && "sourceUrl" in job && typeof job.sourceUrl === "string"
       ? `https://docs.google.com/spreadsheets/d/${spreadsheetId(job.sourceUrl)}/edit`
       : null,
-    questions: job.questions.map(presentQuestion),
+    questions: job.questions.map((q) => presentQuestion(q, job.receptionKind, job.answers.unit)),
     answers: job.answers,
     error: job.error,
     report: job.report,
@@ -147,6 +151,7 @@ export function publicJob(job: Job) {
             "roomCount",
             "amount",
             "status",
+            "stayKind",
           ] as Field[]
         )
           .filter((f) => t.mapping[f] !== undefined)
@@ -157,6 +162,43 @@ export function publicJob(job: Job) {
       })),
     })),
   };
+}
+type ReceptionSetting = { kind: ReceptionKind; actor: string; updatedAt: string };
+export async function receptionFor(store: CustomerStore, s: Scope): Promise<ReceptionKind | null> {
+  return (await read<ReceptionSetting>(store, `${root(s)}:reception`)).value?.kind ?? s.receptionKind ?? null;
+}
+// Mode is a property setting; source representation remains a separate explicit answer.
+// Existing completed reports stay immutable. Reclassification creates a fresh job.
+export async function setReception(store: CustomerStore, s: Scope, kind: unknown, expected: unknown, requestId: unknown) {
+  if (!s.canWrite) throw Error("FORBIDDEN");
+  if (!isReceptionKind(kind) || typeof requestId !== "string" || !/^[\w-]{16,80}$/.test(requestId)) throw Error("INVALID_INPUT");
+  const k = `${root(s)}:reception`, current = await read<ReceptionSetting>(store, k);
+  const priorKind = current.value?.kind ?? s.receptionKind ?? null;
+  if (expected !== priorKind) throw Error("VERSION_CONFLICT");
+  const active = await read<{ id: string }>(store, `${root(s)}:active`);
+  let previous: (Job & { sourceUrl?: string }) | null = null;
+  if (active.value) try { previous = (await load(store, s, active.value.id)).value; } catch { /* Raw source may have expired; keep previous report. */ }
+  if (previous?.leaseUntil && previous.leaseUntil > Date.now()) throw Error("VERSION_CONFLICT");
+  const setting = { kind, actor: s.actor, updatedAt: new Date().toISOString() };
+  const changes: Change[] = [{ key: k, before: current.raw, after: seal(setting) }];
+  let next: typeof previous = null;
+  if (previous && previous.receptionKind !== kind) {
+    const id = digest([s.actor, requestId]).slice(0, 32);
+    const existing = await read<Job>(store, jobKey(s, id));
+    if (existing.value) throw Error("IDEMPOTENCY_CONFLICT");
+    const answers = { ...previous.answers }; delete answers.unit; delete answers.money;
+    next = { ...previous, id, receptionKind: kind, answers, questions: [], report: null, error: null,
+      version: 1, leaseUntil: 0, attempts: 0, createdAt: new Date().toISOString(), requestHash: digest([previous.id, kind, requestId]),
+      state: previous.tables.length ? "confirm" : previous.sourceKind === "sheet" ? "checking_access" : "reading" };
+    if (next.state === "checking_access") next.connection = { status: "checking", checkedAt: null, nextCheckAt: 0, retryUntil: Date.now() + 15 * 60000, checks: 0 };
+    if (next.tables.length) next.questions = questions(next);
+    const ttl = Math.max(1, Math.ceil((Date.parse(next.expiresAt) - Date.now()) / 1000));
+    changes.push({ key: jobKey(s, id), before: null, after: seal(next), ttlSeconds: ttl },
+      { key: `${root(s)}:active`, before: active.raw, after: seal({ id }), ttlSeconds: ttl }, await queueChange(store, s, next));
+  }
+  await store.commit(changes);
+  if (await receptionFor(store, s) !== kind || (next && (await read<{ id: string }>(store, `${root(s)}:active`)).value?.id !== next.id)) throw Error("VERSION_CONFLICT");
+  return { receptionKind: kind, job: next ? publicJob((await load(store, s, next.id)).value) : null };
 }
 export async function createJob(
   store: CustomerStore,
@@ -175,6 +217,8 @@ export async function createJob(
     return publicJob(prior.value);
   }
   await store.limit(`health-create:${s.workspace}:${s.actor}`, 12);
+  const receptionKind = await receptionFor(store, s);
+  if (!receptionKind) throw Error("HEALTH_RECEPTION");
   const now = new Date(),
     job: Job & { sourceUrl?: string } = {
       id,
@@ -182,6 +226,7 @@ export async function createJob(
       property: s.property,
       actor: s.actor,
       propertyName: s.name,
+      receptionKind,
       createdAt: now.toISOString(),
       expiresAt: new Date(+now + 86400000).toISOString(),
       version: 1,
@@ -306,7 +351,7 @@ export async function status(store: CustomerStore, s: Scope, id?: string) {
     try {
       const entry = await load(store, s, active);
       job = entry.value;
-      if (s.canWrite && job.state === "complete" && job.report && !job.report.analysis) {
+      if (s.canWrite && job.receptionKind && job.state === "complete" && job.report && !job.report.analysis) {
         try {
           const upgraded = analyze({ ...job, id: digest([job.id, "analytics-v2", job.report.snapshot]).slice(0, 32) }, new Date(job.report.createdAt));
           if (upgraded.nights !== job.report.nights || upgraded.amount !== job.report.amount || upgraded.adr !== job.report.adr)
@@ -334,7 +379,7 @@ export async function status(store: CustomerStore, s: Scope, id?: string) {
       if (id) throw e;
     }
   }
-  return { job: job ? publicJob(job) : null, latest };
+  return { job: job ? publicJob(job) : null, latest, receptionKind: await receptionFor(store, s) };
 }
 export async function suggest(store: CustomerStore, s: Scope, id: string, questionId: string) {
   if (!s.canWrite) throw Error("FORBIDDEN");
@@ -397,6 +442,7 @@ export async function answer(
   // Changing the table after questions were issued would invalidate their meanings. Start a new import instead.
   if (job.answers.table && answers.table && answers.table !== job.answers.table)
     throw Error("HEALTH_TABLE_LOCKED");
+  if (answers.unit && answers.unit !== job.answers.unit) delete job.answers.money;
   job.answers = { ...job.answers, ...answers };
   job.questions = questions(job);
   if (job.questions.length > 5) throw Error("HEALTH_QUESTIONS");
@@ -416,6 +462,7 @@ export async function start(
 ) {
   if (!s.canWrite) throw Error("FORBIDDEN");
   const { value: job, raw } = await load(store, s, id);
+  if (job.receptionKind !== await receptionFor(store, s)) throw Error("HEALTH_RECEPTION");
   if (["analyzing", "complete"].includes(job.state)) return publicJob(job);
   if (job.state !== "ready" || job.version !== version)
     throw Error("VERSION_CONFLICT");
@@ -586,10 +633,11 @@ export async function revise(
   });
   const current = await load(store, s, created.id);
   if (current.value.state !== "reading") return publicJob(current.value);
-  current.value.questions = previous.questions;
   current.value.answers = { ...previous.answers };
+  if (current.value.receptionKind !== previous.receptionKind) { delete current.value.answers.unit; delete current.value.answers.money; }
+  current.value.questions = questions({ ...current.value, questions: [] });
   current.value.mappingMode = previous.mappingMode;
-  current.value.state = "ready";
+  current.value.state = current.value.questions.every((q) => current.value.answers[q.id]) ? "ready" : "confirm";
   current.value.version++;
   await save(store, s, current.value, current.raw);
   return publicJob(current.value);

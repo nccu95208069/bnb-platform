@@ -683,3 +683,18 @@
     max-width: 160px;
   }
 }
+
+.receptionSummary { display: flex; align-items: center; gap: 16px; margin: 0 0 24px; color: #536b5d; font-size: 14px; }
+.receptionTabs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+.receptionTabs button { border: 1px solid #cbdcd0; border-radius: 12px; padding: 10px 18px; background: white; color: #42624f; cursor: pointer; }
+.receptionTabs button[aria-pressed="true"] { color: white; background: #37775d; }
+.villaCalendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 7px; margin: 18px 0; }
+.villaDay { text-align: center; border: 1px solid #dce4de; border-radius: 9px; padding: 10px 2px; font-size: 12px; color: #69796e; background: #fafbf9; }
+.villaDay[data-state="booked"] { background: #e3efe7; color: #28583e; border-color: #a8c3b0; }
+.villaDay[data-state="rooms"], .villaDay[data-state="review"] { background: #fff4df; color: #805f26; }
+.villaDay strong, .villaDay span { display: block; }
+.villaDay small { display: block; margin-bottom: 5px; }
+.villaSectionTitle { font-size: 22px; margin: 28px 0 16px; color: #2b513c; }
+
+.analysisDetail { margin: 24px 0; }
+.analysisDetail > summary { cursor: pointer; padding: 18px 0; font-weight: 600; color: #42624f; }

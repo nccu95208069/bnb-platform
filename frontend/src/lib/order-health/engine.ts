@@ -1,3 +1,4 @@
+import { analysisCopy, sourceStayKind, type StayKind } from "../hospitality-mode.ts";
 import { createHash } from "node:crypto";
 import { buildAnalysis, taipeiDate } from "./analytics.ts";
 import type {
@@ -58,7 +59,7 @@ export function selectedTables(job: Pick<Job, "tables" | "answers">): Table[] {
   return job.tables.filter((t) => t.id === key);
 }
 export function questions(
-  job: Pick<Job, "tables" | "answers" | "questions">,
+  job: Pick<Job, "tables" | "answers" | "questions" | "receptionKind">,
 ): Question[] {
   const previous = [...job.questions];
   const add = (q: Question) => {
@@ -103,8 +104,16 @@ export function questions(
     question(
       "unit",
       "每一列代表什麼？",
-      "無法確認時，不推算房晚。包棟與混合庫存目前需先整理為房間住宿明細。",
-      [
+      "依接客形式與每列記法計算；不確定時先核對資料。",
+      job.receptionKind === "villa" ? [
+        ["stay", "A. 一筆包棟一列：9/1 入住、9/3 退房"],
+        ["night", "B. 包棟每晚一列：9/1 一列、9/2 一列"],
+        ["split", "C. 同筆包棟按房間拆列（有共同訂單編號）"],
+      ] : job.receptionKind === "mixed" ? [
+        ["stay", "A. 包棟一筆一列；散客每間房一列"],
+        ["night", "B. 包棟或散客房間，都是每晚一列"],
+        ["multi", "C. 每筆訂單一列；散客有訂房間數"],
+      ] : [
         ["stay", "一間房的一段住宿"],
         ["night", "一間房的一晚"],
         ["multi", "多間房的一筆訂單（有房數欄）"],
@@ -203,20 +212,30 @@ function amountValue(v: string): number | null {
   return Number.isFinite(n) && n <= 100000000 ? n : null;
 }
 export function analyze(
-  job: Pick<Job, "id" | "sourceHash" | "sourceTitle" | "tables" | "answers">,
+  job: Pick<Job, "id" | "sourceHash" | "sourceTitle" | "tables" | "answers" | "receptionKind">,
   now = new Date(),
 ): Report {
   const tables = selectedTables(job),
     a: Answers = job.answers;
-  if (tables.length !== 1 || !["stay", "night", "multi"].includes(a.unit))
+  if (tables.length !== 1 || !["stay", "night", "multi", ...(job.receptionKind === "villa" ? ["split"] : [])].includes(a.unit))
     throw Error("HEALTH_UNIT");
   const t = tables[0];
+  const reception = job.receptionKind ?? "rooms";
+  if (reception === "mixed" && t.mapping.stayKind === undefined) throw Error("HEALTH_MIXED_KIND");
+  if (a.unit === "split" && (t.mapping.orderId === undefined || t.mapping.room === undefined)) throw Error("HEALTH_VILLA_SPLIT");
   if (t.mapping.checkIn === undefined) throw Error("HEALTH_DATES");
   if (t.mapping.status === undefined && a.active !== "yes")
     throw Error("HEALTH_STATUS");
   const excluded: Report["excluded"] = [],
     limitations = new Set<string>();
-  const segments: {
+  const uncertainDates = new Set<string>();
+  const markUncertain = (start: string | null, end: string | null) => {
+    if (!start || !end || end <= start || (Date.parse(end) - Date.parse(start)) / day > 366) return;
+    for (let time = Date.parse(start); time < Date.parse(end); time += day) uncertainDates.add(new Date(time).toISOString().slice(0, 10));
+  };
+  let segments: {
+    kind: StayKind;
+    refs: string[];
     ref: string;
     id: string;
     start: string;
@@ -240,7 +259,14 @@ export function analyze(
   for (const row of t.rows) {
     const ref = `${row.source ?? t.title}!${row.row}`,
       get = (f: Field) => value(t, row, f),
-      reject = (reason: string) => excluded.push({ ref, reason });
+      reject = (reason: string) => {
+        excluded.push({ ref, reason });
+        if (reason === "取消或作廢" || reason === "非選定館別或館別未知") return;
+        const start = dateValue(get("checkIn"), a.date);
+        const length = a.unit === "night" ? 1 : Number(get("nights"));
+        const end = dateValue(get("checkOut"), a.date) ?? (start && Number.isInteger(length) && length > 0 && length <= 366 ? new Date(Date.parse(start) + length * day).toISOString().slice(0, 10) : null);
+        markUncertain(start, end);
+      };
     if (
       t.mapping.property !== undefined &&
       (!a.property || a.property === "skip" || get("property") !== a.property)
@@ -308,35 +334,59 @@ export function analyze(
       reject("住宿晚數缺漏或日期互相衝突");
       continue;
     }
+    const tagged = sourceStayKind(get("stayKind"));
+    const kind = reception === "mixed" ? tagged : reception;
+    if (!kind || (get("stayKind") && tagged !== kind)) {
+      reject("接客形式不明或與旅宿設定不符"); continue;
+    }
     const rawCount = get("roomCount"),
-      count = a.unit === "multi" ? Number(rawCount) : 1;
+      count = kind === "villa" ? 1 : a.unit === "multi" ? Number(rawCount) : 1;
     if (
       !Number.isInteger(count) ||
       count < 1 ||
       count > 100 ||
-      (a.unit !== "multi" && rawCount && Number(rawCount) !== 1)
+      (kind !== "villa" && a.unit !== "multi" && rawCount && Number(rawCount) !== 1)
     ) {
       reject("房數不明或與列的定義不一致");
       continue;
     }
     const room = get("room");
-    if (/包棟|全棟|整棟|whole.?house|villa/i.test(room)) {
-      reject("包棟共用庫存尚未釐清");
+    if (kind !== "villa" && /包棟|全棟|整棟|whole.?house|villa/i.test(room)) {
+      reject("標示包棟但接客形式為散客，請核對");
       continue;
     }
     const booked = a.booked === "yes" ? dateValue(get("booked"), a.date) : null;
     sourceNightCount += length * count;
     if (sourceNightCount > 200000) throw Error("HEALTH_SIZE");
     segments.push({
+      kind, refs: [ref],
       ref,
       id: get("orderId"),
       start,
       end,
-      room: room || "未提供房號／房型",
+      room: kind === "villa" && a.unit !== "split" ? "整棟" : room || "未提供房號／房型",
       count,
       money: moneyEnabled ? amountValue(get("amount")) : null,
       channel: get("channel") || "未分類",
       booked: booked && booked <= start ? booked : null,
+    });
+  }
+  // Explicitly confirmed per-room prices can be summed into one whole-villa stay.
+  // A shared order ID + identical stay/channel/booked metadata + distinct rooms are required.
+  if (a.unit === "split") {
+    const groups = new Map<string, typeof segments>();
+    for (const s of segments) {
+      if (!s.id) { markUncertain(s.start, s.end); excluded.push({ ref: s.ref, reason: "包棟拆房列缺少共同訂單編號，無法合併" }); continue; }
+      const group = groups.get(s.id) ?? []; group.push(s); groups.set(s.id, group);
+    }
+    segments = [...groups.values()].flatMap((group) => {
+      const first = group[0];
+      if (group.some((s) => s.start !== first.start || s.end !== first.end || s.channel !== first.channel || s.booked !== first.booked || s.room === "未提供房號／房型") ||
+          new Set(group.map((s) => s.room)).size !== group.length) {
+        group.forEach((s) => { markUncertain(s.start, s.end); excluded.push({ ref: s.ref, reason: "包棟拆房列重複或日期／通路不一致，整組隔離" }); }); return [];
+      }
+      return [{ ...first, refs: group.flatMap((s) => s.refs), room: "整棟", count: 1,
+        money: group.every((s) => s.money !== null) ? group.reduce((n, s) => n + s.money!, 0) : null }];
     });
   }
   // Repeated IDs may be modifications, split stays, or repeated totals. Quarantine the whole group.
@@ -346,7 +396,7 @@ export function analyze(
   });
   const signatures = new Map<string, number>();
   segments.forEach((s) => {
-    const k = hash({ ...s, ref: undefined, id: undefined });
+    const k = hash({ ...s, ref: undefined, refs: undefined, id: undefined });
     signatures.set(k, (signatures.get(k) || 0) + 1);
   });
   const conflictRefs = new Set<string>();
@@ -354,28 +404,27 @@ export function analyze(
     t.mapping.room === undefined
       ? ""
       : t.headers[t.mapping.room].toLowerCase().replace(/[ _-]/g, "");
-  if (["房號", "roomnumber"].includes(roomHeader)) {
-    const occupied = new Map<string, string[]>();
-    for (const s of segments) {
-      if (s.count !== 1 || s.room === "未提供房號／房型") continue;
-      for (
-        let time = Date.parse(s.start);
-        time < Date.parse(s.end);
-        time += day
-      ) {
-        const k = `${s.room}:${time}`,
-          prior = occupied.get(k) || [];
-        if (prior.length) {
-          prior.forEach((ref) => conflictRefs.add(ref));
-          conflictRefs.add(s.ref);
-        }
-        prior.push(s.ref);
-        occupied.set(k, prior);
+  const occupied = new Map<number, typeof segments>();
+  const physicalRooms = ["房號", "roomnumber"].includes(roomHeader);
+  for (const s of segments) for (let time = Date.parse(s.start); time < Date.parse(s.end); time += day) {
+    const list = occupied.get(time) ?? []; list.push(s); occupied.set(time, list);
+  }
+  for (const list of occupied.values()) {
+    if (list.length > 1 && list.some((s) => s.kind === "villa"))
+      list.forEach((s) => s.refs.forEach((ref) => conflictRefs.add(ref)));
+    const roomGroups = new Map<string, typeof segments>();
+    const nightlyIds = new Map<string, typeof segments>();
+    for (const s of list) {
+      if (physicalRooms && s.count === 1 && s.room !== "未提供房號／房型") {
+        const group = roomGroups.get(s.room) ?? []; group.push(s); roomGroups.set(s.room, group);
       }
+      if (a.unit === "night" && s.id) { const group = nightlyIds.get(s.id) ?? []; group.push(s); nightlyIds.set(s.id, group); }
     }
+    for (const group of [...roomGroups.values(), ...nightlyIds.values()]) if (group.length > 1)
+      group.forEach((s) => s.refs.forEach((ref) => conflictRefs.add(ref)));
   }
   const safe = segments.filter((s) => {
-    if (s.id && (ids.get(s.id) || 0) > 1) {
+    if (s.id && (ids.get(s.id) || 0) > 1 && a.unit !== "night") {
       excluded.push({
         ref: s.ref,
         reason: "同一訂單編號有多列，需釐清改期或重複總價",
@@ -384,7 +433,7 @@ export function analyze(
     }
     if (
       !s.id &&
-      (signatures.get(hash({ ...s, ref: undefined, id: undefined })) || 0) > 1
+      (signatures.get(hash({ ...s, ref: undefined, refs: undefined, id: undefined })) || 0) > 1
     ) {
       excluded.push({
         ref: s.ref,
@@ -393,14 +442,13 @@ export function analyze(
       return false;
     }
     if (conflictRefs.has(s.ref)) {
-      excluded.push({
-        ref: s.ref,
-        reason: "同一實體房號在同晚有重疊明細，整組隔離",
-      });
+      s.refs.forEach((ref) => excluded.push({ ref, reason: reception === "rooms" ? "同一實體房號在同晚有重疊明細，整組隔離" : "同晚包棟與其他訂單重疊，整組隔離" }));
       return false;
     }
     return true;
   });
+  const safeRefs = new Set(safe.map((s) => s.ref));
+  segments.filter((s) => !safeRefs.has(s.ref)).forEach((s) => markUncertain(s.start, s.end));
   let expandedCount = 0;
   const expanded: Night[] = [];
   for (const s of safe) {
@@ -409,6 +457,7 @@ export function analyze(
       expandedCount += s.count;
       if (expandedCount > 200000) throw Error("HEALTH_SIZE");
       expanded.push({
+        kind: s.kind,
         date: new Date(Date.parse(s.start) + i * day)
           .toISOString()
           .slice(0, 10),
@@ -422,7 +471,7 @@ export function analyze(
               ? s.money * s.count
               : s.money / length,
         booked: s.booked,
-        refs: [s.ref],
+        refs: s.refs,
         allocated: a.money === "total" && length > 1,
       });
     }
@@ -485,7 +534,8 @@ export function analyze(
   limitations.add(
     "只分析所提供的有效明細，不代表期間完整；前期對照只比較本次可見紀錄，不能視為已核實的全店成長率。",
   );
-  limitations.add("房號／房型依來源分組，無法辨識房型內實體房間的重疊庫存。");
+  limitations.add(reception === "villa" ? "每棟每晚只計一次；整棟一次接待一組，不乘房間數。包棟拆房列僅在共同訂單編號、日期一致及房號不重複時合併。" : "房號／房型依來源分組，無法辨識房型內實體房間的重疊庫存。");
+  if (reception === "mixed") limitations.add("包棟與散客分開計算晚數和平均價格；同一棟包棟與分房訂單重疊時隔離，未確認形式的列排除。");
   if (expanded.some((n) => n.allocated))
     limitations.add("跨晚房費平均分攤至入住日，月度與星期金額為分攤估算。");
   if (unknownAmountNights)
@@ -493,7 +543,7 @@ export function analyze(
       `${unknownAmountNights} 房晚缺少可信金額；房費為已知部分加總。`,
     );
   limitations.add("零元房晚計入已訂房晚，平均房晚價格只使用金額大於零的房晚。");
-  const refs = safe.map((s) => s.ref),
+  const refs = safe.flatMap((s) => s.refs),
     facts: Report["facts"] = [
       {
         id: "nights",
@@ -571,14 +621,16 @@ export function analyze(
   }
   return {
     id: job.id,
-    snapshot: hash({ version: 2, source: job.sourceHash, answers: a }),
+    receptionKind: reception,
+    uncertainDates: [...uncertainDates].sort(),
+    snapshot: hash({ version: 3, reception, source: job.sourceHash, answers: a }),
     createdAt: now.toISOString(),
     sourceTitle: job.sourceTitle,
     from,
     to,
     nights,
     amount: total,
-    adr,
+    adr: reception === "mixed" ? null : adr,
     occupancy: null,
     inventory: null,
     monthly: grouped("date").map(({ key, nights, amount }) => ({
@@ -606,23 +658,23 @@ export function analyze(
       knownNights: leads.length,
       totalNights: nights,
     },
-    includedRows: safe.length,
+    includedRows: refs.length,
     excluded,
     unknownAmountNights,
-    analysis: buildAnalysis(expanded, safe, a, excluded, taipeiDate(now)),
-    limitations: [...limitations],
-    facts,
-    insights: [
+    analysis: buildAnalysis(expanded, safe, a, excluded, taipeiDate(now), reception),
+    limitations: [...limitations].map((s) => analysisCopy(s, reception)),
+    facts: (reception === "mixed" ? facts.filter((f) => f.id === "amount" || f.id.endsWith("-amount")) : facts).map((f) => ({ ...f, label: analysisCopy(f.label, reception), unit: analysisCopy(f.unit, reception), basis: analysisCopy(f.basis, reception) })),
+    insights: reception === "mixed" ? [{ title: "兩種接客形式分開查看", body: "包棟晚數與散客房晚使用不同單位，請分別查看表現。", factIds: [] }] : [
       {
         title: "有效明細已整理",
-        body: `已納入 ${safe.length} 列，共 ${nights} 房晚。先檢查排除清單，再決定是否補齊資料。`,
+        body: analysisCopy(`已納入 ${refs.length} 列，共 ${nights} 房晚。先檢查排除清單，再決定是否補齊資料。`, reception),
         factIds: ["nights"],
       },
       ...(channels.length
         ? [
             {
               title: "主要接單來源",
-              body: `${channels[0].channel} 目前有 ${channels[0].nights} 房晚。可接著檢查各通路的金額覆蓋與房晚分布。`,
+              body: analysisCopy(`${channels[0].channel} 目前有 ${channels[0].nights} 房晚。可接著檢查各通路的金額覆蓋與房晚分布。`, reception),
               factIds: ["top-channel"],
             },
           ]

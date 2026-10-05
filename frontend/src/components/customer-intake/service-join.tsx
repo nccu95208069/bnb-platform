@@ -1,4 +1,5 @@
 "use client";
+import { receptionChoices } from "@/lib/hospitality-mode";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -23,11 +24,7 @@ const secondary = "service-button service-button-secondary";
 const field = "service-field";
 const noop = () => {};
 const DRAFT_KEY = "bnb-intake-draft-v1";
-const kinds = [
-  { value: "villa", label: "包棟", detail: "整棟一起出租" },
-  { value: "rooms", label: "單房", detail: "每間房分開訂" },
-  { value: "mixed", label: "兩者都有", detail: "可以包棟，也接單房" },
-] as const;
+const kinds = receptionChoices;
 export function ServiceJoin({
   enabled,
   preview = false,
@@ -430,7 +427,7 @@ export function ServiceJoin({
                       />
                     </label>
                     <fieldset className="mt-6">
-                      <legend className="mb-3">經營模式</legend>
+                      <legend className="mb-3">你如何接待客人？</legend>
                       <div className="grid gap-3 sm:grid-cols-3">
                         {kinds.map((k) => (
                           <button
