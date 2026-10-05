@@ -11,3 +11,5 @@ export function useRouter() {
     refresh() {},
   };
 }
+
+export function usePathname(){ return window.location.pathname; }

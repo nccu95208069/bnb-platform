@@ -6,14 +6,14 @@ const SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
 type Credential = { client_email: string; private_key: string };
 const b64 = (value: object) => Buffer.from(JSON.stringify(value)).toString("base64url");
 
-async function accessToken(source: SheetSourceDefinition): Promise<string> {
+export async function accessToken(source: SheetSourceDefinition, write = false): Promise<string> {
   const encoded = process.env[source.credentialEnv];
   if (!encoded) throw new Error("MONITOR_GOOGLE_CONFIG");
   let credential: Credential;
   try { credential = JSON.parse(encoded); } catch { throw new Error("MONITOR_GOOGLE_CONFIG"); }
   if (!credential.client_email || !credential.private_key) throw new Error("MONITOR_GOOGLE_CONFIG");
   const now = Math.floor(Date.now() / 1000);
-  const unsigned = `${b64({ alg: "RS256", typ: "JWT" })}.${b64({ iss: credential.client_email, scope: SCOPE, aud: TOKEN_URL, iat: now, exp: now + 600 })}`;
+  const unsigned = `${b64({ alg: "RS256", typ: "JWT" })}.${b64({ iss: credential.client_email, scope: write ? SCOPE.replace('.readonly', '') : SCOPE, aud: TOKEN_URL, iat: now, exp: now + 600 })}`;
   const signature = createSign("RSA-SHA256").update(unsigned).sign(credential.private_key, "base64url");
   const response = await fetch(TOKEN_URL, { method: "POST", signal: AbortSignal.timeout(8_000), cache: "no-store",
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${signature}` }) });
