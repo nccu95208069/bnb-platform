@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/cron/order-health",
+      "schedule": "* * * * *"
+    },
+    {
       "path": "/api/cron/daili-manager",
       "schedule": "* * * * *"
     },

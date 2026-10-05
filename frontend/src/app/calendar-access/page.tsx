@@ -15,7 +15,8 @@ export default function CalendarAccessPage() {
   useEffect(() => {
     // Fragments never reach the web server. Remove the private entry code from
     // the current address before navigation or a link can copy it elsewhere.
-    if (new URLSearchParams(window.location.search).get("next") === "/bots") setReturnTo("/bots");
+    const next = new URLSearchParams(window.location.search).get("next");
+    if (next && ["/bots", "/revenue", "/order-health"].includes(next)) setReturnTo(next);
     const fragment = window.location.hash.slice(1);
     if (/^[A-Za-z0-9_-]{32}$/.test(fragment)) setCode(fragment);
     window.history.replaceState(null, "", window.location.pathname);
