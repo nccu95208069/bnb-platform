@@ -119,7 +119,7 @@ test("each calendar entry opens a temporary preview without asking for contact d
     );
     await m.click(
       [...document.querySelectorAll("button[aria-pressed]")].find((b) =>
-        b.textContent.startsWith("單房"),
+        b.textContent.startsWith("散客（分房出租）"),
       ),
     );
     await m.click(m.button("下一步：房間"));

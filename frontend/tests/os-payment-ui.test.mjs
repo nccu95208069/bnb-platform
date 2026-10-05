@@ -22,3 +22,8 @@ test('reload shows durable pending receipt and retry action instead of a new pay
  const posts=[];t.mock.method(globalThis,'fetch',async(url,options={})=>{if(options.method==='POST'&&JSON.parse(options.body).action==='check_sheet_access')return Response.json({verified:true});if(options.method==='POST'){posts.push(JSON.parse(options.body));return Response.json({verified:true,sheet_verified:true});}return Response.json({...check,ledger:{version:1,receipts:[{id:'r1',request_id:'request-1',amount:500,payment_type:'deposit',payment_method:'cash',received_at:'2026-10-05T09:00:00Z',actor_name:'測試',sheet_sync:{state:'pending'}}]}});});
  const ui=await mount(t,OsPaymentPanel,props);assert.equal(ui.button('登記收款'),undefined);await ui.click(ui.button('繼續同步主表'));assert.equal(posts[0].action,'retry_sync');assert.equal(posts[0].request_id,'request-1');
 });
+test('failed connection check blocks new receipt submission and can be retried without losing the form',async t=>{
+ let checks=0;
+ t.mock.method(globalThis,'fetch',async(url,options={})=>{if(options.method==='POST'){assert.equal(JSON.parse(options.body).action,'check_sheet_access');return ++checks===1?Response.json({detail:'主表寫入權限不足'},{status:503}):Response.json({verified:true});}return Response.json(check);});
+ const ui=await mount(t,OsPaymentPanel,props);await ui.click(ui.button('登記收款'));assert.equal(ui.button('確認並同步主表').disabled,true);assert.match(document.body.textContent,/主表寫入權限不足/);await ui.click(ui.button('重新檢查主表連線'));assert.equal(ui.button('確認並同步主表').disabled,false);assert.ok(ui.control('本次收到多少（元）'));
+});

@@ -24,3 +24,5 @@ Google Sheets does not offer compare-and-swap with human edits. Fresh identity c
 ## Verification and release
 
 Implementation verification covers receipt validation, status-only finance behavior, scoped accounts, multi-room/night writes, row relocation, source conflicts, formula preservation, lost responses, failed readback, retries after refresh, and UI submission behavior. Release results and deployment references are recorded below after verification.
+
+Local TypeScript and ESLint pass (six unchanged warnings). Webpack production build passes. The default local Turbopack build is blocked by the environment’s denied internal port binding; no application build error was reported by the successful Webpack build. The integrated customer/API/DOM and analytics checks retain the newly deployed reception-type onboarding requirement. Test fixtures were updated for the already-live labels and report context, without reverting that behavior.

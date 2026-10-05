@@ -78,3 +78,12 @@ test('successful write response without matching readback remains pending and ca
 test('invalid account and altered idempotency input cannot append or update main Sheet',async t=>{
  const f=setup(t),check=await json(await GET(f.request()));await json(await POST(f.request(receiptInput(check,{payment_account_id:'foreign'}))),400);assert.equal(f.writes,0);const input=receiptInput(check);await json(await POST(f.request(input)));await json(await POST(f.request({...input,amount:1001})),409);assert.equal(f.writes,1);
 });
+test('server-side connection probe checks write permission without touching cells or creating a receipt',async t=>{
+ const f=setup(t),before=JSON.stringify(f.grid),input={property_id:'sweetfun',action:'check_sheet_access'};
+ await json(await POST(f.request(input,false)),401);assert.equal(f.writes,0);
+ const result=await json(await POST(f.request(input)));assert.equal(result.sheet_write_enabled,true);assert.equal(f.writes,1);assert.equal(JSON.stringify(f.grid),before);assert.equal((await readLedger('sweetfun',order)).ledger.receipts.length,0);
+});
+test('connection probe surfaces missing Sheet permission without creating a pending payment',async t=>{
+ const f=setup(t);f.rejectWrites=true;
+ const result=await json(await POST(f.request({property_id:'sweetfun',action:'check_sheet_access'})),503);assert.equal(result.code,'SHEET_PAYMENT_PERMISSION');assert.equal((await readLedger('sweetfun',order)).ledger.receipts.length,0);
+});

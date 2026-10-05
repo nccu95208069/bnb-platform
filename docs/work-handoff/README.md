@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-05 legacy Sweetfun payment update: [one receipt entry point and verified main-Sheet writeback](OS_PAYMENT_MAIN_SHEET_2026-10-05.md) implements status-only paid confirmation, received amount/method/account, and resumable synchronization. The explicit owner writeback request supersedes the prior OS-only boundary for the Sweetfun H payment cell and its note. It preserves the already-live booking momentum source `6179335`; release verification is in progress.
+
 2026-10-05 order finder: [owner-authorized production release and verification](ORDER_FINDER_2026-10-05.md#owner-authorized-production-release) adds protected order search, monthly occupancy, complete details, receipt accounts, editable notes/shared tags, persistent source issues and workbook v3. The primary site now serves `9dc8978`, preserving already-live analytics; 194 local checks and the cloud build pass. Basic authenticated browser reads pass; the full owner walkthrough remains pending. PR #26 stays draft and unmerged.
 
 2026-10-04 owner pilot release: [primary-domain promotion, persistent settings, delivered email/save/undo and two automatic cron deliveries](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md#primary-domain-owner-pilot). Ready for the authorized owner to import their own data at `https://sweetfun-os.vercel.app/join`. Google remains in Testing; real-phone and broader multi-account acceptance remain pending. This supersedes the earlier no-promotion/sync-off state below.

@@ -133,7 +133,7 @@ test("join questionnaire branches into Sheet sharing and optional consultation; 
   await fill(control("旅宿名稱"), "Synthetic Inn");
   await click(
     [...document.querySelectorAll("button[aria-pressed]")].find((b) =>
-      b.textContent.startsWith("單房"),
+      b.textContent.startsWith("散客（分房出租）"),
     ),
   );
   await click(button("下一步：房間"));

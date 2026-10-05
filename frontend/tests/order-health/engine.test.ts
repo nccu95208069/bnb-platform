@@ -266,6 +266,7 @@ const scope: Scope = {
   actor: "a1",
   name: "測試旅宿",
   canWrite: true,
+  receptionKind: "rooms",
 };
 test("persistent workflow survives refresh, idempotency and parallel workers", async () => {
   const store = new Memory(),
@@ -471,7 +472,7 @@ test("fallback chat answers requested period and rejects unsupported predictions
   assert.match(forecast.answer, /不能當作最終需求預測/);
   assert.ok(forecast.facts.every((f) => f.id === "view-nights" && f.value === 0));
   const empty = await chat(r, "2026-03 有多少房晚？", "overview");
-  assert.deepEqual(empty.context, { from: "2026-03-01", to: "2026-03-31" });
+  assert.deepEqual(empty.context, { kind: "rooms", from: "2026-03-01", to: "2026-03-31" });
   assert.equal(empty.facts.find((f) => f.id === "view-nights")?.value, 0);
   assert.match(empty.answer, /未見紀錄不等於沒有訂房/);
 });

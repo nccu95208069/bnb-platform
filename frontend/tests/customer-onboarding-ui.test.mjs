@@ -88,7 +88,7 @@ test("sharing check shows refusal and success, changing the URL invalidates succ
   await fill(control("旅宿名稱"), "Synthetic");
   await click(
     [...document.querySelectorAll("button[aria-pressed]")].find((b) =>
-      b.textContent.startsWith("單房"),
+      b.textContent.startsWith("散客（分房出租）"),
     ),
   );
   await click(button("下一步：房間"));
