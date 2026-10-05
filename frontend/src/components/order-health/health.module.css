@@ -752,3 +752,13 @@
   .barScroll, .monthCards { margin-right: -8px; }
 }
 @media (prefers-reduced-motion: reduce) { .primaryBar { transition: none; } }
+.monthNavigation { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.monthNavigation label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #66756f; }
+.monthNavigation input { min-height: 44px; border: 1px solid #d6e2db; border-radius: 9px; background: white; padding: 8px 10px; color: #243c35; }
+.monthNavigation .secondary { padding: 8px 12px; font-size: 13px; }
+.monthCard .countPending { color: #8b6629; }
+@media (max-width: 700px) {
+  .monthNavigation { width: 100%; }
+  .monthNavigation label { order: -1; width: 100%; }
+  .monthNavigation input { flex: 1; min-width: 0; }
+}

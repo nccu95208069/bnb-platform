@@ -78,6 +78,10 @@ export const monthPeriod = (month: string): Period => ({
   from: `${month}-01`,
   to: new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0)).toISOString().slice(0, 10),
 });
+export const shiftMonth = (month: string, offset: number) => {
+  const year = Number(month.slice(0, 4)), index = Number(month.slice(5, 7)) - 1;
+  return new Date(Date.UTC(year, index + offset, 1)).toISOString().slice(0, 7);
+};
 export const previousYearMonth = (month: string) => `${Number(month.slice(0, 4)) - 1}${month.slice(4)}`;
 const inRange = (date: string | null, p: Period): boolean => Boolean(date && date >= p.from && date <= p.to);
 export const overlaps = (c: BookingCohort, p: Period) => c.stays.some((s) => s.from <= p.to && s.to > p.from);
@@ -211,6 +215,8 @@ export type MomentumView = ReturnType<typeof momentumView>;
 
 export function monthlyView(report: Report, scope: MomentumScope, month: string, basis: "stay" | "booked") {
   const period = monthPeriod(month), rows = scopedCohorts(report, scope);
+  const asOf = report.analysis?.asOf ?? report.createdAt.slice(0, 10);
+  const future = basis === "booked" && period.from > asOf;
   const selected = rows.filter((c) => basis === "booked" ? inRange(c.booked, period) : overlaps(c, period));
   const bookings = cohortSummary(selected);
   const cells = scopedCells(report, scope).filter((c) => inRange(c.date, period));
@@ -220,17 +226,19 @@ export function monthlyView(report: Report, scope: MomentumScope, month: string,
   const dateCoverage = totalNights ? round(datedNights / totalNights * 100) : null;
   const daily = Array.from({ length: daysBetween(period.from, period.to) }, (_, i) => {
     const date = shiftDate(period.from, i);
+    if (basis === "booked" && date > asOf) return { date, orders: null, nights: null, amount: null, adr: null, future: true };
     const booking = cohortSummary(selected.filter((c) => c.booked === date));
     const day = totalCells(cells.filter((c) => c.date === date));
-    return { date, orders: basis === "booked" ? booking.orders : null,
+    return { date, future: false, orders: basis === "booked" ? booking.orders : null,
       nights: basis === "booked" ? booking.nights : day.nights,
       amount: basis === "booked" ? booking.amount : day.amount,
       adr: basis === "booked" ? booking.adr : day.adr };
   });
-  return { month, period, basis, ...bookings, amount: basis === "stay" ? stay.amount : bookings.amount,
+  return { month, period, basis, future, ...bookings, orders: !report.analysis?.cohorts || future ? null : bookings.orders, amount: basis === "stay" ? stay.amount : bookings.amount,
     nights: basis === "stay" ? stay.nights : bookings.nights,
     adr: basis === "stay" ? stay.adr : bookings.adr, coverage: basis === "stay" ? stay.coverage : bookings.coverage,
-    dateCoverage, observed: selected.length > 0, daily };
+    refs: basis === "stay" ? stay.refs : bookings.refs,
+    dateCoverage, observed: selected.length > 0 || (basis === "stay" && cells.length > 0), daily };
 }
 export type MonthlyView = ReturnType<typeof monthlyView>;
 

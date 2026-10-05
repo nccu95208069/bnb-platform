@@ -52,7 +52,7 @@
 - [x] 「已收款」可登記多次款項與方式／時間／收款帳戶；財務、訂單、月曆狀態來自同一筆已核對資料；重試不重複收款，現金不強制帳號，未知歷史不誤算尾款。
 - [x] 備註可新增、編輯、取消及重新查回；收款備註與訂單備註不互相覆蓋。標籤可新增／編輯／選色／套用／移除，月曆單字色標與完整名稱同步，跨日期與多房顯示一致。
 
-Latest order-report decision: [booking momentum and interactive charts](ORDER_MOMENTUM_2026-10-05.md) supersedes report chat. During the payment release preflight, production `dpl_CsvRTNQ1jj9rtFnkHfZn5vveehKG` was observed serving commit `6179335`; this already-live source is preserved in the payment branch. Report delivery authorization and browser acceptance remain separate.
+Latest order-report decision: [booking momentum and interactive charts](ORDER_MOMENTUM_2026-10-05.md) supersedes report chat. The payment release preflight observed production `dpl_6XJrBWS65ueS5byANoK5QUxTUfVk` serving commit `695f0b7`, including order-count clarification and chart month navigation. This already-live source is preserved in the payment branch.
 
 ## Calendar onboarding implementation and acceptance
 

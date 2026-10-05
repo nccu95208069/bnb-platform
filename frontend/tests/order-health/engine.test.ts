@@ -265,6 +265,7 @@ const scope: Scope = {
   property: "p1",
   actor: "a1",
   name: "測試旅宿",
+  receptionKind: "rooms",
   canWrite: true,
   receptionKind: "rooms",
 };
@@ -460,7 +461,7 @@ test("actual customer sessions enforce active role, workspace and property scope
   );
 });
 
-test("fallback chat answers requested period and rejects unsupported predictions", async () => {
+test("legacy fallback helper distinguishes observed metrics from forecasts", async () => {
   const { chat } = await import("../../src/lib/order-health/chat.ts");
   const r = analyze(job([row()]));
   const answer = await chat(r, "2026-02 有多少房晚？", "overview");
