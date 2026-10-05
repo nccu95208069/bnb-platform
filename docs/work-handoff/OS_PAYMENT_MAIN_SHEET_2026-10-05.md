@@ -11,7 +11,7 @@
 - Bank/card payments can select the property's existing finance account or enter an account name and last five/four digits. Other-account entry is a snapshot for this receipt, not a new shared finance account.
 - Sweetfun main Sheet H (`全額支付狀態`) becomes `done` when the whole order is confirmed paid or known recorded room payments cover its total. A partial/other receipt preserves the existing status. All room-night rows belonging to the order are handled together.
 - The receipt's amount, method, masked account, time, actor, optional note and idempotency marker are appended to the H cell's **note**. Existing cell notes and all unrelated cell values, formatting and columns remain intact. These are notes on the existing payment cell, not new amount columns.
-- An authenticated server-side empty Sheets write batch checks permission when the form opens. Service credentials remain on the server. The existing monitor keeps its read-only OAuth scope.
+- An authenticated server-side header-only, nonmatching find/replace checks write permission when the form opens and requires Google to report zero changes. Service credentials remain on the server. The existing monitor keeps its read-only OAuth scope.
 
 ## Persistence and recovery
 

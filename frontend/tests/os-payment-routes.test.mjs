@@ -20,7 +20,7 @@ function setup(t){
  const grid=values.map(row=>row.map(v=>({formattedValue:v,userEnteredValue:{stringValue:v}})));
  const normalized=normalizeRows(values,source),snapshot=adaptSheetBookings([HEADERS,...normalized.map(r=>r.cells)],source.sourceId,new Date().toISOString(),[],normalized.map(r=>r.sourceRow),source.property);
  const db=new Map([['sweetfun-os:owner-auth:v1:credential',JSON.stringify({schema:1,kind:'bootstrap',hash:process.env.CALENDAR_OWNER_CODE_HASH})],['sweetfun:sheet-monitor:v1:sweetfun-operations-sheet-v1:state','gz1:'+gzipSync(JSON.stringify(initialState(snapshot))).toString('base64')],[financeKey('sweetfun',2026),JSON.stringify({version:1,entries:[],operations:[],payment_accounts:[account]})]]);
- const state={db,grid,writes:0,loseResponse:false,rejectWrites:false,skipApply:false,rejectReads:false,scopes:[]};
+ const state={db,grid,writes:0,loseResponse:false,rejectWrites:false,skipApply:false,rejectReads:false,probeReply:{},scopes:[]};
  t.mock.method(globalThis,'fetch',async(url,options={})=>{
   const u=String(url);
   if(u==='https://redis.invalid'){
@@ -42,7 +42,17 @@ function setup(t){
   if(!u.startsWith(`https://sheets.googleapis.com/v4/spreadsheets/${source.spreadsheetId}`))throw Error('Unexpected external request');
   if(u.endsWith(':batchUpdate')){
    state.writes++;if(state.rejectWrites)return Response.json({}, {status:403});
-   if(!state.skipApply)for(const {updateCells:r} of JSON.parse(options.body).requests){const cell=grid[r.start.rowIndex][r.start.columnIndex];Object.assign(cell,r.rows[0].values[0]);if(r.fields.includes('userEnteredValue'))cell.formattedValue=cell.userEnteredValue.stringValue;}
+   const requests=JSON.parse(options.body).requests;
+   if(!requests.length)return Response.json({error:{message:'Must specify at least one request.'}}, {status:400});
+   if(requests[0].findReplace){
+    const probe=requests[0].findReplace;assert.equal(requests.length,1);
+    assert.deepEqual(probe.range,{sheetId:source.sheetId,startRowIndex:0,endRowIndex:1,startColumnIndex:7,endColumnIndex:8});
+    assert.equal(probe.find,probe.replacement);assert.match(probe.find,/^__SWEETFUN_OS_PERMISSION_PROBE_/);
+    assert.equal(probe.matchEntireCell,true);assert.equal(probe.matchCase,true);assert.equal(probe.includeFormulas,false);
+    assert.notEqual(grid[0][7].formattedValue,probe.find);
+    return Response.json({replies:[{findReplace:state.probeReply}]});
+   }
+   if(!state.skipApply)for(const {updateCells:r} of requests){const cell=grid[r.start.rowIndex][r.start.columnIndex];Object.assign(cell,r.rows[0].values[0]);if(r.fields.includes('userEnteredValue'))cell.formattedValue=cell.userEnteredValue.stringValue;}
    if(state.loseResponse){state.loseResponse=false;return Response.json({}, {status:503});}return Response.json({});
   }
   if(state.rejectReads)return Response.json({}, {status:403});
@@ -124,4 +134,11 @@ test('missing receipt account and an already full Sheet note fail before saving 
  f.grid[1][7].note='x'.repeat(45000);
  const full=await json(await POST(f.request(receiptInput(check))),409);assert.equal(full.code,'SHEET_NOTE_FULL');
  assert.equal((await readLedger('sweetfun',order)).ledger.receipts.length,0);assert.equal(f.writes,0);
+});
+
+test('connection probe rejects an unexpected changed-cell reply and a wrong payment header without saving receipts',async t=>{
+ const f=setup(t),input={property_id:'sweetfun',action:'check_sheet_access'};
+ f.probeReply={valuesChanged:1};const changed=await json(await POST(f.request(input)),503);assert.equal(changed.code,'WRITE_UNCONFIRMED');
+ f.grid[0][7].formattedValue='wrong';const before=f.writes;await json(await POST(f.request(input)),503);assert.equal(f.writes,before);
+ assert.equal((await readLedger('sweetfun',order)).ledger.receipts.length,0);
 });

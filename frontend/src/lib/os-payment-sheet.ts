@@ -1,4 +1,4 @@
-import {createHash} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 import {SWEETFUN_SOURCE,type SheetSourceDefinition} from './booking-sources/config.ts';
 import {accessToken} from './sheet-monitor/google.ts';
 import {HEADERS,normalizeRows} from './sheet-monitor/reconcile.ts';
@@ -22,11 +22,20 @@ async function client(source:SheetSourceDefinition){
   };
 }
 type Client=Awaited<ReturnType<typeof client>>;
-// Authenticated capability probe: Sheets validates write authorization without
-// touching any cell. Credentials remain inside the deployed server.
+// Sheets rejects an empty batch. A header-only search for a fresh marker is a
+// valid authorized request with no matching cells; replacement is identical as
+// a second guard. Require a zero-change reply before enabling receipt entry.
 export async function checkSheetPaymentAccess(source:SheetSourceDefinition){
   const request=await client(source);
-  await request(':batchUpdate',{requests:[]});
+  const grid=await readGrid(source,request);
+  if(grid.cells[0]?.[7]?.formattedValue!=='全額支付狀態')throw new Error('SHEET_IDENTITY_MISMATCH');
+  const marker=`__SWEETFUN_OS_PERMISSION_PROBE_${randomUUID()}__`;
+  const result=await request(':batchUpdate',{requests:[{findReplace:{
+    range:{sheetId:source.sheetId,startRowIndex:0,endRowIndex:1,startColumnIndex:7,endColumnIndex:8},
+    find:marker,replacement:marker,matchCase:true,matchEntireCell:true,includeFormulas:false,
+  }}]});
+  const reply=result.replies?.[0]?.findReplace;
+  if(result.replies?.length!==1||!reply||typeof reply!=='object'||['valuesChanged','formulasChanged','rowsChanged','sheetsChanged','occurrencesChanged'].some(key=>(reply[key]??0)!==0))throw new Error('WRITE_UNCONFIRMED');
 }
 async function readGrid(source:SheetSourceDefinition,request:Client):Promise<PaymentGrid>{
   const metadata=await request('?fields=properties(timeZone),sheets(properties(sheetId,title,gridProperties))');
