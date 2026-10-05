@@ -27,7 +27,7 @@ Implementation verification covers receipt validation, status-only finance behav
 
 Local TypeScript and ESLint pass (six unchanged warnings). Webpack production build passes. The default local Turbopack build is blocked by the environment’s denied internal port binding; no application build error was reported by the successful Webpack build. The integrated customer/API/DOM and analytics checks retain the newly deployed reception-type onboarding requirement. Test fixtures were updated for the already-live labels and report context, without reverting that behavior.
 
-### Current handoff boundary
+### Historical pre-release handoff boundary
 
 - Local payment/finance/Sheet checks: 94 service/domain checks plus 5 UI checks pass. The integrated 142 customer/API checks, 26 analytics checks and 26 other UI checks pass after adjusting three onboarding fixtures to the already-live reception labels. TypeScript, lint and Webpack production build pass.
 - Implementation commits: `ea28672`; current-production preservation merge: `d52d242` (includes `6179335`); regression/verification follow-up: `7d1224a`.
@@ -51,3 +51,17 @@ Resolved findings:
 Verification after these repairs: **103 payment/finance/Sheet service and domain tests plus 7 payment UI tests pass (110 total)**. TypeScript passes; ESLint has zero errors and the same six existing warnings; the Webpack production build passes. Regression cases cover failed source reads, changed orders, cross-session pending operations, redacted recovery payloads, lost write responses, manually reversed paid flags, other-fee preservation, missing accounts, full notes, OTA overlap and invalid dates. No production payment or main-Sheet data was used for mutations.
 
 The existing Sheets/manual-edit atomicity limitation and live credential/browser acceptance boundary above remain unchanged. No GitHub push or deployment was performed for this review.
+
+## Owner-authorized production release — 2026-10-05
+
+The owner explicitly said **可以上線了** after the review. This authorizes pushing the reviewed source to the existing `nccu95208069/bnb-platform` branch and publishing to `sweetfun-os.vercel.app`; the earlier publication approval boundary is resolved.
+
+- Preserved the actual live report navigation source `695f0b7` in merge `97814fd`, then removed a duplicated merged test fixture field in `199b0cd`. All 36 analytics/domain and 6 dashboard DOM checks passed; the corrected merged TypeScript check passed.
+- First candidate `dpl_8kDWLhCwCnfGKGA9edyafuFC5Dbi` passed cloud build and authorization checks (payment endpoint 401 without login, calendar login redirect). It was promoted, then live browser acceptance exposed the invalid empty-batch capability probe. Receipt submission remained disabled and no payment was created.
+- Fixed the probe in `04781bf`: first validate the allowed Sheet identity and payment header, then issue one header-only find/replace using a fresh nonmatching marker and identical replacement. A zero-change reply is required. The native Google gateway accepted the same request shape with no changed cells. Added realistic empty-batch rejection and unexpected changed-count/header regression checks; 20 affected tests and TypeScript passed.
+- **Final production source:** `04781bf`; **deployment:** `dpl_6nbPeT8mFsNNaSvkTgXirrpTJPCK`; **URL:** `https://sweetfun-7eazods6t-sweetfuns-projects.vercel.app`; **primary:** `https://sweetfun-os.vercel.app`; **status:** Ready. Cloud Turbopack/TypeScript build completed successfully. Both existing aliases resolve to the final release.
+- Authenticated production browser acceptance verified: one receipt entry button, manual amount/method/account controls, the existing property's finance account choices, paid confirmation with zero-income explanation, and **main sheet 連線正常** with an enabled confirmation button. The form was canceled; the order still has no newly registered receipt. No real guest payment was submitted or modified for testing.
+- The final deployment's bounded error-log query returned no matching logs. This is a release smoke check, not continuous monitoring or proof that no errors can occur.
+- Rollback to the pre-payment release if necessary: `dpl_6XJrBWS65ueS5byANoK5QUxTUfVk` / `695f0b7`. No credentials were downloaded, no sharing settings were changed, and service credentials stayed in the deployed server.
+
+Google's [batch update contract](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/batchUpdate) and [find/replace response counts](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/response#FindReplaceResponse) support the corrected zero-change check. Actual receipt/main-Sheet writes are covered by the synthetic end-to-end cases above; production acceptance deliberately avoided creating a guest transaction.
