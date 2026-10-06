@@ -5,7 +5,7 @@ import type { SheetSourceDefinition } from "./config";
 import { normalizeRows, HEADERS } from "../sheet-monitor/reconcile.ts";
 import { adaptSheetBookings } from "./sweetfun-sheet.ts";
 
-// Call only after server-side owner authorization. Names are never persisted in
+// Call only after server-side property authorization. Names and notes are never persisted in
 // the anonymous monitor state, logs, or exported public snapshots.
 export function attachPrivateGuestNames(bookings: CalendarBooking[], values: unknown[][], source: SheetSourceDefinition): CalendarBooking[] {
   const headers = (values[0] ?? []).map(v => { const h = String(v).trim(); return source.headerAliases?.[h] ?? h; });
@@ -18,7 +18,8 @@ export function attachPrivateGuestNames(bookings: CalendarBooking[], values: unk
     const name = String(values[row.sourceRow - 1]?.[headers.indexOf("預定人姓名")] ?? "").trim();
     const raw = values[row.sourceRow - 1] ?? [];
     const field = (label: string) => { const indices = headers.flatMap((h,i)=>h === label ? [i] : []); return indices.length === 1 ? String(raw[indices[0]] ?? "").trim() : ""; };
-    return [id, {name, remarks: parseGuestRemarks(field("備註")), ota: field("OTA訂單編號"), owl: field("訂單編號")}];
+    const note = field("備註");
+    return [id, {name, note, remarks: parseGuestRemarks(note), ota: field("OTA訂單編號"), owl: field("訂單編號")}];
   }));
   return bookings.map(booking => {
     if (booking.property_id !== source.property.id || booking.source_conflict) return booking;
@@ -27,7 +28,10 @@ export function attachPrivateGuestNames(bookings: CalendarBooking[], values: unk
     // another stay's identity to the last published calendar record.
     const matches = row && row.order_id === booking.order_id && row.room_id === booking.room_id && row.check_in === booking.check_in && row.check_out === booking.check_out && row.platform === booking.platform && row.room_rate === booking.room_rate;
     const name = matches ? names.get(booking.id)?.name ?? "" : "";
+    const note = matches ? names.get(booking.id)?.note ?? "" : "";
     return { ...booking, external_order_no: matches ? names.get(booking.id)?.ota || null : null, owlnest_order_no: matches ? names.get(booking.id)?.owl || null : null, guest_remarks: mergeGuestRemarks([...parseGuestRemarks(name), ...(matches ? names.get(booking.id)?.remarks ?? [] : [])]), guest_name: name || (matches ? "姓名未提供" : "姓名待同步確認"), guest_name_kind: name ? "real" : "missing",
+      source_notes: note ? [{room_number:booking.room_number,check_in:booking.check_in,check_out:booking.check_out,text:note}] : [],
+      source_notes_unconfirmed: !matches,
       notes: booking.notes?.replace("公開畫面顯示匿名編號。", "私人檢視顯示來源姓名。") ?? null };
   });
 }

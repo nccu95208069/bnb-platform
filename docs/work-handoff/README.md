@@ -115,3 +115,8 @@ payment calendar. No live T-39 reads/writes or prediction claims are involved.
 
 - [詳細架構、階段與驗收](FINANCE_ARCHITECTURE_M1.md)
 - [Code review 與驗證](M1_VERIFICATION.md)
+
+
+## 2026-10-06 — Main Sheet notes in sold-order details
+
+The owner requested the complete main-Sheet notes in the legacy sold-calendar detail and explicitly authorized publication. See [implementation and verification](BOOKING_SOURCE_NOTES_2026-10-06.md).

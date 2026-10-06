@@ -56,6 +56,9 @@ export type CalendarBooking = {
   guest_name: string;
   guest_name_sources?: string[];
   guest_remarks?: import("@/lib/guest-remarks").GuestRemark[];
+  // Private main-Sheet text, attached only after matching the live source row.
+  source_notes?: { room_number: string; check_in: string; check_out: string; text: string }[];
+  source_notes_unconfirmed?: boolean;
   // Only a server-authorized projection may mark a supplied source name as real.
   guest_name_kind?: "real" | "anonymous" | "missing";
   platform: string;

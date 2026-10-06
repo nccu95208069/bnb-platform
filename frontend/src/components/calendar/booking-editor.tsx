@@ -4,6 +4,7 @@ import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 
 import { GuestRemarks } from "./booking-identity";
+import { BookingSourceNotes } from "./booking-source-notes";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Baby,
@@ -863,6 +864,7 @@ const uiLocale = useIntlLocale();
 
           {booking && (
             <div className="space-y-5 px-5 py-5">
+              <BookingSourceNotes booking={booking} orderSegments={orderSegments} viewPrices={permissions.viewPrices} />
               {(booking.guest_name_kind === "real" || !!booking.guest_name_sources?.length) && <section className="rounded-xl border p-3" aria-label={uiText("重點備註與來源原文")}>
                 <h3 className="font-semibold">{uiText("重點備註")}</h3>
                 <GuestRemarks booking={booking} />
