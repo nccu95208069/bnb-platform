@@ -17,3 +17,12 @@ The owner clarified that the requested notes are the **main Sheet 備註 column 
 - Eight existing contiguous-stay/payment DOM regressions passed (54 total relevant tests). TypeScript and the full production Webpack build passed. Lint passed with zero errors and six pre-existing warnings. Production acceptance is recorded below after release.
 
 Only synthetic note content is included in fixtures and source control.
+
+## Authorized production release
+
+- Code commit: `e025229`; deployed from the existing `codex/customer-onboarding` branch. The pre-release live deployment was still `dpl_6nbPeT8mFsNNaSvkTgXirrpTJPCK`, so no intervening production source needed merging.
+- Production candidate passed Vercel's cloud build and was promoted to **https://sweetfun-os.vercel.app**. Deployment: `dpl_AybNCF8mH99eVjENCapnqchTc1h2`; immutable URL: `https://sweetfun-m1el5uwg2-sweetfuns-projects.vercel.app`; status: Ready.
+- The primary calendar API returns 401 without login. The candidate's protected URL redirected unauthenticated requests to its protection flow.
+- Authenticated production acceptance opened an existing sold-order detail and verified the main Sheet's complete free-text note in the new **主表備註** section, separate from extracted tags and name-field text. Desktop and a 390 × 844 viewport displayed it correctly; the viewport override was reset. The existing receipt button still rendered. Browser error capture returned no errors.
+- No guest notes, orders, payments, notifications, or Sheet cells were changed during acceptance. Private guest details and source note text are intentionally omitted here.
+- Rollback target: `dpl_6nbPeT8mFsNNaSvkTgXirrpTJPCK` (previous payment release).
