@@ -19,7 +19,7 @@ test('authenticated production route returns private no-store fallback, scopes p
   const credential = JSON.stringify({ client_email: 'fixture@example.test', private_key: generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString() });
   for (const source of [SWEETFUN_SOURCE, OFFLAND_SOURCE]) process.env[source.credentialEnv] = credential;
   const member = { id: 'c'.repeat(32), displayName: 'Synthetic viewer', role: 'viewer', status: 'active', allProperties: false, propertyIds: ['sweetfun'], credential: { schema: 1, kind: 'password', revision: 'd'.repeat(64), salt: 'e'.repeat(32), hash: 'f'.repeat(128) } };
-  const commands = [], logs = [];
+  const commands = [], logs = [], cache = new Map();
   let googleFails = true, snapshotFails = false, financeFails = false;
   t.mock.method(console, 'info', line => logs.push(line)); t.mock.method(console, 'error', line => logs.push(line));
   t.mock.method(globalThis, 'fetch', async (url, options) => {
@@ -30,7 +30,9 @@ test('authenticated production route returns private no-store fallback, scopes p
       return Response.json({ properties: { timeZone: 'Asia/Taipei' }, sheets: [{ properties: { sheetId: source.sheetId, title: source.sheetTitle, gridProperties: { rowCount: 2, columnCount: 20 } } }] });
     }
     assert.equal(url, 'https://fixture.invalid'); const c = JSON.parse(options.body); commands.push(c);
+    if (c[0] === 'EVAL' && c[3].includes(':private-calendar:')) { cache.set(c[3], JSON.stringify([JSON.parse(c[4])])); return Response.json({ result: 1 }); }
     if (c[0] === 'EVAL') return Response.json({ result: '[]' });
+    if (c[1].includes(':private-calendar:')) return Response.json({ result: cache.get(c[1]) ?? null });
     if (c[1].endsWith(':members')) return Response.json({ result: JSON.stringify({ version: 1, members: [member] }) });
     if (c[1].includes(':sheet-monitor:')) {
       if (snapshotFails) return new Response('', { status: 503 });
@@ -39,6 +41,7 @@ test('authenticated production route returns private no-store fallback, scopes p
       const state = { ...initialState(snapshot), checkedAt: new Date().toISOString(), lastSuccessfulAt: new Date().toISOString() };
       return Response.json({ result: `gz1:${gzipSync(JSON.stringify(state)).toString('base64')}` });
     }
+    if (c[0] === 'SCAN') return Response.json({ result: ['0', []] });
     if (c[0] === 'MGET') return Response.json({ result: financeFails ? [] : c.slice(1).map(() => null) });
     return Response.json({ result: null });
   });
@@ -54,6 +57,14 @@ test('authenticated production route returns private no-store fallback, scopes p
   member.role = 'viewer_no_price'; commands.length = 0;
   data = await (await GET(request())).json(); assert.equal(data.bookings[0].room_rate, 0); assert.equal(data.bookings[0].source_notes, undefined); assert.equal(data.total_amount, 0); assert.ok(!commands.some(c => c[0] === 'MGET'));
   snapshotFails = true; response = await GET(request()); assert.equal(response.status, 503); assert.equal(response.headers.get('Cache-Control'), 'private, no-store'); assert.equal((await response.json()).bookings, undefined);
+  member.role = 'viewer'; snapshotFails = false; financeFails = false;
+  data = await (await GET(request())).json(); assert.equal(data.bookings[0].guest_name, 'SYNTHETIC_GUEST'); assert.equal(cache.size, 1);
+  snapshotFails = true;
+  data = await (await GET(request())).json(); assert.equal(data.bookings[0].guest_name, 'SYNTHETIC_GUEST'); assert.equal(data.bookings[0].snapshot_only, true); assert.equal(data.source_warnings[0].phase, 'private_snapshot');
+  member.role = 'viewer_no_price';
+  data = await (await GET(request())).json(); assert.equal(data.bookings[0].room_rate, 0); assert.equal(data.bookings[0].payment_status, 'unknown'); assert.equal(data.bookings[0].source_notes, undefined); assert.equal(data.total_amount, 0);
+  member.propertyIds = ['offland']; commands.length = 0;
+  response = await GET(request()); assert.equal(response.status, 503); assert.ok(commands.filter(c => c[1].includes(':private-calendar:')).every(c => c[1].includes(':offland:')));
   const revokedRequest = request(); member.status = 'disabled'; commands.length = 0;
   response = await GET(revokedRequest); assert.equal(response.status, 401); assert.ok(commands.every(c => c[1].endsWith(':members')));
 });

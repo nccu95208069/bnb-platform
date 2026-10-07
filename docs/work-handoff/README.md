@@ -1,6 +1,6 @@
 # Work Handoff Index — 2026-09-05
 
-2026-10-08 calendar incident remediation: [phased snapshot fallback, per-property isolation, fault tests and health history](CALENDAR_RESILIENCE_2026-10-08.md). Phase 1 implementation and isolated verification are complete; staged deployment is pending. Full private snapshot history and independent backup remain the next phase. WEB-04 acceptance remains paused.
+2026-10-08 calendar incident remediation: [phased snapshot fallback, per-property isolation, fault tests and health history](CALENDAR_RESILIENCE_2026-10-08.md). Phase 1 runtime `7464b51` is live; cloud build, authenticated two-property browser readback and calendar request logs pass. Full private snapshot history, encrypted independent backup and background refresh are implemented and locally verified; Phase 2 publication/readback is pending. WEB-04 acceptance has been resumed by its human owner in the website chat.
 
 2026-10-07 WEB-04 follow-up: [same-order amendments, formal change/cancel notifications, current guest summaries and immutable accepted terms](WEBSITE_BOOKING_API_2026-10-07.md#web-04-lifecycle-completion-follow-up-2026-10-07). Engineering, isolated verification and the OS/guest-site/private-builder releases are complete. OS runtime `8b9a267` is live on the primary domain and its actual notification cron returned 200 at 21:47:16 Asia/Taipei. Owner approval/pairing and real recipient delivery still need human acceptance; WEB-04 remains in acceptance.
 

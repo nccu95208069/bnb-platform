@@ -1,3 +1,4 @@
+import { configuredPrivateCalendarCache } from "@/lib/booking-sources/private-calendar-snapshot";
 import { overlayPayments } from "@/lib/os-payments";
 import { principalFor, sessionMember } from "@/lib/workspace-auth/session";
 import { allowedProperty, projectBookings } from "@/lib/workspace-auth/projection";
@@ -220,6 +221,7 @@ export async function GET(request: NextRequest) {
       if (!principal) return NextResponse.json({detail:"請先登入。"},{status:401,headers:{"Cache-Control":"private, no-store",Vary:"Cookie"}});
       const definitions = activeSources().filter(d => allowedProperty(principal, d.property.id));
       const result = await readCalendarSources(definitions, start, end, principal.viewPrices, {
+        cache: configuredPrivateCalendarCache(), startedAt,
         snapshot: readBookingSnapshot, details: readOperationalSheet, payments: overlayPayments,
         report: event => { events.push(event); console.info(JSON.stringify({ event: "calendar_read", request_id: requestId, release: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) ?? "local", ...event })); },
       });

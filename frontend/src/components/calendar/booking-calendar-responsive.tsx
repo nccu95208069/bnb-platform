@@ -841,7 +841,7 @@ const uiLocale = useIntlLocale();
       {requestFailed && data && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">目前顯示上次載入的資料，僅供查看。最新房況與付款尚未確認，恢復連線後會自動重試。</div>}
       {data?.source_warnings?.filter(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id))).map(item => (
         <div key={`${item.property_id}:${item.phase}`} role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-          {item.label} · {({ snapshot: "目前顯示上次確認的房況，最新變更尚未確認。", guest_details: "姓名與備註暫時無法確認，仍可查看房況。", payments: "付款資料暫時無法確認，請勿視為未付款。" })[item.phase]} 僅供查看，恢復確認後才能操作。
+          {item.label} · {({ private_snapshot: "目前顯示伺服器保存的私人快照，房況、姓名、備註與付款均為當時資料。", snapshot: "目前顯示上次確認的房況，最新變更尚未確認。", guest_details: "姓名與備註暫時無法確認，仍可查看房況。", payments: "付款資料暫時無法確認，請勿視為未付款。" })[item.phase]} {item.captured_at && `保存時間：${new Date(item.captured_at).toLocaleString(uiLocale, { timeZone: "Asia/Taipei" })}。`}僅供查看，恢復確認後才能操作。
         </div>
       ))}
       {data?.source_errors?.filter(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id))).map(item => (
