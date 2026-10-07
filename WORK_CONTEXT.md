@@ -488,3 +488,5 @@ Six-tab standard Google workbooks are implemented as verified projections of the
 ## Calendar preview before signup — 2026-10-04
 
 The latest owner decision supersedes the account/password-first calendar entry. Google login and read-only calendar consent lead to preview and explicit save; ICS/ZIP can be previewed anonymously, with same-browser email-link login required only at save. Passwordless customer credentials, authenticated workspace ownership, exact retry and isolated one-hour previews are implemented. Existing Sheet/consultation onboarding and legacy accounts remain supported. See `docs/work-handoff/CALENDAR_PREVIEW_FIRST_2026-10-04.md` for review/repair cycles, 149 regression checks and the pending real-Google/mobile acceptance boundary.
+
+- 2026-10-07: [Calendar change intake](docs/work-handoff/CALENDAR_CHANGE_ENDPOINT_2026-10-07.md) is live: scoped producer callbacks, durable retries/readback, separate Sheet occupancy and channel observations, daily 08–09 Taipei one-attempt observation. LINE/Gmail producer hooks remain deferred by owner request.

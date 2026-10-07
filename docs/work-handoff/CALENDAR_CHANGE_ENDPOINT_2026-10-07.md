@@ -1,6 +1,6 @@
 # Calendar change intake — 2026-10-07
 
-Status: implemented and locally verified in commit `b269a5b`, pushed to draft PR #26. Production activation awaits explicit owner approval; no new production environment variables or deployment have been applied.
+Status: LIVE on 2026-10-07 after explicit owner approval. Code `b269a5b`, deployed commit `d291be1`, deployment `dpl_AQKkfJMux9RtrNxEejYgXkEEor5d`. Draft PR #26 retains the reviewable history.
 
 ## Owner decisions
 
@@ -19,7 +19,7 @@ Status: implemented and locally verified in commit `b269a5b`, pushed to draft PR
 - [x] Deliver the final callback contract to bnb-pricing and verify its existing client against the local receiver for both properties.
 - [ ] **Deferred at the owner's explicit request:** after the receiver is ready and the current booking-assistant deployment is complete, coordinate LINE / Gmail / room-toggle callbacks with `訂房小助手`. Do not interrupt or modify its deployment. This remains required follow-up work, not a completed integration.
 - [x] Verify controlled duplicate, stale, concurrent and interrupted deliveries in isolated local Redis without changing real bookings, room availability or OwlNest prices.
-- [ ] Record release and production activation evidence; do not call local implementation deployed.
+- [x] Record release and production activation evidence below.
 
 ## Current evidence
 
@@ -72,9 +72,21 @@ Sheet determines sold/unsold/conflict. Channel inventory is displayed separately
 
 ## Release handoff
 
-- Existing production baseline remains `dpl_AybNCF8mH99eVjENCapnqchTc1h2` (2026-10-06 main Sheet notes release).
-- Automatic approval review rejected the attempted creation of `CALENDAR_CHANGE_CLIENTS`, `CALENDAR_CHANGES_ENABLED`, and `CALENDAR_DAILY_OBSERVATION_ENABLED`, stating that persistent production configuration/scheduled activity needs explicit authorization. No commands in that rejected operation ran. Owner approval was requested with the exact scope.
-- After approval: install the prepared scoped configuration without printing values, stage the tested production commit, validate auth/field/property rejection without sending fabricated production prices, promote, verify both calendar screens, and record actual deployment evidence here. Hand the producer its private configuration path only after endpoint acceptance. Keep the producer's schedule/activation decision in its own workflow.
+- Previous production / rollback baseline: `dpl_AybNCF8mH99eVjENCapnqchTc1h2` (2026-10-06 main Sheet notes release).
+- Automatic approval review rejected the attempted creation of `CALENDAR_CHANGE_CLIENTS`, `CALENDAR_CHANGES_ENABLED`, and `CALENDAR_DAILY_OBSERVATION_ENABLED`, stating that persistent production configuration/scheduled activity needs explicit authorization. No commands in that rejected operation ran. Owner approval was requested with the exact scope and subsequently granted with an explicit “agree”.
+- Completed after approval: installed scoped configuration without exposing values, built a staged production deployment, checked authorization and validation, promoted the same deployment and handed the producer the private configuration path. Producer schedule/model activation remains in its own workflow.
 - Dedicated credential material is local, ignored and mode 0600; never place it in this document or the PR. It grants only two-property pricing/probability/inventory intake, no booking writes and no Redis access.
 
 - GitHub Actions run `37591693298` did not start any jobs: annotation states account locked due to a billing issue. This is not a passing CI result. Local checks above passed; no merge was performed.
+
+## Production acceptance — 2026-10-07
+
+- Primary: https://sweetfun-os.vercel.app ; candidate / current deployment: https://sweetfun-onw506tzv-sweetfuns-projects.vercel.app . Vercel reports READY and promotion success for `dpl_AQKkfJMux9RtrNxEejYgXkEEor5d` (created 16:14 Taipei).
+- Cloud build and TypeScript passed. Three new production settings successfully installed: scoped SHA-256 client configuration, intake enabled, daily observation enabled. No existing secrets were downloaded or changed.
+- Candidate HTTP checks: unauthenticated POST 401; authenticated missing receipt GET 404; authenticated malformed POST 400; pricing token attempting booking event 403. Primary domain authenticated OFFLAND missing-receipt GET also 404. These probes created no events and wrote no booking/price/inventory data.
+- Project API confirms crons enabled (`disabledAt:null`) and attached to this exact deployment: intake recovery every minute; daily observation schedule `* 0 * * *` (08:00–09:00 Asia/Taipei), plus existing schedules retained. Each daily minute only checks the durable plan; one actual OwlNest read attempt/property/day.
+- First eligible automatic observation: **2026-10-08 08:00–09:00 Asia/Taipei**. No claim that this future run has already succeeded.
+- Authenticated browser acceptance: Sweetfun week view changed from 3 unsold / 1 unknown to 4 unsold / 0 unknown for the inspected period; the previous zero-stock room-night remains Sheet-unsold and separately displays last OwlNest zero-stock observation. Header now shows actual latest price read 10/06 15:15, previously first-cell 09/30 00:07. OFFLAND week view loads with its own existing prices/research labels. Browser error log empty at acceptance.
+- New-deployment error-log query over the preceding five minutes returned no records; this is a bounded scan, not a guarantee of future job success.
+- bnb-pricing received the live endpoint and dedicated local private configuration path after acceptance. Existing client previously passed both-property local end-to-end verification. No pricing schedule was enabled or model policy changed by this OS release.
+- LINE/Gmail/toggle producer hooks remain the explicit deferred TODO; no booking-assistant deployment was changed.
