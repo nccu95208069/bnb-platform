@@ -2,7 +2,7 @@
 
 Current product/deployment context: [WORK_CONTEXT.md](WORK_CONTEXT.md). The owner-approved calendar pilot is live at [the customer entry](https://sweetfun-os.vercel.app/join); see [production verification and limits](docs/work-handoff/CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md#primary-domain-owner-pilot). The customer branch remains in draft PR #26. The older messaging subsystem overview below is historical context.
 
-Happy House native website integration is now deployed on the OS primary domain after direct owner authorization. Scoped Email/expiry scheduling is enabled; partner credential setup, the owner’s own calendar approval/LINE pairing and real delivery acceptance are tracked in [the website integration release record](docs/work-handoff/WEBSITE_BOOKING_API_2026-10-07.md).
+Happy House native website integration is now deployed on the OS primary domain after direct owner authorization. Scoped Email/expiry scheduling and both partner deployments are enabled; the owner’s own calendar approval/LINE pairing and real delivery acceptance are tracked in [the website integration release record](docs/work-handoff/WEBSITE_BOOKING_API_2026-10-07.md).
 
 > 民宿多渠道 AI 智能客服平台 — Multi-channel AI-powered Customer Service Platform for BnB
 

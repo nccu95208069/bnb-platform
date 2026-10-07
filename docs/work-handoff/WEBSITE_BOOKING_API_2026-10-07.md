@@ -504,3 +504,40 @@ checks pass. LINE owns the now-authorized safe production switch and polling
 scheduler; final traffic/readback and worker-file removal await its completion.
 It has been given the two successful OS cron timestamps above. Owner calendar
 approval and LINE pairing remain user steps; no test notification was sent.
+
+#### Owner entry point after deployment
+
+Open the private [website builder](https://stayform-ai-studio.nccu95208069.chatgpt.site/build/)
+and go to step 4, 發布設定. Choose 建立全新訂房日曆 (or 編輯新日曆設定 if already
+filled), enter actual rooms, prices, dates and the owner's email, then choose
+建立並連接日曆 → 前往 OS 確認. The human owner verifies the email and approves the
+mapping and policy in OS, then generates the private LINE pairing command and
+sends it to the assistant. Back in the builder, choose 檢查連接結果, save and
+publish/update the public website. Do not substitute agent approval for these
+steps or open sales against unconfirmed room inventory.
+
+#### Three-service deployment completed; temporary credentials removed
+
+The LINE owner chat reports `gmail-order-handler-int02-live-4d81071` now serves
+100% of production traffic. It re-read the production secret reference (pinned
+version 1), all 32 prior settings plus the six intended native additions, exact
+OS site grants and zero binding list. Its production OS poll returned HTTP 200
+with all counts zero. The safe transition paused background ingress for 335.75
+seconds, then restored Gmail push, backfill and the OwlNest queue to their prior
+states. The actual Gmail route returned 200 with zero messages/errors.
+
+The `website-line-notifications` every-minute scheduler and review-required alert
+using the existing operational recipient were created. Its latest verification
+reports an actual scheduler HTTP 200 and no post-release error. This is separate
+from the already recorded two successful OS scheduler runs. The operator can now
+perform the owner onboarding steps above; the system has not automatically
+approved their inventory or paired their LINE identity.
+
+After the LINE owner explicitly confirmed cloud installation/production readback
+and authorized local cleanup, the OS-created line-worker-token file was removed.
+The previously removed editor token and all remaining files in the OS-owned
+pilot handoff directory are now cleaned up; no raw credential remains in those
+temporary handoff files. The two live credentials remain independently stored by
+their respective services. No real guest booking or test message was created.
+Owner pairing, phone/inbox receipt and the first intended provider delivery are
+still user acceptance steps, not an unfinished deployment permission request.
