@@ -1,4 +1,13 @@
+import { validatePricingDecisions, type PricingDecisions } from './pricing-decision.ts';
 import { pricingProperty, type PricingProperty } from './property-pricing.ts';
+import { gunzipSync } from 'node:zlib';
+
+export const MAX_PRICING_BYTES = 16 * 1024 * 1024;
+export function readPricingSnapshot(raw: string, property?: string): PricingSnapshot {
+  if (!raw.startsWith('gz1:')) throw Error('INVALID_PRICING_SNAPSHOT');
+  return validatePricingSnapshot(JSON.parse(gunzipSync(Buffer.from(raw.slice(4), 'base64'),
+    { maxOutputLength: MAX_PRICING_BYTES }).toString('utf8')), property);
+}
 import type { Channel, SalesProbability } from './availability';
 
 export const PRICING_KEY = 'sweetfun-os:pricing:v1:sweetfun';
@@ -17,6 +26,7 @@ export type PricingSnapshot = {
     probability_observed_at?: string;
     rack_price: number | null; daytype: string; baseline_version: string;
     sales_probability?: SalesProbability | null;
+    pricing_decisions?: PricingDecisions;
     stock: { count: number | null; is_lock: boolean } | null;
   }[];
 };
@@ -24,6 +34,7 @@ export function validatePricingSnapshot(value: unknown, expectedProperty?: strin
   const s = value as PricingSnapshot;
   const config = pricingProperty(s?.property_id);
   if (expectedProperty && s.property_id !== expectedProperty) throw Error("PRICING_PROPERTY_MISMATCH");
+  if (new TextEncoder().encode(JSON.stringify(value)).length > MAX_PRICING_BYTES) throw Error('INVALID_PRICING_SNAPSHOT');
   const seen = new Set<string>();
   if (s?.schema !== 1 ||  !Number.isFinite(Date.parse(s.observed_at)) ||
       Date.parse(s.observed_at) > Date.now() + 300000 || !/^[a-f0-9]{20}$/.test(s.version) ||
@@ -40,6 +51,7 @@ export function validatePricingSnapshot(value: unknown, expectedProperty?: strin
         Object.entries(c.channels).some(([ch,p]) => !config.channels.includes(ch as Channel) || !Number.isSafeInteger(p) || p <= 0) ||
         (c.rack_price !== null && (!Number.isSafeInteger(c.rack_price) || c.rack_price <= 0)) ||
         (c.stock !== null && (typeof c.stock.is_lock !== 'boolean' || (c.stock.count !== null && (!Number.isSafeInteger(c.stock.count) || c.stock.count < 0))))) throw Error('INVALID_PRICING_CELL');
+    if (c.pricing_decisions !== undefined) validatePricingDecisions(c.pricing_decisions, config.channels, s.observed_at);
     const probability = c.sales_probability;
     if (probability != null && (!Number.isFinite(probability.value) || probability.value < 0 || probability.value > 1 || !/^\d{4}-\d{2}-\d{2}$/.test(probability.asof) || !Number.isFinite(Date.parse(probability.asof)) || new Date(probability.asof).toISOString().slice(0,10) !== probability.asof || probability.asof > new Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Taipei",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(s.observed_at)) || !/^[a-f0-9]{20}$/.test(probability.source_version))) throw Error("INVALID_SALES_PROBABILITY");
     seen.add(key);

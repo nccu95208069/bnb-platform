@@ -1,12 +1,13 @@
+import type { Channel } from '../availability';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { pricingProperty } from '../property-pricing.ts';
-import { validatePricingSnapshot, type PricingSnapshot } from '../pricing-snapshot.ts';
+import { MAX_PRICING_BYTES, validatePricingSnapshot, type PricingSnapshot } from '../pricing-snapshot.ts';
 import { type CalendarChange, type InventoryObservation, canonical, digest } from './contract.ts';
 
 export function encode(value: unknown) { return 'gz1:' + gzipSync(JSON.stringify(value)).toString('base64'); }
 export function decode(raw: string): unknown {
   if (!raw.startsWith('gz1:')) throw Error('CHANGE_STORAGE_INVALID');
-  return JSON.parse(gunzipSync(Buffer.from(raw.slice(4), 'base64'), { maxOutputLength: 8 * 1024 * 1024 }).toString('utf8'));
+  return JSON.parse(gunzipSync(Buffer.from(raw.slice(4), 'base64'), { maxOutputLength: MAX_PRICING_BYTES }).toString('utf8'));
 }
 export type ChannelInventory = {
   schema: 1;
@@ -66,6 +67,18 @@ export function mergeChange(event: CalendarChange, prior: PricingSnapshot | null
         if (!olderModel && (newer(probabilityAt, before?.probability_observed_at) || (sameTime(probabilityAt, before?.probability_observed_at) && equal(probability, before?.sales_probability ?? null)))) {
           next.sales_probability = probability; next.probability_observed_at = probabilityAt; counts.applied++; changed = true;
         } else counts.superseded++;
+      }
+      if (event.changes.includes('pricing_decisions') && cell.pricing_decisions) {
+        next.pricing_decisions = { ...before?.pricing_decisions };
+        for (const [channel, decision] of Object.entries(cell.pricing_decisions)) {
+          const previous = before?.pricing_decisions?.[channel as Channel];
+          // Retries compare the complete decision. Different data at the same
+          // observation time is a conflict, never an implicit overwrite.
+          if ((!previous || Date.parse(decision.calculated_at) >= Date.parse(previous.calculated_at)) && (newer(decision.observed_at, previous?.observed_at) || (sameTime(decision.observed_at, previous?.observed_at) && equal(decision, previous)))) {
+            next.pricing_decisions[channel as Channel] = decision;
+            counts.applied++; changed = true;
+          } else counts.superseded++;
+        }
       }
       cells.set(key, next);
     }

@@ -1,3 +1,5 @@
+import { canonical, digest } from './contract.ts';
+import type { Channel } from '../availability';
 import { validatePricingSnapshot } from '../pricing-snapshot.ts';
 import { decode, encode, mergeChange, readChannelInventory } from './merge.ts';
 import type { ChangeReceipt, ChangeStore, LoadedChange } from './store.ts';
@@ -36,6 +38,14 @@ export async function processChange(input: LoadedChange, deps: ChangeDependencie
         const prior = rawPrices ? validatePricingSnapshot(decode(rawPrices), event.property_id) : null;
         const inventory = readChannelInventory(rawInventory, event.property_id);
         merged = mergeChange(event, prior, inventory);
+        if (event.changes.includes('pricing_decisions')) {
+          const actual = new Map(merged.prices?.cells.map(c => [`${c.date}|${c.room}`, c]));
+          const cells = event.pricing_snapshot!.cells.flatMap(c => Object.entries(c.pricing_decisions ?? {}).map(([channel, expected]) => {
+            const decision = actual.get(`${c.date}|${c.room}`)?.pricing_decisions?.[channel as Channel] ?? null;
+            return { date: c.date, room: c.room, channel: channel as Channel, decision, matches: canonical(decision) === canonical(expected) };
+          })).sort((a,b) => a.date.localeCompare(b.date) || a.room.localeCompare(b.room) || a.channel.localeCompare(b.channel));
+          receipt.decision_readback = { digest: digest(canonical(cells)), cells };
+        }
         receipt.price_version = merged.prices?.version ?? null;
         receipt.inventory_version = merged.inventory?.version ?? null;
         receipt.applied_values = merged.counts.applied;

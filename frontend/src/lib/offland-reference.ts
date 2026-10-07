@@ -37,10 +37,10 @@ export function attachOfflandReference(result:AvailabilityResult, snapshot:Offla
   const age=snapshot?(Date.parse(result.asof)-Date.parse(snapshot.asof))/86400000:Infinity;
   const usable=!!snapshot&&age>=0&&age<=3;
   const map=new Map(usable?snapshot.cells.map(c=>[c.date,c]):[]);
-  return {...result,source_notice:result.source_notice+' OFFLAND 參考版：機率試算中，四／六人共用整棟機率；建議價未發布，不會自動改價。資料不足、連假或過期資料不顯示試算。',
+  return {...result,source_notice:result.source_notice+' OFFLAND：有定價紀錄時，計算機率及發布狀態以該次紀錄為準；其餘參考建議價僅為未發布試算。四／六人共用整棟機率，並非成交保證。',
     cells:result.cells.map(cell=>{
       const reference=map.get(cell.date);
-      if(cell.state!=='available'||!reference||!snapshot)return {...cell,offland_reference:null};
+      if(cell.pricing_decision||cell.state!=='available'||!reference||!snapshot)return {...cell,offland_reference:null};
       const channel=result.query.channel;
       const proposal=channel==='direct'||channel==='direct_four'?reference[channel]:null;
       const samePrice=proposal&&cell.pricing?.policy==='observed_snapshot'&&proposal.current===cell.pricing.current_price;

@@ -1,3 +1,5 @@
+import type { PricingDecision } from '../pricing-decision';
+import type { Channel } from '../availability';
 import { randomUUID } from 'node:crypto';
 import { redisCommand } from '../workspace-auth/store.ts';
 import { pricingProperty } from '../property-pricing.ts';
@@ -6,6 +8,10 @@ import { encode, decode } from './merge.ts';
 
 export type ChangeStatus = 'queued' | 'awaiting_source' | 'applied' | 'superseded' | 'partially_applied' | 'failed';
 export type ChangeReceipt = {
+  decision_readback?: {
+    digest: string;
+    cells: { date: string; room: string; channel: Channel; decision: PricingDecision | null; matches: boolean }[];
+  };
   schema: 1;
   event_id: string;
   client_id: string;

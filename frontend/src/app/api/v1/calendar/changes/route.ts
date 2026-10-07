@@ -16,7 +16,7 @@ const reply = (body: unknown, status = 200) => NextResponse.json(body, { status,
 const proof = (receipt: ChangeReceipt) => ({ ...receipt, status_url: `/api/v1/calendar/changes?${new URLSearchParams({ property: receipt.property_id, event_id: receipt.event_id })}` });
 function errorReply(error: unknown) {
   const code = error instanceof Error ? error.message : '';
-  const status: Record<string, number> = { INVALID_CHANGE: 400, INVALID_PRICING_SNAPSHOT: 400, INVALID_PRICING_CELL: 400, INVALID_SALES_PROBABILITY: 400, PRICING_PROPERTY_MISMATCH: 400, CHANGE_FORBIDDEN: 403, CHANGE_ID_REUSED: 409, CHANGE_TOO_LARGE: 413, CHANGE_QUEUE_FULL: 429 };
+  const status: Record<string, number> = { INVALID_CHANGE: 400, INVALID_PRICING_DECISION: 400, INVALID_PRICING_SNAPSHOT: 400, INVALID_PRICING_CELL: 400, INVALID_SALES_PROBABILITY: 400, PRICING_PROPERTY_MISMATCH: 400, CHANGE_FORBIDDEN: 403, CHANGE_ID_REUSED: 409, CHANGE_TOO_LARGE: 413, CHANGE_QUEUE_FULL: 429 };
   return reply({ code: status[code] ? code : 'CHANGE_TEMPORARILY_UNAVAILABLE', verified: false }, status[code] ?? 503);
 }
 export async function POST(request: NextRequest) {
