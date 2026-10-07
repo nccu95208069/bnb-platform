@@ -293,3 +293,21 @@ Post-merge checks pass: 69 domain/route checks, all six real Redis website/prici
 checks (including the two skipped without Redis), 22 relevant DOM checks, full
 TypeScript/webpack build and changed-file lint. CI now runs the new suites on
 customer-onboarding PRs using its existing disposable Redis service.
+
+### Deployment approval boundary
+
+Draft PR #31 is the reviewable implementation. On 2026-10-07 the staged
+production deployment command was rejected by automatic approval review before
+execution. The stated reason was that a production-target deployment enabling
+booking/holds and transmitting environment configuration lacked explicit
+production activation/credential-transfer authorization; skipping domain
+assignment was not considered sufficient isolation. No deployment, environment
+update, credential handoff, real booking or provider send occurred.
+
+The concrete activation scope is one native pilot website, preserving deployed
+pricing commit `bde9b4a`; separate editor and LINE credentials; exact site grants;
+owner email verification and explicit room/policy approval; gated scheduled
+email delivery; and the existing LINE service adapter. Existing Sheet/OwlNest
+properties and automatic pricing remain out of scope. Await direct owner
+approval before production candidate creation, persistent configuration or
+cross-service credential handoff. Do not retry through another tool or chat.
