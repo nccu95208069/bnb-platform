@@ -1,4 +1,6 @@
 "use client";
+import { useCalendarData } from "./use-calendar-data";
+import { hasCalendarCoverage } from "./calendar-retention";
 import { useCalendarRevision } from "./use-calendar-revision";
 import {GuestNotificationProvider} from "./guest-notification";
 import {useIntlLocale} from "@/components/i18n/language-provider";
@@ -73,7 +75,7 @@ import {
 import { WeekCarousel } from "@/components/calendar/week-carousel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { apiClient, ApiError } from "@/lib/api-client";
+import { apiClient } from "@/lib/api-client";
 import {
   useAccessControl,
   useEffectivePermissions,
@@ -81,6 +83,7 @@ import {
 } from "@/lib/access-control";
 import { cn } from "@/lib/utils";
 
+const LIVE_SHEET = process.env.NEXT_PUBLIC_CALENDAR_SOURCE === "sheet_snapshot";
 const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 const EDIT_STORAGE_KEY = "sweetfun-os-demo-edits-v4";
 const MONTHS = monthStarts("2025-01-01", 36);
@@ -113,6 +116,13 @@ type DemoEditState = {
 };
 
 const EMPTY_EDITS: DemoEditState = { orders: {}, segments: {} };
+
+async function readCalendar(start: string, end: string): Promise<CalendarResponse> {
+  if (!PAYMENT_SANDBOX) return apiClient.get<CalendarResponse>(`/bookings/calendar?start=${start}&end=${end}`);
+  const response = await fetch(`/api/payment-sandbox/calendar?start=${start}&end=${end}`, { cache: "no-store" });
+  if (!response.ok) throw Error("無法連接隔離測試服務，請稍後重試。");
+  return response.json();
+}
 
 function uniqueId(prefix: string) {
   const random =
@@ -214,11 +224,7 @@ const uiLocale = useIntlLocale();
   const [monthTarget, setMonthTarget] = useState(() =>
     startOfMonth(anchorDate),
   );
-  const [data, setData] = useState<CalendarResponse | null>(null);
-  const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const accessScope = JSON.stringify([membership?.id, membership?.role, membership?.allProperties, membership?.propertyIds]);
   const selectedId = useCalendarPreferences((s) => s.selectedBookingId);
   const setSelectedId = useCalendarPreferences((s) => s.setSelectedBookingId);
   const historyRevision = useCalendarPreferences((s) => s.historyRevision);
@@ -228,10 +234,8 @@ const uiLocale = useIntlLocale();
     setMonthTarget(month);
   }, [historyRevision]);
   const [reloadKey, setReloadKey] = useState(0);
-  const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
   const [editsHydrated, setEditsHydrated] = useState(false);
-  const hasLoadedData = useRef(false);
   const previousView = useRef<CalendarView>(view);
   const handledNavigationRequest = useRef(navigationRequest?.id ?? 0);
 
@@ -239,6 +243,12 @@ const uiLocale = useIntlLocale();
     () => fetchPeriod(anchorDate, query.trim() ? "month" : view),
     [anchorDate, view, query],
   );
+  const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess(); }, [setSelectedId, initializeAccess]);
+  const { data, loading, refreshing, error, requestFailed, lastLoadedAt } = useCalendarData({
+    start: requestPeriod.start, end: requestPeriod.end, scope: accessScope, reload: reloadKey,
+    read: readCalendar, onProperties: setProperties, onAccessLost: accessLost,
+  });
+  const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
   const displayPeriod = useMemo(() => {
     if (view === "month") {
       return {
@@ -330,54 +340,7 @@ const uiLocale = useIntlLocale();
   }, [edits, editsHydrated]);
 
   useEffect(() => {
-    let active = true;
-    const initialLoad = !hasLoadedData.current;
-
-    async function loadCalendar() {
-      if (initialLoad) setLoading(true);
-      else setRefreshing(true);
-      setError(null);
-
-      try {
-        const response = PAYMENT_SANDBOX
-          ? await fetch(
-              `/api/payment-sandbox/calendar?start=${requestPeriod.start}&end=${requestPeriod.end}`,
-              { cache: "no-store" },
-            ).then(async (r) => {
-              if (!r.ok) throw new Error("無法連接隔離測試服務，請稍後重試。");
-              return r.json() as Promise<CalendarResponse>;
-            })
-          : await apiClient.get<CalendarResponse>(
-              `/bookings/calendar?start=${requestPeriod.start}&end=${requestPeriod.end}`,
-            );
-        if (!active) return;
-        setData(response);
-        setProperties(response.properties);
-        setLastLoadedAt(new Date());
-        hasLoadedData.current = true;
-      } catch (requestError) {
-        if (!active) return;
-        if (requestError instanceof ApiError && [401,403].includes(requestError.status)) { setData(null); setSelectedId(null); void initializeAccess(); }
-        setError(
-          requestError instanceof Error
-            ? requestError.message
-            : "無法讀取訂單日曆",
-        );
-      } finally {
-        if (!active) return;
-        if (initialLoad) setLoading(false);
-        setRefreshing(false);
-      }
-    }
-
-    void loadCalendar();
-    return () => {
-      active = false;
-    };
-  }, [reloadKey, requestPeriod.end, requestPeriod.start, setProperties, setSelectedId, initializeAccess, membership?.id, membership?.role]);
-
-  useEffect(() => {
-    if (!PAYMENT_SANDBOX && !data?.source?.automatic_sync) return;
+    if (!PAYMENT_SANDBOX && !LIVE_SHEET && !data?.source?.automatic_sync) return;
     const refresh = () => {
       if (!document.hidden) setReloadKey((value) => value + 1);
     };
@@ -412,7 +375,8 @@ const uiLocale = useIntlLocale();
     if (!membership || membership.allProperties) return null;
     return new Set(membership.propertyIds);
   }, [membership]);
-  const unavailableSelectedSource = data?.source_errors?.some(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)));
+  const coverageMissing = !hasCalendarCoverage(data, requestPeriod.start, requestPeriod.end);
+  const unavailableSelectedSource = coverageMissing || data?.source_errors?.some(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)));
 
 
   const selectedProperties = useMemo(
@@ -874,6 +838,12 @@ const uiLocale = useIntlLocale();
         </div>
       </section>
 
+      {requestFailed && data && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">目前顯示上次載入的資料，僅供查看。最新房況與付款尚未確認，恢復連線後會自動重試。</div>}
+      {data?.source_warnings?.filter(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id))).map(item => (
+        <div key={`${item.property_id}:${item.phase}`} role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          {item.label} · {({ snapshot: "目前顯示上次確認的房況，最新變更尚未確認。", guest_details: "姓名與備註暫時無法確認，仍可查看房況。", payments: "付款資料暫時無法確認，請勿視為未付款。" })[item.phase]} 僅供查看，恢復確認後才能操作。
+        </div>
+      ))}
       {data?.source_errors?.filter(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id))).map(item => (
         <div key={item.property_id} role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
           {item.label}{uiText("暫時無法載入，相關房況與統計尚無法確認。其他民宿仍可正常查看。")}</div>
@@ -927,7 +897,7 @@ const uiLocale = useIntlLocale();
 
       {permissions.viewPrices && <p className="payment-review-legend px-2 text-[10px] text-muted-foreground">{uiText("灰底：已付清 · 訂：已付訂金 · 未：未付款")}</p>}
 
-      {DEMO_MODE && !PAYMENT_SANDBOX && !data?.source && (
+      {DEMO_MODE && !LIVE_SHEET && !PAYMENT_SANDBOX && data?.data_mode === "anonymized_multi_property_demo" && (
         <div className="hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 md:block">
           {uiText("示範模式：可測試權限、付款、改期與取消；變更只保存在這台裝置。")}</div>
       )}
@@ -941,13 +911,13 @@ const uiLocale = useIntlLocale();
           <details>
             <summary className="cursor-pointer py-0.5">
               <span className="font-medium">{source.label}</span> {uiText("· 唯讀 ·")}{source.automatic_sync && source.sync ? uiText(({ healthy: "同步正常", confirming: "確認變更中", waiting: "等待首次檢查", error: "檢查失敗，保留上次資料", stale: "資料可能過期" })[source.sync.status]) : uiText("尚未自動同步")}
-              {source.sync?.last_checked_at && <span className="ml-1 text-sky-800">{new Date(source.sync.last_checked_at).toLocaleTimeString(uiLocale, {timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false})}</span>}
+              {source.sync?.last_successful_check_at && <span className="ml-1 text-sky-800">{new Date(source.sync.last_successful_check_at).toLocaleTimeString(uiLocale, {timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false})}</span>}
             </summary>
             <div className="mt-1 space-y-1 border-t border-sky-200 pt-1.5">
           <p className="font-medium">{source.label} · {data?.guest_access?.authenticated ? uiText("私人唯讀檢視") : uiText("匿名唯讀快照")} · {new Date(source.observed_at).toLocaleString(uiLocale, { timeZone: "Asia/Taipei" })}</p>
           {source.automatic_sync && source.sync ? <div aria-live="polite">
             <p>{({ waiting: "監控已設定，等待首次檢查。", healthy: "每分鐘自動檢查訂房表。", confirming: "發現資料變更，等待下一次檢查確認；目前保留上次資料。", error: "訂房表檢查失敗，目前保留上次資料，系統會自動重試。", stale: "已超過 5 分鐘未完成檢查，目前顯示上次資料。" })[source.sync.status]}</p>
-            <p>{uiText("最後檢查：")}{source.sync.last_checked_at ? new Date(source.sync.last_checked_at).toLocaleString(uiLocale, { timeZone: "Asia/Taipei" }) : uiText("尚未完成")} {uiText("· 比對")}{source.sync.cutoff} {uiText("起的入住紀錄與所有未來訂單。")}</p>
+            <p>{uiText("最後成功確認：")}{source.sync.last_successful_check_at ? new Date(source.sync.last_successful_check_at).toLocaleString(uiLocale, { timeZone: "Asia/Taipei" }) : uiText("尚無確認紀錄")} · {uiText("最近嘗試：")}{source.sync.last_checked_at ? new Date(source.sync.last_checked_at).toLocaleString(uiLocale, { timeZone: "Asia/Taipei" }) : uiText("尚未完成")} {uiText("· 比對")}{source.sync.cutoff} {uiText("起的入住紀錄與所有未來訂單。")}</p>
           </div> : <p>{uiText("尚未啟用自動同步。")}</p>}
           <p>{uiText("已付清指客人已付清，OTA 收款與旅宿入帳尚未記錄。")}</p>
           <p>{uiText("訂單編號可空白，使用唯一 ID 識別每列；跨列連住需共同編號。")}</p>
@@ -987,6 +957,9 @@ const uiLocale = useIntlLocale();
         <div className="flex min-h-[calc(100dvh-7rem)] items-center justify-center gap-2 bg-card text-sm text-muted-foreground md:min-h-96 md:rounded-xl md:border md:shadow-sm">
           <LoaderCircle className="size-4 animate-spin" />
           {uiText("讀取訂單與房況中")}</div>
+      ) : coverageMissing ? (
+        <div role="status" className="m-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-16 text-center text-sm text-amber-950 md:m-0">
+          此日期區間尚未成功載入，房況無法確認。請重試或回到已載入的日期。</div>
       ) : selectedProperties.length === 0 ? (
         <div className="m-2 rounded-xl border border-dashed bg-card px-4 py-16 text-center text-sm text-muted-foreground md:m-0">
           {uiText("請從左上角選單選擇至少一間旅宿。")}</div>
@@ -1040,6 +1013,7 @@ const uiLocale = useIntlLocale();
 
       {!loading &&
         !error &&
+        !coverageMissing &&
         selectedProperties.length > 0 &&
         filteredBookings.length === 0 &&
         view !== "month" && (
@@ -1052,14 +1026,16 @@ const uiLocale = useIntlLocale();
         orderSegments={selectedOrderSegments}
         rooms={data?.rooms ?? []}
         permissions={
-          data?.source?.read_only
+          (data?.source?.read_only || selectedBooking?.snapshot_only)
             ? { ...permissions, editBookings: false, cancelBookings: false, recordPayments: false }
             : PAYMENT_SANDBOX
             ? { ...permissions, editBookings: false, cancelBookings: false }
             : permissions
         }
         paymentWorkspace={
-          data?.source?.read_only && selectedBooking && permissions.viewPrices && !selectedBooking.source_conflict ? (
+          data?.source?.read_only && selectedBooking?.snapshot_only ? (
+            <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">目前為唯讀快照。請重新載入並確認最新訂單後，再登錄付款。</p>
+          ) : data?.source?.read_only && selectedBooking && permissions.viewPrices && !selectedBooking.source_conflict ? (
             <OsPaymentPanel key={selectedBooking.order_id} property={selectedBooking.property_id} order={selectedBooking.order_id} canRecord={permissions.recordPayments} onChange={() => setReloadKey(v=>v+1)} />
           ) : PAYMENT_SANDBOX && selectedBooking && permissions.viewPrices ? (
             <PaymentWorkspace

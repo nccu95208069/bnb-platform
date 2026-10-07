@@ -16,7 +16,7 @@ export function GuestNotificationProvider({children}:{children:ReactNode}){
  useEffect(()=>{const load=()=>{for(const p of properties.split(',').filter(Boolean))void refresh(p);};load();window.addEventListener('focus',load);const timer=setInterval(load,60000);return()=>{window.removeEventListener('focus',load);clearInterval(timer);};},[properties,refresh]);
  async function toggle(booking:CalendarBooking){
   const property=booking.property_id,key=`${property}:${booking.order_id}`,previous=data[property]?.states[booking.order_id];
-  if(busy[key]||!data[property]?.can_write)return;
+  if(booking.snapshot_only||busy[key]||!data[property]?.can_write)return;
   setBusy(b=>({...b,[key]:true}));setErrors(e=>({...e,[key]:''}));
   try{const r=await fetch('/api/v1/guest-notification',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:property,order_id:booking.order_id,notified:!previous?.notified,expected_version:previous?.version??0,request_id:crypto.randomUUID()})});if(!r.ok)throw Error(r.status===409?'狀態已被更新，請重新確認':'儲存未確認，請重試');const value=await r.json();setData(d=>({...d,[property]:{...d[property],states:{...d[property].states,[booking.order_id]:value.state}}}));}
   catch(error){await refresh(property);setErrors(e=>({...e,[key]:error instanceof Error?error.message:'儲存未確認，請重試'}));}
@@ -27,7 +27,7 @@ export function GuestNotificationProvider({children}:{children:ReactNode}){
 export function GuestNotificationButton({booking,detail=false}:{booking:CalendarBooking;detail?:boolean}){
  const {data,errors,busy,toggle,refresh}=useContext(Context),t=useT(),locale=useIntlLocale();
  const preview=useAccessControl(s=>s.previewRole),property=booking.property_id,key=`${property}:${booking.order_id}`,state=data[property]?.states[booking.order_id];
- const editable=data[property]?.can_write&&!['viewer','viewer_no_price'].includes(preview??'');
+ const editable=!booking.snapshot_only&&data[property]?.can_write&&!['viewer','viewer_no_price'].includes(preview??'');
  const error=errors[property]||errors[key],loading=!data[property],saving=busy[key];
  return <span className={detail?'block rounded-lg border p-3':'ml-auto flex shrink-0 flex-col items-end gap-1'} onClick={e=>e.stopPropagation()}>
   <button type="button" aria-pressed={Boolean(state?.notified)} disabled={saving||(!error&&(loading||!editable||booking.reservation_status==='cancelled'))} onClick={()=>error?void refresh(property):void toggle(booking)} title={t(state?.notified?'撤回已通知標記':'僅標記已通知，不會發送訊息')} className="min-h-10 rounded-md border border-current/20 bg-white/70 px-2 text-xs font-medium text-slate-800 disabled:opacity-60">

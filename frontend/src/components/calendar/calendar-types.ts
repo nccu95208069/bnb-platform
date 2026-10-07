@@ -77,6 +77,8 @@ export type CalendarBooking = {
   baby_supplies: BabySupplyKey[];
   service_note: string | null;
   source_read_only?: boolean;
+  snapshot_only?: boolean;
+  payment_unconfirmed?: boolean;
   requirements_known?: boolean;
   source_conflict?: boolean;
   source_issue_acknowledged?: boolean;
@@ -105,9 +107,11 @@ export type CalendarResponse = {
   total_amount: number;
   bookings: CalendarBooking[];
   source?: { label: string; observed_at: string; read_only: boolean; automatic_sync: boolean; availability_authoritative: boolean;
-    sync?: { status: "waiting" | "healthy" | "confirming" | "error" | "stale"; last_checked_at: string | null; last_published_at: string | null; cutoff: string; interval_seconds: number; error_code: string | null } };
+    sync?: { status: "waiting" | "healthy" | "confirming" | "error" | "stale"; last_successful_check_at?: string | null; last_checked_at: string | null; last_published_at: string | null; cutoff: string; interval_seconds: number; error_code: string | null } };
   source_summary?: { rows: number; accepted_rows: number; quarantined_rows: number; new_issue_rows?: number; historical_issue_rows?: number; blocked_room_nights: number; missing_order_id: number; missing_payment_status: number };
   sources?: { property_id: string; source: NonNullable<CalendarResponse["source"]>; summary: CalendarResponse["source_summary"] }[];
+  request_id?: string;
+  source_warnings?: { property_id: string; label: string; phase: "snapshot" | "guest_details" | "payments" }[];
   source_errors?: { property_id: string; label: string }[];
   guest_access?: { available: boolean; authenticated: boolean };
   data_mode?: string;

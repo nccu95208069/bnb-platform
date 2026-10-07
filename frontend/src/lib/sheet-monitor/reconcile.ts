@@ -13,6 +13,7 @@ export type MonitorState = {
   archived: BookingSourceSnapshot["bookings"];
   snapshot: BookingSourceSnapshot;
   checkedAt: string | null;
+  lastSuccessfulAt?: string | null;
   publishedAt: string | null;
   pending: { digest: string; since: string } | null;
   error: string | null;
@@ -100,7 +101,7 @@ export function reconcile(state: MonitorState, values: unknown[][], now: string,
       state.snapshot.issues.filter(i => i.acknowledged).map(i => i.fingerprint), rows.map(r => r.sourceRow), source.property);
     refreshed.source.snapshot_version = state.snapshot.source.snapshot_version;
     refreshed.bookings.push(...state.archived);
-    return { ...base, rows, snapshot: refreshed, pending: null };
+    return { ...base, rows, snapshot: refreshed, lastSuccessfulAt: now, pending: null };
   }
   // Two separate successful observations; same-minute retries cannot confirm a deletion.
   if (state.pending?.digest !== digest || Date.parse(now) - Date.parse(state.pending.since) < 30_000) {
@@ -123,12 +124,12 @@ export function reconcile(state: MonitorState, values: unknown[][], now: string,
     added: [...after.keys()].filter(k => !before.has(k)).length,
     removed: [...before.keys()].filter(k => !after.has(k)).length,
     changed: [...after].filter(([k, v]) => before.has(k) && before.get(k) !== v).length };
-  return { ...base, rows, archived, snapshot, publishedAt: now, pending: null, audit: [...state.audit, event].slice(-50) };
+  return { ...base, rows, archived, snapshot, lastSuccessfulAt: now, publishedAt: now, pending: null, audit: [...state.audit, event].slice(-50) };
 }
 export function publicSnapshot(state: MonitorState, now: string): BookingSourceSnapshot {
   const stale = !state.checkedAt || Date.parse(now) - Date.parse(state.checkedAt) > 5 * 60_000;
   return { ...state.snapshot, source: { ...state.snapshot.source, automatic_sync: true,
     sync: { status: state.error ? "error" : !state.checkedAt ? "waiting" : stale ? "stale" : state.pending ? "confirming" : "healthy",
-      last_checked_at: state.checkedAt, last_published_at: state.publishedAt,
+      last_successful_check_at: state.lastSuccessfulAt ?? null, last_checked_at: state.checkedAt, last_published_at: state.publishedAt,
       cutoff: cutoffDay(now), interval_seconds: 60, error_code: state.error } } };
 }
