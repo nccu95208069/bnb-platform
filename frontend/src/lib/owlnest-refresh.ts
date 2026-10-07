@@ -53,14 +53,14 @@ export function refreshedSnapshot(raw: unknown, prior: PricingSnapshot, start:st
       const date=new Date(d).toISOString().slice(0,10), channels=values.get(date);
       if (!channels || config.channels.some(c => channels[c] === undefined)) throw Error("OWLNEST_RESPONSE_INCOMPLETE");
       const previous = old.get(`${date}|${code}`);
-      cells.push({date,room:code,channels,observed_at:observed,stock:stocks.get(date) ?? null,
+      cells.push({date,room:code,channels,observed_at:observed,stock_observed_at:observed,probability_observed_at:previous?.probability_observed_at ?? previous?.observed_at ?? prior.observed_at,stock:stocks.get(date) ?? null,
         rack_price:previous?.rack_price ?? null,daytype:previous?.daytype ?? "",baseline_version:previous?.baseline_version ?? "",
         sales_probability:previous?.sales_probability ?? null});
     }
   }
   if (seenRooms.size !== config.roomNames.length) throw Error("OWLNEST_RESPONSE_INCOMPLETE");
   // Dates outside this refresh retain their own observation time, never appear freshly read.
-  cells.push(...prior.cells.filter(c => c.date < start || c.date >= end).map(c=>({...c,observed_at:c.observed_at ?? prior.observed_at})));
+  cells.push(...prior.cells.filter(c => c.date < start || c.date >= end).map(c=>({...c,observed_at:c.observed_at ?? prior.observed_at,stock_observed_at:c.stock_observed_at ?? c.observed_at ?? prior.observed_at,probability_observed_at:c.probability_observed_at ?? c.observed_at ?? prior.observed_at})));
   cells.sort((a,b)=>a.date.localeCompare(b.date)||a.room.localeCompare(b.room));
   const snapshot = {...prior,observed_at:observed,cells};
   snapshot.version = createHash("sha256").update(JSON.stringify(snapshot)).digest("hex").slice(0,20);

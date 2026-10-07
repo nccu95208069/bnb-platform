@@ -373,3 +373,6 @@ Do not switch the public application from anonymized demo mode until all items b
 - implementing broad parallel Mission execution
 - migrating SSOT before the first workflows are validated
 - reviving the superseded PR #9 branch
+# Calendar change intake — 2026-10-07 owner request
+
+See [calendar change intake and deferred producer coordination](CALENDAR_CHANGE_ENDPOINT_2026-10-07.md). Implement the OS receiver first and coordinate bnb-pricing now. **LINE / Gmail / OwlNest room-toggle callbacks with `訂房小助手` remain a required TODO, deferred until the receiver is ready and its current deployment is complete, per the owner's explicit instruction.** Do not mark those producer hooks connected based only on receiver completion.

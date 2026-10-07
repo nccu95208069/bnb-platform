@@ -13,6 +13,8 @@ export type PricingSnapshot = {
   cells: {
     date: string; room: string; channels: Partial<Record<Channel, number>>;
     observed_at?: string;
+    stock_observed_at?: string;
+    probability_observed_at?: string;
     rack_price: number | null; daytype: string; baseline_version: string;
     sales_probability?: SalesProbability | null;
     stock: { count: number | null; is_lock: boolean } | null;
@@ -29,6 +31,9 @@ export function validatePricingSnapshot(value: unknown, expectedProperty?: strin
   for (const c of s.cells) {
     const key = `${c.date}|${c.room}`;
     if (c.observed_at !== undefined && (!Number.isFinite(Date.parse(c.observed_at)) || Date.parse(c.observed_at)>Date.parse(s.observed_at))) throw Error('INVALID_PRICING_CELL');
+    for (const observed of [c.stock_observed_at, c.probability_observed_at]) {
+      if (observed !== undefined && (!Number.isFinite(Date.parse(observed)) || Date.parse(observed) > Date.parse(s.observed_at))) throw Error('INVALID_PRICING_CELL');
+    }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(c.date) || new Date(c.date).toISOString().slice(0,10) !== c.date ||
         !config.roomNames.includes(c.room) || seen.has(key) || typeof c.daytype !== 'string' ||
         typeof c.baseline_version !== 'string' || !c.channels ||

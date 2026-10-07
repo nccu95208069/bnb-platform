@@ -1,4 +1,5 @@
 "use client";
+import { useCalendarRevision } from "./use-calendar-revision";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -122,6 +123,8 @@ const uiLocale = useIntlLocale();
     [error, setError] = useState("");
   const [loading, setLoading] = useState(true),
     [refresh, setRefresh] = useState(0);
+  const changed = useCallback(() => setRefresh(v => v + 1), []);
+  useCalendarRevision(property, !PAYMENT_SANDBOX && !!membership, changed);
   const selected = useCalendarPreferences((s) => s.availabilitySelection);
   const setSelected = useCalendarPreferences((s) => s.setAvailabilitySelection);
   const [quote, setQuote] = useState<PriceQuote | null>(null),
@@ -425,7 +428,7 @@ const uiLocale = useIntlLocale();
         </div>
       </div>
       {priceRefreshMessage && <p role={priceRefreshError ? "alert" : "status"} className={cn("text-xs",priceRefreshError ? "text-destructive" : "text-muted-foreground")}>{priceRefreshMessage}<button type="button" aria-label={uiText("關閉")} className="ml-2 px-2" onClick={()=>setPriceRefreshMessage("")}>×</button></p>}
-      {!PAYMENT_SANDBOX && <p className="text-[11px] text-muted-foreground" aria-label={uiText("房價上次更新時間")}>{uiText("房價更新")}{data?.cells[0]?.pricing?.observed_at ? new Intl.DateTimeFormat("zh-TW", { timeZone:"Asia/Taipei", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" }).format(new Date(data.cells[0].pricing.observed_at)) : uiText("讀取中")}</p>}
+      {!PAYMENT_SANDBOX && <p className="text-[11px] text-muted-foreground" aria-label={uiText("房價上次更新時間")}>{uiText("房價更新")}{data?.pricing_observed_at ? new Intl.DateTimeFormat("zh-TW", { timeZone:"Asia/Taipei", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" }).format(new Date(data.pricing_observed_at)) : uiText("讀取中")}</p>}
       <div className="flex items-center gap-3 text-xs" aria-label={uiText("未售房況摘要")}>
         <span>{uiText("未售")}<strong className="tabular-nums">{loading ? "—" : data?.counts.available ?? 0}</strong></span>
         <span className="text-muted-foreground">{uiText("暫留／封房")}<strong className="tabular-nums">{loading ? "—" : (data?.counts.held ?? 0) + (data?.counts.blocked ?? 0) + (data?.counts.maintenance ?? 0)}</strong></span>
@@ -816,6 +819,14 @@ const uiLocale = useIntlLocale();
                   uiLocale,
                 )}
               </p>
+              {!PAYMENT_SANDBOX && <p className="text-xs text-muted-foreground" aria-label={uiText("通路庫存上次觀測")}>
+                {uiText("OwlNest 上次觀測：")}{selectedCell.channel_inventory ? <>
+                  {selectedCell.channel_inventory.is_lock ? uiText("封房") : selectedCell.channel_inventory.count === 0 ? uiText("庫存為零") : selectedCell.channel_inventory.count === null ? uiText("庫存未知") : uiText("有庫存")}
+                  {" · "}{new Date(selectedCell.channel_inventory.observed_at).toLocaleString(uiLocale, {timeZone:"Asia/Taipei"})}
+                  {!selectedCell.channel_inventory.checked_today && <> · {uiText("尚未於今日確認")}</>}
+                </> : uiText("尚無資料")}
+                {uiText("。接單前仍須確認可售狀態。")}
+              </p>}
               {actionError && !preview && (
                 <p role="alert" className="text-sm text-destructive">
                   {actionError}

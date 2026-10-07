@@ -23,7 +23,7 @@ test('uses correct channel and checkout semantics, does not expose guest informa
 test('source outage, overlapping marker, locked stock and missing price never become confirmed inventory or invented prices',()=>{
  const p=structuredClone(prices);p.cells[0].stock.is_lock=true;p.cells[1].stock.count=0;delete p.cells[2].channels.booking;
  const r=liveAvailability(query,{...source,bookings:[{room_number:'301',check_in:'2026-09-07',check_out:'2026-09-08',source_conflict:true}]},p,now);
- assert.equal(r.cells[0].state,'blocked');assert.equal(r.cells[1].state,'unknown');assert.equal(r.cells[2].pricing.current_price,null);assert.equal(r.cells[4].state,'conflict');
+ assert.equal(r.cells[0].state,'available');assert.equal(r.cells[1].state,'available');assert.equal(r.cells[0].channel_inventory.is_lock,true);assert.equal(r.cells[1].channel_inventory.count,0);assert.equal(r.cells[2].pricing.current_price,null);assert.equal(r.cells[4].state,'conflict');
  const stale=liveAvailability(query,{...source,source:{...source.source,sync:{status:'stale'}}},null,now);
  assert.equal(stale.counts.available,0);assert.equal(stale.counts.unknown,6);
  const old=liveAvailability(query,source,{...prices,observed_at:'2026-09-01T00:00:00Z'},now);
@@ -61,3 +61,13 @@ test('real route rejects anonymous, hidden-price, reset-required and wrong-prope
  validatePricingSnapshot(snapshot);assert.equal(liveAvailability(query,source,snapshot,now).cells[0].sales_probability.value,0.6);
  snapshot.cells[0].sales_probability.value=1.1;assert.throws(()=>validatePricingSnapshot(snapshot));
  });
+
+test('old zero inventory stays a separate observation and newer overlay wins without freshening price time',()=>{
+ const prior=structuredClone(prices);prior.observed_at='2026-09-01T00:00:00Z';prior.cells[0].stock={count:0,is_lock:true};
+ const inventory={schema:1,property_id:'sweetfun',version:'e'.repeat(20),observed_at:now.toISOString(),cells:[{date:'2026-09-07',room:'101',count:1,is_lock:false,observed_at:now.toISOString(),source_version:'stock-v1'}]};
+ const r=liveAvailability(query,source,prior,now,'sweetfun',inventory);
+ assert.equal(r.cells[0].state,'available');assert.equal(r.cells[0].channel_inventory.is_lock,false);assert.equal(r.cells[0].channel_inventory.checked_today,true);
+ assert.equal(r.cells[0].pricing.observed_at,prior.observed_at);assert.equal(r.pricing_observed_at,prior.observed_at);
+ const fresh=structuredClone(prices);fresh.cells[0].stock={count:0,is_lock:true};fresh.cells[0].stock_observed_at='2026-09-07T12:01:00Z';fresh.observed_at='2026-09-07T12:01:00Z';
+ assert.equal(liveAvailability(query,source,fresh,now,'sweetfun',inventory).cells[0].channel_inventory.is_lock,true);
+});

@@ -19,6 +19,14 @@
     {
       "path": "/api/cron/customer-calendars",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/calendar-changes",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/calendar-observation",
+      "schedule": "* 0 * * *"
     }
   ]
 }

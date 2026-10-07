@@ -64,6 +64,7 @@ export type NightPrice = {
 };
 export type SalesProbability = { value: number; asof: string; source_version: string };
 export type RoomNight = {
+  channel_inventory?: { count: number | null; is_lock: boolean; observed_at: string; checked_today: boolean } | null;
   offland_reference?: import('./offland-reference').OfflandReference | null;
   sales_probability?: SalesProbability | null;
   date: string;
@@ -85,6 +86,7 @@ export type AvailabilityQuery = {
   demo_cycle: 1 | 2;
 };
 export type AvailabilityResult = {
+  pricing_observed_at?: string | null;
   properties?: {id:string;name:string;short_name:string;location:string;room_count:number;color:"emerald"|"violet"|"amber"|"sky"}[];
   status: string;
   mode: string;
