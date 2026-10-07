@@ -1,9 +1,8 @@
-import { gunzipSync } from 'node:zlib';
 import { NextRequest, NextResponse } from 'next/server';
 import { redisCommand } from '@/lib/workspace-auth/store';
 import { readBookingSnapshot } from '@/lib/booking-sources/snapshot';
 import { SWEETFUN_SOURCE } from '@/lib/booking-sources/config';
-import { PRICING_KEY, validatePricingSnapshot } from '@/lib/pricing-snapshot';
+import { PRICING_KEY, readPricingSnapshot } from '@/lib/pricing-snapshot';
 import { readOwlNest, refreshedSnapshot } from '@/lib/owlnest-refresh';
 import { buildRoomQuote, parseQuoteQuery, quoteAuthorized } from '@/lib/room-quote';
 
@@ -18,7 +17,7 @@ export async function GET(request:NextRequest){
     const query=parseQuoteQuery(request.nextUrl.searchParams);
     const raw=await redisCommand(['GET',PRICING_KEY]);
     if(typeof raw!=='string'||!raw.startsWith('gz1:'))throw Error('QUOTE_PRICE_UNAVAILABLE');
-    const prior=validatePricingSnapshot(JSON.parse(gunzipSync(Buffer.from(raw.slice(4),'base64'),{maxOutputLength:4*1024*1024}).toString('utf8')));
+    const prior=readPricingSnapshot(raw);
     // Only the requested nights are read from OwlNest. Never publishes or changes rates/inventory.
     const live=await readOwlNest(query.start,query.end);
     const now=new Date();

@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { pricingProperty, type PricingProperty } from '../property-pricing.ts';
 import { validatePricingSnapshot, type PricingSnapshot } from '../pricing-snapshot.ts';
 
-export const CHANGE_KINDS = ['booking', 'inventory', 'prices', 'sales_probability'] as const;
+export const CHANGE_KINDS = ['booking', 'inventory', 'prices', 'sales_probability', 'pricing_decisions'] as const;
 export type ChangeKind = typeof CHANGE_KINDS[number];
 export type InventoryObservation = { date: string; room: string; count: number | null; is_lock: boolean };
 export type InventorySnapshot = { version: string; observed_at: string; cells: InventoryObservation[] };
@@ -49,7 +49,7 @@ export function validateChange(value: unknown, client: ChangeClient, now = new D
   if (!client.properties.includes(value.property_id as PricingProperty) || value.changes.some(k => !client.changes.includes(k))) throw Error('CHANGE_FORBIDDEN');
   const config = pricingProperty(value.property_id as string);
   const event = value as unknown as CalendarChange;
-  const priceChange = event.changes.includes('prices') || event.changes.includes('sales_probability');
+  const priceChange = event.changes.includes('prices') || event.changes.includes('sales_probability') || event.changes.includes('pricing_decisions');
   if (priceChange !== !!event.pricing_snapshot) throw Error('INVALID_CHANGE');
   if (event.pricing_snapshot) {
     const snapshot = validatePricingSnapshot(event.pricing_snapshot, event.property_id);
@@ -57,11 +57,13 @@ export function validateChange(value: unknown, client: ChangeClient, now = new D
     // Reuse the existing complete export shape, but never accept unowned fields or PII.
     if (!exact(snapshot as unknown as Record<string, unknown>, ['schema', 'property_id', 'observed_at', 'version', 'source_commit', 'cells'])) throw Error('INVALID_CHANGE');
     for (const cell of snapshot.cells) {
-      if (!exact(cell as unknown as Record<string, unknown>, ['date', 'room', 'channels', 'observed_at', 'stock_observed_at', 'probability_observed_at', 'rack_price', 'daytype', 'baseline_version', 'sales_probability', 'stock']) || cell.daytype.length > 80 || cell.baseline_version.length > 128 || Object.values(cell.channels).some(p => p! > 10_000_000)) throw Error('INVALID_CHANGE');
+      if (!exact(cell as unknown as Record<string, unknown>, ['date', 'room', 'channels', 'observed_at', 'stock_observed_at', 'probability_observed_at', 'rack_price', 'daytype', 'baseline_version', 'sales_probability', 'pricing_decisions', 'stock']) || cell.daytype.length > 80 || cell.baseline_version.length > 128 || Object.values(cell.channels).some(p => p! > 10_000_000)) throw Error('INVALID_CHANGE');
+      if (cell.pricing_decisions && !event.changes.includes('pricing_decisions')) throw Error('INVALID_CHANGE');
       if (cell.sales_probability && !exact(cell.sales_probability, ['value', 'asof', 'source_version'])) throw Error('INVALID_CHANGE');
       if (cell.stock && !exact(cell.stock, ['count', 'is_lock'])) throw Error('INVALID_CHANGE');
     }
   }
+  if (event.changes.includes('pricing_decisions') && !event.pricing_snapshot?.cells.some(c => c.pricing_decisions)) throw Error('INVALID_CHANGE');
   if (event.inventory_snapshot) {
     const inventory = event.inventory_snapshot;
     if (!event.changes.includes('inventory') || !record(inventory) || !exact(inventory, ['version', 'observed_at', 'cells']) || !id(inventory.version) || !validTimestamp(inventory.observed_at, now) || Date.parse(inventory.observed_at) > Date.parse(event.occurred_at) || !Array.isArray(inventory.cells) || !inventory.cells.length || inventory.cells.length > 6000) throw Error('INVALID_CHANGE');

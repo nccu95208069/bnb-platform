@@ -9,6 +9,7 @@ if(Date.now()-Date.parse(snapshot.observed_at)>15*60000)throw Error('Export is t
 const old=await redisCommand(['GET',PRICING_KEY]);
 if(old){
   const prior=validatePricingSnapshot(JSON.parse(gunzipSync(Buffer.from(old.slice(4),'base64')).toString('utf8')));
+  if(prior.cells.some(c=>c.pricing_decisions))throw Error('Pricing decisions exist; use the calendar changes endpoint to preserve independently versioned fields');
   if(Date.parse(prior.observed_at)>=Date.parse(snapshot.observed_at))throw Error('Newer or identical snapshot already published');
 }
 const value='gz1:'+gzipSync(JSON.stringify(snapshot)).toString('base64');

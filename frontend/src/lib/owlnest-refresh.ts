@@ -1,7 +1,7 @@
 import { pricingProperty } from './property-pricing.ts';
 import { createHash, randomUUID } from "node:crypto";
-import { gzipSync, gunzipSync } from "node:zlib";
-import { validatePricingSnapshot, type PricingSnapshot } from "./pricing-snapshot.ts";
+import { gzipSync } from "node:zlib";
+import { readPricingSnapshot, validatePricingSnapshot, type PricingSnapshot } from "./pricing-snapshot.ts";
 import { redisCommand } from "./workspace-auth/store.ts";
 
 const DAY = 86400000;
@@ -55,6 +55,7 @@ export function refreshedSnapshot(raw: unknown, prior: PricingSnapshot, start:st
       const previous = old.get(`${date}|${code}`);
       cells.push({date,room:code,channels,observed_at:observed,stock_observed_at:observed,probability_observed_at:previous?.probability_observed_at ?? previous?.observed_at ?? prior.observed_at,stock:stocks.get(date) ?? null,
         rack_price:previous?.rack_price ?? null,daytype:previous?.daytype ?? "",baseline_version:previous?.baseline_version ?? "",
+        ...(previous?.pricing_decisions ? { pricing_decisions: previous.pricing_decisions } : {}),
         sales_probability:previous?.sales_probability ?? null});
     }
   }
@@ -91,7 +92,7 @@ export async function refreshOwlNest(deps={command:redisCommand,read:readOwlNest
   try {
     const raw=await deps.command(["GET",PRICING_KEY]);
     if (raw !== null && (typeof raw !== "string" || !raw.startsWith("gz1:"))) throw Error("PRICING_NOT_READY");
-    const prior:PricingSnapshot=raw === null ? {schema:1,property_id:config.id,observed_at:"1970-01-01T00:00:00Z",version:"0".repeat(20),source_commit:"0".repeat(40),cells:[]} : validatePricingSnapshot(JSON.parse(gunzipSync(Buffer.from(String(raw).slice(4),"base64"),{maxOutputLength:4*1024*1024}).toString("utf8")),property);
+    const prior:PricingSnapshot=raw === null ? {schema:1,property_id:config.id,observed_at:"1970-01-01T00:00:00Z",version:"0".repeat(20),source_commit:"0".repeat(40),cells:[]} : readPricingSnapshot(String(raw),property);
     const {start,end}=refreshWindow(deps.now());
     const response=await deps.read(start,end,property);
     const observed=deps.now().toISOString();
