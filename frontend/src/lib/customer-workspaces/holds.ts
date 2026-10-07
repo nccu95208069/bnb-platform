@@ -5,6 +5,7 @@ import { mutationContext, saveMutation } from "./mutations.ts";
 import { money, receiptTime, textValue, view } from "./service.ts";
 import type { CustomerStore } from "./store.ts";
 import type { Booking, Payment, Property, Workspace } from "./types.ts";
+import { holdNotificationChanges } from "../website-booking/lifecycle.ts";
 
 export const HOLD_ACTIONS = ["hold-extend", "hold-convert", "hold-release", "hold-late-payment", "hold-refund"] as const;
 
@@ -75,7 +76,7 @@ export async function holdOperation(
   if (booking.version !== input.bookingVersion) throw new Error("VERSION_CONFLICT");
   if (input.confirmPlatformOnly !== true) throw new Error("HOLD_SCOPE_CONFIRMATION_REQUIRED");
   const at = now.toISOString();
-  const next: Booking = { ...booking, version: booking.version + 1, hold: { ...booking.hold } };
+  let next: Booking = { ...booking, version: booking.version + 1, hold: { ...booking.hold } };
   if (action === "hold-late-payment") {
     if (booking.status !== "cancelled" || booking.hold.state !== "released") throw new Error("HOLD_STATE_CONFLICT");
     next.payments = [...booking.payments, receipt(input, booking, property, accountId, false)];
@@ -110,10 +111,13 @@ export async function holdOperation(
       }
     }
   }
+  const event = action === "hold-extend" ? "hold_extended" : action === "hold-convert" ? "hold_converted" : action === "hold-release" ? "hold_released" : null;
+  const notifications = event ? await holdNotificationChanges(store, context.workspace, next, event, now) : { booking: next, changes: [] };
+  next = notifications.booking;
   const verified = await saveMutation(store, context, {
     ...context.workspace,
     bookings: context.workspace.bookings.map(b => b.id === next.id ? next : b),
-  }, next.id);
+  }, next.id, notifications.changes);
   const saved = verified.workspace.bookings.find(b => b.id === next.id);
   if (!saved || saved.version < next.version ||
       (saved.version === next.version && JSON.stringify(saved) !== JSON.stringify(next))) throw new Error("WRITE_UNCONFIRMED");

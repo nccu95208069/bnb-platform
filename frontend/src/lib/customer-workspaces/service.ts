@@ -193,12 +193,14 @@ export function view(workspace: Workspace, member: Membership): WorkspaceView {
         requestKey: _key,
         requestHash: _hash,
         actor: _actor,
+        website: _website,
         ...booking
       } = b;
       if (booking.hold) booking.hold = { ...booking.hold, state: holdPhase(booking)! };
       void _key;
       void _hash;
       void _actor;
+      void _website; // Service identities and notification recipients stay server-side.
       return member.role === "viewer_no_price"
         ? {
             ...booking,

@@ -22,6 +22,7 @@ type LoginLink = {
   proof: string;
   expiresAt: number;
   draftHash?: string;
+  websiteConnectionId?: string;
   accountId: string | null;
   binding: string | null;
   // The request creates an account only for an active calendar preview. Generic
@@ -49,6 +50,7 @@ export async function requestEmailLogin(
     requestKey: unknown;
     proof?: string;
     draftHash?: string;
+    websiteConnectionId?: string;
   },
   send: CustomerMail,
   preview = false,
@@ -71,7 +73,8 @@ export async function requestEmailLogin(
     old.value &&
     (old.value.email !== email ||
       old.value.proof !== digest(input.proof) ||
-      old.value.draftHash !== input.draftHash)
+      old.value.draftHash !== input.draftHash ||
+      old.value.websiteConnectionId !== input.websiteConnectionId)
   )
     throw new Error("IDEMPOTENCY_CONFLICT");
   const link: LoginLink = old.value ?? {
@@ -80,11 +83,12 @@ export async function requestEmailLogin(
     proof: digest(input.proof),
     expiresAt: Date.now() + LOGIN_SECONDS * 1000,
     ...(input.draftHash ? { draftHash: input.draftHash } : {}),
+    ...(input.websiteConnectionId ? { websiteConnectionId: input.websiteConnectionId } : {}),
     accountId: current.value?.id ?? null,
     binding: current.value
       ? customerCredentialBinding(current.value.credential)
       : null,
-    allowCreate: Boolean(input.draftHash),
+    allowCreate: Boolean(input.draftHash || input.websiteConnectionId),
   };
   if (link.expiresAt <= Date.now()) throw new Error("LINK_INVALID");
   if (!old.value)
@@ -111,6 +115,7 @@ export async function consumeEmailLogin(
   proof: unknown,
   draftHash?: string,
   requestId?: string,
+  websiteConnectionId?: string,
 ) {
   if (
     typeof token !== "string" ||
@@ -129,6 +134,7 @@ export async function consumeEmailLogin(
     !link ||
     link.expiresAt <= Date.now() ||
     link.proof !== digest(proof) ||
+    (link.websiteConnectionId && link.websiteConnectionId !== websiteConnectionId) ||
     (link.draftHash &&
       (link.draftHash !== draftHash || link.id !== requestId)) ||
     !timingSafeEqual(Buffer.from(mac), Buffer.from(secret(link)))
@@ -141,7 +147,7 @@ export async function consumeEmailLogin(
       customerCredentialBinding(current.value.credential) !== link.usedBinding
     )
       throw new Error("LINK_INVALID");
-    return { account: current.value, draftHash: link.draftHash };
+    return { account: current.value, draftHash: link.draftHash, websiteConnectionId: link.websiteConnectionId };
   }
   if (
     (current.value?.id ?? null) !== link.accountId ||
@@ -184,6 +190,6 @@ export async function consumeEmailLogin(
     customerCredentialBinding(verified.credential) !== used.usedBinding
   )
     throw new Error("WRITE_UNCONFIRMED");
-  return { account: verified, draftHash: link.draftHash };
+  return { account: verified, draftHash: link.draftHash, websiteConnectionId: link.websiteConnectionId };
 }
 export const newLoginProof = () => randomBytes(32).toString("base64url");

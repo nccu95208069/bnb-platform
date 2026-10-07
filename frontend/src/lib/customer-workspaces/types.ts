@@ -83,6 +83,7 @@ export type Payment = {
   note?: string | null;
 };
 export type Booking = {
+  website?: import("../website-booking/types.ts").WebsiteBookingData;
   platform?: string | null;
   bookedAt?: string | null; // Source booking date, never the import/creation date.
   bookedAtSource?: "manual" | "sheet";

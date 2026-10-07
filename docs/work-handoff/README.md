@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-07 native website integration: [owner-approved calendar/room binding, shared booking and notifications, scoped LINE commands, and release evidence](WEBSITE_BOOKING_API_2026-10-07.md). Code and isolated verification now implement INT-01 and the OS side of native INT-02. Production activation, real provider delivery, and legacy Sheet/OwlNest acceptance remain separate release gates. This supersedes the earlier statement that all website wiring is still unimplemented.
+
 2026-10-07 OS-owned hold/pricing implementation: [native hold lifecycle, pricing decisions, review and integration boundaries](OS_HOLDS_PRICING_2026-10-07.md). OS-10/11 code and isolated verification are complete; this is not a production release. Native holds default off and all website/LINE/legacy-Sheet/OwlNest/pricing-producer wiring remains INT-01–04.
 
 2026-10-05 legacy Sweetfun payment update: [one receipt entry point and verified main-Sheet writeback](OS_PAYMENT_MAIN_SHEET_2026-10-05.md) implements status-only paid confirmation, received amount/method/account, and resumable synchronization. The explicit owner writeback request supersedes the prior OS-only boundary for the Sweetfun H payment cell and its note. It preserves the already-live booking momentum source `6179335`; implementation and local verification are complete; GitHub push / production publication require the explicit authorization requested in this chat after automatic approval review rejected the push.

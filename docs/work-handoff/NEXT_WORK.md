@@ -1,5 +1,9 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
+## INT-01 / native INT-02 — implementation and isolated acceptance (2026-10-07)
+
+[Website integration contract](WEBSITE_BOOKING_API_2026-10-07.md) records owner verification and approval, native calendar/room mapping, shared authoritative inventory, five guest endpoints, durable lifecycle notification outbox, actual SMTP/Gmail driver, scoped LINE pairing/commands and exact-site discovery. Existing sales disable keeps order lookup/management possible; expired holds never automatically release. Native HTTP/Redis, UI, provider-failure simulations and cross-service isolated checks pass. Production activation/provider acceptance remain pending; INT-03 legacy Sheet/OwlNest stays gated. No automatic pricing activation is part of this change.
+
 ## OS-10 / OS-11 — owned implementation complete, integration pending (2026-10-07)
 
 [Implementation, review and contract](OS_HOLDS_PRICING_2026-10-07.md) records the native hold lifecycle and pricing-decision storage/readback. Code and isolated tests are complete. Hold commands default off; no production deployment, external channel write, notification delivery, or automatic pricing activation occurred. INT-01 website, INT-02 LINE, INT-03 legacy Sheet/OwlNest/shared occupancy, and INT-04 pricing producer require their own end-to-end acceptance. Preserve ING-01's existing notification ingest path.

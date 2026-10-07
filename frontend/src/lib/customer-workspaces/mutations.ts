@@ -1,6 +1,6 @@
 import { digest } from "./auth.ts";
 import { loadWorkspace, requestKey } from "./service.ts";
-import type { CustomerStore } from "./store.ts";
+import type { Change, CustomerStore } from "./store.ts";
 import type { Role, Workspace } from "./types.ts";
 
 export async function mutationContext(
@@ -63,6 +63,7 @@ export async function saveMutation(
   context: Awaited<ReturnType<typeof mutationContext>>,
   next: Workspace,
   targetId: string,
+  additionalChanges: Change[] = [],
 ) {
   await store.commit([
     {
@@ -70,6 +71,7 @@ export async function saveMutation(
       before: context.raw,
       after: withReceipt(next, context, targetId),
     },
+    ...additionalChanges,
   ]);
   const verified = await loadWorkspace(store, context.accountId, next.slug);
   if (
