@@ -68,7 +68,16 @@ async function resultFor(store: CustomerStore, binding: WebsiteBinding, receipt:
   const phase = holdPhase(booking, now);
   const status = booking.status === "confirmed" ? "confirmed" : booking.status === "cancelled" ? "released" :
     phase === "awaiting_owner" ? "hold_expired_waiting_owner" : phase === "active" ? "hold_active" : "review_required";
+  const coversRooms = (offer: RoomOffer) => booking.roomIds.every(id => offer.roomIds.includes(id));
+  const originalOffer = binding.offers.find(o => o.id === booking.website.roomTypeId && coversRooms(o) &&
+    (!o.wholeHouse || o.roomIds.length === booking.roomIds.length));
+  const offer = originalOffer ?? binding.offers.find(o => !o.wholeHouse && coversRooms(o));
   return { status, orderId: booking.id, reference: receipt.reference,
+    stay: { checkIn: booking.checkIn, checkOut: booking.checkOut,
+      roomTypeName: offer?.name ?? "房間預訂", quantity: offer?.wholeHouse ? 1 : booking.roomIds.length,
+      adults: booking.website.adults, children: booking.website.children,
+      totalCents: booking.total === null ? null : cents(booking.total), currency: "TWD" as const },
+    acceptedTerms: booking.website.acceptedTerms ?? null,
     ...(["hold_active", "hold_expired_waiting_owner"].includes(status) ? { holdUntil: booking.hold!.expiresAt } : {}),
     notifications: await notificationStates(store, booking) };
 }
@@ -161,7 +170,9 @@ async function reserve(store: CustomerStore, snapshot: Snapshot<WebsiteBinding> 
     platform: "Official Website", bookedAt: businessDate(at), bookedAtSource: "manual", bookedAtTimeZone: "Asia/Taipei",
     guestNotified: false, createdAt: at, actor: `website:${binding.id}`, entry: "os", requestKey: key, requestHash,
     website: { bindingId: binding.id, quoteId, requestId: key, reference, email: normalized.email, phone: normalized.phone,
-      adults: quote.stay.adults, children: quote.stay.children, notificationIds: {} } };
+      adults: quote.stay.adults, children: quote.stay.children, roomTypeId: offer.id,
+      acceptedTerms: { transferInstructions: binding.config.transferInstructions, cancellationPolicy: binding.config.cancellationPolicy },
+      notificationIds: {} } };
   const notifications = await notificationPlan(store, binding, booking, "hold_created", now);
   booking.website.notificationIds = notifications.notificationIds;
   const receipt: WebsiteReceipt = { bindingId: binding.id, workspaceId: workspace.id, orderId: booking.id, reference, requestHash, createdAt: at };

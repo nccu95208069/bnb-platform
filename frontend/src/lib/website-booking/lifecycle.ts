@@ -24,13 +24,16 @@ export async function enqueueExpiredHolds(store: CustomerStore, bindingId: strin
   const initial = (await store.read<Workspace>(`workspace:${binding.workspaceId}`)).value;
   const authorized = (w: Workspace) => w.members.some(m => m.accountId === binding.ownerAccountId && m.active && m.role === "owner" && (m.allProperties || m.propertyIds.includes(binding.propertyId)));
   if (!initial || !authorized(initial)) throw Error("BINDING_UNAVAILABLE");
-  const due = initial.bookings.filter(b => b.website?.bindingId === bindingId && holdPhase(b, now) === "awaiting_owner" && b.website.expiryNotifiedFingerprint !== notificationFingerprint(b as WebsiteBooking)).slice(0, 50);
+  // A deployment that extends notification semantics must not send an old
+  // expiry reminder again solely because its stored fingerprint predates v2.
+  const alreadyNotified = (b: WebsiteBooking) => [notificationFingerprint(b), notificationFingerprint(b, 1)].includes(b.website.expiryNotifiedFingerprint ?? "");
+  const due = initial.bookings.filter(b => b.website?.bindingId === bindingId && holdPhase(b, now) === "awaiting_owner" && !alreadyNotified(b as WebsiteBooking)).slice(0, 50);
   let queued = 0;
   for (const item of due) {
     const saved = await store.read<Workspace>(`workspace:${binding.workspaceId}`), workspace = saved.value;
     const booking = workspace?.bookings.find(b => b.id === item.id);
     if (workspace && !authorized(workspace)) throw Error("BINDING_UNAVAILABLE");
-    if (!workspace || !booking?.website || booking.version !== item.version || holdPhase(booking, now) !== "awaiting_owner" || booking.website.expiryNotifiedFingerprint === notificationFingerprint(booking as WebsiteBooking)) continue;
+    if (!workspace || !booking?.website || booking.version !== item.version || holdPhase(booking, now) !== "awaiting_owner" || alreadyNotified(booking as WebsiteBooking)) continue;
     const plan = await holdNotificationChanges(store, workspace, booking, "hold_expired", now);
     const fingerprint = notificationFingerprint(booking as WebsiteBooking);
     const next = { ...plan.booking, website: { ...plan.booking.website!, expiryNotifiedFingerprint: fingerprint } };

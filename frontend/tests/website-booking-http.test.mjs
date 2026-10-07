@@ -16,6 +16,8 @@ const Guest=await import('../src/app/api/integration/website-booking/v1/bindings
 const Pairing=await import('../src/app/api/integration/website-booking/v1/line-binding/route.ts');
 const Actions=await import('../src/app/api/integration/website-booking/v1/owner-actions/route.ts');
 const Discovery=await import('../src/app/api/integration/website-booking/v1/bindings/route.ts');
+const Operations=await import('../src/app/api/customer-workspaces/[slug]/operations/route.ts');
+const { runWebsiteEmailDelivery }=await import('../src/lib/website-booking/delivery.ts');
 const origin='https://os.example.invalid';
 function request(path,body,{token,cookie,headers={}}={}) {return new NextRequest(origin+path,{method:'POST',headers:{origin,'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{}),...(cookie?{cookie}:{}),...headers},body:typeof body==='string'?body:JSON.stringify(body)});}
 async function setup(t){
@@ -63,4 +65,41 @@ test('Redis last-room contention permits one different request and failed lookup
  const f=await setup(t),quotes=await Promise.all([f.quote(),f.quote()]),keys=[randomUUID(),randomUUID()];
  const r=await Promise.all(quotes.map((q,i)=>f.call('reservations',{quoteId:q.quoteId,guest:{name:'Synthetic',email:'guest@example.invalid',phone:'+00000000',note:''},acceptedPolicy:true,idempotencyKey:keys[i]},{'idempotency-key':keys[i]})));
  assert.deepEqual(r.map(x=>x.status).sort(),[200,409]);const failed=r.findIndex(x=>x.status===409);assert.equal((await(await f.call('requests',{idempotencyKey:keys[failed]})).json()).status,'not_found');
+});
+
+test('owner HTTP amendments and settled cancellation persist with atomic email jobs and updated guest summaries in real Redis',async t=>{
+ const f=await setup(t),q=await f.quote(),idempotencyKey=randomUUID();
+ const reserved=await f.call('reservations',{quoteId:q.quoteId,guest:{name:'Synthetic guest',email:'guest@example.invalid',phone:'+00000000',note:''},acceptedPolicy:true,idempotencyKey},{'idempotency-key':idempotencyKey});
+ assert.equal(reserved.status,200);const receipt=await reserved.json();assert(receipt.acceptedTerms.transferInstructions);
+ const fresh=new RedisCustomerStore(),binding=(await fresh.read('website:binding:'+f.binding.bindingId)).value;
+ const current=async()=>(await fresh.read('workspace:'+binding.workspaceId)).value;
+ const context={params:Promise.resolve({slug:binding.slug})};
+ const op=async(fields,options={})=>{const w=await current(),b=w.bookings[0];return Operations.POST(request('/api/customer-workspaces/'+binding.slug+'/operations',{bookingId:b.id,version:w.version,bookingVersion:b.version,requestKey:randomUUID(),...fields},{cookie:f.cookie,...options}),context);};
+ const before=(await current()).bookings[0],checkIn=new Date(Date.parse(f.stay.checkIn)+4*86400000).toISOString().slice(0,10),checkOut=new Date(Date.parse(checkIn)+2*86400000).toISOString().slice(0,10);
+ const amend={action:'website-amend',confirmed:true,checkIn,checkOut,roomIds:before.roomIds,total:4500};
+ assert.equal((await op(amend,{headers:{origin:'https://attacker.example.invalid'}})).status,403);
+ const updated=await op(amend);assert.equal(updated.status,200,await updated.clone().text());
+ const saved=(await current()).bookings[0];assert.equal(saved.id,receipt.orderId);assert.deepEqual(saved.hold,before.hold);assert.equal(saved.nightlyPrices,undefined);
+ const reloaded=await(await f.call('requests',{idempotencyKey})).json();assert.equal(reloaded.stay.checkIn,checkIn);assert.equal(reloaded.stay.totalCents,450000);assert.equal(reloaded.notifications.guestEmail,'queued');
+ const sent=[];const send=async(to,subject,text)=>{sent.push({to,subject,text});return 'synthetic-http-provider:'+sent.length;};
+ assert.equal((await runWebsiteEmailDelivery(fresh,[binding.id],{send})).sent,2);assert(sent.every(m=>m.subject.includes('訂單資料已更新')));
+ const converted=await op({action:'hold-convert',confirmedReceipt:true,confirmPlatformOnly:true,amount:1000,method:'cash',receivedAt:new Date(Date.now()-1000).toISOString()});assert.equal(converted.status,200,await converted.clone().text());
+ assert.equal((await op({action:'cancel',confirmed:true})).status,409);
+ const refunded=await op({action:'payment',kind:'refund',amount:1000,method:'現金',receivedAt:new Date(Date.now()-1000).toISOString()});assert.equal(refunded.status,200);
+ assert.equal((await op({action:'cancel'})).status,400);
+ assert.equal((await op({action:'cancel',confirmed:true})).status,200);
+ const cancelled=(await current()).bookings[0];assert.equal(cancelled.status,'cancelled');assert.equal(cancelled.payments.length,2);assert.equal(cancelled.id,receipt.orderId);
+ assert.equal((await runWebsiteEmailDelivery(new RedisCustomerStore(),[binding.id],{send})).sent,2);assert(sent.slice(2).every(m=>m.subject.includes('訂單已取消')));
+ const final=await(await f.call('requests',{idempotencyKey})).json();assert.equal(final.status,'released');assert.equal(final.notifications.guestEmail,'sent');assert.equal(final.stay.totalCents,450000);
+  assert.equal((await runWebsiteEmailDelivery(fresh,[binding.id],{send})).sent,0);assert.equal(sent.length,4);
+});
+
+test('a native property changed to a legacy source returns a recoverable conflict, not an unknown write outcome',async t=>{
+ const f=await setup(t),q=await f.quote(),idempotencyKey=randomUUID();
+ const reserved=await f.call('reservations',{quoteId:q.quoteId,guest:{name:'Synthetic',email:'guest@example.invalid',phone:'+00000000',note:''},acceptedPolicy:true,idempotencyKey},{'idempotency-key':idempotencyKey});assert.equal(reserved.status,200);
+ const store=new RedisCustomerStore(),binding=(await store.read('website:binding:'+f.binding.bindingId)).value,key='workspace:'+binding.workspaceId,saved=await store.read(key),w=saved.value;
+ w.properties[0].setup.mode='sheet';await store.commit([{key,before:saved.raw,after:w}]);const b=w.bookings[0];
+ const response=await Operations.POST(request('/api/customer-workspaces/'+binding.slug+'/operations',{action:'website-amend',bookingId:b.id,version:w.version,bookingVersion:b.version,requestKey:randomUUID(),confirmed:true,checkIn:b.checkIn,checkOut:b.checkOut,roomIds:b.roomIds,total:2500},{cookie:f.cookie}),{params:Promise.resolve({slug:binding.slug})});
+ assert.equal(response.status,409);assert.equal((await response.json()).code,'LEGACY_INTEGRATION_REQUIRED');
+ assert.equal((await store.read(key)).value.bookings[0].total,b.total);
 });

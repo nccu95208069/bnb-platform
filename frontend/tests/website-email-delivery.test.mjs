@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { runWebsiteEmailDelivery, emailDeliveryBindings, emailDeliverySiteScopes } from '../src/lib/website-booking/delivery.ts';
-import { notificationStates } from '../src/lib/website-booking/notifications.ts';
+import { notificationPlan, notificationStates } from '../src/lib/website-booking/notifications.ts';
 import { emailFixture, memoryEmailStore, fixtureNow, storedRecords } from './helpers/website-email-fixture.mjs';
 
 const fixedNow = () => fixtureNow;
@@ -123,12 +123,13 @@ test('failed sending-state readback prevents the external call, and failed accep
 });
 
 test('owner revocation or semantic change racing with pre-send persistence aborts dispatch atomically', async () => {
-  for (const change of ['owner', 'hold']) {
+  for (const change of ['owner', 'hold', 'deposit']) {
     const f = await emailFixture(); const original = f.store.commit.bind(f.store); let raced = false, calls = 0;
     f.store.commit = async changes => {
       if (!raced && changes.some(c => c.key.startsWith('website:email-delivery:') && c.after.state === 'sending')) {
         raced = true; f.mutate(`workspace:${f.workspace.id}`, w => {
           if (change === 'owner') { w.members[0].allProperties = false; w.members[0].propertyIds = []; }
+          else if (change === 'deposit') { w.bookings[0].expectedDeposit = 700; w.bookings[0].version++; }
           else { w.bookings[0].hold.expiresAt = '2026-10-09T04:00:00.000Z'; w.bookings[0].version++; }
         });
       }
@@ -137,6 +138,35 @@ test('owner revocation or semantic change racing with pre-send persistence abort
     assert.equal((await run(f, async () => { calls++; return 'provider:forbidden'; }, { maxJobs: 1 })).pending, 1);
     assert.equal(calls, 0); assert.equal(deliveries(f).length, 0);
   }
+});
+
+test('native delivery sends changed and cancelled booking emails with provider readback and never resends after restart', async () => {
+  const f = await emailFixture({ line: false });
+  const calls = [];
+  const send = async (to, subject, text) => { calls.push({ to, subject, text }); return `provider:booking-update-${calls.length}`; };
+  for (const event of ['booking_changed', 'booking_cancelled']) {
+    const saved = await f.store.read(`workspace:${f.workspace.id}`), workspace = saved.value, booking = workspace.bookings[0];
+    workspace.version++; booking.version++;
+    booking.status = event === 'booking_changed' ? 'confirmed' : 'cancelled';
+    booking.hold.state = 'converted'; booking.hold.convertedAt = fixtureNow.toISOString();
+    booking.checkIn = '2026-10-25'; booking.checkOut = '2026-10-27'; booking.expectedDeposit = 400;
+    const plan = await notificationPlan(f.store, f.binding, booking, event, fixtureNow);
+    booking.website.notificationIds = plan.notificationIds;
+    await f.store.commit([{ key: `workspace:${workspace.id}`, before: saved.raw, after: workspace }, ...plan.changes]);
+    const result = await run(f, send);
+    assert.equal(result.sent, 2); assert.equal(result.unknown, 0);
+    for (const call of calls.slice(-2)) {
+      assert.match(call.subject, event === 'booking_changed' ? /訂單資料已更新/ : /訂單已取消/);
+      assert.match(call.text, /入住：2026-10-25；退房：2026-10-27/);
+      assert.match(call.text, /約定訂金：TWD 400\.00/); assert(!call.text.includes('已付清'));
+    }
+    assert.deepEqual(await notificationStates(f.store, booking), { guestEmail: 'sent', ownerEmail: 'sent', ownerLine: 'failed' });
+    const count = calls.length;
+    await run({ ...f, store: memoryEmailStore(f.store.values) }, send);
+    assert.equal(calls.length, count);
+  }
+  assert.equal(calls.length, 4);
+  assert(deliveries(f).every(d => d.state === 'sent' && d.providerId && d.acknowledgedAt));
 });
 
 test('one invocation sends at most ten emails and leaves remaining jobs for a later invocation', async () => {

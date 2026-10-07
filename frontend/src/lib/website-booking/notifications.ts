@@ -5,14 +5,14 @@ import { email, fields, id, record, sameSecret, uuid } from "./config.ts";
 import type { NotificationChannel, WebsiteBinding, WebsiteBooking, WebsiteNotification } from "./types.ts";
 
 const channels: NotificationChannel[] = ["guestEmail", "ownerEmail", "ownerLine"];
-const events = ["hold_created", "hold_expired", "hold_extended", "hold_converted", "hold_released"] as const;
+const events = ["hold_created", "hold_expired", "hold_extended", "hold_converted", "hold_released", "booking_changed", "booking_cancelled"] as const;
 const claimLifetime = 10 * 60_000;
 const maxPending = 10_000;
 const maxScan = 100;
 type Event = WebsiteNotification["event"];
 type PublicState = "queued" | "sent" | "failed" | "unknown";
 type Payload = { recipient: string | null; subject: string; text: string };
-type Job = WebsiteNotification & Payload & { schemaVersion: 1; semanticFingerprint: string; ackHash?: string; reconcileHash?: string; reconciledAt?: string };
+type Job = WebsiteNotification & Payload & { schemaVersion: 1; semanticFingerprint: string; semanticFingerprintVersion?: 1 | 2; ackHash?: string; reconcileHash?: string; reconciledAt?: string };
 type Index = { schemaVersion: 1; ids: string[] };
 type Claim = { schemaVersion: 1; bindingId: string; workerId: string; attemptId: string; channels: NotificationChannel[]; jobId: string | null; createdAt: string; hasMore: boolean; queueFingerprint: string };
 type Scan = { schemaVersion: 1; next: string | null };
@@ -30,16 +30,23 @@ const safeLine = (value: string) => value.replace(/[\r\n\u0000-\u001f\u007f]/g, 
 // General booking revisions include private notes, tags and receipt bookkeeping.
 // They must not discard a still-correct notification. Configuration/policy text
 // remains the immutable text accepted when this outbox event was created.
-export function notificationFingerprint(booking: Booking) {
-  if (!booking.website) throw Error("INVALID_INPUT");
+// Version 1 is retained for persisted jobs/expiry receipts from before deposit
+// and accepted-terms tracking; a deployment must not supersede those by itself.
+export function notificationFingerprint(booking: Booking, version: 1 | 2 = 2) {
+  if (!booking.website || (version !== 1 && version !== 2)) throw Error("INVALID_INPUT");
   return digest(JSON.stringify({
     id: booking.id, propertyId: booking.propertyId, status: booking.status,
     hold: booking.hold ? { schema: booking.hold.schema, scope: booking.hold.scope, state: booking.hold.state,
       startedAt: booking.hold.startedAt, expiresAt: booking.hold.expiresAt,
       convertedAt: booking.hold.convertedAt, releasedAt: booking.hold.releasedAt } : null,
     checkIn: booking.checkIn, checkOut: booking.checkOut, roomIds: [...booking.roomIds].sort(), total: booking.total,
+    ...(version === 2 ? { expectedDeposit: booking.expectedDeposit ?? null } : {}),
     reference: booking.website.reference, bindingId: booking.website.bindingId,
     email: booking.website.email, phone: booking.website.phone, guestName: booking.guestName,
+    ...(version === 2 ? { acceptedTerms: booking.website.acceptedTerms ? {
+      transferInstructions: booking.website.acceptedTerms.transferInstructions,
+      cancellationPolicy: booking.website.acceptedTerms.cancellationPolicy,
+    } : null } : {}),
   }));
 }
 
@@ -59,20 +66,31 @@ function payload(binding: WebsiteBinding, booking: WebsiteBooking, event: Event,
   const labels: Record<Event, string> = {
     hold_created: "訂房保留已建立", hold_expired: "訂房保留期限已到，等待旅宿確認",
     hold_extended: "訂房保留期限已延長", hold_converted: "已確認訂金並轉為正式訂單", hold_released: "訂房保留已釋放",
+    booking_changed: "訂單資料已更新", booking_cancelled: "訂單已取消",
   };
   const deadline = booking.hold?.expiresAt;
+  const changedHeld = event === "booking_changed" && booking.status === "held";
+  const acceptedTerms = booking.website.acceptedTerms;
+  const includeTerms = channel === "guestEmail" && (["hold_created", "hold_extended"].includes(event) || changedHeld);
   const lines = [
     `${safeLine(binding.siteName)}：${labels[event]}。`,
     `預訂編號：${safeLine(booking.website.reference)}`,
     `入住：${booking.checkIn}；退房：${booking.checkOut}`,
     `房間數：${booking.roomIds.length}`,
     ...(booking.total !== null ? [`房費總額：TWD ${booking.total.toFixed(2)}`] : []),
-    ...(deadline && ["hold_created", "hold_extended", "hold_expired"].includes(event) ? [
+    ...(typeof booking.expectedDeposit === "number" && Number.isFinite(booking.expectedDeposit) ? [`約定訂金：TWD ${booking.expectedDeposit.toFixed(2)}`] : []),
+    ...(deadline && (["hold_created", "hold_extended", "hold_expired"].includes(event) || changedHeld) ? [
       `保留期限（台灣時間）：${new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short", hour12: false }).format(new Date(deadline))}`,
       "保留期限到後仍待旅宿決定，不會自動釋放房間。",
     ] : []),
-    ...(channel === "guestEmail" && ["hold_created", "hold_extended"].includes(event) ? [
-      "付款說明：", binding.config.transferInstructions, "取消規則：", binding.config.cancellationPolicy,
+    ...(changedHeld ? [
+      ...(deadline && Date.parse(deadline) <= now.getTime() ? ["保留期限已到，仍待旅宿決定。"] : []),
+      "本次資料更新不會自動延長保留期限；期限到後不會自動取消訂單。",
+    ] : []),
+    ...(event === "booking_changed" && booking.status === "confirmed" ? ["訂單狀態：已確認；付款狀況請以旅宿確認為準。"] : []),
+    ...(includeTerms ? [
+      "付款說明：", acceptedTerms?.transferInstructions || "請聯絡旅宿核對原訂單的付款說明。",
+      "取消規則：", acceptedTerms?.cancellationPolicy || "請聯絡旅宿核對原訂單的取消規則。",
     ] : []),
     ...(channel !== "guestEmail" ? [
       `旅客：${safeLine(booking.guestName ?? "未填")}`,
@@ -91,6 +109,9 @@ function assertJob(job: Job | null, bindingId: string, expectedId: string): asse
   if (!job || job.schemaVersion !== 1 || job.id !== expectedId || job.bindingId !== bindingId ||
       !channels.includes(job.channel) || !events.includes(job.event) || !["queued", "sending", "sent", "failed", "unknown"].includes(job.state) ||
       !Number.isSafeInteger(job.bookingVersion) || job.bookingVersion < 1 ||
+      typeof job.semanticFingerprint !== "string" || !/^[a-f0-9]{64}$/.test(job.semanticFingerprint) ||
+      (job.semanticFingerprintVersion !== undefined && job.semanticFingerprintVersion !== 1 && job.semanticFingerprintVersion !== 2) ||
+      (["booking_changed", "booking_cancelled"].includes(job.event) && job.semanticFingerprintVersion !== 2) ||
       typeof job.subject !== "string" || typeof job.text !== "string" ||
       (job.recipient !== null && typeof job.recipient !== "string")) throw Error("STORE_UNAVAILABLE");
 }
@@ -119,7 +140,7 @@ export async function notificationPlan(store: CustomerStore, binding: WebsiteBin
       const content = payload(binding, booking, event, channel, now);
       job = {
         schemaVersion: 1, id: notificationId, bindingId: binding.id, workspaceId: binding.workspaceId,
-        bookingId: booking.id, bookingVersion: booking.version, semanticFingerprint: notificationFingerprint(booking), channel, event,
+        bookingId: booking.id, bookingVersion: booking.version, semanticFingerprint: notificationFingerprint(booking), semanticFingerprintVersion: 2, channel, event,
         ...content, state: content.recipient ? "queued" : "failed", createdAt: now.toISOString(),
         ...(!content.recipient ? { completedAt: now.toISOString(), lastError: "RECIPIENT_UNBOUND" } : {}),
       };
@@ -202,13 +223,15 @@ function deliveryGuard(binding: WebsiteBinding, workspace: Workspace | null, job
   const booking = workspace?.bookings.find(b => b.id === job.bookingId) as WebsiteBooking | undefined;
   if (!workspace || workspace.id !== binding.workspaceId || !booking?.website || booking.website.bindingId !== binding.id ||
       booking.propertyId !== binding.propertyId || booking.version < job.bookingVersion) return "BOOKING_UNAVAILABLE";
-  if (notificationFingerprint(booking) !== job.semanticFingerprint) return "SUPERSEDED";
+  if (notificationFingerprint(booking, job.semanticFingerprintVersion ?? 1) !== job.semanticFingerprint) return "SUPERSEDED";
   const hold = booking.hold;
   const held = booking.status === "held" && (hold?.state === "active" || hold?.state === "awaiting_owner");
   if ((["hold_created", "hold_extended"].includes(job.event) && (!held || !hold || Date.parse(hold.expiresAt) <= now.getTime())) ||
       (job.event === "hold_expired" && (!held || !hold || Date.parse(hold.expiresAt) > now.getTime())) ||
       (job.event === "hold_converted" && (booking.status !== "confirmed" || hold?.state !== "converted")) ||
-      (job.event === "hold_released" && (booking.status !== "cancelled" || hold?.state !== "released"))) return "SUPERSEDED";
+      (job.event === "hold_released" && (booking.status !== "cancelled" || hold?.state !== "released")) ||
+      (job.event === "booking_changed" && booking.status !== "held" && booking.status !== "confirmed") ||
+      (job.event === "booking_cancelled" && booking.status !== "cancelled")) return "SUPERSEDED";
   if (!workspace.members.some(m => m.accountId === binding.ownerAccountId && m.active && m.role === "owner" &&
       (m.allProperties || m.propertyIds.includes(binding.propertyId)))) return "RECIPIENT_REVOKED";
   const current = recipient(binding, booking, job.channel, now);

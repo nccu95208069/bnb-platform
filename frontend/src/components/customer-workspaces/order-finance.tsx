@@ -43,6 +43,7 @@ export function OrderFinance({
     canManage =
       ["owner", "admin"].includes(data.role) && booking.status === "confirmed";
   const property = data.properties.find((p) => p.id === booking.propertyId);
+  const websiteOrder = booking.platform === "Official Website" && booking.entry === "os" && booking.hold?.scope === "platform_only";
   const [formOpen, setFormOpen] = useState(false),
     [receiptAccountId, setReceiptAccountId] = useState(""),
     [accountName, setAccountName] = useState(""),
@@ -118,6 +119,8 @@ export function OrderFinance({
           expectedDeposit === "" ? null : Number(expectedDeposit),
         allowOverpayment: confirmed,
       };
+    if (action === "cancel" && websiteOrder)
+      input = { ...input, confirmed };
     const result = await command.execute<{ workspace: WorkspaceView }>(input);
     if (result) {
       onSaved(result.data.workspace);
@@ -131,7 +134,7 @@ export function OrderFinance({
       setConfirmed(false);
       setNotice(
         result.input.action === "cancel"
-          ? "訂單已取消，房間已釋出。"
+          ? websiteOrder ? "訂單已取消，房間已釋出。官網通知已排入寄送佇列，實際送達仍待確認。" : "訂單已取消，房間已釋出。"
           : "已保存並重新核對訂單金額。",
       );
     }
@@ -539,7 +542,7 @@ export function OrderFinance({
               <>
                 <p className="text-sm leading-6">
                   取消會釋出全部住宿項目的房間。系統要求已確認的實收餘額為
-                  0；若仍有款項，請先完成退款登記。平台庫存與客人通知需另外處理。
+                  0；若仍有款項，請先完成退款登記。{websiteOrder ? "官網通知會排入寄送佇列，實際送達仍待確認；外部通路庫存需另外核對。" : "平台庫存與客人通知需另外處理。"}
                 </p>
                 <label className="flex gap-2">
                   <input

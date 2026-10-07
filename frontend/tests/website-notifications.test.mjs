@@ -9,6 +9,8 @@ const token = 'synthetic-notification-worker-token-1234567890';
 const bindingId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const otherBinding = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const worker = { id: 'notification-worker', token_sha256: digest(token), binding_ids: [bindingId], actions: ['notifications'] };
+// Frozen from the deployed pre-terms algorithm for the synthetic fixture below.
+const legacyFixtureFingerprint = '12c2d7aca3f29410c9eb4409ea92bbc265dd3e9934d317a17ba5287e47da06d6';
 function memory(values = new Map()) {
   return {
     values, commits: [], rates: [],
@@ -22,7 +24,7 @@ function memory(values = new Map()) {
     async limit(key, max) { this.rates.push({ key, max }); },
   };
 }
-async function fixture({ line = false, persist = true } = {}) {
+async function fixture({ line = false, persist = true, snapshot = true } = {}) {
   const store = memory();
   const binding = {
     id: bindingId, clientId: 'editor', siteId: 'synthetic-site', siteName: 'Synthetic inn', ownerAccountId: 'synthetic-owner',
@@ -35,7 +37,8 @@ async function fixture({ line = false, persist = true } = {}) {
     id: 'synthetic-booking', version: 1, propertyId: binding.propertyId, platform: 'Official Website', guestName: 'Synthetic guest',
     checkIn: '2026-10-20', checkOut: '2026-10-22', roomIds: ['synthetic-room'], total: 1200,
     status: 'held', hold: { schema: 1, scope: 'platform_only', state: 'active', startedAt: now.toISOString(), expiresAt: '2026-10-08T04:00:00.000Z' },
-    website: { bindingId, quoteId: randomUUID(), requestId: randomUUID(), reference: 'TEST-123', email: 'guest@example.invalid', phone: '0000000000', adults: 2, children: 0, notificationIds: {} },
+    website: { bindingId, quoteId: randomUUID(), requestId: randomUUID(), reference: 'TEST-123', email: 'guest@example.invalid', phone: '0000000000', adults: 2, children: 0,
+      ...(snapshot ? { acceptedTerms: { transferInstructions: binding.config.transferInstructions, cancellationPolicy: binding.config.cancellationPolicy } } : {}), notificationIds: {} },
   };
   const workspace = { id: binding.workspaceId, version: 1, bookings: [], properties: [{ id: binding.propertyId }], members: [{ accountId: binding.ownerAccountId, active: true, role: 'owner', allProperties: true, propertyIds: [] }] };
   store.values.set(`website:binding:${bindingId}`, JSON.stringify(binding));
@@ -54,6 +57,17 @@ async function fixture({ line = false, persist = true } = {}) {
   const ack = (job, extra = {}, at = now, useStore = store) => operation({ action: 'ack', jobId: job.id, attemptId: job.attemptId, outcome: 'sent', providerId: 'provider:synthetic-message-123', ...extra }, at, useStore);
   const mutate = (key, fn) => { const v = JSON.parse(store.values.get(key)); fn(v); store.values.set(key, JSON.stringify(v)); };
   return { store, binding, booking, workspace, plan, changes, operation, claim, ack, mutate };
+}
+
+async function queueEvent(f, event, update, at = now) {
+  const saved = await f.store.read(`workspace:${f.workspace.id}`);
+  const workspace = saved.value, booking = workspace.bookings[0];
+  workspace.version++; booking.version++; update(booking);
+  const binding = (await f.store.read(`website:binding:${bindingId}`)).value;
+  const plan = await notificationPlan(f.store, binding, booking, event, at);
+  booking.website.notificationIds = { ...booking.website.notificationIds, ...plan.notificationIds };
+  await f.store.commit([{ key: `workspace:${workspace.id}`, before: saved.raw, after: workspace }, ...plan.changes]);
+  return { booking, plan };
 }
 
 test('notification plan is side-effect free and booking/receipt/outbox succeed or fail as one transaction', async () => {
@@ -85,6 +99,90 @@ test('separate channels persist immutable payloads, unbound LINE is explicit, an
   assert(!serialized.includes('@') && !serialized.includes('Synthetic') && !serialized.includes(f.booking.id));
   f.booking.website.notificationIds.guestEmail = 'missing-job';
   assert.equal((await notificationStates(f.store, f.booking)).guestEmail, 'unknown');
+});
+
+test('legacy unversioned queued jobs retain the deployed fingerprint and can be claimed and acknowledged after upgrade', async () => {
+  const f = await fixture({ line: true, snapshot: false });
+  assert.equal(notificationFingerprint(f.booking, 1), legacyFixtureFingerprint);
+  assert.notEqual(notificationFingerprint(f.booking), legacyFixtureFingerprint);
+  for (const notificationId of Object.values(f.plan.notificationIds)) {
+    f.mutate(`website:notification:${notificationId}`, job => {
+      delete job.semanticFingerprintVersion; job.semanticFingerprint = legacyFixtureFingerprint;
+      job.text = `Original accepted message for ${job.channel}`;
+    });
+  }
+  f.mutate(`workspace:${f.workspace.id}`, w => {
+    w.bookings[0].version++; w.bookings[0].notes = 'Private post-upgrade note';
+    w.bookings[0].payments = [{ id: 'receipt-only', amount: 30 }];
+  });
+  for (const channel of ['guestEmail', 'ownerEmail', 'ownerLine']) {
+    const job = (await f.claim(randomUUID(), now, memory(f.store.values))).jobs[0];
+    assert.equal(job.id, f.plan.notificationIds[channel]);
+    assert.equal(job.text, `Original accepted message for ${channel}`);
+    await f.ack(job, {}, now, memory(f.store.values));
+    const saved = (await f.store.read(`website:notification:${job.id}`)).value;
+    assert.equal(saved.state, 'sent'); assert.equal(saved.lastError, undefined);
+    assert.equal(saved.semanticFingerprint, legacyFixtureFingerprint);
+    assert.equal(saved.semanticFingerprintVersion, undefined);
+  }
+});
+
+test('a legacy claimed job replays its existing lease and accepts provider acknowledgement without being superseded by deployment', async () => {
+  const f = await fixture({ snapshot: false }), attemptId = randomUUID();
+  const original = (await f.claim(attemptId)).jobs[0];
+  f.mutate(`website:notification:${original.id}`, job => {
+    delete job.semanticFingerprintVersion; job.semanticFingerprint = legacyFixtureFingerprint;
+  });
+  const restarted = memory(f.store.values);
+  const replay = await f.claim(attemptId, now, restarted);
+  assert.equal(replay.replayed, true); assert.deepEqual(replay.jobs, [original]);
+  assert.equal((await f.store.read(`website:notification:${original.id}`)).value.state, 'sending');
+  assert.equal((await f.ack(original, {}, now, restarted)).state, 'sent');
+  assert.deepEqual((await f.claim(attemptId, now, memory(f.store.values))).jobs, []);
+});
+
+test('version 2 jobs do not fall back to legacy matching when only the deposit or accepted terms change', async () => {
+  for (const field of ['deposit', 'terms']) {
+    const f = await fixture();
+    const { booking, plan } = await queueEvent(f, 'booking_changed', b => { b.expectedDeposit = 300; });
+    const originalLegacy = notificationFingerprint(booking, 1);
+    assert.equal((await f.store.read(`website:notification:${plan.notificationIds.guestEmail}`)).value.semanticFingerprintVersion, 2);
+    f.mutate(`workspace:${f.workspace.id}`, w => {
+      w.bookings[0].version++;
+      if (field === 'deposit') w.bookings[0].expectedDeposit = 650;
+      else w.bookings[0].website.acceptedTerms.cancellationPolicy = 'Different stored terms';
+    });
+    const current = (await f.store.read(`workspace:${f.workspace.id}`)).value.bookings[0];
+    assert.equal(notificationFingerprint(current, 1), originalLegacy);
+    assert.notEqual(notificationFingerprint(current), notificationFingerprint(booking));
+    assert.deepEqual((await f.claim()).jobs, []);
+    assert.equal((await f.store.read(`website:notification:${plan.notificationIds.guestEmail}`)).value.lastError, 'SUPERSEDED');
+  }
+});
+
+test('legacy compatibility still supersedes a notice when its original date or status semantics change', async () => {
+  for (const field of ['date', 'status']) {
+    const f = await fixture({ snapshot: false });
+    for (const notificationId of Object.values(f.plan.notificationIds)) f.mutate(`website:notification:${notificationId}`, job => {
+      delete job.semanticFingerprintVersion; job.semanticFingerprint = legacyFixtureFingerprint;
+    });
+    f.mutate(`workspace:${f.workspace.id}`, w => {
+      w.bookings[0].version++;
+      if (field === 'date') w.bookings[0].checkIn = '2026-10-21';
+      else { w.bookings[0].status = 'cancelled'; w.bookings[0].hold.state = 'released'; }
+    });
+    assert.deepEqual((await f.claim()).jobs, []);
+    assert.equal((await f.store.read(`website:notification:${f.plan.notificationIds.guestEmail}`)).value.lastError, 'SUPERSEDED');
+  }
+});
+
+test('unsupported fingerprint versions and downgraded new events fail closed as invalid persisted jobs', async () => {
+  for (const version of [undefined, 1, 3]) {
+    const f = await fixture();
+    const { plan } = await queueEvent(f, 'booking_changed', b => { b.expectedDeposit = 300; });
+    f.mutate(`website:notification:${plan.notificationIds.guestEmail}`, job => { job.semanticFingerprintVersion = version; });
+    await assert.rejects(f.claim(), /STORE_UNAVAILABLE/);
+  }
 });
 
 test('a repeated plan never resets sent, unknown, failed, payload or permanent claim state', async () => {
@@ -313,6 +411,125 @@ test('notes, tags, bookkeeping and later policy changes preserve the original co
   assert.match(job.text, /Synthetic cancellation policy/);
   assert(!job.text.includes('New policy') && !job.text.includes('Housekeeping note'));
   await f.ack(job); assert.equal((await notificationStates(f.store, changed)).guestEmail, 'sent');
+});
+
+test('booking changes send updated dates, rooms, price and deposit through all channels while superseding the original hold', async () => {
+  const f = await fixture({ line: true });
+  const { booking } = await queueEvent(f, 'booking_changed', b => {
+    b.checkIn = '2026-10-24'; b.checkOut = '2026-10-27'; b.roomIds = ['synthetic-room', 'second-room'];
+    b.total = 4800; b.expectedDeposit = 1500;
+  });
+  for (const channel of ['guestEmail', 'ownerEmail', 'ownerLine']) {
+    const job = (await f.claim()).jobs[0];
+    assert.equal(job.event, 'booking_changed'); assert.equal(job.channel, channel);
+    assert.match(job.text, /入住：2026-10-24；退房：2026-10-27/);
+    assert.match(job.text, /房間數：2/); assert.match(job.text, /房費總額：TWD 4800\.00/);
+    assert.match(job.text, /約定訂金：TWD 1500\.00/);
+    if (channel === 'guestEmail') assert.match(job.text, /付款說明：[\s\S]*Synthetic cancellation policy/);
+    await f.ack(job);
+    assert.equal((await f.store.read(`website:notification:${f.plan.notificationIds[channel]}`)).value.lastError, 'SUPERSEDED');
+  }
+  assert.deepEqual(await notificationStates(f.store, booking), { guestEmail: 'sent', ownerEmail: 'sent', ownerLine: 'sent' });
+});
+
+test('deposit-only changes supersede queued and claimed older content without allowing an uncertain attempt to resend', async () => {
+  const f = await fixture();
+  const first = await queueEvent(f, 'booking_changed', b => { b.expectedDeposit = 300; });
+  const attemptId = randomUUID(), inFlight = (await f.claim(attemptId)).jobs[0];
+  const second = await queueEvent(f, 'booking_changed', b => { b.expectedDeposit = 650; });
+  assert.notEqual(notificationFingerprint(first.booking), notificationFingerprint(second.booking));
+  const replay = await f.claim(attemptId);
+  assert.deepEqual(replay.jobs, []); assert.equal(replay.results[0].state, 'unknown');
+  assert.equal((await f.store.read(`website:notification:${inFlight.id}`)).value.lastError, 'SUPERSEDED');
+  const newest = (await f.claim()).jobs[0];
+  assert.equal(newest.id, second.plan.notificationIds.guestEmail);
+  assert.match(newest.text, /約定訂金：TWD 650\.00/); assert(!newest.text.includes('300.00'));
+  assert.equal((await f.store.read(`website:notification:${first.plan.notificationIds.ownerEmail}`)).value.lastError, 'SUPERSEDED');
+  await f.ack(inFlight, { providerId: 'provider:previous-deposit-delivered-before-change' });
+  assert.equal((await f.store.read(`website:notification:${inFlight.id}`)).value.state, 'sent');
+  assert.deepEqual((await f.claim(attemptId)).jobs, []);
+});
+
+test('changed and extended guest messages retain the original accepted terms after binding policies change', async () => {
+  for (const event of ['booking_changed', 'hold_extended']) {
+    const f = await fixture();
+    f.mutate(`website:binding:${bindingId}`, b => {
+      b.config.transferInstructions = 'Replacement payment instructions'; b.config.cancellationPolicy = 'Replacement cancellation policy';
+    });
+    await queueEvent(f, event, b => { b.hold.expiresAt = '2026-10-09T04:00:00.000Z'; });
+    const job = (await f.claim()).jobs[0];
+    assert.equal(job.event, event);
+    assert.match(job.text, /Contact the synthetic inn for test payment instructions/);
+    assert.match(job.text, /Synthetic cancellation policy/);
+    assert(!job.text.includes('Replacement'));
+  }
+});
+
+test('legacy bookings without accepted terms request verification instead of copying current binding policies', async () => {
+  for (const event of ['hold_created', 'hold_extended', 'booking_changed']) {
+    const f = await fixture({ snapshot: false });
+    if (event !== 'hold_created') await queueEvent(f, event, b => { b.hold.expiresAt = '2026-10-09T04:00:00.000Z'; });
+    const job = (await f.claim()).jobs[0];
+    assert.equal(job.event, event);
+    assert.match(job.text, /請聯絡旅宿核對原訂單的付款說明/);
+    assert.match(job.text, /請聯絡旅宿核對原訂單的取消規則/);
+    assert(!job.text.includes('Synthetic cancellation policy') && !job.text.includes('test payment instructions'));
+  }
+});
+
+test('an expired held booking can send a change without extending its deadline or claiming automatic cancellation', async () => {
+  const later = new Date(now.getTime() + 25 * 3600000);
+  for (const plannedAt of [now, later]) {
+    const f = await fixture();
+    const { booking } = await queueEvent(f, 'booking_changed', b => {
+      b.checkIn = '2026-10-25'; b.checkOut = '2026-10-27';
+      if (plannedAt === later) b.hold.state = 'awaiting_owner';
+    }, plannedAt);
+    const job = (await f.claim(randomUUID(), later)).jobs[0];
+    assert.equal(job.event, 'booking_changed');
+    assert.match(job.text, /仍待旅宿決定/);
+    assert.match(job.text, /本次資料更新不會自動延長保留期限/);
+    assert.match(job.text, /不會自動取消訂單/);
+    assert(!job.text.includes('期限已延長') && !job.text.includes('訂單已取消') && !job.text.includes('保留有效'));
+    if (plannedAt === later) assert.match(job.text, /保留期限已到，仍待旅宿決定/);
+    assert.equal(booking.hold.expiresAt, f.booking.hold.expiresAt);
+    await f.ack(job, {}, later);
+    const saved = (await f.store.read(`workspace:${f.workspace.id}`)).value.bookings[0];
+    assert.equal(saved.status, 'held'); assert.equal(saved.hold.expiresAt, f.booking.hold.expiresAt);
+  }
+});
+
+test('confirmed booking changes avoid paid-in-full claims and cancellation can notify a previously converted hold', async () => {
+  const f = await fixture({ line: true });
+  const changed = await queueEvent(f, 'booking_changed', b => {
+    b.status = 'confirmed'; b.hold.state = 'converted'; b.hold.convertedAt = now.toISOString();
+    b.checkIn = '2026-10-25'; b.expectedDeposit = 300; b.payments = [{ id: 'partial', amount: 300 }];
+  });
+  const guest = (await f.claim()).jobs[0];
+  assert.equal(guest.event, 'booking_changed'); assert.equal(guest.channel, 'guestEmail');
+  assert.match(guest.text, /訂單狀態：已確認；付款狀況請以旅宿確認為準/);
+  assert(!guest.text.includes('已付清') && !guest.text.includes('款項已結清') && !guest.text.includes('保留期限'));
+  await f.ack(guest);
+  const cancelled = await queueEvent(f, 'booking_cancelled', b => { b.status = 'cancelled'; });
+  assert.equal(cancelled.booking.hold.state, 'converted');
+  for (const channel of ['guestEmail', 'ownerEmail', 'ownerLine']) {
+    const job = (await f.claim()).jobs[0];
+    assert.equal(job.event, 'booking_cancelled'); assert.equal(job.channel, channel);
+    assert.match(job.text, /訂單已取消/); assert.match(job.text, /入住：2026-10-25/);
+    assert(!job.text.includes('已退款') && !job.text.includes('訂房保留已釋放'));
+    await f.ack(job);
+  }
+  assert.equal((await f.store.read(`website:notification:${changed.plan.notificationIds.ownerEmail}`)).value.lastError, 'SUPERSEDED');
+  assert.deepEqual(await notificationStates(f.store, cancelled.booking), { guestEmail: 'sent', ownerEmail: 'sent', ownerLine: 'sent' });
+});
+
+test('booking change and cancellation events must agree with the current booking status', async () => {
+  for (const [event, status] of [['booking_changed', 'cancelled'], ['booking_cancelled', 'confirmed']]) {
+    const f = await fixture();
+    const { plan } = await queueEvent(f, event, b => { b.status = status; b.hold.state = 'converted'; });
+    assert.deepEqual((await f.claim()).jobs, []);
+    assert.equal((await f.store.read(`website:notification:${plan.notificationIds.guestEmail}`)).value.lastError, 'SUPERSEDED');
+  }
 });
 
 test('guest payload and expiry actions also require the owner to retain this property scope', async () => {

@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-07 WEB-04 follow-up: [same-order amendments, formal change/cancel notifications, current guest summaries and immutable accepted terms](WEBSITE_BOOKING_API_2026-10-07.md#web-04-lifecycle-completion-follow-up-2026-10-07). Engineering and isolated verification are complete; this follow-up is not yet deployed. Owner approval/pairing and real recipient delivery still need human acceptance. Existing three-service deployment remains live.
+
 2026-10-07 native website integration: [owner-approved calendar/room binding, shared booking and notifications, scoped LINE commands, and release evidence](WEBSITE_BOOKING_API_2026-10-07.md). Code and isolated verification now implement INT-01 and the OS side of native INT-02. Production activation, real provider delivery, and legacy Sheet/OwlNest acceptance remain separate release gates. This supersedes the earlier statement that all website wiring is still unimplemented.
 
 2026-10-07 OS-owned hold/pricing implementation: [native hold lifecycle, pricing decisions, review and integration boundaries](OS_HOLDS_PRICING_2026-10-07.md). OS-10/11 code and isolated verification are complete; this is not a production release. Native holds default off and all website/LINE/legacy-Sheet/OwlNest/pricing-producer wiring remains INT-01–04.

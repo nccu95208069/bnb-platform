@@ -541,3 +541,90 @@ temporary handoff files. The two live credentials remain independently stored by
 their respective services. No real guest booking or test message was created.
 Owner pairing, phone/inbox receipt and the first intended provider delivery are
 still user acceptance steps, not an unfinished deployment permission request.
+
+
+## WEB-04 lifecycle completion follow-up (2026-10-07)
+
+A follow-up audit found that native hold transitions already queued notifications,
+but formal-order `terms` and `cancel` operations did not. The owner also lacked a
+native website-order stay amendment. These are now implemented and locally
+verified; deployment evidence is recorded separately below when available.
+
+### Owner amendment and formal cancellation
+
+`POST /api/customer-workspaces/{slug}/operations`, using the existing authenticated
+owner/admin cookie and same-origin checks, accepts `action: "website-amend"` with
+`requestKey`, workspace `version`, `bookingId`, `bookingVersion`, `confirmed: true`,
+`checkIn`, `checkOut`, physical `roomIds`, and a positive numeric `total`.
+`allowOverpayment: true` is required if the new total is below recorded receipts.
+
+The operation is limited to one native website stay in held/confirmed status.
+It retains the order ID, receipt ledger, original accepted terms and hold deadline.
+The owner explicitly confirms the complete new price; the old quote's nightly
+breakdown is removed. Room capacity comes from the approved mapping and cannot
+fall below the existing guest count. Mapping and workspace snapshots are both
+fenced in the atomic transaction. Existing orders, expired holds and manual blocks
+remain occupancy reasons; an amendment and a guest reservation cannot both take
+the last room. Imported/multi-stay orders remain outside this command.
+
+The order detail UI shows the before/after stay, physical rooms and one total,
+requires confirmation and retains the original versions while editing. Unknown
+outcomes keep the exact request key and lock other mutations until retried.
+
+Existing formal `terms` changes queue `booking_changed`; settled `cancel` queues
+`booking_cancelled` and requires server-side `confirmed: true` for website orders.
+Cancellation still requires zero net room/extra receipts. Refund registration
+preserves the original ledger; it never transfers funds. Hold release remains the
+existing separately confirmed hold operation. These mutations atomically save the
+order, operation receipt and three-channel notification jobs before authoritative
+readback. Private notes, tags and payment bookkeeping do not create duplicate
+order-change notices. Delivery is still the existing durable Email/LINE outbox.
+
+### Guest result contract and accepted terms
+
+Every successful reservation or original-key lookup additionally returns:
+
+```ts
+stay: {
+  checkIn: string; checkOut: string; roomTypeName: string; quantity: number;
+  adults: number; children: number; totalCents: number | null; currency: "TWD";
+}
+acceptedTerms: { transferInstructions: string; cancellationPolicy: string } | null
+```
+
+The stay is derived from the current canonical order, including after amendment
+or cancellation, without guest identity/contact data or physical room IDs.
+Whole-house quantity remains one only while the full original whole-house offer
+still matches; a mixed room selection uses the generic public label 房間預訂.
+New reservations save the accepted payment/cancellation text atomically at creation.
+Old orders without that snapshot return null and ask the guest to contact the inn;
+today's website settings never masquerade as the original accepted policy.
+
+New notification jobs use semantic fingerprint version 2, including expected
+deposit and accepted terms. Persisted jobs with no version keep the exact original
+fingerprint algorithm through claim, retry and ACK. Existing expiry receipts are
+recognized across that upgrade, so a deployment alone cannot trigger a duplicate
+reminder. Expired holds remain occupied after amendment, with no automatic renewal
+or cancellation. A confirmed-order change never claims that its balance is paid.
+
+### Verification and remaining acceptance
+
+- 106 targeted business, notification, email, login and existing order regressions
+  pass. They include immutable policy snapshots, last-room contention, stale versions,
+  capacity/mapping races, outbox failure, response loss and duplicate prevention.
+- 5 actual Next.js HTTP/Redis Lua tests pass against a disposable loopback-only
+  Redis. They verify amendment, same-ID conversion/refund/cancel, updated guest
+  summaries, atomic jobs, fake-provider readback, cross-origin denial and recoverable
+  legacy-source conflict. No production data or real recipient is used.
+- 15 new/related DOM checks pass, including a real business-service amendment with
+  a lost successful response, exact-key retry, unchanged payments/deadline and
+  permission/locking behavior. This is not physical-device acceptance.
+- TypeScript, scoped lint and the local production webpack build pass. Independent
+  review found and repaired insufficient-capacity acceptance and a legacy-source
+  error incorrectly returned as an unknown 503; the latter now returns recoverable
+  409. Prior pricing source remains unchanged.
+
+Owner verification, inventory/policy approval and LINE pairing remain human steps.
+Real provider receipt and inbox/phone arrival need the explicitly selected isolated
+first order and recipients. Legacy Sheet/OwlNest integration (`INT-03`), producer
+callbacks (`ING-01`) and automatic pricing (`INT-04`) are separate unfinished work.

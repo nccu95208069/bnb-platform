@@ -39,7 +39,7 @@ export type WebsiteReceipt = { bindingId: string; workspaceId: string; orderId: 
 export type NotificationChannel = "guestEmail" | "ownerEmail" | "ownerLine";
 export type WebsiteNotification = {
   id: string; bindingId: string; workspaceId: string; bookingId: string; bookingVersion: number;
-  channel: NotificationChannel; event: "hold_created" | "hold_expired" | "hold_extended" | "hold_converted" | "hold_released";
+  channel: NotificationChannel; event: "hold_created" | "hold_expired" | "hold_extended" | "hold_converted" | "hold_released" | "booking_changed" | "booking_cancelled";
   state: "queued" | "sending" | "sent" | "failed" | "unknown";
   createdAt: string; attemptId?: string; claimedAt?: string; workerId?: string;
   providerId?: string; completedAt?: string; lastError?: string;
@@ -47,6 +47,8 @@ export type WebsiteNotification = {
 export type WebsiteBookingData = {
   bindingId: string; quoteId: string; requestId: string; reference: string;
   email: string; phone: string; adults: number; children: number;
+  roomTypeId?: string;
+  acceptedTerms?: { transferInstructions: string; cancellationPolicy: string };
   notificationIds: Partial<Record<NotificationChannel, string>>;
   expiryNotifiedFingerprint?: string;
 };

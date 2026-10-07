@@ -7,6 +7,7 @@ import { staysOf } from "@/lib/customer-workspaces/domain";
 import { stayCounts, tagsFor } from "@/lib/customer-workspaces/order-query";
 import { api, button, field, secondary } from "./client";
 import { OrderFinance, formatMoney } from "./order-finance";
+import { OrderAmendment } from "./order-amendment";
 import { OrderTags, tagColors } from "./order-tags";
 import { useCommand } from "./use-command";
 export function OrderDetail({
@@ -25,6 +26,7 @@ export function OrderDetail({
   const [data, setData] = useState(initial),
     [paymentLocked, setPaymentLocked] = useState(false),
     [holdLocked, setHoldLocked] = useState(false),
+    [amendmentLocked, setAmendmentLocked] = useState(false),
     [editing, setEditing] = useState(false),
     [tagEdit, setTagEdit] = useState<OrderTag | null>(null),
     [notice, setNotice] = useState("");
@@ -39,7 +41,7 @@ export function OrderDetail({
   const command = useCommand(
       `/api/customer-workspaces/${data.slug}/operations`,
     ),
-    locked = command.busy || command.uncertain || paymentLocked || holdLocked;
+    locked = command.busy || command.uncertain || paymentLocked || holdLocked || amendmentLocked;
   const canWrite = ["owner", "admin", "housekeeper"].includes(data.role),
     canManage = ["owner", "admin"].includes(data.role),
     visibleMoney = data.role !== "viewer_no_price";
@@ -182,7 +184,8 @@ export function OrderDetail({
             </details>
           )}
         </section>
-        {booking.hold && <HoldControls data={data} booking={booking} onSaved={setData} onPendingChange={setHoldLocked} externalLocked={command.busy || command.uncertain || paymentLocked} />}
+        <OrderAmendment data={data} booking={booking} onSaved={setData} onPendingChange={setAmendmentLocked} externalLocked={command.busy || command.uncertain || paymentLocked || holdLocked} />
+        {booking.hold && <HoldControls data={data} booking={booking} onSaved={setData} onPendingChange={setHoldLocked} externalLocked={command.busy || command.uncertain || paymentLocked || amendmentLocked} />}
         {visibleMoney && (
           <section className="mt-5 rounded-2xl border bg-white p-5">
             <h2 className="text-lg font-semibold">訂單款項</h2>
@@ -191,7 +194,7 @@ export function OrderDetail({
               booking={booking}
               onSaved={setData}
               onPendingChange={setPaymentLocked}
-              externalLocked={command.busy || command.uncertain || holdLocked}
+              externalLocked={command.busy || command.uncertain || holdLocked || amendmentLocked}
             />
           </section>
         )}
