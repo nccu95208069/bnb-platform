@@ -120,3 +120,5 @@ payment calendar. No live T-39 reads/writes or prediction claims are involved.
 ## 2026-10-06 — Main Sheet notes in sold-order details
 
 The owner requested the complete main-Sheet notes in the legacy sold-calendar detail and explicitly authorized publication. See [implementation and verification](BOOKING_SOURCE_NOTES_2026-10-06.md).
+
+- [Calendar change intake and daily observation](CALENDAR_CHANGE_ENDPOINT_2026-10-07.md): receiver verified, production activation awaiting owner approval; booking-assistant hooks deferred.

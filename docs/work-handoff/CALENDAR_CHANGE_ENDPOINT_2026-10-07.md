@@ -1,6 +1,6 @@
 # Calendar change intake — 2026-10-07
 
-Status: implemented and locally verified; production release pending.
+Status: implemented and locally verified in commit `b269a5b`, pushed to draft PR #26. Production activation awaits explicit owner approval; no new production environment variables or deployment have been applied.
 
 ## Owner decisions
 
@@ -69,3 +69,10 @@ Sheet determines sold/unsold/conflict. Channel inventory is displayed separately
 - bnb-pricing supplied a default-disabled client/outbox with offline tests; three-day pricing automation is not claimed enabled. Interface handoff sent; production enablement remains in that producer's approved workflow.
 - LINE/Gmail/toggle callbacks remain deferred per owner. This task did not message or modify the booking-assistant deployment.
 - A separate WEB-04 consultation reported a potential OFFLAND order-ID mapping discrepancy (writer Q vs reader O). This is unverified producer/schema evidence and must be checked against the live header and deployed writer before changing any mapping. Do not fold a hold lifecycle or schema migration into this release.
+
+## Release handoff
+
+- Existing production baseline remains `dpl_AybNCF8mH99eVjENCapnqchTc1h2` (2026-10-06 main Sheet notes release).
+- Automatic approval review rejected the attempted creation of `CALENDAR_CHANGE_CLIENTS`, `CALENDAR_CHANGES_ENABLED`, and `CALENDAR_DAILY_OBSERVATION_ENABLED`, stating that persistent production configuration/scheduled activity needs explicit authorization. No commands in that rejected operation ran. Owner approval was requested with the exact scope.
+- After approval: install the prepared scoped configuration without printing values, stage the tested production commit, validate auth/field/property rejection without sending fabricated production prices, promote, verify both calendar screens, and record actual deployment evidence here. Hand the producer its private configuration path only after endpoint acceptance. Keep the producer's schedule/activation decision in its own workflow.
+- Dedicated credential material is local, ignored and mode 0600; never place it in this document or the PR. It grants only two-property pricing/probability/inventory intake, no booking writes and no Redis access.
