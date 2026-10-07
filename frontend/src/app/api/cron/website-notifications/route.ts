@@ -10,7 +10,9 @@ const headers = { "Cache-Control": "private, no-store", "Referrer-Policy": "no-r
 export async function GET(request: NextRequest) {
   const expected = process.env.CRON_SECRET ? Buffer.from(`Bearer ${process.env.CRON_SECRET}`) : null;
   const actual = Buffer.from(request.headers.get("authorization") ?? "");
-  if (!expected || actual.length !== expected.length || !timingSafeEqual(actual, expected) || request.headers.has("cookie") || request.headers.has("origin"))
+  // Authenticate the scheduler solely with its dedicated bearer secret. Proxy
+  // cookies/origin headers neither grant access nor invalidate an authentic cron.
+  if (!expected || actual.length !== expected.length || !timingSafeEqual(actual, expected))
     return NextResponse.json({ schemaVersion: 1, code: "UNAUTHORIZED" }, { status: 401, headers });
   const emailEnabled = process.env.WEBSITE_BOOKING_EMAIL_DELIVERY_ENABLED === "true";
   const expiryEnabled = process.env.WEBSITE_BOOKING_EXPIRY_REMINDERS_ENABLED === "true";

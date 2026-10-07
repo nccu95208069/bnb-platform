@@ -234,7 +234,7 @@ otherwise unchanged notification.
 
 Native email uses the existing authenticated `sendCustomerLifecycleMail` path.
 `GET /api/cron/website-notifications` requires the existing `CRON_SECRET` Bearer,
-no Cookie/Origin, customer workspaces enabled, and
+customer workspaces enabled, and
 `WEBSITE_BOOKING_EMAIL_DELIVERY_ENABLED=true`. It reads
 `WEBSITE_BOOKING_EMAIL_BINDINGS` and/or exact
 `WEBSITE_BOOKING_EMAIL_SITE_SCOPES` (same client/site pairs). This discovers a new
@@ -410,3 +410,62 @@ repeat the relevant smoke checks, and verify the owner-controlled activation.
 Real provider acceptance and phone/inbox receipt remain unverified. The user
 must still approve their own email, physical rooms, price and policy; no agent
 may synthesize that approval. Temporary credentials remain local and private.
+
+### Direct OS-chat approval and production release (2026-10-07)
+
+A third review refused cross-chat consent as sufficient evidence. The owner then
+answered **同意全部 directly in the OS chat** to the concrete permanent settings,
+separate credential handoff, real Email/LINE notification and primary-domain
+promotion question. This resolves the earlier activation approval boundaries;
+no further duplicate permission request is required for this agreed scope.
+
+Before applying settings, the primary deployment was re-read as the preserved
+pricing release `bde9b4a`; all seven new project-level variables were absent.
+The seven settings in the runbook were then added successfully as sensitive
+production variables, without overwriting any existing setting. Editor and LINE
+credential hashes were independently checked against separate 0600 local files;
+exact client/site scopes, ownerLine-only channel and three worker actions match.
+Both Email and expiry flags are true. No old mail, session, namespace, pricing or
+external-calendar secrets were pulled or replaced.
+
+The final candidate built successfully and was verified READY:
+- Runtime source: `66838f724ca0897ecfb08d444a0a29cbfa71aefd`.
+- Deployment: `dpl_wWr4qXCS9rRMsjDPchUTUbPEgLfx`.
+- Deployment URL: `https://sweetfun-iet33keyi-sweetfuns-projects.vercel.app`.
+- Primary URL: `https://sweetfun-os.vercel.app`.
+- Prior rollback target: `dpl_EuNR8x2nNFkZgDyVeb2eGwbZq1r9`.
+
+All nine real candidate scope/refusal checks pass. Immediately before promotion,
+the primary deployment was compared with the preflight baseline; no intervening
+release existed. Vercel promotion succeeded and a fresh alias read points to the
+new deployment. The project cron definitions now target this deployment,
+retaining the seven existing schedules and adding the protected every-minute
+`/api/cron/website-notifications` task.
+
+Five direct public-primary HTTP checks also pass **without Vercel bypass**:
+anonymous editor access 401; external LINE discovery 200 with only ownerLine and
+zero approved bindings; cross-site editor refusal 403; unauthenticated owner
+response 200/authenticated:false; and anonymous scheduler access 401. Every
+response has no-store headers. No booking, receipt, room or provider was changed
+by these checks.
+
+The separate credential files were handed by path only to their responsible
+Sites and LINE chats under the explicit owner approval. No raw secret appears in
+chat or Git. Installation/readback and removal of the temporary files are still
+pending partner confirmation. LINE owns its safe Cloud Run transition and must
+not prolong a pause waiting for OS. The user must still complete verified owner
+approval of rooms/prices/policies and private LINE pairing. Real notification
+acceptance and inbox/phone receipt have not yet been demonstrated; the live
+worker being enabled is not proof that a notification was delivered. Legacy
+Sheet/OwlNest identity migration and automatic pricing remain outside this pilot.
+
+Post-promotion observation detected 401 responses from real website-notification
+cron invocations while existing customer-calendar/order-health cron invocations
+on the same deployment returned 200. The new route's extra Cookie/Origin veto
+was removed: it now uses the same constant-time, required CRON_SECRET check as
+those established schedulers and [Vercel's documented cron authentication](https://vercel.com/docs/cron-jobs/manage-cron-jobs#securing-cron-jobs).
+Cookie/Origin never grant authorization; missing/wrong secrets still return 401.
+The actual-route regression now covers authenticated requests with both context
+headers and denies cookies/origin combined with missing or incorrect secrets.
+All 12 email/cron tests, changed-file lint and TypeScript pass. The corrected
+runtime and actual scheduler success still require deployment verification below.

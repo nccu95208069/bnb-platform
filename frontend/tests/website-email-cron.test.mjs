@@ -46,7 +46,7 @@ test('cron is disabled by default, requires its own credential, and delivers exi
     throw Error('Unexpected external request');
   });
   const request = (extra = {}) => new NextRequest('https://os.example.invalid/api/cron/website-notifications', { headers: { authorization: `Bearer ${process.env.CRON_SECRET}`, ...extra } });
-  for (const headers of [{ authorization: '' }, { authorization: 'Bearer guest-or-worker-token' }, { origin: 'https://os.example.invalid' }, { cookie: 'bnb_customer_session=synthetic' }]) {
+  for (const headers of [{ authorization: '' }, { authorization: 'Bearer guest-or-worker-token' }, { authorization: '', origin: 'https://os.example.invalid' }, { authorization: '', cookie: 'bnb_customer_session=synthetic' }, { authorization: 'Bearer guest-or-worker-token', origin: 'https://os.example.invalid', cookie: 'platform-proxy=synthetic' }]) {
     assert.equal((await GET(request(headers))).status, 401);
   }
   const disabled = await GET(request());
@@ -59,7 +59,9 @@ test('cron is disabled by default, requires its own credential, and delivers exi
   for (const [key, value] of f.store.values) values.set(`${process.env.CUSTOMER_WORKSPACE_NAMESPACE}:${key}`, value);
   values.set(`${process.env.WORKSPACE_AUTH_NAMESPACE}:mail`, JSON.stringify({ method: 'gmail_oauth', secret: sealMailPassword(JSON.stringify({ clientId: 'synthetic-client', clientSecret: 'synthetic-secret', refreshToken: 'synthetic-refresh' })) }));
   process.env.WEBSITE_BOOKING_EMAIL_SITE_SCOPES = JSON.stringify([{ client_id: f.binding.clientId, site_id: f.binding.siteId }]);
-  const delivered = await GET(request());
+  // Vercel's authenticated invocation may carry proxy cookies/origin headers.
+  // Those headers are not credentials; only the dedicated bearer secret is.
+  const delivered = await GET(request({ origin: 'https://os.example.invalid', cookie: 'platform-proxy=synthetic', 'user-agent': 'vercel-cron/1.0' }));
   assert.equal(delivered.status, 200); assert.equal(delivered.headers.get('cache-control'), 'private, no-store');
   const body = await delivered.json(); assert.equal(body.enabled, true); assert.equal(body.sent, 2); assert.equal(providerCalls, 2);
   assert(!JSON.stringify(body).includes('@'));

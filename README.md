@@ -2,6 +2,8 @@
 
 Current product/deployment context: [WORK_CONTEXT.md](WORK_CONTEXT.md). The owner-approved calendar pilot is live at [the customer entry](https://sweetfun-os.vercel.app/join); see [production verification and limits](docs/work-handoff/CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md#primary-domain-owner-pilot). The customer branch remains in draft PR #26. The older messaging subsystem overview below is historical context.
 
+Happy House native website integration is now deployed on the OS primary domain after direct owner authorization. Scoped Email/expiry scheduling is enabled; partner credential setup, the owner’s own calendar approval/LINE pairing and real delivery acceptance are tracked in [the website integration release record](docs/work-handoff/WEBSITE_BOOKING_API_2026-10-07.md).
+
 > 民宿多渠道 AI 智能客服平台 — Multi-channel AI-powered Customer Service Platform for BnB
 
 BnB Platform 是一套專為民宿業者設計的智能客服系統，透過 Channel Adapter 架構整合多種通訊渠道（LINE、未來支援 Facebook Messenger / Instagram / Email），結合 RAG 知識檢索與大型語言模型，自動回覆房客常見問題。管理員可透過 Dashboard 即時監控對話、接管回覆、管理知識庫。
