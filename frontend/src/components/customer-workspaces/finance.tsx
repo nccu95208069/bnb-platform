@@ -1,4 +1,5 @@
 "use client";
+import { bookingStatusLabel } from "@/lib/customer-workspaces/hold-state";
 import { useState } from "react";
 import type { WorkspaceView } from "@/lib/customer-workspaces/types";
 import {
@@ -40,7 +41,9 @@ export function CustomerFinance({
     active = bookings.filter((b) => b.status === "confirmed"),
     summaries = active.map(financeSummary),
     unknown = summaries.filter((s) => s.received === null).length;
-  const pending = active.filter((b) => {
+  const pending = bookings.filter((b) => {
+      if (b.hold?.latePaymentReview) return true;
+      if (b.status !== "confirmed") return false;
       const s = financeSummary(b);
       return (
         s.remaining === null ||
@@ -281,8 +284,8 @@ export function CustomerFinance({
                       <td>
                         {formatMoney(summary.remaining)}
                         <span className="block text-xs text-slate-500">
-                          {b.status === "cancelled"
-                            ? "已取消"
+                          {b.status !== "confirmed"
+                            ? bookingStatusLabel(b)
                             : financeLabels[summary.status]}
                         </span>
                       </td>
@@ -342,6 +345,7 @@ export function CustomerFinance({
                     .join("、")}
                 </p>
               ))}
+              {picked.hold && <a className="my-3 block text-sm text-teal-800 underline" href={`/w/${data.slug}/orders/${picked.id}`}>前往保留單明細處理延長、收款或釋出</a>}
               <OrderFinance
                 key={picked.id}
                 data={data}

@@ -1,3 +1,4 @@
+import { bookingStatusLabel } from "@/lib/customer-workspaces/hold-state";
 import { notFound } from "next/navigation";
 import { customerPage } from "@/lib/customer-workspaces/page-context";
 import {
@@ -184,7 +185,9 @@ export default async function Page({
               name="status"
               defaultValue={query.status || "confirmed"}
             >
-              <option value="confirmed">有效訂單</option>
+              <option value="confirmed">正式訂單</option>
+              <option value="held">保留單</option>
+              <option value="awaiting_owner">保留待處理（到期／釋出後到款）</option>
               <option value="cancelled">已取消</option>
               <option value="all">全部</option>
             </select>
@@ -338,8 +341,8 @@ export default async function Page({
                       {issue}
                     </span>
                   ))}
-                  {b.status === "cancelled" && (
-                    <span className="text-sm text-slate-500">已取消</span>
+                  {b.status !== "confirmed" && (
+                    <span className="text-sm text-slate-500">{bookingStatusLabel(b)}</span>
                   )}
                 </div>
               </a>

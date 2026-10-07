@@ -1,3 +1,4 @@
+import type { Channel } from '../availability';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { pricingProperty } from '../property-pricing.ts';
 import { validatePricingSnapshot, type PricingSnapshot } from '../pricing-snapshot.ts';
@@ -66,6 +67,18 @@ export function mergeChange(event: CalendarChange, prior: PricingSnapshot | null
         if (!olderModel && (newer(probabilityAt, before?.probability_observed_at) || (sameTime(probabilityAt, before?.probability_observed_at) && equal(probability, before?.sales_probability ?? null)))) {
           next.sales_probability = probability; next.probability_observed_at = probabilityAt; counts.applied++; changed = true;
         } else counts.superseded++;
+      }
+      if (event.changes.includes('pricing_decisions') && cell.pricing_decisions) {
+        next.pricing_decisions = { ...before?.pricing_decisions };
+        for (const [channel, decision] of Object.entries(cell.pricing_decisions)) {
+          const previous = before?.pricing_decisions?.[channel as Channel];
+          // Retries compare the complete decision. Different data at the same
+          // observation time is a conflict, never an implicit overwrite.
+          if ((!previous || Date.parse(decision.calculated_at) >= Date.parse(previous.calculated_at)) && (newer(decision.observed_at, previous?.observed_at) || (sameTime(decision.observed_at, previous?.observed_at) && equal(decision, previous)))) {
+            next.pricing_decisions[channel as Channel] = decision;
+            counts.applied++; changed = true;
+          } else counts.superseded++;
+        }
       }
       cells.set(key, next);
     }

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { occupiesInventory } from "./hold-state.ts";
 import { isCalendarKind } from "./calendar-types.ts";
 import {
   businessDate,
@@ -324,7 +325,7 @@ export async function availability(
         ];
   const occupied = [
     ...workspace.bookings.filter(
-      (b) => b.propertyId === property.id && b.status === "confirmed",
+      (b) => b.propertyId === property.id && occupiesInventory(b),
     ),
     ...(workspace.blocks ?? []).filter(
       (b) => b.propertyId === property.id && b.status === "active",
@@ -423,6 +424,7 @@ export async function bookingOperation(
       workspace: view(context.workspace, context.member),
       summary: financeSummary(booking),
     };
+  if (booking.status === "held") throw new Error("HOLD_ACTION_REQUIRED");
   if (booking.status !== "confirmed") throw new Error("ORDER_CANCELLED");
   if (booking.version !== input.bookingVersion)
     throw new Error("VERSION_CONFLICT");

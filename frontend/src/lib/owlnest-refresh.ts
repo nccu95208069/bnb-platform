@@ -55,6 +55,7 @@ export function refreshedSnapshot(raw: unknown, prior: PricingSnapshot, start:st
       const previous = old.get(`${date}|${code}`);
       cells.push({date,room:code,channels,observed_at:observed,stock_observed_at:observed,probability_observed_at:previous?.probability_observed_at ?? previous?.observed_at ?? prior.observed_at,stock:stocks.get(date) ?? null,
         rack_price:previous?.rack_price ?? null,daytype:previous?.daytype ?? "",baseline_version:previous?.baseline_version ?? "",
+        ...(previous?.pricing_decisions ? { pricing_decisions: previous.pricing_decisions } : {}),
         sales_probability:previous?.sales_probability ?? null});
     }
   }

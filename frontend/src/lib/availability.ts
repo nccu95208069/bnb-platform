@@ -64,6 +64,7 @@ export type NightPrice = {
 };
 export type SalesProbability = { value: number; asof: string; source_version: string };
 export type RoomNight = {
+  pricing_decision?: import('./pricing-decision').PricingDecision | null;
   channel_inventory?: { count: number | null; is_lock: boolean; observed_at: string; checked_today: boolean } | null;
   offland_reference?: import('./offland-reference').OfflandReference | null;
   sales_probability?: SalesProbability | null;

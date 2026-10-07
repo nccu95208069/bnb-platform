@@ -1,5 +1,9 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
+## OS-10 / OS-11 — owned implementation complete, integration pending (2026-10-07)
+
+[Implementation, review and contract](OS_HOLDS_PRICING_2026-10-07.md) records the native hold lifecycle and pricing-decision storage/readback. Code and isolated tests are complete. Hold commands default off; no production deployment, external channel write, notification delivery, or automatic pricing activation occurred. INT-01 website, INT-02 LINE, INT-03 legacy Sheet/OwlNest/shared occupancy, and INT-04 pricing producer require their own end-to-end acceptance. Preserve ING-01's existing notification ingest path.
+
 ## P1 — 訂單與房晚查詢前台（2026-10-04 owner request）
 
 - [ ] **ORDER-FINDER-P1：重要待辦。** 後端、Sheet 欄位與分頁可依資料正確性設計；使用者必須能透過清楚的前台找到一筆訂單或某間房的某一晚，不必閱讀原始帳本。

@@ -1,4 +1,5 @@
 "use client";
+import { PricingDecisionDetails } from "./pricing-decision-details";
 import { useCalendarRevision } from "./use-calendar-revision";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
@@ -664,6 +665,7 @@ const uiLocale = useIntlLocale();
                 {property === "offland" && <p className="mt-1 text-xs">四人／六人共用同一棟機率。歷史資料仍在驗證，並非此價格的成交保證。{selectedCell.offland_reference ? `預測日期：${selectedCell.offland_reference.asof}。` : "資料不足、連假或過期時留白。"}不會自動修改 OwlNest。</p>}
                 {selectedCell.sales_probability && <p className="mt-1 text-xs">{uiText("模型預測日期：")}{selectedCell.sales_probability.asof}{uiText("。這是定價模型的售出機率，非成交保證，也不表示調價已執行。")}</p>}
               </div>}
+              {!hidePrice && selectedCell.pricing_decision && <PricingDecisionDetails decision={selectedCell.pricing_decision} />}
               {!hidePrice && selectedCell.pricing && (
                 <>
                   <div className="grid grid-cols-3 gap-2 rounded-xl bg-muted/40 p-3">
