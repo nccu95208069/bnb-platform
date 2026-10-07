@@ -311,3 +311,49 @@ email delivery; and the existing LINE service adapter. Existing Sheet/OwlNest
 properties and automatic pricing remain out of scope. Await direct owner
 approval before production candidate creation, persistent configuration or
 cross-service credential handoff. Do not retry through another tool or chat.
+
+GitHub CI for PR #31 head `9a522e7` did not start. All three job annotations
+(Backend, Frontend, Customer workspace isolation) report the account is locked
+due to a billing issue. Do not describe these as executed failing tests or as
+passing CI. Local verification above remains valid; the billing block needs
+account-owner resolution before CI can run.
+
+### Approved-activation runbook (do not execute before approval)
+
+1. Verify the direct owner's approval and re-read the production alias/source;
+   preserve any newer production changes beyond `bde9b4a` before deploying. The
+   last verified rollback target is `dpl_EuNR8x2nNFkZgDyVeb2eGwbZq1r9`, serving
+   `https://sweetfun-gr20axrin-sweetfuns-projects.vercel.app`.
+2. Use existing project `prj_ivLgoZInXdIuwHtzWCH5SFHDSQup`, team
+   `team_rtARGegsahiZ6hOY7l2dUWGw`, from this branch's `frontend`. Verify that exact
+   project link before any command. Keep the existing customer namespace, mail,
+   session, calendar and pricing configurations. Never pull/print their secrets.
+3. Configure only the new variables through restricted file input: the exact
+   editor registry `WEBSITE_BOOKING_CLIENTS`, independent LINE worker registry
+   `WEBSITE_BOOKING_WORKERS`, `WEBSITE_BOOKING_EMAIL_SITE_SCOPES`,
+   `WEBSITE_BOOKING_ENABLED`, `CUSTOMER_HOLDS_ENABLED`, and
+   `WEBSITE_BOOKING_EMAIL_DELIVERY_ENABLED`. Do not overwrite an existing registry
+   without merging its verified prior entries. Initial candidate email delivery
+   stays false; no real bookings or guest contacts are used for a smoke test.
+4. Build a protected candidate with `vercel deploy --prod --skip-domain --scope
+   sweetfuns-projects`, using the exact approved source and the narrowly scoped
+   runtime settings. Verify READY, deployment provenance, unauthenticated denial,
+   service scope, input rejection, no-store responses and native owner screen.
+   Use normal protected-deployment access; do not disable protection.
+5. Configure the new editor token only in the private Sites worker and the
+   separate worker token only in the existing LINE service. LINE grant channels
+   are ownerLine only; actions are notifications/line_binding/owner_actions.
+   Both grants use client `stayform-editor-pilot-v1` and site
+   `appgprj_6ac35c2aa3c08191866d46ffbd495d82:happy-house`. Remove temporary token
+   copies after verified secret-manager handoff; never put tokens in a URL.
+6. Promote only the verified candidate to the existing OS domain under the
+   explicit activation approval. The owner must still verify email and confirm
+   real room mapping, prices and rules; the agent cannot approve these for them.
+   Then validate one explicitly chosen isolated booking and provider recipient,
+   same-order lifecycle/retry and notification readback. Enable scoped email
+   delivery and the LINE runner only as authorized and verify actual provider
+   receipts separately from outbox enqueue and inbox delivery.
+7. Keep the website stopped if authorization, live provider acceptance or room
+   mapping cannot be verified. Roll back the alias to the recorded deployment
+   for a release failure; retain existing canonical orders and durable receipts.
+   Disabling new sales never releases occupied rooms or triggers unknown sends.
