@@ -11,7 +11,7 @@ export function PricingDecisionDetails({ decision: d }: { decision: PricingDecis
       <div><dt className="text-xs text-muted-foreground">計算基準價</dt><dd>{money(d.base_price)}</dd></div>
       <div><dt className="text-xs text-muted-foreground">目標價</dt><dd>{money(d.target_price)}</dd></div>
       <div><dt className="text-xs text-muted-foreground">當次發布查回價</dt><dd>{money(d.published_price)}</dd></div>
-      <div><dt className="text-xs text-muted-foreground">調整幅度</dt><dd>{d.adjustment_pct > 0 ? "+" : ""}{d.adjustment_pct.toFixed(2)}%</dd></div>
+      <div><dt className="text-xs text-muted-foreground">調整幅度</dt><dd>{d.adjustment_pct === null ? '未定義' : `${d.adjustment_pct > 0 ? '+' : ''}${d.adjustment_pct.toFixed(2)}%`}</dd></div>
     </dl>
     <p>原因：{d.reason}</p>
     <p>計算使用的售出機率：{d.probability ? `${(d.probability.value * 100).toFixed(1)}%（${d.probability.asof}）` : "未提供"}</p>

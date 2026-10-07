@@ -4,10 +4,10 @@ export const PUBLISH_STATUSES = ['shadow', 'proposed', 'skipped', 'verified', 'f
 export type PricingDecision = {
   run_id: string;
   source_version: string;
-  base_price: number;
+  base_price: number | null;
   target_price: number;
   published_price: number | null;
-  adjustment_pct: number;
+  adjustment_pct: number | null;
   probability: SalesProbability | null;
   reason: string;
   model_version: string;
@@ -28,7 +28,10 @@ export function validatePricingDecisions(value: unknown, channels: readonly Chan
   for (const [channel, raw] of Object.entries(value)) {
     if (!channels.includes(channel as Channel) || !record(raw) || Object.keys(raw).length !== keys.length || Object.keys(raw).some(k => !keys.includes(k))) throw Error('INVALID_PRICING_DECISION');
     const d = raw as PricingDecision;
-    if (!id(d.run_id) || !id(d.source_version) || !id(d.model_version) || !id(d.policy_version) || !price(d.base_price) || !price(d.target_price) || (d.published_price !== null && !price(d.published_price)) || !Number.isFinite(d.adjustment_pct) || Math.abs(d.adjustment_pct - (d.target_price / d.base_price - 1) * 100) > 0.011 || typeof d.reason !== 'string' || !d.reason.trim() || d.reason.length > 500 || !PUBLISH_STATUSES.includes(d.publish_status) || !time(d.observed_at) || !time(d.calculated_at) || Date.parse(d.observed_at) > Date.parse(snapshotAt) || Date.parse(d.calculated_at) > Date.parse(d.observed_at)) throw Error('INVALID_PRICING_DECISION');
+    const baseValid = d.base_price === null
+      ? d.adjustment_pct === null && ['shadow','skipped'].includes(d.publish_status)
+      : typeof d.base_price === 'number' && Number.isFinite(d.base_price) && d.base_price > 0 && d.base_price <= 10_000_000 && typeof d.adjustment_pct === 'number' && Number.isFinite(d.adjustment_pct) && Math.abs(d.adjustment_pct - (d.target_price / d.base_price - 1) * 100) <= 0.011;
+    if (!id(d.run_id) || !id(d.source_version) || !id(d.model_version) || !id(d.policy_version) || !baseValid || !price(d.target_price) || (d.published_price !== null && !price(d.published_price)) || typeof d.reason !== 'string' || !d.reason.trim() || d.reason.length > 500 || !PUBLISH_STATUSES.includes(d.publish_status) || !time(d.observed_at) || !time(d.calculated_at) || Date.parse(d.observed_at) > Date.parse(snapshotAt) || Date.parse(d.calculated_at) > Date.parse(d.observed_at)) throw Error('INVALID_PRICING_DECISION');
     if ((d.published_at === null) !== (d.published_price === null) || (d.published_at !== null && (!time(d.published_at) || Date.parse(d.published_at) < Date.parse(d.calculated_at) || Date.parse(d.published_at) > Date.parse(d.observed_at)))) throw Error('INVALID_PRICING_DECISION');
     if (d.publish_status === 'verified' && (d.published_price !== d.target_price || !d.published_at)) throw Error('INVALID_PRICING_DECISION');
     if (['shadow','proposed','skipped'].includes(d.publish_status) && d.published_price !== null) throw Error('INVALID_PRICING_DECISION');

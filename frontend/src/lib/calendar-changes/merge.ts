@@ -1,13 +1,13 @@
 import type { Channel } from '../availability';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import { pricingProperty } from '../property-pricing.ts';
-import { validatePricingSnapshot, type PricingSnapshot } from '../pricing-snapshot.ts';
+import { MAX_PRICING_BYTES, validatePricingSnapshot, type PricingSnapshot } from '../pricing-snapshot.ts';
 import { type CalendarChange, type InventoryObservation, canonical, digest } from './contract.ts';
 
 export function encode(value: unknown) { return 'gz1:' + gzipSync(JSON.stringify(value)).toString('base64'); }
 export function decode(raw: string): unknown {
   if (!raw.startsWith('gz1:')) throw Error('CHANGE_STORAGE_INVALID');
-  return JSON.parse(gunzipSync(Buffer.from(raw.slice(4), 'base64'), { maxOutputLength: 8 * 1024 * 1024 }).toString('utf8'));
+  return JSON.parse(gunzipSync(Buffer.from(raw.slice(4), 'base64'), { maxOutputLength: MAX_PRICING_BYTES }).toString('utf8'));
 }
 export type ChannelInventory = {
   schema: 1;

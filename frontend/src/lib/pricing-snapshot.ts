@@ -1,5 +1,13 @@
 import { validatePricingDecisions, type PricingDecisions } from './pricing-decision.ts';
 import { pricingProperty, type PricingProperty } from './property-pricing.ts';
+import { gunzipSync } from 'node:zlib';
+
+export const MAX_PRICING_BYTES = 16 * 1024 * 1024;
+export function readPricingSnapshot(raw: string, property?: string): PricingSnapshot {
+  if (!raw.startsWith('gz1:')) throw Error('INVALID_PRICING_SNAPSHOT');
+  return validatePricingSnapshot(JSON.parse(gunzipSync(Buffer.from(raw.slice(4), 'base64'),
+    { maxOutputLength: MAX_PRICING_BYTES }).toString('utf8')), property);
+}
 import type { Channel, SalesProbability } from './availability';
 
 export const PRICING_KEY = 'sweetfun-os:pricing:v1:sweetfun';
@@ -26,7 +34,7 @@ export function validatePricingSnapshot(value: unknown, expectedProperty?: strin
   const s = value as PricingSnapshot;
   const config = pricingProperty(s?.property_id);
   if (expectedProperty && s.property_id !== expectedProperty) throw Error("PRICING_PROPERTY_MISMATCH");
-  if (new TextEncoder().encode(JSON.stringify(value)).length > 4 * 1024 * 1024) throw Error('INVALID_PRICING_SNAPSHOT');
+  if (new TextEncoder().encode(JSON.stringify(value)).length > MAX_PRICING_BYTES) throw Error('INVALID_PRICING_SNAPSHOT');
   const seen = new Set<string>();
   if (s?.schema !== 1 ||  !Number.isFinite(Date.parse(s.observed_at)) ||
       Date.parse(s.observed_at) > Date.now() + 300000 || !/^[a-f0-9]{20}$/.test(s.version) ||
