@@ -75,3 +75,21 @@ test('cron is disabled by default, requires its own credential, and delivers exi
   process.env.CUSTOMER_WORKSPACES_ENABLED = 'false';
   assert.deepEqual(await (await GET(request())).json(), { schemaVersion: 1, enabled: false });
 });
+
+test('expiry scheduler queues owner LINE reminders with SMTP disabled and never releases occupancy or duplicates the reminder', async t => {
+  const later=new Date(fixtureNow.getTime()+86400001);t.mock.timers.enable({apis:['Date'],now:later});
+  const f=await emailFixture();
+  const {RedisCustomerStore}=await import('../src/lib/customer-workspaces/store.ts');
+  for(const method of ['read','commit','limit'])t.mock.method(RedisCustomerStore.prototype,method,f.store[method].bind(f.store));
+  let sends=0;t.mock.method(globalThis,'fetch',async()=>{sends++;throw Error('external request forbidden');});
+  process.env.CUSTOMER_WORKSPACES_ENABLED='true';process.env.CUSTOMER_SESSION_SECRET='synthetic-expiry-cron-session-secret';process.env.CRON_SECRET='synthetic-expiry-cron-secret';
+  process.env.WEBSITE_BOOKING_ENABLED='false';process.env.WEBSITE_BOOKING_EMAIL_DELIVERY_ENABLED='false';process.env.WEBSITE_BOOKING_EXPIRY_REMINDERS_ENABLED='true';
+  process.env.WEBSITE_BOOKING_EMAIL_BINDINGS='[]';process.env.WEBSITE_BOOKING_EMAIL_SITE_SCOPES=JSON.stringify([{client_id:f.binding.clientId,site_id:f.binding.siteId}]);
+  t.after(()=>delete process.env.WEBSITE_BOOKING_EXPIRY_REMINDERS_ENABLED);
+  const request=()=>new NextRequest('https://os.example.invalid/api/cron/website-notifications',{headers:{authorization:'Bearer '+process.env.CRON_SECRET}});
+  const response=await GET(request());assert.equal(response.status,200);const result=await response.json();assert.equal(result.emailEnabled,false);assert.equal(result.expiry.queued,1);assert.equal(result.sent,0);assert.equal(sends,0);
+  const jobs=[...f.store.values].filter(([key])=>key.startsWith('website:notification:')).map(([,value])=>JSON.parse(value));
+  assert.equal(jobs.filter(j=>j.event==='hold_expired'&&j.channel==='ownerLine'&&j.state==='queued').length,1);
+  assert.equal((await f.store.read('workspace:'+f.workspace.id)).value.bookings[0].status,'held');
+  assert.equal((await(await GET(request())).json()).expiry.queued,0);assert.equal(sends,0);
+});

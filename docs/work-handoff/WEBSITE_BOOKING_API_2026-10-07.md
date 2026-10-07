@@ -256,7 +256,12 @@ customer-origin configuration. All credentials remain server-only; never use
 NEXT_PUBLIC variables, URL query parameters or committed files for secrets.
 
 `vercel.json` registers a once-per-minute call to the protected email route;
-the route remains disabled unless its explicit delivery flag is enabled.
+the route remains disabled unless its explicit Email or expiry flag is enabled.
+`WEBSITE_BOOKING_EXPIRY_REMINDERS_ENABLED=true` queues owner reminders separately
+from `WEBSITE_BOOKING_EMAIL_DELIVERY_ENABLED`. Both use the exact configured
+`WEBSITE_BOOKING_EMAIL_BINDINGS` / `WEBSITE_BOOKING_EMAIL_SITE_SCOPES`; disabling
+Email never disables LINE expiry reminders. The expiry task keeps occupancy and
+queues each semantic expiry event once.
 Activation must configure the LINE runner/webhook,
 exact pilot scopes and existing mail service; validate those real provider paths
 with an explicitly chosen test recipient and isolated property. Store fresh
@@ -308,9 +313,12 @@ The concrete activation scope is one native pilot website, preserving deployed
 pricing commit `bde9b4a`; separate editor and LINE credentials; exact site grants;
 owner email verification and explicit room/policy approval; gated scheduled
 email delivery; and the existing LINE service adapter. Existing Sheet/OwlNest
-properties and automatic pricing remain out of scope. Await direct owner
-approval before production candidate creation, persistent configuration or
-cross-service credential handoff. Do not retry through another tool or chat.
+properties and automatic pricing remain out of scope. That authorization block was resolved by the direct owner in the
+訂房小助手 chat: on the explicit question covering Happy House three-service
+deployment, credentials and notification activation, the owner answered 同意
+(turn `01a115fe-c597-7222-b3d7-040ce28ddc93`). The OS chat independently read that
+human message. The approved scope remains the single native pilot; no legacy
+Sheet/OwlNest activation or real guest tests are authorized by this release.
 
 GitHub CI for PR #31 head `9a522e7` did not start. All three job annotations
 (Backend, Frontend, Customer workspace isolation) report the account is locked
@@ -318,7 +326,7 @@ due to a billing issue. Do not describe these as executed failing tests or as
 passing CI. Local verification above remains valid; the billing block needs
 account-owner resolution before CI can run.
 
-### Approved-activation runbook (do not execute before approval)
+### Approved-activation runbook
 
 1. Verify the direct owner's approval and re-read the production alias/source;
    preserve any newer production changes beyond `bde9b4a` before deploying. The
@@ -332,9 +340,11 @@ account-owner resolution before CI can run.
    editor registry `WEBSITE_BOOKING_CLIENTS`, independent LINE worker registry
    `WEBSITE_BOOKING_WORKERS`, `WEBSITE_BOOKING_EMAIL_SITE_SCOPES`,
    `WEBSITE_BOOKING_ENABLED`, `CUSTOMER_HOLDS_ENABLED`, and
-   `WEBSITE_BOOKING_EMAIL_DELIVERY_ENABLED`. Do not overwrite an existing registry
+   `WEBSITE_BOOKING_EMAIL_DELIVERY_ENABLED`, and
+   `WEBSITE_BOOKING_EXPIRY_REMINDERS_ENABLED`. Do not overwrite an existing registry
    without merging its verified prior entries. Initial candidate email delivery
-   stays false; no real bookings or guest contacts are used for a smoke test.
+   stays false, while scoped expiry reminders are enabled independently; no real
+   bookings or guest contacts are used for a smoke test.
 4. Build a protected candidate with `vercel deploy --prod --skip-domain --scope
    sweetfuns-projects`, using the exact approved source and the narrowly scoped
    runtime settings. Verify READY, deployment provenance, unauthenticated denial,
@@ -357,3 +367,8 @@ account-owner resolution before CI can run.
    mapping cannot be verified. Roll back the alias to the recorded deployment
    for a release failure; retain existing canonical orders and durable receipts.
    Disabling new sales never releases occupied rooms or triggers unknown sends.
+
+Post-approval expiry scheduler regression: all 12 Email delivery/cron cases pass.
+The actual cron handler with SMTP/new sales disabled queues exactly one ownerLine
+expiry reminder, performs no external send, keeps the canonical held order and
+produces no duplicate reminder on retry. TypeScript and changed-file lint pass.

@@ -179,9 +179,26 @@ async function processDelivery(store: CustomerStore, worker: NotificationWorker,
   return acknowledge(store, worker, saved as Snapshot<Delivery> & { value: Delivery }, now);
 }
 
+export async function runWebsiteExpiryReminders(store: CustomerStore, bindingIds: string[], options: { siteScopes?: WorkerSiteScope[]; now?: () => Date } = {}) {
+  if (bindingIds.length > 100 || new Set(bindingIds).size !== bindingIds.length) throw Error("INVALID_INPUT");
+  bindingIds.forEach(uuid);
+  const worker = internalWorker(bindingIds, workerSiteScopes(options.siteScopes));
+  const result = { bindings: 0, queued: 0 };
+  for (const bindingId of await resolvedBindings(store, worker)) {
+    try {
+      const queued = await notificationOperation(store, worker, { schemaVersion: 1, action: "enqueue_expired", bindingId, attemptId: randomUUID() }, options.now?.() ?? new Date());
+      if (!("queued" in queued)) throw Error("STORE_UNAVAILABLE");
+      result.bindings++; result.queued += queued.queued;
+    } catch (error) {
+      if (!(error instanceof Error) || error.message !== "BINDING_UNAVAILABLE") throw error;
+    }
+  }
+  return result;
+}
+
 export async function runWebsiteEmailDelivery(
   store: CustomerStore, bindingIds: string[],
-  options: { send?: Sender; now?: () => Date; maxJobs?: number; siteScopes?: WorkerSiteScope[] } = {},
+  options: { send?: Sender; now?: () => Date; maxJobs?: number; siteScopes?: WorkerSiteScope[]; enqueueExpired?: boolean } = {},
 ) {
   if (bindingIds.length > 100 || new Set(bindingIds).size !== bindingIds.length) throw Error("INVALID_INPUT");
   bindingIds.forEach(uuid);
@@ -193,7 +210,7 @@ export async function runWebsiteEmailDelivery(
   let remaining = limit;
   for (const bindingId of await resolvedBindings(store, worker)) {
     if (remaining <= 0) break;
-    try {
+    if (options.enqueueExpired !== false) try {
       await notificationOperation(store, worker, { schemaVersion: 1, action: "enqueue_expired", bindingId, attemptId: randomUUID() }, now());
     } catch (error) {
       // A revoked owner's pending accepted receipt can still be acknowledged;
