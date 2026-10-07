@@ -469,3 +469,38 @@ The actual-route regression now covers authenticated requests with both context
 headers and denies cookies/origin combined with missing or incorrect secrets.
 All 12 email/cron tests, changed-file lint and TypeScript pass. The corrected
 runtime and actual scheduler success still require deployment verification below.
+
+#### Corrected scheduler verified on the primary deployment
+
+Cron-auth fix source `211ab2f163b4b5cd2c97fc1f076c83dd9dd0edb2` built READY and was
+promoted as `dpl_6AyLMRwjvXF1dGdUcadHttZswXsL`, URL
+`https://sweetfun-e6dz7smwr-sweetfuns-projects.vercel.app`. Fresh alias and project
+reads verify the primary domain and every-minute website schedule both point to
+this deployment. The before-promotion guard confirmed no other chat had changed
+the current primary, and the preserved pricing files still match `bde9b4a`.
+
+Real platform invocations returned HTTP 200 at **2026-10-07 20:02:16 and 20:03:16
+Asia/Taipei** (UTC 12:02:16.255 and 12:03:16.341). The earlier 12:00:44 UTC 401
+belongs to the candidate anonymous Cookie/Origin refusal check, before promotion.
+No CRON_SECRET was fetched or changed. The code still requires its exact dedicated
+bearer, and no cookie/origin grants access. This verifies the live scheduled
+execution path, not delivery to an inbox or phone.
+
+Sites confirmed the public guest deployment succeeded at environment revision 2:
+`appgdep_6ac63376e6b08191aae66ddd4030ef82`, saved version
+`appgprj_6ac35c2aa3c08191866d46ffbd495d82~appgver_523d2716bb4081919f9a91898c611822`,
+source `545863b8fd578bef6bb7b78f4e38df36ee477fc0`, public URL
+`https://stayform-guest.nccu95208069.chatgpt.site`. Only the OS origin and secret
+editor token were added; its prior publish secret was preserved. Native metadata
+readback confirms secret classification without returning the value. Sites also
+verified primary-origin anonymous 401, an allowed-site nonexistent connection
+410 and other-site 403, all no-store. Following that installation confirmation,
+the OS-created editor-token temporary handoff file was removed.
+
+LINE confirms its separate token is installed in Secret Manager and the enabled
+zero-traffic candidate `gmail-order-handler-int02-live-4d81071` is Ready. Its
+real OS poll returns 200 with zero counts, and its existing-path and new access
+checks pass. LINE owns the now-authorized safe production switch and polling
+scheduler; final traffic/readback and worker-file removal await its completion.
+It has been given the two successful OS cron timestamps above. Owner calendar
+approval and LINE pairing remain user steps; no test notification was sent.
