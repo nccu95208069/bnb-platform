@@ -255,8 +255,9 @@ The OS login/calendar origin must be the intended deployment via existing
 customer-origin configuration. All credentials remain server-only; never use
 NEXT_PUBLIC variables, URL query parameters or committed files for secrets.
 
-Code does not add an enabled schedule to `vercel.json`. Activation must configure
-one scheduler invoking the protected email route, the LINE runner/webhook,
+`vercel.json` registers a once-per-minute call to the protected email route;
+the route remains disabled unless its explicit delivery flag is enabled.
+Activation must configure the LINE runner/webhook,
 exact pilot scopes and existing mail service; validate those real provider paths
 with an explicitly chosen test recipient and isolated property. Store fresh
 handoff credentials in a restricted temporary file or secret manager and remove
