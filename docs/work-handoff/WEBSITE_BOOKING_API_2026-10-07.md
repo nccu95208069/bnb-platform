@@ -286,4 +286,9 @@ until their original Sheet identity/common executor/OwlNest readback is verified
 These results verify code and isolated persistence. They do not represent live
 email inbox receipt, LINE delivery, legacy source writes or a production release.
 The release preflight discovered production now serves pricing-only PR #30 merge
-`bde9b4a`; the website candidate must preserve that source before deployment.
+`bde9b4a`; merge commit `360a4c7` now preserves that deployed source. The pricing
+receiver, merge logic, quote routes and decision UI match that production commit.
+Post-merge checks pass: 69 domain/route checks, all six real Redis website/pricing
+checks (including the two skipped without Redis), 22 relevant DOM checks, full
+TypeScript/webpack build and changed-file lint. CI now runs the new suites on
+customer-onboarding PRs using its existing disposable Redis service.

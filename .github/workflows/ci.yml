@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main, codex/sweetfun-bots]
+    branches: [main, codex/sweetfun-bots, codex/customer-onboarding]
 
 jobs:
   backend:
@@ -102,6 +102,10 @@ jobs:
         run: node --experimental-strip-types --loader ./tests/helpers/next-route-loader.mjs --test tests/os-payments.test.mjs tests/os-payment-sheet.test.mjs tests/os-payment-routes.test.mjs tests/finance.test.mjs tests/finance-receivables.test.mjs tests/finance-summary.test.mjs tests/finance-summary-route.test.mjs tests/finance-audit-route.test.mjs tests/sheet-monitor.test.mjs tests/private-guest-names.test.mjs tests/guest-remarks.test.mjs
       - name: Calendar change intake and observation regressions
         run: node --experimental-strip-types --loader ./tests/helpers/next-route-loader.mjs --test tests/calendar-changes.test.mjs tests/live-availability.test.mjs tests/owlnest-refresh.test.mjs
+      - name: Native website booking, LINE, notification delivery and pricing regressions
+        run: node --experimental-strip-types --loader ./tests/helpers/next-route-loader.mjs --test tests/customer-holds.test.mjs tests/website-booking.test.mjs tests/website-booking-http.test.mjs tests/website-line.test.mjs tests/website-login.test.mjs tests/website-notifications.test.mjs tests/website-notifications-route.test.mjs tests/website-email-delivery.test.mjs tests/website-email-cron.test.mjs tests/pricing-decisions.test.mjs tests/pricing-int04.test.mjs
+      - name: Owner connection and hold controls DOM regressions
+        run: node --loader ./tests/helpers/customer-component-loader.mjs --test tests/website-owner-ui.test.mjs tests/customer-holds-ui.test.mjs tests/pricing-decision-ui.test.mjs
       - name: Order health and analytics regressions
         run: node --experimental-strip-types --loader ./tests/helpers/next-route-loader.mjs --test tests/order-health/engine.test.ts
       - name: Calendar conflict recovery and import wizard DOM regressions
