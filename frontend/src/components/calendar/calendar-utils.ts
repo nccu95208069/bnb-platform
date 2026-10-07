@@ -315,6 +315,8 @@ export function coalesceContiguousBookings(bookings: CalendarBooking[]) {
         ...current,
         external_order_no: current.external_order_no || booking.external_order_no,
         owlnest_order_no: current.owlnest_order_no || booking.owlnest_order_no,
+        source_notes: [...(current.source_notes ?? []), ...(booking.source_notes ?? [])],
+        source_notes_unconfirmed: current.source_notes_unconfirmed || booking.source_notes_unconfirmed || current.source_notes === undefined || booking.source_notes === undefined,
         payment_status: current.payment_status === booking.payment_status ? current.payment_status : "unknown",
         guest_name_sources: [...new Set([...(current.guest_name_sources ?? (current.guest_name_kind === "real" ? [current.guest_name] : [])), ...(booking.guest_name_sources ?? (booking.guest_name_kind === "real" ? [booking.guest_name] : []))])],
         guest_remarks: mergeGuestRemarks([...(current.guest_remarks ?? (current.guest_name_kind === "real" ? parseGuestRemarks(current.guest_name) : [])), ...(booking.guest_remarks ?? (booking.guest_name_kind === "real" ? parseGuestRemarks(booking.guest_name) : []))]),

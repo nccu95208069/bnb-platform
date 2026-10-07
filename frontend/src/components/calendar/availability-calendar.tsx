@@ -1,4 +1,6 @@
 "use client";
+import { PricingDecisionDetails } from "./pricing-decision-details";
+import { useCalendarRevision } from "./use-calendar-revision";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -122,6 +124,8 @@ const uiLocale = useIntlLocale();
     [error, setError] = useState("");
   const [loading, setLoading] = useState(true),
     [refresh, setRefresh] = useState(0);
+  const changed = useCallback(() => setRefresh(v => v + 1), []);
+  useCalendarRevision(property, !PAYMENT_SANDBOX && !!membership, changed);
   const selected = useCalendarPreferences((s) => s.availabilitySelection);
   const setSelected = useCalendarPreferences((s) => s.setAvailabilitySelection);
   const [quote, setQuote] = useState<PriceQuote | null>(null),
@@ -425,7 +429,7 @@ const uiLocale = useIntlLocale();
         </div>
       </div>
       {priceRefreshMessage && <p role={priceRefreshError ? "alert" : "status"} className={cn("text-xs",priceRefreshError ? "text-destructive" : "text-muted-foreground")}>{priceRefreshMessage}<button type="button" aria-label={uiText("關閉")} className="ml-2 px-2" onClick={()=>setPriceRefreshMessage("")}>×</button></p>}
-      {!PAYMENT_SANDBOX && <p className="text-[11px] text-muted-foreground" aria-label={uiText("房價上次更新時間")}>{uiText("房價更新")}{data?.cells[0]?.pricing?.observed_at ? new Intl.DateTimeFormat("zh-TW", { timeZone:"Asia/Taipei", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" }).format(new Date(data.cells[0].pricing.observed_at)) : uiText("讀取中")}</p>}
+      {!PAYMENT_SANDBOX && <p className="text-[11px] text-muted-foreground" aria-label={uiText("房價上次更新時間")}>{uiText("房價更新")}{data?.pricing_observed_at ? new Intl.DateTimeFormat("zh-TW", { timeZone:"Asia/Taipei", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" }).format(new Date(data.pricing_observed_at)) : uiText("讀取中")}</p>}
       <div className="flex items-center gap-3 text-xs" aria-label={uiText("未售房況摘要")}>
         <span>{uiText("未售")}<strong className="tabular-nums">{loading ? "—" : data?.counts.available ?? 0}</strong></span>
         <span className="text-muted-foreground">{uiText("暫留／封房")}<strong className="tabular-nums">{loading ? "—" : (data?.counts.held ?? 0) + (data?.counts.blocked ?? 0) + (data?.counts.maintenance ?? 0)}</strong></span>
@@ -657,10 +661,11 @@ const uiLocale = useIntlLocale();
               </Badge>
               <p className="text-sm">{selectedCell.reason}</p>
               {selectedCell.state === "available" && <div className={cn("rounded-lg border p-3 text-sm", roomNightStyle(selectedCell))}>
-                <p className="font-semibold">{property === "offland" ? selectedCell.offland_reference?.probability != null ? `整棟售出機率（試算中）${Math.floor(selectedCell.offland_reference.probability*1000)/10}%` : "試算機率未提供" : probabilityText(selectedCell.sales_probability)}</p>
-                {property === "offland" && <p className="mt-1 text-xs">四人／六人共用同一棟機率。歷史資料仍在驗證，並非此價格的成交保證。{selectedCell.offland_reference ? `預測日期：${selectedCell.offland_reference.asof}。` : "資料不足、連假或過期時留白。"}不會自動修改 OwlNest。</p>}
+                <p className="font-semibold">{property === "offland" && !selectedCell.pricing_decision ? selectedCell.offland_reference?.probability != null ? `整棟售出機率（試算中）${Math.floor(selectedCell.offland_reference.probability*1000)/10}%` : "試算機率未提供" : probabilityText(selectedCell.sales_probability)}</p>
+                {property === "offland" && <p className="mt-1 text-xs">四人／六人共用同一棟機率。歷史資料仍在驗證，並非此價格的成交保證。{!selectedCell.pricing_decision && (selectedCell.offland_reference ? `預測日期：${selectedCell.offland_reference.asof}。` : "資料不足、連假或過期時留白。")}此畫面不會修改 OwlNest。</p>}
                 {selectedCell.sales_probability && <p className="mt-1 text-xs">{uiText("模型預測日期：")}{selectedCell.sales_probability.asof}{uiText("。這是定價模型的售出機率，非成交保證，也不表示調價已執行。")}</p>}
               </div>}
+              {!hidePrice && selectedCell.pricing_decision && <PricingDecisionDetails decision={selectedCell.pricing_decision} />}
               {!hidePrice && selectedCell.pricing && (
                 <>
                   <div className="grid grid-cols-3 gap-2 rounded-xl bg-muted/40 p-3">
@@ -683,7 +688,7 @@ const uiLocale = useIntlLocale();
                     ))}
                   </div>
                   <p className="flex items-start gap-2 text-xs text-muted-foreground">
-                    {property === "offland" && <span>參考建議價：{selectedCell.offland_reference?.suggested_price != null ? priceText(selectedCell.offland_reference.suggested_price) : "—"}（未發布）。僅四／六人官網方案；依底價與漲跌限制試算，不依機率調價。原價改變後停止顯示舊建議。</span>}
+                    {property === "offland" && !selectedCell.pricing_decision && <span>參考建議價：{selectedCell.offland_reference?.suggested_price != null ? priceText(selectedCell.offland_reference.suggested_price) : "—"}（未發布）。僅四／六人官網方案；依底價與漲跌限制試算，不依機率調價。原價改變後停止顯示舊建議。</span>}
                     <CircleHelp className="size-4 shrink-0" />
                     {selectedCell.pricing.limits}{uiText("。價格讀取：")}{selectedCell.pricing.observed_at ? new Date(selectedCell.pricing.observed_at).toLocaleString(uiLocale, {timeZone:"Asia/Taipei"}) : uiText("尚無資料")}{uiText("。價格版本")}{selectedCell.pricing.price_version}
                     {uiText("。客人前台實付尚未核對，通路促銷可能使實付與系統價不同。")}</p>
@@ -816,6 +821,14 @@ const uiLocale = useIntlLocale();
                   uiLocale,
                 )}
               </p>
+              {!PAYMENT_SANDBOX && <p className="text-xs text-muted-foreground" aria-label={uiText("通路庫存上次觀測")}>
+                {uiText("OwlNest 上次觀測：")}{selectedCell.channel_inventory ? <>
+                  {selectedCell.channel_inventory.is_lock ? uiText("封房") : selectedCell.channel_inventory.count === 0 ? uiText("庫存為零") : selectedCell.channel_inventory.count === null ? uiText("庫存未知") : uiText("有庫存")}
+                  {" · "}{new Date(selectedCell.channel_inventory.observed_at).toLocaleString(uiLocale, {timeZone:"Asia/Taipei"})}
+                  {!selectedCell.channel_inventory.checked_today && <> · {uiText("尚未於今日確認")}</>}
+                </> : uiText("尚無資料")}
+                {uiText("。接單前仍須確認可售狀態。")}
+              </p>}
               {actionError && !preview && (
                 <p role="alert" className="text-sm text-destructive">
                   {actionError}

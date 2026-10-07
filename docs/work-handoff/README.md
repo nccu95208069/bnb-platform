@@ -1,5 +1,23 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-05 legacy Sweetfun payment update: [one receipt entry point and verified main-Sheet writeback](OS_PAYMENT_MAIN_SHEET_2026-10-05.md) implements status-only paid confirmation, received amount/method/account, and resumable synchronization. The explicit owner writeback request supersedes the prior OS-only boundary for the Sweetfun H payment cell and its note. It preserves the already-live booking momentum source `6179335`; implementation and local verification are complete; GitHub push / production publication require the explicit authorization requested in this chat after automatic approval review rejected the push.
+
+2026-10-05 order finder: [owner-authorized production release and verification](ORDER_FINDER_2026-10-05.md#owner-authorized-production-release) adds protected order search, monthly occupancy, complete details, receipt accounts, editable notes/shared tags, persistent source issues and workbook v3. The primary site now serves `9dc8978`, preserving already-live analytics; 194 local checks and the cloud build pass. Basic authenticated browser reads pass; the full owner walkthrough remains pending. PR #26 stays draft and unmerged.
+
+2026-10-04 owner pilot release: [primary-domain promotion, persistent settings, delivered email/save/undo and two automatic cron deliveries](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md#primary-domain-owner-pilot). Ready for the authorized owner to import their own data at `https://sweetfun-os.vercel.app/join`. Google remains in Testing; real-phone and broader multi-account acceptance remain pending. This supersedes the earlier no-promotion/sync-off state below.
+
+2026-10-04 Google acceptance preparation: [verified missing settings, fixed callback/email origin, offline checker and live test procedure](CALENDAR_GOOGLE_SETUP_2026-10-04.md). The setup-stage missing-settings report is historical; the live report records subsequent configuration and the later owner-authorized production pilot.
+
+2026-10-04 live calendar acceptance: [real Google consent/refresh/reconnect, email-link return, ICS/ZIP, persisted synthetic data and worker verification](CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md). The later pilot section records primary promotion and actual scheduled delivery; physical-device acceptance remains open.
+
+2026-10-04 latest calendar flow: [preview before signup, Google identity and email-link login, repeated review and verification](CALENDAR_PREVIEW_FIRST_2026-10-04.md). Calendar import no longer requires setting a password or completing the contact form first.
+
+2026-10-04 calendar implementation: [three onboarding options, backend, self-review and activation boundaries](CALENDAR_ONBOARDING_2026-10-04.md). Includes ICS/ZIP import for Google/iOS/Android, Google read-only OAuth, durable polling, freshness guards, source conflicts, unknown financials and standard-workbook v2 extensions. Google credentials and desktop OAuth acceptance are now verified in the linked live report; actual mobile acceptance remains pending. The [original plan](GOOGLE_CALENDAR_FAST_ONBOARD_2026-10-03.md) is retained as design history; [Next Work](NEXT_WORK.md#calendar-onboarding-implementation-and-acceptance) distinguishes implemented code from live acceptance.
+
+2026-10-03 latest Sheet decision: [standard workbook and conversion rules](STANDARD_SHEET_2026-10-03.md). Source creator/user identity matching is removed. Grouped stays, nightly rows and explicit calendar-grid groups now produce one order ledger, with separate room-night details and source-paid summaries. A native blank template and synthetic example have been created and verified through the production Google gateway; public rollout remains separate.
+
+2026-10-03 customer update: [multiple properties, collaborators, unsold lists, pricing and order receipts](CUSTOMER_OPERATIONS_2026-10-03.md). Includes the format-assistance decision, coverage safeguards, role matrix, 54 service/API/auth and 15 DOM checks, and remaining acceptance boundaries. The protected customer candidate is separate from the primary production site.
+
 2026-09-14 production update: [OwlNest price refresh and calendar position repair](CALENDAR_PRICE_REFRESH_2026-09-14.md), deployed with verified live price snapshot refresh; signed-in owner acceptance remains.
 
 2026-09-06 follow-up: [Sheet monitor implementation and activation status](SHEET_MONITOR.md). Sweetfun and OFFLAND now have verified one-minute production schedules; the public calendar remains anonymous and read-only.
@@ -97,3 +115,10 @@ payment calendar. No live T-39 reads/writes or prediction claims are involved.
 
 - [詳細架構、階段與驗收](FINANCE_ARCHITECTURE_M1.md)
 - [Code review 與驗證](M1_VERIFICATION.md)
+
+
+## 2026-10-06 — Main Sheet notes in sold-order details
+
+The owner requested the complete main-Sheet notes in the legacy sold-calendar detail and explicitly authorized publication. See [implementation and verification](BOOKING_SOURCE_NOTES_2026-10-06.md).
+
+- [Calendar change intake and daily observation](CALENDAR_CHANGE_ENDPOINT_2026-10-07.md): receiver and daily observation live 2026-10-07 after owner approval; booking-assistant hooks deferred.

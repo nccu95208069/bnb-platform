@@ -1496,6 +1496,21 @@ export const messages:Record<string,{en:string;th:string;vi:string}>= {
     "th": "หมายเหตุสำคัญ",
     "vi": "Ghi chú quan trọng"
   },
+  "主表備註": {
+    "en": "Main sheet notes",
+    "th": "หมายเหตุจากชีตหลัก",
+    "vi": "Ghi chú từ bảng chính"
+  },
+  "主表未填寫備註": {
+    "en": "No notes in the main sheet",
+    "th": "ไม่มีหมายเหตุในชีตหลัก",
+    "vi": "Bảng chính chưa có ghi chú"
+  },
+  "部分備註待主表同步確認，請稍後重新整理。": {
+    "en": "Some notes await main sheet sync confirmation. Please refresh shortly.",
+    "th": "หมายเหตุบางส่วนรอการยืนยันการซิงค์จากชีตหลัก โปรดรีเฟรชอีกครั้งในภายหลัง",
+    "vi": "Một số ghi chú đang chờ xác nhận đồng bộ bảng chính. Vui lòng tải lại sau."
+  },
   "姓名欄原文（需求不代表已安排完成）": {
     "en": "Original name field (requests are not confirmed arrangements)",
     "th": "ช่องชื่อต้นฉบับ (คำขอไม่ได้หมายความว่าจัดเตรียมแล้ว)",

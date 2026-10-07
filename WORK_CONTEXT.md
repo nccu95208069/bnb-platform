@@ -7,6 +7,18 @@
 
 This document is the top-level context for ongoing work. It supersedes older top-level positioning when there is a conflict, while preserving the earlier LINE Reply Copilot work as a separate subsystem.
 
+2026-10-06 sold-calendar detail update: [complete main-Sheet notes](docs/work-handoff/BOOKING_SOURCE_NOTES_2026-10-06.md) is live at `https://sweetfun-os.vercel.app/calendar` after explicit owner authorization. Full notes retain room/date provenance across nights and rooms; anonymous and no-price responses remain redacted. All 54 relevant tests, TypeScript, lint and production builds passed; authenticated desktop/mobile-width acceptance verified source text.
+
+2026-10-05 legacy Sweetfun payment update: [one receipt entry point and verified main-Sheet writeback](docs/work-handoff/OS_PAYMENT_MAIN_SHEET_2026-10-05.md) implements status-only paid confirmation, received amount/method/account, and resumable synchronization. The explicit owner writeback request supersedes the prior OS-only boundary for the Sweetfun H payment cell and its note. It preserves the already-live booking momentum source `6179335`; implementation and local verification are complete; GitHub push / production publication require the explicit authorization requested in this chat after automatic approval review rejected the push.
+
+October 5 order-finder release: [order search, month navigation, complete detail, receipts, notes and tags](docs/work-handoff/ORDER_FINDER_2026-10-05.md#owner-authorized-production-release) is live at `https://sweetfun-os.vercel.app/start` after the owner's explicit request to publish for their walkthrough. Runtime source `9dc8978` preserves the already-live analytics source `9eea2f4`; production deployment `dpl_GF1nYqzyYmxe8xUavTMs7zJEBQyj` is READY. It adds distinct nullable source booking dates/platforms, property-scoped tags and receipt accounts, durable pending-source records and standard workbook v3. All 194 local checks and the cloud production build pass. Browser access recovered: authenticated calendar/search, empty-result/clear behavior and a narrow layout passed basic read-only checks. Full order/payment writes, exact 360px and physical-device acceptance remain open. [ORDER-FINDER-P1](docs/work-handoff/NEXT_WORK.md#p1--訂單與房晚查詢前台2026-10-04-owner-request) retains the accepted design and remaining acceptance items. PR #26 remains draft and unmerged.
+
+October 4 owner pilot release: [production promotion and post-release acceptance](docs/work-handoff/CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md#primary-domain-owner-pilot) is live at `https://sweetfun-os.vercel.app/join`. The owner approved durable customer storage, production Google configuration, five-minute opt-in read-only synchronization and one limited synthetic acceptance flow. Two actual platform cron deliveries and primary-domain email/save/undo passed. Google remains in Testing for the authorized owner account; real-phone and broader multi-account acceptance remain open. PR #26 remains draft; deployment does not imply a merge. This later owner authorization supersedes the earlier protected-candidate-only boundary.
+
+October 3 customer-workspace update: [customer operations and verification boundaries](docs/work-handoff/CUSTOMER_OPERATIONS_2026-10-03.md) extends the isolated customer track with multiple properties, invitations, unsold lists, pricing and order-level receipts. The implementation remains in draft PR #26. Primary-domain owner testing is now authorized and deployed as described above; live collaborator invitations and broader rollout acceptance remain pending. Older implementation-status sections below are historical baselines, not claims about this new customer slice.
+
+October 4 calendar implementation: Google Calendar, iPhone/iPad Calendar and Android Calendar now have onboarding paths with a shared ICS/ZIP importer and a read-only Google connector. The backend includes source identity, room/date conversion, blocks, atomic import/readback/retry, guarded undo and durable one-way refresh. See [implementation, review and activation boundaries](docs/work-handoff/CALENDAR_ONBOARDING_2026-10-04.md). OAuth configuration and desktop provider acceptance are verified, and the primary-domain owner pilot is now deployed. Physical-device acceptance remains pending; direct iCloud/device-local readers are not implemented. [The original plan](docs/work-handoff/GOOGLE_CALENDAR_FAST_ONBOARD_2026-10-03.md) is historical design context; the implementation note governs current capabilities.
+
 ## 1. Product definition
 
 Build an operations system for approximately 3–30-room guesthouses, small hotels, and a small number of properties. The owner should be able to use natural language and visual month/week/day interfaces to:
@@ -463,3 +475,18 @@ finance sources remain read-only. See
 `docs/work-handoff/CUSTOMER_WORKFLOWS_2026-09-28.md` for implementation, privacy,
 verification and current UI/host limits. Real guest mutations are not used as
 acceptance tests without a specific target/action authorization.
+
+## Customer standard workbook — 2026-10-03
+
+The latest owner instruction explicitly removes source Sheet owner/editor email matching: the file creator and application user may be different accounts. Source readability is sufficient for format mapping inside the authenticated, bound customer workspace. Account verification, membership and property scopes remain separate controls. This supersedes earlier onboarding identity-review wording.
+
+Customer sources remain unchanged. The importer now groups explicit order IDs from whole-order, stay-segment and nightly rows, or explicit per-cell calendar-grid groups. One order owns one total and source cumulative payment; room nights and actual dated receipts are separate records. The generic source-paid summary does not claim bank receipt or invent transaction dates.
+
+Six-tab standard Google workbooks are implemented as verified projections of the existing atomic customer workspace store, not an unannounced migration of the legacy operational SSOT. Owner-only binding/export, destination claims, write/readback, pending versions and retry recovery are implemented. The blank template and fully synthetic example have passed real Google gateway write/readback and repeat-sync checks. Automatic per-customer copying needs a shared-drive folder, which is not currently available; a prepared independent template copy can be bound now. See `docs/work-handoff/STANDARD_SHEET_2026-10-03.md` for the specification, native artifacts, exact validation and release boundary.
+
+
+## Calendar preview before signup — 2026-10-04
+
+The latest owner decision supersedes the account/password-first calendar entry. Google login and read-only calendar consent lead to preview and explicit save; ICS/ZIP can be previewed anonymously, with same-browser email-link login required only at save. Passwordless customer credentials, authenticated workspace ownership, exact retry and isolated one-hour previews are implemented. Existing Sheet/consultation onboarding and legacy accounts remain supported. See `docs/work-handoff/CALENDAR_PREVIEW_FIRST_2026-10-04.md` for review/repair cycles, 149 regression checks and the pending real-Google/mobile acceptance boundary.
+
+- 2026-10-07: [Calendar change intake](docs/work-handoff/CALENDAR_CHANGE_ENDPOINT_2026-10-07.md) is live: scoped producer callbacks, durable retries/readback, separate Sheet occupancy and channel observations, daily 08–09 Taipei one-attempt observation. LINE/Gmail producer hooks remain deferred by owner request.

@@ -23,3 +23,16 @@ test('calendar receipt audit records server identity, time and source version wi
  assert.equal(e.action,'calendar_payment_recorded');assert.equal(e.actor_email,'admin@example.test');assert.equal(e.at,now);assert.equal(e.after.amount,500);assert.equal(e.after.order_id,check.order_id);assert.equal(e.after.request_hash,undefined);assert.equal(e.after.audit,undefined);assert.equal(e.source_version,check.source_version);assert.equal(e.version_before,0);assert.equal(e.version_after,1);
  assert.deepEqual(prepareReceipt(input,{...check,ledger:{version:1,receipts:[r]}},actor,now).audit,e);
 });
+
+test('OTA receipt and finance payout share one room-payment total while direct receipts still enforce overpayment',()=>{
+ const withFinance={...check,finance_received:1500};
+ const ota=prepareReceipt({...input,payment_method:'ota',amount:2000},withFinance,actor,now);
+ assert.equal(paymentStatus({...withFinance,ledger:{version:1,receipts:[ota]}}),'paid');
+ assert.throws(()=>prepareReceipt({...input,amount:501},withFinance,actor,now),/AMOUNT_EXCEEDS_TOTAL/);
+ assert.throws(()=>prepareReceipt({...input,payment_method:'ota',amount:2001},withFinance,actor,now),/AMOUNT_EXCEEDS_TOTAL/);
+});
+test('invalid calendar dates and bank receipts without a real account are rejected',()=>{
+ assert.throws(()=>prepareReceipt({...input,received_at:'2026-02-30T12:00:00Z'},check,actor,now),/INVALID_INPUT/);
+ assert.throws(()=>prepareReceipt({...input,payment_method:'bank_transfer'},check,actor,now),/PAYMENT_ACCOUNT_REQUIRED/);
+ assert.throws(()=>prepareReceipt({...input,payment_method:'credit_card'},check,actor,now),/PAYMENT_ACCOUNT_REQUIRED/);
+});

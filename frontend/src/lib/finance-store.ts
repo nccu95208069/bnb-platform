@@ -83,7 +83,7 @@ export async function calendarIncome(property:string,year:number|null):Promise<F
  do {const result=await redisCommand(['SCAN',cursor,'MATCH',`sweetfun-os:payments:v1:${property}:*`,'COUNT',200]) as [string,string[]];cursor=String(result[0]);for(const key of result[1])if(new RegExp(`^sweetfun-os:payments:v1:${property}:[a-f0-9]{64}$`).test(key))keys.add(key);if(++pages>100)throw new Error('UNAVAILABLE');}while(cursor!=='0');
  const entries:FinanceEntry[]=[];const seen=new Set<string>();const list=[...keys];
  for(let offset=0;offset<list.length;offset+=100){const raw=await redisCommand(['MGET',...list.slice(offset,offset+100)]) as (string|null)[];
-  for(const [valueIndex,value] of raw.entries()){if(!value)continue;const ledger=JSON.parse(value) as Ledger;if(!Array.isArray(ledger.receipts))throw new Error('UNAVAILABLE');for(const r of ledger.receipts){if(seen.has(r.id))continue;seen.add(r.id);const date=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(r.received_at));if(year!==null&&!date.startsWith(String(year)+'-'))continue;entries.push({audit_event:r.audit??{schema_version:1,id:r.request_id,request_id:r.request_id,property_id:property,action:'calendar_payment_recorded',actor_id:r.actor,actor_name:r.actor_name,actor_email:null,actor_role:null,at:r.created_at,source:'calendar',result:'succeeded',target_type:'receipt',target_id:r.id,before:null,after:auditSnapshot(r),changed_fields:[],version_before:null,version_after:null,source_version:r.source_version,completeness:'legacy_partial'},id:`payment:${r.id}`,property_id:property,kind:'income',category:r.payment_type==='other'?'other':'lodging',amount_cents:Math.round(r.amount*100),date,description:r.note||'日曆登記收款',method:r.payment_method,stage:r.payment_type,source:'calendar',actor:r.actor_name,created_at:r.created_at,status:'active',order_key:list[offset+valueIndex]});}}
+  for(const [valueIndex,value] of raw.entries()){if(!value)continue;const ledger=JSON.parse(value) as Ledger;if(!Array.isArray(ledger.receipts))throw new Error('UNAVAILABLE');for(const r of ledger.receipts){if(r.status_only||seen.has(r.id))continue;seen.add(r.id);const date=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date(r.received_at));if(year!==null&&!date.startsWith(String(year)+'-'))continue;entries.push({audit_event:r.audit??{schema_version:1,id:r.request_id,request_id:r.request_id,property_id:property,action:'calendar_payment_recorded',actor_id:r.actor,actor_name:r.actor_name,actor_email:null,actor_role:null,at:r.created_at,source:'calendar',result:'succeeded',target_type:'receipt',target_id:r.id,before:null,after:auditSnapshot(r),changed_fields:[],version_before:null,version_after:null,source_version:r.source_version,completeness:'legacy_partial'},id:`payment:${r.id}`,property_id:property,kind:'income',category:r.payment_type==='other'?'other':'lodging',amount_cents:Math.round(r.amount*100),date,description:r.note||'日曆登記收款',method:r.payment_method,payment_account:r.payment_account,stage:r.payment_type,source:'calendar',actor:r.actor_name,created_at:r.created_at,status:'active',order_key:list[offset+valueIndex]});}}
  }
  return entries;
 }
@@ -130,4 +130,13 @@ export function resolvePaymentAccount(id:unknown,kind:unknown,method:unknown,pro
  const a=accounts.find(a=>a.id===id&&a.property_id===property&&a.method===method);
  if(!a)throw new Error('INVALID_INPUT');
  return {id:a.id,name:a.name,method:a.method,last_digits:a.last_digits};
+}
+
+// Minimal property-scoped catalog for staff who can record receipts but cannot
+// read the full finance report. Cross-year accounts remain selectable.
+export async function paymentAccountsForProperty(property:string):Promise<PaymentAccount[]>{
+ const years=new Set<number>();let cursor='0',pages=0;
+ do{const result=await redisCommand(['SCAN',cursor,'MATCH',`sweetfun-os:finance:v1:${property}:*`,'COUNT',200]) as [string,string[]];cursor=String(result[0]);for(const key of result[1]){const suffix=key.split(':').at(-1)!;if(/^20\d{2}$/.test(suffix))years.add(Number(suffix));}if(++pages>100)throw new Error('UNAVAILABLE');}while(cursor!=='0');
+ const accounts=(await Promise.all([...years].map(y=>readFinance(property,y)))).flatMap(s=>s.state.payment_accounts??[]).filter(a=>a.property_id===property);
+ return [...new Map(accounts.map(a=>[a.id,a])).values()];
 }

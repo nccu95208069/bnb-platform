@@ -1,12 +1,13 @@
+import { inventoryKey } from '@/lib/calendar-changes/store';
+import { readChannelInventory } from '@/lib/calendar-changes/merge';
 import { pricingProperty } from '@/lib/property-pricing';
-import { gunzipSync } from 'node:zlib';
 import { NextRequest, NextResponse } from 'next/server';
 import { principalFor } from '@/lib/workspace-auth/session';
 import { allowedProperty } from '@/lib/workspace-auth/projection';
 import { redisCommand } from '@/lib/workspace-auth/store';
 import { readBookingSnapshot } from '@/lib/booking-sources/snapshot';
 import { sourceDefinition, activeSources } from '@/lib/booking-sources/config';
-import { validatePricingSnapshot } from '@/lib/pricing-snapshot';
+import { readPricingSnapshot } from '@/lib/pricing-snapshot';
 import { liveAvailability } from '@/lib/live-availability';
 import type { Channel } from '@/lib/availability';
 import { OFFLAND_REFERENCE_KEY, validateOfflandReference, attachOfflandReference } from '@/lib/offland-reference';
@@ -26,10 +27,10 @@ export async function GET(request: NextRequest) {
     const rooms=(params.get('rooms') ?? '').split(',').filter(Boolean);
     const validDay=(s:string)=>/^\d{4}-\d{2}-\d{2}$/.test(s)&&Number.isFinite(Date.parse(s))&&new Date(s).toISOString().slice(0,10)===s;
     if (!validDay(start)||!validDay(end)||start>=end||(Date.parse(end)-Date.parse(start))/86400000>93||!config.channels.includes(channel)||rooms.some(r=>!config.roomNames.includes(r))||new Set(rooms).size!==rooms.length) return reply({detail:'請選擇有效日期、房間與通路（最多93天）。'},400);
-    const [bookings,raw]=await Promise.all([readBookingSnapshot(sourceDefinition(property)),redisCommand(['GET',config.key])]);
+    const [bookings,raw,inventoryRaw]=await Promise.all([readBookingSnapshot(sourceDefinition(property)),redisCommand(['GET',config.key]),redisCommand(['GET',inventoryKey(property)])]);
     if (!bookings) return reply({detail:'訂房來源暫時無法讀取。'},503);
-    const prices=raw ? validatePricingSnapshot(JSON.parse(gunzipSync(Buffer.from(String(raw).slice(4),"base64"),{maxOutputLength:4*1024*1024}).toString("utf8")),property) : null;
-    const result = liveAvailability({start,end,channel,rooms,demo_cycle:1},bookings,prices,new Date(),property);
+    const prices=raw ? readPricingSnapshot(String(raw),property) : null;
+    const result = liveAvailability({start,end,channel,rooms,demo_cycle:1},bookings,prices,new Date(),property,readChannelInventory(inventoryRaw as string | null,property));
     result.properties = activeSources().filter(s => allowedProperty(principal,s.property.id)).map(s => ({id:s.property.id,name:s.property.name,short_name:s.property.name,location:s.property.id === "sweetfun" ? "瑞芳" : "宜蘭五結",room_count:s.property.rooms.length,color:s.property.id === "sweetfun" ? "emerald" : "violet"}));
     if(property==='offland') {
       // Optional research data never makes authoritative current prices fail.

@@ -1,15 +1,17 @@
 import { pricingProperty } from './property-pricing.ts';
 import type { AvailabilityQuery, AvailabilityResult, InventoryState, RoomNight } from './availability';
 import type { BookingSourceSnapshot } from './booking-sources/sweetfun-sheet';
+import type { ChannelInventory } from './calendar-changes/merge.ts';
 import { type PricingSnapshot } from './pricing-snapshot';
 
 const nextDay = (d: string) => new Date(Date.parse(d + 'T00:00:00Z') + 86400000).toISOString().slice(0,10);
-export function liveAvailability(query: AvailabilityQuery, bookings: BookingSourceSnapshot, prices: PricingSnapshot | null, now = new Date(), property = "sweetfun"): AvailabilityResult {
+export function liveAvailability(query: AvailabilityQuery, bookings: BookingSourceSnapshot, prices: PricingSnapshot | null, now = new Date(), property = "sweetfun", inventory: ChannelInventory | null = null): AvailabilityResult {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year:'numeric',month:'2-digit',day:'2-digit' }).format(now);
   const config = pricingProperty(property);
   if (prices && prices.property_id !== property) throw Error("PRICING_PROPERTY_MISMATCH");
   const rooms = query.rooms.length ? query.rooms : config.roomNames;
   const priceMap = new Map(prices?.cells.map(c => [`${c.date}|${c.room}`, c]));
+  const stockMap = new Map(inventory?.cells.map(c => [`${c.date}|${c.room}`, c]));
   const counts: Record<InventoryState, number> = {available:0,sold:0,held:0,blocked:0,maintenance:0,unknown:0,conflict:0,past:0};
   const cells: RoomNight[] = [];
   const healthy = bookings.source.sync?.status === 'healthy';
@@ -17,25 +19,28 @@ export function liveAvailability(query: AvailabilityQuery, bookings: BookingSour
     const occupied = bookings.bookings.filter(b => b.room_number === room && b.reservation_status !== 'cancelled' && b.check_in <= date && b.check_out > date);
     const p = priceMap.get(`${date}|${room}`);
     const observed = p?.observed_at ?? prices?.observed_at ?? '';
-    const freshStock = !!p && now.getTime() - Date.parse(observed) < 15 * 60000;
-    let state: InventoryState = date < today ? 'past' : occupied.some(b => b.source_conflict) ? 'conflict' : occupied.length ? 'sold' : !healthy ? 'unknown' : 'available';
+    const overlay = stockMap.get(`${date}|${room}`);
+    const stockAt = p?.stock_observed_at ?? observed;
+    const stock = overlay && (!p?.stock || Date.parse(overlay.observed_at) >= Date.parse(stockAt)) ? overlay : p?.stock ? { ...p.stock, observed_at: stockAt } : null;
+    const checkedToday = !!stock && new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year:'numeric',month:'2-digit',day:'2-digit' }).format(new Date(stock.observed_at)) === today;
+    const state: InventoryState = date < today ? 'past' : occupied.some(b => b.source_conflict) ? 'conflict' : occupied.length ? 'sold' : !healthy ? 'unknown' : 'available';
     // Sheet absence is an unsold observation, not a promise that all channels are open.
-    if (state === 'available' && p?.stock?.is_lock) state = 'blocked';
-    else if (state === 'available' && p?.stock?.count === 0) state = 'unknown';
-    const reason = {available:'訂房表尚無訂單；接單前仍須確認通路庫存與住宿限制。',sold:'訂房表已有訂單',past:'已過去的房晚',conflict:'訂房表有衝突，需先確認',unknown:'訂房表同步或通路庫存待確認',blocked:'OwlNest 最近一次觀測為封房，重新開放前請再次確認',held:'暫留',maintenance:'維修'}[state];
+    const reason = {available:'訂房表尚無訂單；接單前仍須確認通路庫存與住宿限制。',sold:'訂房表已有訂單',past:'已過去的房晚',conflict:'訂房表有衝突，需先確認',unknown:'訂房表同步待確認',blocked:'OwlNest 最近一次觀測為封房，重新開放前請再次確認',held:'暫留',maintenance:'維修'}[state];
     const stalePrice = !!p && now.getTime() - Date.parse(observed) > 4 * 86400000;
-    cells.push({date,room,state,reason,sales_probability:p?.sales_probability ?? null,sellable_units:null,minimum_nights:0,max_guests:0,
+    cells.push({date,room,state,reason,pricing_decision:p?.pricing_decisions?.[query.channel] ?? null,channel_inventory: stock ? { count: stock.count, is_lock: stock.is_lock, observed_at: stock.observed_at, checked_today: checkedToday } : null,sales_probability:p?.sales_probability ?? null,sellable_units:null,minimum_nights:0,max_guests:0,
       inventory_observed_at:bookings.source.sync?.last_checked_at ?? bookings.source.observed_at,
       freshness:healthy ? 'sheet_unsold_not_booking_confirmation' : 'stale',
       pricing: { current_price:p?.channels[query.channel] ?? null, base_price:p?.rack_price ?? null,
         suggested_price:null,guest_pay_price:null,currency:'TWD',channel:query.channel,
         policy:!p ? 'price_missing' : stalePrice ? 'stale_snapshot' : 'observed_snapshot',eligible:false,exclusion:null,
         baseline_version:p?.baseline_version ?? '',price_version:prices?.version ?? '',plan_version:'',
-        limits:`${p?.daytype ?? ''}；${freshStock ? '含近期庫存觀測' : '庫存觀測需重新確認'}；未含客人促銷、加人與住宿限制`,
+        limits:`${p?.daytype ?? ''}；${stock ? checkedToday ? '含今日通路庫存觀測' : '通路庫存上次觀測早於今日' : '尚無通路庫存觀測'}；未含客人促銷、加人與住宿限制`,
         observed_at:observed,source:'bnb-pricing / OwlNest readback',suggestion_source:'none' },
     });
     counts[state]++;
   }
-  return {status:'read_only',mode:'live_sheet_pricing_snapshot',snapshot_id:`${bookings.source.snapshot_version}:${prices?.version ?? 'missing'}`,asof:today,query,property_id:property,rooms,cells,counts,price_hidden:false,continuous_windows:[],
-    source_notice: prices ? `訂房表持續同步。可按「更新 OwlNest 價格」讀取未來三個月價格；各日期的抓取時間見明細。此為 OwlNest 通路系統價，客人促銷後實付可能不同。` : '訂房表持續同步；價格來源尚未發布，請勿據此報價。'};
+  const priceTimes = prices?.cells.map(c => c.observed_at ?? prices.observed_at).filter(t => Number.isFinite(Date.parse(t))) ?? [];
+  const latestPrice = priceTimes.sort((a,b) => Date.parse(b)-Date.parse(a))[0] ?? null;
+  return {pricing_observed_at:latestPrice,status:'read_only',mode:'live_sheet_pricing_snapshot',snapshot_id:`${bookings.source.snapshot_version}:${prices?.version ?? 'missing'}:${inventory?.version ?? 'missing'}`,asof:today,query,property_id:property,rooms,cells,counts,price_hidden:false,continuous_windows:[],
+    source_notice: prices ? `已售／未售以訂房表為準；通路庫存另列上次觀測。可按「更新 OwlNest 價格」讀取未來三個月價格；各日期的抓取時間見明細。此為 OwlNest 通路系統價，客人促銷後實付可能不同。` : '訂房表持續同步；價格來源尚未發布，請勿據此報價。'};
 }

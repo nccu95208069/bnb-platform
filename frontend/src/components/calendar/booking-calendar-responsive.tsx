@@ -1,4 +1,5 @@
 "use client";
+import { useCalendarRevision } from "./use-calendar-revision";
 import {GuestNotificationProvider} from "./guest-notification";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
@@ -390,7 +391,9 @@ const uiLocale = useIntlLocale();
     };
   }, [data?.source?.automatic_sync]);
 
-  const unavailableSelectedSource = data?.source_errors?.some(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)));
+
+  const sourceChanged = useCallback(() => setReloadKey(value => value + 1), []);
+  useCalendarRevision((data?.properties ?? []).map(p => p.id).filter(id => id === 'sweetfun' || id === 'offland').sort().join(','), !PAYMENT_SANDBOX && !!data?.source?.automatic_sync, sourceChanged);
 
   const rawEditedBookings = useMemo(
     () =>
@@ -409,6 +412,8 @@ const uiLocale = useIntlLocale();
     if (!membership || membership.allProperties) return null;
     return new Set(membership.propertyIds);
   }, [membership]);
+  const unavailableSelectedSource = data?.source_errors?.some(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)));
+
 
   const selectedProperties = useMemo(
     () =>
