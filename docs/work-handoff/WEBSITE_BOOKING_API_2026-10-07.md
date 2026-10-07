@@ -547,8 +547,8 @@ still user acceptance steps, not an unfinished deployment permission request.
 
 A follow-up audit found that native hold transitions already queued notifications,
 but formal-order `terms` and `cancel` operations did not. The owner also lacked a
-native website-order stay amendment. These are now implemented and locally
-verified; deployment evidence is recorded separately below when available.
+native website-order stay amendment. These are implemented, verified and deployed; final release evidence is recorded
+below. Human owner activation and real delivery acceptance remain outstanding.
 
 ### Owner amendment and formal cancellation
 
@@ -628,3 +628,67 @@ Owner verification, inventory/policy approval and LINE pairing remain human step
 Real provider receipt and inbox/phone arrival need the explicitly selected isolated
 first order and recipients. Legacy Sheet/OwlNest integration (`INT-03`), producer
 callbacks (`ING-01`) and automatic pricing (`INT-04`) are separate unfinished work.
+
+
+### Follow-up production release and cross-service readback
+
+The owner-authorized follow-up source `8b9a267be936ed02283421d33b519bcb96f44efa`
+built READY as deployment `dpl_8aQQW9jkZbsRFy2Ue74xqAtpLxxM`, candidate URL
+`https://sweetfun-4f7wsi4gq-sweetfuns-projects.vercel.app`. The pre-promotion guard
+confirmed the primary still pointed to the prior scheduler fix, with no
+intervening release. Promotion succeeded and fresh alias readback confirms
+`https://sweetfun-os.vercel.app` points to this exact READY deployment. The prior
+`dpl_6AyLMRwjvXF1dGdUcadHttZswXsL` remains the rollback target. Existing production
+settings and the eight scheduled routes were retained; no new credentials or
+owner-approved bindings were created by this follow-up.
+
+Seven candidate HTTP scope/refusal checks pass. Direct primary requests without
+Vercel bypass additionally verify anonymous `website-amend` returns 401 and the
+owner entry returns `authenticated: false`, both with private/no-store caching.
+The real platform `/api/cron/website-notifications` invocation returned **HTTP 200
+at 2026-10-07 21:47:16.326 Asia/Taipei** (13:47:16.326 UTC). The earlier 401 in
+candidate logs was the deliberately anonymous scheduler smoke check before
+promotion. No secret was printed or fetched for that readback.
+
+The Sites owner confirms both releases succeeded with their existing audiences:
+
+- Guest site: `https://stayform-guest.nccu95208069.chatgpt.site`, release v5,
+  source `df9706dbae4f6f799457f79cc72ad3070ecb4e49`, deployment
+  `appgdep_6ac64d3c3b6881918f780fcc4ca25f33`, environment revision 2.
+- Private builder: `https://stayform-ai-studio.nccu95208069.chatgpt.site/build/`,
+  source `c2225bbebda5fa65f2c2a6bba61534e9a1a2af37`, deployment
+  `appgdep_6ac64e17f8588191a6763281af63801e`, environment revision 1.
+
+The Sites owner reports 14 cross-layer isolated cases through the actual Sites
+worker, OS routes and Python worker/Email runner. They cover amendment, original
+accepted terms despite a subsequent policy edit, same-order refund/cancellation,
+current guest lookup and single mock-provider delivery. These are source-level
+integration tests with synthetic recipients, not proof of real provider delivery.
+The guest lookup displays current stay/price/status and notification outcome and
+retains its lookup key after cancellation; a new booking requires an explicit
+new-request action.
+
+An additional isolated execution using the LINE service's existing
+`NotificationWorker` and test fixture verified both `booking_changed` and
+`booking_cancelled`: claim, one mock send, ACK/readback and a subsequent empty
+tick. No LINE source modification or real send was needed. The LINE owner reports
+its independently authorized latest production revision
+`gmail-order-handler-t36-7a8b8fa` serves 100%, retains the native worker/settings,
+and restored all background ingress after its own release. That unrelated LINE
+feature release does not constitute WEB-04 delivery acceptance.
+
+GitHub CI run `37630686057` for this source did not start any of its three jobs:
+each annotation says the account is locked due to a billing issue. Local checks
+and the Vercel production build passed, but CI must not be recorded as passing.
+PR #31 remains a draft. Documentation-only follow-up commits do not replace the
+recorded live runtime source above.
+
+The exact owner entry remains the private builder's step 4, **發布設定** →
+**建立全新訂房日曆** (or **編輯新日曆設定**) → actual rooms/prices/availability and
+owner email → **建立並連接日曆** → **前往 OS 確認**. The human verifies their email,
+approves the actual inventory and policy, and sends the generated private LINE
+pairing command personally. Then **檢查連接結果**, save and publish/update the site.
+A selected isolated first order and approved Email/LINE recipients are still
+required for a real end-to-end delivery check. No live test order or notification
+was generated. WEB-04 stays in acceptance until those human steps and actual
+receipts are verified.

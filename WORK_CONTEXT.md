@@ -1,6 +1,6 @@
 # BnB SaaS / Sweetfun OS — Authoritative Work Context
 
-2026-10-07 WEB-04 follow-up: [same-order amendments, formal change/cancel notifications, current guest summaries and immutable accepted terms](docs/work-handoff/WEBSITE_BOOKING_API_2026-10-07.md#web-04-lifecycle-completion-follow-up-2026-10-07). Engineering and isolated verification are complete; this follow-up is not yet deployed. Owner approval/pairing and real recipient delivery still need human acceptance. Existing three-service deployment remains live.
+2026-10-07 WEB-04 follow-up: [same-order amendments, formal change/cancel notifications, current guest summaries and immutable accepted terms](docs/work-handoff/WEBSITE_BOOKING_API_2026-10-07.md#web-04-lifecycle-completion-follow-up-2026-10-07). Engineering, isolated verification and the OS/guest-site/private-builder releases are complete. OS runtime `8b9a267` is live on the primary domain and its actual notification cron returned 200 at 21:47:16 Asia/Taipei. Owner approval/pairing and real recipient delivery still need human acceptance; WEB-04 remains in acceptance.
 
 > **Status:** current project handoff baseline  
 > **Updated:** 2026-09-05  
