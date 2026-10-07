@@ -306,8 +306,8 @@ production deployment command was rejected by automatic approval review before
 execution. The stated reason was that a production-target deployment enabling
 booking/holds and transmitting environment configuration lacked explicit
 production activation/credential-transfer authorization; skipping domain
-assignment was not considered sufficient isolation. No deployment, environment
-update, credential handoff, real booking or provider send occurred.
+assignment was not considered sufficient isolation. At that first rejection, no deployment, environment
+update, credential handoff, real booking or provider send had occurred.
 
 The concrete activation scope is one native pilot website, preserving deployed
 pricing commit `bde9b4a`; separate editor and LINE credentials; exact site grants;
@@ -372,3 +372,41 @@ Post-approval expiry scheduler regression: all 12 Email delivery/cron cases pass
 The actual cron handler with SMTP/new sales disabled queues exactly one ownerLine
 expiry reminder, performs no external send, keeps the canonical held order and
 produces no duplicate reminder on retry. TypeScript and changed-file lint pass.
+
+### Candidate deployed; persistent activation rejected again (2026-10-07)
+
+The follow-up direct human approval permitted candidate deployment to proceed.
+Vercel built commit `2af1aaae268a2e1f1347bd6596ba9c536b0cde06` successfully:
+`dpl_2wEeqPrG1j9VS636RtY94GX2jekZ`, READY at
+`https://sweetfun-2bkr06nvy-sweetfuns-projects.vercel.app`.
+The candidate has deployment-scoped exact pilot registries, booking/hold and
+expiry switches enabled, and Email delivery disabled. The generated project
+alias was assigned; primary `sweetfun-os.vercel.app` was independently re-read
+and still points to `dpl_EuNR8x2nNFkZgDyVeb2eGwbZq1r9` (pricing source `bde9b4a`).
+
+Nine real protected HTTP checks pass: anonymous connection refusal, editor/LINE
+credential separation in both directions, other-site denial, browser-cookie
+refusal, forged discovery scope refusal, exact-site discovery with ownerLine-only
+channels and zero approved bindings, invalid pairing refusal and invalid owner
+command refusal. The unauthenticated owner route also returns
+`authenticated:false`, `Cache-Control: private, no-store` and no-referrer.
+These checks create no binding, booking, receipt or notification.
+
+The next command to add seven previously absent project-level production
+variables was rejected by automatic approval review **before execution**. It
+would persist the two scoped registries, scheduler site scope, booking/hold flags,
+and Email/expiry flags, including Email=true. The review stated that the current
+trusted user message did not explicitly authorize that precise permanent
+production configuration and real notification activation. No project-level env
+was added, no raw token was handed to Sites/LINE, and the primary alias was not
+promoted. Do not repeat that action through another tool or chat.
+
+A concrete approval question is pending in the OS chat covering those permanent
+settings, actual Email/LINE activation, separate credential handoff and primary
+domain promotion. Both partner chats were informed and agreed not to bypass this
+boundary. After approval, resume steps 3–7 above; re-check the primary version for
+intervening releases, preserve it, build with the final approved Email flag,
+repeat the relevant smoke checks, and verify the owner-controlled activation.
+Real provider acceptance and phone/inbox receipt remain unverified. The user
+must still approve their own email, physical rooms, price and policy; no agent
+may synthesize that approval. Temporary credentials remain local and private.
