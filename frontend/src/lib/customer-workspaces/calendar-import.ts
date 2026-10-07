@@ -1,3 +1,4 @@
+import { occupiesInventory } from "./hold-state.ts";
 import { randomUUID } from "node:crypto";
 import { calendarJobChanges } from "./calendar-jobs.ts";
 import { digest } from "./auth.ts";
@@ -309,7 +310,7 @@ export async function previewCalendar(
     if (!row.draft) continue;
     const active = [
       ...workspace.bookings.filter(
-        (b) => b.propertyId === propertyId && b.status === "confirmed",
+        (b) => b.propertyId === propertyId && occupiesInventory(b),
       ),
       ...(workspace.blocks ?? []).filter(
         (b) => b.propertyId === propertyId && b.status === "active",
@@ -584,7 +585,7 @@ export async function commitCalendar(
     const draft = row.draft!;
     if (
       [
-        ...bookings.filter((b) => b.status === "confirmed"),
+        ...bookings.filter(occupiesInventory),
         ...blocks.filter((b) => b.status === "active"),
       ].some(
         (b) =>

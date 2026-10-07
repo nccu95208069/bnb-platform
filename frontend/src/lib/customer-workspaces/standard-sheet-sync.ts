@@ -6,6 +6,7 @@ import type { Workspace } from "./types.ts";
 import {
   STANDARD_SHEET_MARKER,
   LEGACY_COLUMN_COUNTS,
+  V3_COLUMN_COUNTS,
   STANDARD_SHEET_TABS,
   STANDARD_SHEET_VERSION,
 } from "./standard-sheet-schema.ts";
@@ -50,7 +51,7 @@ function metadata(snapshot: StandardSnapshot) {
   if (
     new Set(entries.map(([key]) => key)).size !== entries.length ||
     meta.format !== STANDARD_SHEET_MARKER ||
-    ![1, 2, STANDARD_SHEET_VERSION].includes(Number(meta.schema_version))
+    ![1, 2, 3, STANDARD_SHEET_VERSION].includes(Number(meta.schema_version))
   )
     throw new Error("STANDARD_LAYOUT_CHANGED");
   if (
@@ -67,7 +68,7 @@ function metadata(snapshot: StandardSnapshot) {
     const count =
       Number(meta.schema_version) < 3
         ? (LEGACY_COLUMN_COUNTS[tab.key] ?? tab.columns.length)
-        : tab.columns.length;
+        : Number(meta.schema_version) === 3 ? (V3_COLUMN_COUNTS[tab.key] ?? tab.columns.length) : tab.columns.length;
     if (snapshot.tables[tab.key][0].length !== count)
       throw new Error("STANDARD_LAYOUT_CHANGED");
   }

@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-07 OS-owned hold/pricing implementation: [native hold lifecycle, pricing decisions, review and integration boundaries](OS_HOLDS_PRICING_2026-10-07.md). OS-10/11 code and isolated verification are complete; this is not a production release. Native holds default off and all website/LINE/legacy-Sheet/OwlNest/pricing-producer wiring remains INT-01–04.
+
 2026-10-05 legacy Sweetfun payment update: [one receipt entry point and verified main-Sheet writeback](OS_PAYMENT_MAIN_SHEET_2026-10-05.md) implements status-only paid confirmation, received amount/method/account, and resumable synchronization. The explicit owner writeback request supersedes the prior OS-only boundary for the Sweetfun H payment cell and its note. It preserves the already-live booking momentum source `6179335`; implementation and local verification are complete; GitHub push / production publication require the explicit authorization requested in this chat after automatic approval review rejected the push.
 
 2026-10-05 order finder: [owner-authorized production release and verification](ORDER_FINDER_2026-10-05.md#owner-authorized-production-release) adds protected order search, monthly occupancy, complete details, receipt accounts, editable notes/shared tags, persistent source issues and workbook v3. The primary site now serves `9dc8978`, preserving already-live analytics; 194 local checks and the cloud build pass. Basic authenticated browser reads pass; the full owner walkthrough remains pending. PR #26 stays draft and unmerged.

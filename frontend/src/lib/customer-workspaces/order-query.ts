@@ -1,4 +1,5 @@
 import { bookingsOverlap, staysOf } from "./domain.ts";
+import { holdPhase, occupiesInventory } from "./hold-state.ts";
 import type { OrderTag, Property, WorkspaceView } from "./types.ts";
 export type OrderQuery = {
   q?: string;
@@ -45,16 +46,18 @@ export function orderIssues(
   const issues: string[] = [];
   if (!booking.guestName) issues.push("姓名未填");
   if (
-    booking.status === "confirmed" &&
+    occupiesInventory(booking) &&
     data.bookings.some(
       (b) =>
         b.id !== booking.id &&
         b.propertyId === booking.propertyId &&
-        b.status === "confirmed" &&
+        occupiesInventory(b) &&
         bookingsOverlap(booking, b),
     )
   )
     issues.push("房晚重疊");
+  if (holdPhase(booking) === "awaiting_owner") issues.push("保留到期，等待延長或釋出");
+  if (booking.hold?.latePaymentReview) issues.push("釋出後收到款項，需人工處理");
   return issues;
 }
 function validDate(value: string) {
@@ -86,7 +89,7 @@ export function queryOrders(data: WorkspaceView, query: OrderQuery) {
     (query.q?.length ?? 0) > 200
   )
     throw new Error("INVALID_INPUT");
-  if (query.status && !["confirmed", "cancelled", "all"].includes(query.status))
+  if (query.status && !["confirmed", "held", "awaiting_owner", "cancelled", "all"].includes(query.status))
     throw new Error("INVALID_INPUT");
   const q = normalizedSearch(query.q || ""),
     from = query.from || "2000-01-01",
@@ -95,7 +98,7 @@ export function queryOrders(data: WorkspaceView, query: OrderQuery) {
     .filter((b) => {
       if (query.property && b.propertyId !== query.property) return false;
       if (query.room && !b.roomIds.includes(query.room)) return false;
-      if (query.status !== "all" && b.status !== (query.status || "confirmed"))
+      if (query.status === "awaiting_owner" ? holdPhase(b) !== "awaiting_owner" && !b.hold?.latePaymentReview : query.status !== "all" && b.status !== (query.status || "confirmed"))
         return false;
       if (
         query.platform === "__missing"

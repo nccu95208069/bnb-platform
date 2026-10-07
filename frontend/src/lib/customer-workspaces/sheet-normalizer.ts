@@ -344,6 +344,8 @@ export function normalizeSheet(
             : "此房況格尚未指定訂單編號，不能只按客人姓名合併",
         );
       const status = cell(row, c.status).toLowerCase();
+      if (status.includes("保留") || ["held", "hold", "awaiting_owner"].includes(status))
+        throw new Error("來源保留單需連同期限與占房權威核對，不能當作正式或取消訂單匯入；請使用保留單串接流程");
       if (["取消", "已取消", "cancelled", "canceled", "void"].includes(status))
         throw new Error("來源標示取消，不匯入有效房況");
       if (

@@ -1,4 +1,6 @@
 import { orderMutation } from "@/lib/customer-workspaces/order-mutations";
+import { holdOperation } from "@/lib/customer-workspaces/holds";
+import { createHold } from "@/lib/customer-workspaces/service";
 import {
   calendarWindow,
   queryOrders,
@@ -77,6 +79,18 @@ export async function POST(request: NextRequest, context: Context) {
     const args = [store, account.id, slug, input] as const;
     let result: unknown;
     switch (input.action) {
+      case "hold-create": {
+        const created = await createHold(...args);
+        result = { bookingId: created.booking.id, workspace: created.workspace };
+        break;
+      }
+      case "hold-extend":
+      case "hold-convert":
+      case "hold-release":
+      case "hold-late-payment":
+      case "hold-refund":
+        result = await holdOperation(...args);
+        break;
       case "order-details":
       case "order-tags":
       case "tag":

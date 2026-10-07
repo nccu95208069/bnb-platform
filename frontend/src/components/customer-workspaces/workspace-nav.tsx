@@ -23,6 +23,10 @@ export function WorkspaceNav({
   ];
   return (
     <nav aria-label="旅宿功能" className="my-5 flex flex-wrap gap-2">
+      {(data.features?.holds || data.bookings.some(b => b.hold)) && <>
+        <a className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm" href={`/w/${data.slug}/orders?${new URLSearchParams({ status: "held", ...(propertyId ? { property: propertyId } : {}) })}`}>保留單</a>
+        {["owner", "admin"].includes(data.role) && <a className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm" href={`/w/${data.slug}/orders?${new URLSearchParams({ status: "awaiting_owner", ...(propertyId ? { property: propertyId } : {}) })}`}>保留待處理</a>}
+      </>}
       {tabs.map(([path, title]) => (
         <a
           key={path}

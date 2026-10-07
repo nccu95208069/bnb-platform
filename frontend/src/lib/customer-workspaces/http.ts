@@ -53,6 +53,16 @@ export async function limitSession(request: NextRequest) {
 export function failure(error: unknown) {
   const code = error instanceof Error ? error.message : "";
   const errors: Record<string, [number, string]> = {
+    HOLD_ACTION_REQUIRED: [409, "請使用保留單操作，核對收款後再轉正式訂單。"],
+  HOLDS_UNAVAILABLE: [503, "保留單功能尚未開放。"],
+    HOLD_SCOPE_CONFIRMATION_REQUIRED: [400, "請確認本次只在 OS 占房，尚未同步外部通路或發送通知。"],
+    HOLD_TOTAL_REQUIRED: [400, "建立保留前請填寫完整房費總額。"],
+    HOLD_INTEGRATION_REQUIRED: [409, "此保留需要完成來源串接與核對後才能操作。"],
+    HOLD_STATE_CONFLICT: [409, "保留狀態已改變，請重新載入後核對。"],
+    INVALID_HOLD_DEADLINE: [400, "新期限必須晚於目前期限與現在，且不超過一年。"],
+    RECEIPT_CONFIRMATION_REQUIRED: [400, "請先核對並確認實際收到或退還的金額。"],
+    RECEIPT_ACCOUNT_REQUIRED: [400, "匯款或刷卡請選擇旅宿收款帳戶。"],
+    BOOKING_SOURCE_IMMUTABLE: [409, "官網訂單必須保留 Official Website 來源；其他操作管道不會改變來源。"],
     ...standardSheetErrors,
     CALENDAR_PREVIEW_REQUIRED: [
       409,
