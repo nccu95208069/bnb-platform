@@ -1,0 +1,41 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { act, createElement, useEffect } from 'react';
+import { mount } from './helpers/customer-dom.mjs';
+import { useCalendarData } from '../src/components/calendar/use-calendar-data.ts';
+import { hasCalendarCoverage } from '../src/components/calendar/calendar-retention.ts';
+import { ApiError } from '../src/lib/api-client.ts';
+const response = (start = '2026-10-01', end = '2026-11-01') => ({ period_start: start, period_end: end, properties: [], rooms: [], bookings: [{ id: 'one', property_id: 'sweetfun', room_id: '301', guest_name: 'SYNTHETIC_PRIVATE', check_in: '2026-10-07', check_out: '2026-10-08' }] });
+const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+
+test('mounted calendar retains readonly data through retry, blocks unvisited ranges, clears revoked access, and rejects late older responses', async t => {
+  let state, attempts = [], denied = 0;
+  const read = () => new Promise((resolve, reject) => attempts.push({ resolve, reject }));
+  const onProperties = () => {}, onAccessLost = () => denied++;
+  function Probe(props) { const value = useCalendarData({ read, onProperties, onAccessLost, ...props }); useEffect(() => { state = value; }, [value]); return createElement('span', null, value.data?.bookings[0]?.guest_name ?? 'no snapshot'); }
+  const props = { start: '2026-10-01', end: '2026-11-01', scope: 'owner', reload: 0 };
+  const { root, dom } = await mount(t, Probe, props);
+  assert.equal(state.data, null); assert.equal(state.loading, true);
+  await act(async () => { attempts[0].resolve(response()); await tick(); });
+  assert.ok(document.body.textContent.includes('SYNTHETIC_PRIVATE')); assert.equal(state.requestFailed, false);
+  const rerender = async overrides => { Object.assign(props, overrides); await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); }); };
+  await rerender({ reload: 1 });
+  await act(async () => { attempts[1].reject(Error('offline')); await tick(); });
+  assert.equal(state.data.bookings[0].snapshot_only, true);
+  await rerender({ reload: 2 }); assert.equal(state.data.bookings[0].snapshot_only, true); assert.equal(state.error, 'offline');
+  await act(async () => { attempts[2].resolve({}); await tick(); }); assert.equal(state.data.bookings.length, 1); assert.match(state.error, /不完整/);
+  await rerender({ start: '2026-11-01', end: '2026-12-01' });
+  await act(async () => { attempts[3].reject(Error('offline')); await tick(); }); assert.equal(hasCalendarCoverage(state.data, props.start, props.end), false);
+  await rerender({ reload: 3 });
+  await rerender({ reload: 4 });
+  await act(async () => { attempts[5].resolve(response(props.start, props.end)); await tick(); });
+  await act(async () => { attempts[4].resolve(response()); await tick(); });
+  assert.equal(state.data.period_start, '2026-11-01'); assert.equal(state.requestFailed, false);
+  await rerender({ reload: 5 });
+  await act(async () => { attempts[6].reject(new ApiError(401, 'revoked')); await tick(); });
+  assert.equal(state.data, null); assert.equal(state.lastLoadedAt, null); assert.equal(denied, 1); assert.equal(document.body.textContent.includes('SYNTHETIC_PRIVATE'), false);
+  await rerender({ reload: 6 }); await act(async () => { attempts[7].resolve(response(props.start, props.end)); await tick(); });
+  await rerender({ scope: 'viewer-no-price' }); assert.equal(state.data, null); assert.equal(document.body.textContent.includes('SYNTHETIC_PRIVATE'), false);
+  await rerender({ scope: 'owner' }); assert.equal(state.data, null);
+  assert.equal(dom.window.localStorage.length, 0); assert.equal(dom.window.sessionStorage.length, 0);
+});

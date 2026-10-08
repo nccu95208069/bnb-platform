@@ -3,6 +3,7 @@ import { spreadsheetId } from "./customer-google.ts";
 import {
   STANDARD_SHEET_TABS,
   LEGACY_COLUMN_COUNTS,
+  V3_COLUMN_COUNTS,
   type StandardTabKey,
 } from "./standard-sheet-schema.ts";
 import {
@@ -380,11 +381,12 @@ export class GoogleStandardSheetGateway implements StandardSheetGateway {
         throw new Error("STANDARD_LAYOUT_CHANGED");
       const header = rows[0];
       const legacyCount = LEGACY_COLUMN_COUNTS[tab.key];
+      const v3Count = V3_COLUMN_COUNTS[tab.key];
       const count =
         legacyCount &&
         header.slice(legacyCount).every((v) => v == null || v === "")
           ? legacyCount
-          : tab.columns.length;
+          : v3Count && header.slice(v3Count).every((v) => v == null || v === "") ? v3Count : tab.columns.length;
       if (
         rows.some((row) => row.slice(count).some((v) => v != null && v !== ""))
       )

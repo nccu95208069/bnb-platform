@@ -4,12 +4,12 @@ import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 
 import { PaymentBadge } from "./payment-badge";
-import { useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMonthPosition } from "./use-month-position";
 import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
 import { GuestRemarks, remarksFor, BookingIdentity, bookingIdentityText, realGuestName } from "./booking-identity";
-import { layoutMonthWeek } from "./month-layout";
+import { fitMonthWeekLanes, layoutMonthWeek } from "./month-layout";
 import { useCalendarPreferences } from "./calendar-preferences";
 import { cn } from "@/lib/utils";
 
@@ -146,14 +146,14 @@ function chunkWeeks(days: string[]) {
 function MonthPanel({
   monthStart,
   bookings,
-  rooms,
-  properties,
   onSelectBooking,
   onSelectDay,
   sectionRef,
+  viewportHeight,
 }: CalendarViewProps & {
   monthStart: string;
   sectionRef: (node: HTMLElement | null) => void;
+  viewportHeight: number;
 }) {
 const uiLocale = useIntlLocale();
 
@@ -164,7 +164,7 @@ const uiLocale = useIntlLocale();
   const weeks = chunkWeeks(dateRange(period.start, period.end));
   const expandedWeeks = useCalendarPreferences((s) => s.expandedWeeks);
   const setExpandedWeeks = useCalendarPreferences((s) => s.setExpandedWeeks);
-  const hasGuestNames = bookings.some(booking => booking.guest_name_kind === "real");
+  const weekHeight = Math.max(60, Math.floor((viewportHeight - 58) / weeks.length));
   const monthBookings = bookings.filter(
     (booking) =>
       booking.check_in < period.end && booking.check_out >= period.start,
@@ -194,7 +194,7 @@ const uiLocale = useIntlLocale();
       data-position-month={monthStart}
       className="scroll-mt-2 bg-card"
     >
-      <div className="sticky top-0 z-20 flex items-center justify-between border-y bg-background/95 px-3 py-2.5 backdrop-blur md:px-4">
+      <div className="sticky top-0 z-20 flex items-center justify-between h-8 border-y bg-background/95 px-3 backdrop-blur md:px-4">
         <h2 className="text-base font-semibold">
           {formatMonthLabel(monthStart, uiLocale)}
         </h2>
@@ -207,7 +207,7 @@ const uiLocale = useIntlLocale();
           <div
             key={weekday}
             className={cn(
-              "border-r px-1 py-2 text-center text-[10px] font-semibold text-muted-foreground last:border-r-0 md:text-xs",
+              "flex h-6 items-center justify-center border-r px-1 text-center text-[10px] font-semibold text-muted-foreground last:border-r-0 md:text-xs",
               index >= 5 && "bg-muted/45",
             )}
           >
@@ -219,18 +219,18 @@ const uiLocale = useIntlLocale();
       {weeks.map((week) => {
         const weekKey = week[0];
         const expanded = expandedWeeks.includes(weekKey);
-        const defaultLimit = Math.max(6, Math.min(8, rooms.length));
-        const limit = expanded ? Number.POSITIVE_INFINITY : defaultLimit;
         const segments = layoutMonthWeek(monthBookings, week, addDays(week[6], 1));
         const laneCount = Math.max(0, ...segments.map(s => s.lane + 1));
+        const defaultLimit = fitMonthWeekLanes(weekHeight, laneCount);
+        const limit = expanded ? Number.POSITIVE_INFINITY : defaultLimit;
         const weekHasOverflow = laneCount > defaultLimit;
         const visibleLanes = Math.min(laneCount, limit);
         const hidden = week.map((_, index) => segments.filter(s => s.lane >= limit && s.start <= index && s.end > index).length);
 
         return (
           <div key={weekKey} className="border-b last:border-b-0" data-week={weekKey}>
-            <div className={cn("relative grid min-h-[116px] grid-cols-7 py-0.5 md:min-h-32 md:py-1", hasGuestNames ? "[--month-lane-height:30px] md:[--month-lane-height:32px]" : "[--month-lane-height:18px] md:[--month-lane-height:22px]")}
-              style={{ gridTemplateRows: `24px ${Array.from({length:visibleLanes},(_,lane)=>segments.some(s=>s.lane===lane&&remarksFor(s.booking).length)?"48px":"var(--month-lane-height)").join(" ")}${hidden.some(Boolean) ? " 24px" : ""}`, rowGap: 2 }}>
+            <div className="relative grid grid-cols-7 py-0.5"
+              style={{ minHeight: expanded ? undefined : weekHeight, gridTemplateRows: `20px ${Array.from({length:visibleLanes},(_,lane)=>expanded ? (segments.some(s=>s.lane===lane&&remarksFor(s.booking).length)?"48px":"32px") : "18px").join(" ")}${hidden.some(Boolean) ? " 14px" : ""}`, rowGap: 2 }}>
               <div className="pointer-events-none absolute inset-0 grid grid-cols-7" aria-hidden="true">
                 {week.map(date => <div key={date} className={cn("border-r last:border-r-0",
                   [0, 6].includes(parseIso(date).getUTCDay()) && "bg-muted/15",
@@ -242,7 +242,7 @@ const uiLocale = useIntlLocale();
                 const departures = monthBookings.filter(b => b.check_out === date).length;
                 return <div key={date} className="relative flex items-start justify-between px-1 md:px-2" style={{gridColumn: index + 1, gridRow: 1}}>
                   <button data-calendar-date={date} data-position-date={date} type="button" onClick={() => onSelectDay(date)}
-                    className={cn("flex size-6 items-center justify-center rounded-full text-[11px] font-semibold hover:bg-accent md:size-7 md:text-xs",
+                    className={cn("flex size-5 items-center justify-center rounded-full text-[11px] font-semibold hover:bg-accent md:text-xs",
                       !isSameMonth(date, monthStart) && "text-muted-foreground",
                       date === today && "bg-primary text-primary-foreground hover:bg-primary/90")}>
                     {parseIso(date).getUTCDate()}
@@ -268,14 +268,14 @@ const uiLocale = useIntlLocale();
                     segment.continuesBefore && "ml-0 rounded-l-none border-l-0 sm:ml-0 md:ml-0",
                     segment.continuesAfter && "mr-0 rounded-r-none border-r-0 sm:mr-0 md:mr-0")}>
                   {segment.continuesBefore && <span aria-hidden="true">‹</span>}
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate leading-[12px]">
+                  <span className={cn("min-w-0 flex-1", !expanded && "truncate")}>
+                    <span className={cn("truncate leading-[12px]", expanded ? "block" : "inline")}>
                       <span className="font-semibold">{booking.source_conflict ? uiText("待核對") : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
                       <span className="ml-1 opacity-85">{booking.room_number}</span>
                       {nights > 1 && <span className="ml-1">{nights}{uiText("晚")}</span>}
                     </span>
-                    {guestName && <span className="block truncate pr-3 leading-[12px]">{guestName}</span>}
-                    <GuestRemarks booking={booking} compact limit={segment.end-segment.start>1?2:1} />
+                    {guestName && <span className={cn("truncate pr-3 leading-[12px]", expanded ? "block" : "ml-1 inline")}>{guestName}</span>}
+                    {expanded && <GuestRemarks booking={booking} compact limit={segment.end-segment.start>1?2:1} />}
                   </span>
                   <span className="absolute bottom-0.5 right-0.5"><PaymentBadge booking={booking} compact /></span>
                   {segment.continuesAfter && <span aria-hidden="true">›</span>}
@@ -283,8 +283,9 @@ const uiLocale = useIntlLocale();
               })}
               {hidden.map((count, index) => count > 0 && <button key={week[index]} type="button"
                 style={{gridColumn: index + 1, gridRow: visibleLanes + 2}}
+                aria-expanded={false} aria-label={uiText("{0} 展開其餘訂單", [week[index]])}
                 onClick={() => setExpandedWeeks(current => current.includes(weekKey) ? current : [...current, weekKey])}
-                className="relative mx-1 min-w-0 rounded px-1 text-left text-[10px] font-semibold text-muted-foreground hover:bg-accent md:text-[11px]">
+                className="relative mx-0.5 min-w-0 truncate rounded px-0.5 text-left text-[9px] font-semibold text-muted-foreground hover:bg-accent sm:mx-1 md:text-[11px]">
                 {uiText("還有")}{count} {uiText("筆")}</button>)}
             </div>
 
@@ -311,7 +312,6 @@ const uiLocale = useIntlLocale();
 export function MonthScroller({
   months,
   targetMonth,
-  targetDate,
   targetRevision,
   bookings,
   rooms,
@@ -327,18 +327,31 @@ export function MonthScroller({
   onVisibleMonthChange: (month: string) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  useMonthPosition(scrollRef, targetDate?.startsWith(targetMonth.slice(0, 7)) ? targetDate : targetMonth, targetRevision ?? 0, onVisibleMonthChange);
+  const [viewportHeight, setViewportHeight] = useState(520);
+  useLayoutEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const measure = () => setViewportHeight(Math.max(320, Math.floor(window.innerHeight - container.getBoundingClientRect().top - (window.innerWidth >= 768 ? 24 : 12))));
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (container.parentElement?.parentElement) observer.observe(container.parentElement.parentElement);
+    window.addEventListener("resize", measure);
+    return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
+  }, []);
+  // Month mode starts at the month header so no week is hidden above today.
+  useMonthPosition(scrollRef, targetMonth, targetRevision ?? 0, onVisibleMonthChange);
 
   return (
     <div
       ref={scrollRef}
-      style={{ overflowAnchor: "none" }}
-      className="h-[calc(100dvh-224px)] min-h-[520px] overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm md:h-[calc(100dvh-250px)]"
+      style={{ overflowAnchor: "none", height: viewportHeight }}
+      className="overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm"
     >
       {months.map((monthStart) => (
         <MonthPanel
           key={monthStart}
           monthStart={monthStart}
+          viewportHeight={viewportHeight}
           bookings={bookings}
           rooms={rooms}
           properties={properties}

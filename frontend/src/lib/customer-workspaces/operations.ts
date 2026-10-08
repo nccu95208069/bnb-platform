@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { occupiesInventory } from "./hold-state.ts";
+import { holdNotificationChanges } from "../website-booking/lifecycle.ts";
 import { isCalendarKind } from "./calendar-types.ts";
 import {
   businessDate,
@@ -324,7 +326,7 @@ export async function availability(
         ];
   const occupied = [
     ...workspace.bookings.filter(
-      (b) => b.propertyId === property.id && b.status === "confirmed",
+      (b) => b.propertyId === property.id && occupiesInventory(b),
     ),
     ...(workspace.blocks ?? []).filter(
       (b) => b.propertyId === property.id && b.status === "active",
@@ -423,6 +425,7 @@ export async function bookingOperation(
       workspace: view(context.workspace, context.member),
       summary: financeSummary(booking),
     };
+  if (booking.status === "held") throw new Error("HOLD_ACTION_REQUIRED");
   if (booking.status !== "confirmed") throw new Error("ORDER_CANCELLED");
   if (booking.version !== input.bookingVersion)
     throw new Error("VERSION_CONFLICT");
@@ -507,6 +510,8 @@ export async function bookingOperation(
     if (expectedDeposit !== null && expectedDeposit > total)
       throw new Error("INVALID_INPUT");
     next = { ...next, total, expectedDeposit };
+    // The old quote's nightly breakdown no longer represents the agreed total.
+    if (booking.website && total !== booking.total) delete next.nightlyPrices;
     const summary = financeSummary(next);
     if (
       summary.credit !== null &&
@@ -515,6 +520,7 @@ export async function bookingOperation(
     )
       throw new Error("OVERPAYMENT_CONFIRMATION_REQUIRED");
   } else {
+    if (booking.website && input.confirmed !== true) throw new Error("BOOKING_CANCELLATION_CONFIRMATION_REQUIRED");
     if (
       context.workspace.calendarSources?.some(
         (b) => b.propertyId === booking.propertyId && b.mode === "connected",
@@ -530,6 +536,10 @@ export async function bookingOperation(
       throw new Error("CANCELLATION_REQUIRES_SETTLEMENT");
     next.status = "cancelled";
   }
+  const event = booking.website && (action === "terms" || action === "cancel")
+    ? (action === "cancel" ? "booking_cancelled" : "booking_changed") : null;
+  const notifications = event ? await holdNotificationChanges(store, context.workspace, next, event) : { booking: next, changes: [] };
+  next = notifications.booking;
   const verified = await saveMutation(
     store,
     context,
@@ -540,11 +550,13 @@ export async function bookingOperation(
       ),
     },
     booking.id,
+    notifications.changes,
   );
   const result = verified.workspace.bookings.find((b) => b.id === booking.id);
   if (
     !result ||
     result.version < next.version ||
+    (result.version === next.version && JSON.stringify(result) !== JSON.stringify(next)) ||
     (action === "payment" &&
       !result.payments.some((p) => p.id === next.payments.at(-1)?.id))
   )

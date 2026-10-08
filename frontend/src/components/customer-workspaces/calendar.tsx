@@ -33,6 +33,8 @@ export function CustomerCalendar({
         : (initial.properties[0]?.id ?? ""),
     );
   const [creating, setCreating] = useState(false),
+    [holdMode, setHoldMode] = useState(false),
+    [confirmHoldScope, setConfirmHoldScope] = useState(false),
     [selected, setSelected] = useState(""),
     [highlight, setHighlight] = useState(""),
     [error, setError] = useState("");
@@ -128,6 +130,8 @@ export function CustomerCalendar({
           : [],
     );
     setExtraStays([]);
+    setHoldMode(false);
+    setConfirmHoldScope(false);
     setExpectedDeposit("");
     setAllowOverpayment(false);
     setGuestName("");
@@ -166,6 +170,7 @@ export function CustomerCalendar({
     setError("");
     pending.current ??= {
       requestKey: key.current,
+      ...(holdMode ? { action: "hold-create", confirmPlatformOnly: confirmHoldScope } : {}),
       version: data.version,
       propertyId,
       checkIn,
@@ -183,7 +188,7 @@ export function CustomerCalendar({
       platform,
       bookedAt,
       payment:
-        paymentKind === "none"
+        holdMode || paymentKind === "none"
           ? null
           : {
               kind: paymentKind,
@@ -194,7 +199,7 @@ export function CustomerCalendar({
     };
     try {
       const result = await api<{ workspace: WorkspaceView; bookingId: string }>(
-        `/api/customer-workspaces/${data.slug}`,
+        `/api/customer-workspaces/${data.slug}${pending.current.action === "hold-create" ? "/operations" : ""}`,
         "POST",
         pending.current,
       );
@@ -584,6 +589,18 @@ export function CustomerCalendar({
                 </button>
               </div>
               <fieldset disabled={busy || uncertain} className="space-y-5">
+                {data.features?.holds && ["owner", "admin"].includes(data.role) && (
+                  <label className="block">建立類型
+                    <select className={field} value={holdMode ? "hold" : "booking"} onChange={e => { setHoldMode(e.target.value === "hold"); setPaymentKind("none"); }}>
+                      <option value="booking">正式訂單</option><option value="hold">保留單（24 小時）</option>
+                    </select>
+                  </label>
+                )}
+                {holdMode && <div className="rounded-xl bg-amber-50 p-4 text-sm">
+                  <p>成功建立起保留 24 小時；到期後繼續保留，等待業主決定。請填整筆房費，實際收到訂金後再轉正式訂單。</p>
+                  <label className="mt-3 flex gap-2"><input type="checkbox" required checked={confirmHoldScope} onChange={e => setConfirmHoldScope(e.target.checked)} />我確認僅保留本工作區房況，外部通路尚未同步關房。</label>
+                </div>}
+
                 <label className="block">
                   入住日期
                   <input
@@ -822,7 +839,7 @@ export function CustomerCalendar({
                     onChange={(e) => setGuestName(e.target.value)}
                   />
                 </label>
-                <details className="rounded-xl border p-3">
+                <details open={holdMode || undefined} className="rounded-xl border p-3">
                   <summary className="cursor-pointer font-medium">
                     ＋登記房費／已收款
                   </summary>
@@ -835,6 +852,7 @@ export function CustomerCalendar({
                         min={0}
                         step="0.01"
                         value={total}
+                        required={holdMode}
                         placeholder="未記錄"
                         onChange={(e) => setTotal(e.target.value)}
                       />
@@ -856,6 +874,7 @@ export function CustomerCalendar({
                       <select
                         className={field}
                         value={paymentKind}
+                        disabled={holdMode}
                         onChange={(e) => setPaymentKind(e.target.value)}
                       >
                         <option value="none">尚未登記</option>
@@ -1008,7 +1027,7 @@ export function CustomerCalendar({
                       ? "建立中…"
                       : uncertain
                         ? "重試並核對結果"
-                        : "建立訂房"}
+                        : holdMode ? "建立 24 小時保留單" : "建立訂房"}
                   </button>
                   {!uncertain && (
                     <button

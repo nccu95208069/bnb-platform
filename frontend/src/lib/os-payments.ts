@@ -103,8 +103,9 @@ export async function overlayPayments(bookings:CalendarBooking[]):Promise<Calend
   for(const b of bookings)if(!b.source_conflict&&b.reservation_status!=='cancelled'){const key=ledgerKey(b.property_id,b.order_id);groups.set(key,[...(groups.get(key)??[]),b]);}
   const entries=[...groups.entries()]; if(!entries.length)return bookings;
   const values=await redisCommand(['MGET',...entries.map(([key])=>key)]) as (string|null)[];
+  if(!Array.isArray(values)||values.length!==entries.length||values.some(v=>v!==null&&typeof v!=='string'))throw Error('PAYMENT_DATA_INVALID');
   const statuses=new Map<string,CalendarBooking['payment_status']>();
-  entries.forEach(([key,rows],index)=>{{const ledger=values[index]?JSON.parse(values[index]!) as Ledger:emptyLedger();const check=checkRows(rows,rows[0].property_id,rows[0].order_id,ledger);check.finance_received=financeAllocated(finance.get(rows[0].property_id)??[],rows[0].order_id);statuses.set(key,paymentStatus(check));}});
+  entries.forEach(([key,rows],index)=>{{const ledger=values[index]?JSON.parse(values[index]!) as Ledger:emptyLedger();if(!Number.isSafeInteger(ledger.version)||!Array.isArray(ledger.receipts))throw Error('PAYMENT_DATA_INVALID');const check=checkRows(rows,rows[0].property_id,rows[0].order_id,ledger);check.finance_received=financeAllocated(finance.get(rows[0].property_id)??[],rows[0].order_id);statuses.set(key,paymentStatus(check));}});
   return bookings.map(b=>{const status=statuses.get(ledgerKey(b.property_id,b.order_id));return status?{...b,payment_status:status}:b;});
 }
 

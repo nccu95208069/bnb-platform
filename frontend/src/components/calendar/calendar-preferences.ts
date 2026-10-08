@@ -160,11 +160,16 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
     }),
     {
       name: "sweetfun-os-calendar-preferences",
+      // Older storage includes anchorDate. Ignore it while retaining filters.
+      merge: (persisted, current) => ({
+        ...current,
+        ...(persisted as Partial<CalendarPreferenceState>),
+        anchorDate: current.anchorDate,
+      }),
       partialize: (state) => ({
         selectedPropertyIds: state.selectedPropertyIds,
         view: state.view,
         mode: state.mode,
-        anchorDate: state.anchorDate,
         availabilityCycle: state.availabilityCycle,
         availabilityChannel: state.availabilityChannel,
         availabilityRoom: state.availabilityRoom,

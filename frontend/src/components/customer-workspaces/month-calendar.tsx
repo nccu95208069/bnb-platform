@@ -1,4 +1,5 @@
 "use client";
+import { occupiesInventory, bookingStatusLabel } from "@/lib/customer-workspaces/hold-state";
 import { useEffect, useState } from "react";
 import type { WorkspaceView } from "@/lib/customer-workspaces/types";
 import { staysOf } from "@/lib/customer-workspaces/domain";
@@ -88,7 +89,7 @@ export function MonthCalendar({
     (Date.parse(nextMonth) - Date.parse(start)) / (7 * 86400000),
   );
   const orders = data.bookings.filter(
-      (b) => b.propertyId === propertyId && b.status === "confirmed",
+      (b) => b.propertyId === propertyId && occupiesInventory(b),
     ),
     blocks = (data.blocks ?? []).filter(
       (b) => b.propertyId === propertyId && b.status === "active",
@@ -337,7 +338,7 @@ export function MonthCalendar({
                           {
                             property.rooms.find((r) => r.id === roomId)?.name
                           } · {b.guestName || "姓名未填"} ·{" "}
-                          {b.platform || "平台未填"}
+                          {b.status === "held" ? `${bookingStatusLabel(b)} · ` : ""}{b.platform || "平台未填"}
                           {s.checkOut > weekEnd ? " →" : ""}
                         </span>
                         <OrderTags
@@ -394,7 +395,7 @@ export function MonthCalendar({
                       />
                     </div>
                     <p className="mt-1 text-xs text-slate-600">
-                      {b.platform || "平台未填"} · {s.checkIn} 入住 →{" "}
+                      {b.status === "held" ? `${bookingStatusLabel(b)} · ` : ""}{b.platform || "平台未填"} · {s.checkIn} 入住 →{" "}
                       {s.checkOut} 退房
                     </p>
                   </a>

@@ -490,7 +490,7 @@ test("intact v1 workbook upgrades atomically with two new provenance/block tabs,
   await sync(f);
   assert.equal(
     f.get().tables.meta.find((r) => r[0] === "schema_version")[1],
-    3,
+    4,
   );
   assert.ok(f.get().tables.calendarSources.length);
   assert.ok(f.get().tables.blocks.length);
@@ -522,8 +522,21 @@ test("intact v2 workbook appends order metadata and receipt allocation/account c
   await sync(f);
   assert.equal(
     f.get().tables.meta.find((r) => r[0] === "schema_version")[1],
-    3,
+    4,
   );
-  assert.equal(f.get().tables.orders[0].length, 23);
+  assert.equal(f.get().tables.orders[0].length, 28);
   assert.equal(f.get().tables.payments[0].length, 13);
+});
+
+test("v3 upgrades to hold columns only when workbook contents still match; edited data is protected", async () => {
+  for (const edited of [false, true]) {
+    const f = fixture(), old = f.get();
+    old.tables.orders = old.tables.orders.map(row => row.slice(0, 23));
+    old.tables.meta.find(r => r[0] === "schema_version")[1] = 3;
+    old.tables.meta.find(r => r[0] === "content_hash")[1] = standardContentHash(old.tables);
+    if (edited) old.tables.orders.push(["external edit"]);
+    f.set(old);
+    if (edited) { await assert.rejects(bind(f), /STANDARD_EXTERNAL_CHANGE/); assert.equal(f.gateway.writes.length, 0); }
+    else { await bind(f); await sync(f); assert.equal(f.get().tables.orders[0].length, 28); assert.equal(f.get().tables.meta.find(r => r[0] === "schema_version")[1], 4); }
+  }
 });

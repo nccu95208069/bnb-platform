@@ -33,6 +33,8 @@ import { previewAvailable } from "@/lib/customer-workspaces/calendar-onboarding-
 import { intakePreview } from "@/lib/customer-intake/config";
 import { sendCustomerLifecycleMail } from "@/lib/workspace-auth/mail";
 import { normalizedEmail, validEmail } from "@/lib/workspace-auth/types";
+import { WEBSITE_LOGIN_COOKIE } from "@/lib/website-booking/login";
+import { connectionFor } from "@/lib/website-booking/connections";
 export const runtime = "nodejs";
 export async function POST(request: NextRequest) {
   try {
@@ -137,8 +139,13 @@ export async function POST(request: NextRequest) {
         request.cookies.get(LOGIN_PROOF_COOKIE)?.value,
         hash,
         draft?.value.loginRequestId,
+        request.cookies.get(WEBSITE_LOGIN_COOKIE)?.value,
       );
       let account = result.account;
+      if (result.websiteConnectionId) {
+        const connection = (await connectionFor(store, result.websiteConnectionId)).value;
+        if (connection.ownerEmail !== account.email) throw new Error("UNAUTHORIZED");
+      }
       if (result.draftHash) {
         if (
           !draft ||
@@ -155,7 +162,7 @@ export async function POST(request: NextRequest) {
           );
       }
       const response = NextResponse.json(
-        { url: result.draftHash ? "/join/calendar?verified=1" : "/start" },
+        { url: result.websiteConnectionId ? `/website-booking?connection=${result.websiteConnectionId}` : result.draftHash ? "/join/calendar?verified=1" : "/start" },
         { headers },
       );
       response.cookies.set(CUSTOMER_COOKIE, sessionFor(account), {

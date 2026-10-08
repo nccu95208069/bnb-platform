@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { holdPhase, holdsEnabled, requireHoldsEnabled } from "./hold-state.ts";
 import { accountKey, digest } from "./auth.ts";
 import { bookingsOverlap, propertyReadiness, staysOverlap } from "./domain.ts";
 import type { CustomerStore } from "./store.ts";
@@ -192,14 +193,18 @@ export function view(workspace: Workspace, member: Membership): WorkspaceView {
         requestKey: _key,
         requestHash: _hash,
         actor: _actor,
+        website: _website,
         ...booking
       } = b;
+      if (booking.hold) booking.hold = { ...booking.hold, state: holdPhase(booking)! };
       void _key;
       void _hash;
       void _actor;
+      void _website; // Service identities and notification recipients stay server-side.
       return member.role === "viewer_no_price"
         ? {
             ...booking,
+            ...(booking.hold ? { hold: { ...booking.hold, latePaymentReview: undefined, convertedAt: undefined } } : {}),
             total: null,
             payments: [],
             notes: null,
@@ -219,6 +224,7 @@ export function view(workspace: Workspace, member: Membership): WorkspaceView {
     name: workspace.name,
     version: workspace.version,
     role: member.role,
+    features: { holds: holdsEnabled() },
     ...(workspace.onboarding
       ? {
           onboarding: {
@@ -355,6 +361,27 @@ export async function createBooking(
   slug: string,
   input: Record<string, unknown>,
 ) {
+  return createBookingRecord(store, accountId, slug, input, false);
+}
+export async function createHold(
+  store: CustomerStore,
+  accountId: string,
+  slug: string,
+  input: Record<string, unknown>,
+) {
+  requireHoldsEnabled();
+  if (input.confirmPlatformOnly !== true || input.payment != null)
+    throw new Error("HOLD_SCOPE_CONFIRMATION_REQUIRED");
+  if (money(input.total) === null || money(input.total)! <= 0) throw new Error("HOLD_TOTAL_REQUIRED");
+  return createBookingRecord(store, accountId, slug, input, true);
+}
+async function createBookingRecord(
+  store: CustomerStore,
+  accountId: string,
+  slug: string,
+  input: Record<string, unknown>,
+  held: boolean,
+) {
   const { raw, workspace, member } = await loadWorkspace(
     store,
     accountId,
@@ -362,6 +389,7 @@ export async function createBooking(
   );
   if (!["owner", "admin", "housekeeper"].includes(member.role))
     throw new Error("FORBIDDEN");
+  if (held && !["owner", "admin"].includes(member.role)) throw new Error("FORBIDDEN");
   const property = workspace.properties.find(
     (p) =>
       p.id === input.propertyId &&
@@ -456,7 +484,7 @@ export async function createBooking(
     input.allowOverpayment !== true
   )
     throw new Error("OVERPAYMENT_CONFIRMATION_REQUIRED");
-  const hash = digest(JSON.stringify(data));
+  const hash = digest(JSON.stringify(held ? { ...data, operation: "hold.create", scope: "platform_only" } : data));
   const repeated = workspace.bookings.find(
     (b) => b.requestKey === key && b.actor === accountId,
   );
@@ -483,6 +511,7 @@ export async function createBooking(
   )
     throw new Error("ROOM_CONFLICT");
   const { payment, ...fields } = data;
+  const startedAt = new Date().toISOString();
   const booking: Booking = {
     ...fields,
     id: randomUUID(),
@@ -490,9 +519,16 @@ export async function createBooking(
     payments: payment
       ? [{ ...payment, id: randomUUID(), actor: accountId }]
       : [],
-    status: "confirmed",
+    status: held ? "held" : "confirmed",
+    ...(held ? { hold: {
+      schema: 1 as const,
+      scope: "platform_only" as const,
+      startedAt,
+      expiresAt: new Date(Date.parse(startedAt) + 24 * 3600000).toISOString(),
+      state: "active" as const,
+    } } : {}),
     guestNotified: false,
-    createdAt: new Date().toISOString(),
+    createdAt: startedAt,
     actor: accountId,
     entry: "os",
     requestKey: key,
@@ -507,7 +543,7 @@ export async function createBooking(
       {
         at: booking.createdAt,
         actor: accountId,
-        action: "booking.created",
+        action: held ? "hold.created" : "booking.created",
         targetId: booking.id,
       },
     ],

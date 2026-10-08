@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useCalendarPreferences } from "./calendar-preferences";
 import { availabilityFeatures } from "@/lib/availability-features";
 import { channelLabels } from "@/lib/availability";
+import { localTodayIso } from "./calendar-utils";
 
 type State = ReturnType<typeof useCalendarPreferences.getState>;
 function snapshot(s: State) {
@@ -40,7 +41,7 @@ function validDate(value: string | null): value is string {
   );
 }
 const rooms = ["101", "102", "201", "202", "301", "302", "包棟"];
-function fromUrl(s: State) {
+function fromUrl(s: State, freshVisit = false) {
   const p = new URLSearchParams(location.search);
   const next = snapshot(s);
   if (p.has("properties")) next.selectedPropertyIds = [...new Set((p.get("properties") ?? "").split(",").filter(id=>["sweetfun","offland"].includes(id)))];
@@ -52,7 +53,10 @@ function fromUrl(s: State) {
   if (mode === "sold" || mode === "unsold") next.mode = mode;
   else if (p.has("order")) next.mode = "sold";
   if (view === "month" || view === "week" || view === "day") next.view = view;
-  if (validDate(day)) next.anchorDate = day;
+  // A saved/reopened calendar URL is not a request to revisit its old month.
+  // Only links targeting an order or a room night need an initial historical date.
+  const targeted = Boolean(p.get("order") || p.get("stay"));
+  next.anchorDate = (!freshVisit || targeted) && validDate(day) ? day : localTodayIso();
   if (room && (room === "all" || rooms.includes(room)))
     next.availabilityRoom = room;
   if (channel && channel in channelLabels)
@@ -61,7 +65,7 @@ function fromUrl(s: State) {
     next.availabilityCycle = p.get("cycle") === "2" ? 2 : 1;
   next.searchQuery = p.get("q") ?? "";
   next.availabilityOnly = p.get("available") === "1";
-  next.expandedWeeks = (p.get("expanded") ?? "").split(",").filter(validDate);
+  next.expandedWeeks = freshVisit && !targeted ? [] : (p.get("expanded") ?? "").split(",").filter(validDate);
   const stay = p.get("stay")?.split("_");
   next.availabilitySelection =
     stay && validDate(stay[0]) && rooms.includes(stay[1])
@@ -105,11 +109,7 @@ export function useCalendarHistory() {
     let active = true,
       restoring = false,
       queued = false;
-    const remembered = history.state?.bnbCalendar;
-    const initial =
-      remembered && url(remembered) === location.pathname + location.search
-        ? remembered
-        : fromUrl(useCalendarPreferences.getState());
+    const initial = fromUrl(useCalendarPreferences.getState(), true);
     const visibleInitial = snapshot({
       ...useCalendarPreferences.getState(),
       ...initial,
@@ -169,6 +169,32 @@ export function useCalendarHistory() {
       restoring = false;
     };
     window.addEventListener("popstate", restore);
+    const returnToCurrentMonth = () => {
+      if (location.pathname !== "/calendar") return;
+      const s = useCalendarPreferences.getState();
+      // Don't interrupt an open booking, room-night selection or pricing review.
+      if (s.selectedBookingId || s.availabilitySelection || s.pricingPreview || s.pricingMission) return;
+      const today = localTodayIso();
+      if (s.anchorDate.slice(0, 7) === today.slice(0, 7)) return;
+      restoring = true;
+      const next = snapshot({ ...s, anchorDate: today, expandedWeeks: [] });
+      current = JSON.stringify(next);
+      useCalendarPreferences.setState({ ...next, historyRevision: s.historyRevision + 1 });
+      history.replaceState({ ...history.state, bnbCalendar: next }, "", url(next));
+      restoring = false;
+    };
+    let wasHidden = document.visibilityState === "hidden";
+    const visibility = () => {
+      if (document.visibilityState === "hidden") { wasHidden = true; return; }
+      if (document.visibilityState !== "visible" || !wasHidden) return;
+      wasHidden = false;
+      returnToCurrentMonth();
+    };
+    const pageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) returnToCurrentMonth();
+    };
+    document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("pageshow", pageShow);
     queueMicrotask(() => {
       if (active) setReady(true);
     });
@@ -176,6 +202,8 @@ export function useCalendarHistory() {
       active = false;
       unsubscribe();
       window.removeEventListener("popstate", restore);
+      document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("pageshow", pageShow);
     };
   }, []);
   return ready;

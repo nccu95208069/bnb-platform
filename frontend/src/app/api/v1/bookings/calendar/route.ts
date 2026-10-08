@@ -1,12 +1,14 @@
+import { configuredPrivateCalendarCache } from "@/lib/booking-sources/private-calendar-snapshot";
 import { overlayPayments } from "@/lib/os-payments";
 import { principalFor, sessionMember } from "@/lib/workspace-auth/session";
 import { allowedProperty, projectBookings } from "@/lib/workspace-auth/projection";
 import { ownerAccessConfigured } from "@/lib/calendar-owner-session";
 import { readOperationalSheet } from "@/lib/sheet-monitor/google";
-import { attachPrivateGuestNames } from "@/lib/booking-sources/private-guest-names";
+import { recordCalendarHealth } from "@/lib/booking-sources/calendar-diagnostics";
+import { randomUUID } from "node:crypto";
+import { readCalendarSources, calendarReadError, type CalendarReadEvent } from "@/lib/booking-sources/calendar-reader";
 import { readBookingSnapshot } from "@/lib/booking-sources/snapshot";
 import { activeSources } from "@/lib/booking-sources/config";
-import { collectSnapshots } from "@/lib/booking-sources/collection";
 import { type NextRequest, NextResponse } from "next/server";
 
 type PaymentStatus = "paid" | "deposit" | "unpaid";
@@ -177,6 +179,10 @@ const OFFLAND_BOOKINGS = RAW_OFFLAND_BOOKINGS.map(
 const DEMO_BOOKINGS = [...SWEETFUN_BOOKINGS, ...OFFLAND_BOOKINGS];
 
 export async function GET(request: NextRequest) {
+  const requestId = randomUUID();
+  const startedAt = Date.now();
+  const events: CalendarReadEvent[] = [];
+  const headers = { "Cache-Control": "private, no-store", Vary: "Cookie", "X-Request-ID": requestId };
   // Authenticate before reading snapshots or returning any calendar metadata.
   if (process.env.NODE_ENV === "production" || process.env.CALENDAR_SOURCE === "sheet_snapshot") {
     try {
@@ -214,21 +220,15 @@ export async function GET(request: NextRequest) {
       const principal = await principalFor(request);
       if (!principal) return NextResponse.json({detail:"請先登入。"},{status:401,headers:{"Cache-Control":"private, no-store",Vary:"Cookie"}});
       const definitions = activeSources().filter(d => allowedProperty(principal, d.property.id));
-      const { snapshots, errors } = await collectSnapshots(definitions, readBookingSnapshot);
-      const allBookings = snapshots.flatMap(s => s.snapshot.bookings);
+      const result = await readCalendarSources(definitions, start, end, principal.viewPrices, {
+        cache: configuredPrivateCalendarCache(), startedAt,
+        snapshot: readBookingSnapshot, details: readOperationalSheet, payments: overlayPayments,
+        report: event => { events.push(event); console.info(JSON.stringify({ event: "calendar_read", request_id: requestId, release: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) ?? "local", ...event })); },
+      });
+      const { snapshots, errors, warnings } = result;
+      let bookings = result.bookings;
       const loadedProperties = new Set(snapshots.map(s => s.definition.property.id));
-      // Include every room-night of matching parent orders, so cross-month stays and totals
-      // remain complete. The calendar filters displayed dates independently.
-      const orderIds = new Set(allBookings
-        .filter(b => b.check_in < end && b.check_out >= start).map(b => b.order_id));
-      let bookings = allBookings.filter(b => orderIds.has(b.order_id));
-      const authenticated = Boolean(principal);
-      if (authenticated) {
-        const namedSources = await Promise.all(snapshots.map(async ({ definition }) =>
-          attachPrivateGuestNames(bookings.filter(b => b.property_id === definition.property.id), await readOperationalSheet(definition), definition)));
-        bookings = namedSources.flat();
-      }
-      if (principal.viewPrices) bookings = await overlayPayments(bookings);
+      const authenticated = true;
       bookings = projectBookings(bookings, principal);
       return NextResponse.json({
         price_hidden: !principal?.viewPrices,
@@ -242,13 +242,18 @@ export async function GET(request: NextRequest) {
         source: { ...snapshots[0].snapshot.source, anonymized: !authenticated, automatic_sync: snapshots.some(s => s.snapshot.source.automatic_sync) },
         source_summary: snapshots[0].snapshot.summary,
         sources: snapshots.map(({ definition, snapshot }) => ({ property_id: definition.property.id, source: { ...snapshot.source, anonymized: !authenticated }, summary: snapshot.summary })),
+        request_id: requestId,
         source_errors: errors,
+        source_warnings: warnings,
         guest_access: { available: ownerAccessConfigured(), authenticated },
         data_mode: authenticated ? "private_google_sheet_calendar" : "anonymized_google_sheet_snapshot",
-      }, { headers: { "Cache-Control": "private, no-store", "Vary": "Cookie" } });
-    } catch {
+      }, { headers });
+    } catch (error) {
+      console.error(JSON.stringify({ event: "calendar_unavailable", request_id: requestId, code: calendarReadError(error) }));
       // Never fall back to fictional bookings when an operational source is configured.
-      return NextResponse.json({ detail: "訂房表快照暫時無法讀取，請稍後重試。" }, { status: 503 });
+      return NextResponse.json({ detail: "訂房表快照暫時無法讀取，請稍後重試。", request_id: requestId }, { status: 503, headers });
+    } finally {
+      await recordCalendarHealth(events, requestId, startedAt);
     }
   }
 

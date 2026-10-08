@@ -7,10 +7,10 @@ import { SWEETFUN_SOURCE, type SheetProperty } from "./config.ts";
 export type SourceIssue = { code: string; rows: number[]; date?: string; room?: string; fingerprint: string; acknowledged: boolean };
 export type BookingSourceSnapshot = {
   schema_version: 1;
-  source: { id: string; kind: "google_sheet_snapshot"; label: string; observed_at: string;
+  source: { private_snapshot_at?: string; private_snapshot_version?: string; id: string; kind: "google_sheet_snapshot"; label: string; observed_at: string;
     snapshot_version: string; adapter_version: string; price_basis: "sheet_recorded_room_night"; payment_ledger_available: false;
     read_only: true; anonymized: true; automatic_sync: boolean; availability_authoritative: false;
-    sync?: { status: "waiting" | "healthy" | "confirming" | "error" | "stale"; last_checked_at: string | null; last_published_at: string | null; cutoff: string; interval_seconds: number; error_code: string | null } };
+    sync?: { status: "waiting" | "healthy" | "confirming" | "error" | "stale"; last_successful_check_at?: string | null; last_checked_at: string | null; last_published_at: string | null; cutoff: string; interval_seconds: number; error_code: string | null } };
   bookings: CalendarBooking[];
   issues: SourceIssue[];
   summary: { rows: number; accepted_rows: number; quarantined_rows: number; blocked_room_nights: number;

@@ -83,6 +83,7 @@ export type Payment = {
   note?: string | null;
 };
 export type Booking = {
+  website?: import("../website-booking/types.ts").WebsiteBookingData;
   platform?: string | null;
   bookedAt?: string | null; // Source booking date, never the import/creation date.
   bookedAtSource?: "manual" | "sheet";
@@ -103,7 +104,18 @@ export type Booking = {
   payments: Payment[];
   contact: string | null;
   notes: string | null;
-  status: "confirmed" | "cancelled";
+  status: "confirmed" | "cancelled" | "held";
+  hold?: {
+    schema: 1;
+    // This native OS slice does not claim that any external channel was closed.
+    scope: "platform_only";
+    startedAt: string;
+    expiresAt: string;
+    state: "active" | "awaiting_owner" | "converted" | "released";
+    convertedAt?: string;
+    releasedAt?: string;
+    latePaymentReview?: boolean;
+  };
   guestNotified: false;
   createdAt: string;
   actor: string;
@@ -191,6 +203,7 @@ export type Workspace = {
   audit: { at: string; actor: string; action: string; targetId: string }[];
 };
 export type WorkspaceView = {
+  features?: { holds: boolean };
   reviewRecords?: OrderReviewRecord[];
   id: string;
   slug: string;

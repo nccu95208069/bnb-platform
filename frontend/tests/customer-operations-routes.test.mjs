@@ -171,6 +171,25 @@ test("HTTP multi-property, invitation, scoped prices, receipts, readable sources
     await Workspace.GET(request(base, strangerCookie), context),
     404,
   );
+  const holdInput = {
+    action: "hold-create", propertyId: first.id,
+    checkIn: "2028-03-01", checkOut: "2028-03-02", roomIds: [first.rooms[0].id],
+    total: 9000, platform: "Official Website", confirmPlatformOnly: true,
+  };
+  process.env.CUSTOMER_HOLDS_ENABLED = "false";
+  assert.equal((await write(holdInput, 503)).code, "HOLDS_UNAVAILABLE");
+  process.env.CUSTOMER_HOLDS_ENABLED = "true";
+  const holdCreated = await write(holdInput);
+  const held = holdCreated.workspace.bookings.find(b => b.id === holdCreated.bookingId);
+  assert.equal(held.status, "held");
+  assert.equal((await write({ ...holdInput, requestKey: randomUUID() }, 409)).code, "ROOM_CONFLICT");
+  await result(await Operations.POST(request(`${base}/operations`, ownerCookie, { action: "hold-release" }, "https://foreign.test"), context), 403);
+  await result(await Operations.POST(request(`${base}/operations`, strangerCookie, { action: "hold-release" }), context), 404);
+  const converted = await write({action:"hold-convert",bookingId:held.id,bookingVersion:held.version,confirmPlatformOnly:true,confirmedReceipt:true,amount:3000,method:"cash",receivedAt:"2026-01-01T00:00:00Z"});
+  assert.equal(converted.workspace.bookings.find(b=>b.id===held.id).status,"confirmed");
+  assert.equal(converted.workspace.bookings.find(b=>b.id===held.id).payments.length,1);
+  // This isolated flow has no external credentials, email or channel writer.
+  assert.equal(external.length, 0);
   const second = await write({
     action: "property",
     name: "Second inn",

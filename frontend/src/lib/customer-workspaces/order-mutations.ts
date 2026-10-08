@@ -79,7 +79,11 @@ export async function orderMutation(
       if (input.notes !== undefined)
         updated.notes = textValue(input.notes, 2000);
       if (input.platform !== undefined)
-        updated.platform = textValue(input.platform, 80);
+        {
+          const platform = textValue(input.platform, 80);
+          if (booking!.platform === "Official Website" && platform !== "Official Website") throw new Error("BOOKING_SOURCE_IMMUTABLE");
+          updated.platform = platform;
+        }
       const bookedAt = input.bookedAt ? dateValue(input.bookedAt) : null;
       if (
         input.bookedAt !== undefined &&

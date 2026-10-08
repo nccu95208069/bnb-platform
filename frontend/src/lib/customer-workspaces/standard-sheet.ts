@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { cents, financeSummary, propertyReadiness, staysOf } from "./domain.ts";
 import { tagsFor } from "./order-query.ts";
+import { bookingStatusLabel, holdPhase } from "./hold-state.ts";
 import type { Workspace } from "./types.ts";
 import {
   STANDARD_SHEET_MARKER,
@@ -89,7 +90,7 @@ export function buildStandardWorkbook(
             room.name,
             date,
             nextDate(date),
-            booking.status === "confirmed" ? "有效" : "已取消",
+            booking.status === "confirmed" ? "有效" : bookingStatusLabel(booking, new Date(options.generatedAt ?? Date.now())),
             amount,
             "TWD",
           ]);
@@ -102,7 +103,7 @@ export function buildStandardWorkbook(
       property.name,
       booking.imported?.externalId ?? booking.calendar?.externalId ?? null,
       booking.guestName,
-      booking.status === "confirmed" ? "有效" : "已取消",
+      booking.status === "confirmed" ? "有效" : bookingStatusLabel(booking, new Date(options.generatedAt ?? Date.now())),
       booking.checkIn,
       booking.checkOut,
       orderNights,
@@ -125,6 +126,11 @@ export function buildStandardWorkbook(
         .map((t) => `${t.short} ${t.name}`)
         .join("、") || null,
       summary.extraReceived,
+      booking.hold?.startedAt ?? null,
+      booking.hold?.expiresAt ?? null,
+      booking.hold ? "僅 OS 占房；外部通路未串接" : null,
+      holdPhase(booking, new Date(options.generatedAt ?? Date.now())),
+      booking.hold?.latePaymentReview ? "待處理" : null,
     ]);
     if (sourcePaid !== null)
       tables.payments.push([
