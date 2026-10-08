@@ -37,8 +37,10 @@ test("a fresh calendar visit resets an old in-memory month to today", async (t) 
   assert.equal(new URLSearchParams(location.search).get("date"), localTodayIso());
 });
 
-test("explicit date links and real browser Back/Forward retain the chosen month", async (t) => {
+test("a saved old-date URL starts today, but in-session Back/Forward retain manually chosen months", async (t) => {
   await mount(t, Probe, {}, "calendar?view=month&date=2026-09-15");
+  assert.equal(document.querySelector("output").textContent, localTodayIso());
+  await act(() => useCalendarPreferences.getState().setAnchorDate("2026-09-15"));
   assert.equal(document.querySelector("output").textContent, "2026-09-15");
   await act(() => useCalendarPreferences.getState().setAnchorDate("2026-11-15"));
   assert.equal(new URLSearchParams(location.search).get("date"), "2026-11-15");
@@ -53,6 +55,46 @@ test("explicit date links and real browser Back/Forward retain the chosen month"
   assert.equal(document.querySelector("output").textContent, "2026-09-15");
   await traverse("forward");
   assert.equal(document.querySelector("output").textContent, "2026-11-15");
+});
+
+test("reopening the calendar ignores a matching old browser history snapshot", async (t) => {
+  const { root } = await mount(t, Probe, {}, "calendar");
+  await act(() => useCalendarPreferences.getState().setAnchorDate("2026-09-15"));
+  assert.equal(history.state.bnbCalendar.anchorDate, "2026-09-15");
+  await act(() => root.render(createElement(Probe, { key: "reopened" })));
+  assert.equal(document.querySelector("output").textContent, localTodayIso());
+  assert.equal(history.state.bnbCalendar.anchorDate, localTodayIso());
+});
+
+test("a link to a specific booking still opens that booking's date", async (t) => {
+  await mount(t, Probe, {}, "calendar?date=2026-09-15&order=synthetic-order");
+  assert.equal(document.querySelector("output").textContent, "2026-09-15");
+  assert.equal(useCalendarPreferences.getState().selectedBookingId, "synthetic-order");
+});
+
+test("foregrounding a suspended calendar resets its old month without interrupting an open booking", async (t) => {
+  const { dom } = await mount(t, Probe, {}, "calendar");
+  let visibility = "visible";
+  Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
+  const foreground = async () => act(() => {
+    visibility = "hidden";
+    document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    visibility = "visible";
+    document.dispatchEvent(new dom.window.Event("visibilitychange"));
+  });
+  await act(() => useCalendarPreferences.setState({ anchorDate: "2026-09-15", expandedWeeks: ["2026-09-14"] }));
+  await foreground();
+  assert.equal(document.querySelector("output").textContent, localTodayIso());
+  assert.deepEqual(useCalendarPreferences.getState().expandedWeeks, []);
+  assert.equal(new URLSearchParams(location.search).get("date"), localTodayIso());
+  await act(() => useCalendarPreferences.setState({ anchorDate: "2026-09-15", selectedBookingId: "synthetic-order" }));
+  await foreground();
+  assert.equal(document.querySelector("output").textContent, "2026-09-15");
+  await act(() => {
+    useCalendarPreferences.setState({ selectedBookingId: null });
+    window.dispatchEvent(new dom.window.PageTransitionEvent("pageshow", { persisted: true }));
+  });
+  assert.equal(document.querySelector("output").textContent, localTodayIso());
 });
 
 test("invalid date links fall back to today", async (t) => {
