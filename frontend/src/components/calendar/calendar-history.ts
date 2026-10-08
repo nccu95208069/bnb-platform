@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useCalendarPreferences } from "./calendar-preferences";
 import { availabilityFeatures } from "@/lib/availability-features";
 import { channelLabels } from "@/lib/availability";
+import { localTodayIso } from "./calendar-utils";
 
 type State = ReturnType<typeof useCalendarPreferences.getState>;
 function snapshot(s: State) {
@@ -52,7 +53,8 @@ function fromUrl(s: State) {
   if (mode === "sold" || mode === "unsold") next.mode = mode;
   else if (p.has("order")) next.mode = "sold";
   if (view === "month" || view === "week" || view === "day") next.view = view;
-  if (validDate(day)) next.anchorDate = day;
+  // A fresh calendar visit starts today; only an explicit link restores a date.
+  next.anchorDate = validDate(day) ? day : localTodayIso();
   if (room && (room === "all" || rooms.includes(room)))
     next.availabilityRoom = room;
   if (channel && channel in channelLabels)
