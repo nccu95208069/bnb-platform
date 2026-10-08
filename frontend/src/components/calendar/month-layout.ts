@@ -9,6 +9,14 @@ export type MonthStaySegment = {
   continuesAfter: boolean;
 };
 
+// Compact grid: 20px date + 4px padding, then 18px per booking + 2px gap.
+// Only reserve the extra 14px overflow label + 2px gap when bookings don't fit.
+export function fitMonthWeekLanes(weekHeight: number, laneCount: number): number {
+  const withoutOverflow = Math.max(0, Math.floor((weekHeight - 24) / 20));
+  if (laneCount <= withoutOverflow) return laneCount;
+  return Math.max(1, Math.floor((weekHeight - 40) / 20));
+}
+
 // Allocate the entire visible stay at once, so it cannot jump vertically or
 // disappear halfway through a week when other rooms arrive or depart.
 export function layoutMonthWeek(bookings: CalendarBooking[], days: string[], weekEnd: string): MonthStaySegment[] {

@@ -9,7 +9,7 @@ import { useMonthPosition } from "./use-month-position";
 import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
 import { GuestRemarks, remarksFor, BookingIdentity, bookingIdentityText, realGuestName } from "./booking-identity";
-import { layoutMonthWeek } from "./month-layout";
+import { fitMonthWeekLanes, layoutMonthWeek } from "./month-layout";
 import { useCalendarPreferences } from "./calendar-preferences";
 import { cn } from "@/lib/utils";
 
@@ -219,10 +219,10 @@ const uiLocale = useIntlLocale();
       {weeks.map((week) => {
         const weekKey = week[0];
         const expanded = expandedWeeks.includes(weekKey);
-        const defaultLimit = Math.max(1, Math.min(2, Math.floor((weekHeight - 40) / 22)));
-        const limit = expanded ? Number.POSITIVE_INFINITY : defaultLimit;
         const segments = layoutMonthWeek(monthBookings, week, addDays(week[6], 1));
         const laneCount = Math.max(0, ...segments.map(s => s.lane + 1));
+        const defaultLimit = fitMonthWeekLanes(weekHeight, laneCount);
+        const limit = expanded ? Number.POSITIVE_INFINITY : defaultLimit;
         const weekHasOverflow = laneCount > defaultLimit;
         const visibleLanes = Math.min(laneCount, limit);
         const hidden = week.map((_, index) => segments.filter(s => s.lane >= limit && s.start <= index && s.end > index).length);
