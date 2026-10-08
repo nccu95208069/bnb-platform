@@ -1,5 +1,7 @@
 # BnB SaaS / Sweetfun OS — Authoritative Work Context
 
+2026-10-08 private WEB-04 acceptance completed: [final real LINE operations, last-room concurrency, cleanup and code review](docs/work-handoff/WEBSITE_BOOKING_API_2026-10-07.md#final-private-acceptance-and-code-review--2026-10-08). Live expiry/late-payment/refund, LINE extension/release/deposit conversion, guest readback and two-tab last-room contention pass. All five synthetic orders are cancelled with zero occupancy and zero net receipts; latest Email/LINE jobs have provider acknowledgements. 259 regression checks and the production Webpack build pass; lint has zero errors. Review found no new P0/P1 issue; one recoverable P2 LINE quick-reply replacement issue is documented. Physical-device acceptance, public sales authorization and legacy Sheet/OwlNest integration remain explicitly outside this completed private acceptance.
+
 2026-10-07 WEB-04 follow-up: [same-order amendments, formal change/cancel notifications, current guest summaries and immutable accepted terms](docs/work-handoff/WEBSITE_BOOKING_API_2026-10-07.md#web-04-lifecycle-completion-follow-up-2026-10-07). Engineering, isolated verification and the OS/guest-site/private-builder releases are complete. OS runtime `8b9a267` is live on the primary domain and its actual notification cron returned 200 at 21:47:16 Asia/Taipei. Owner approval/pairing and real recipient delivery still need human acceptance; WEB-04 remains in acceptance.
 
 > **Status:** current project handoff baseline  

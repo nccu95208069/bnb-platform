@@ -692,3 +692,264 @@ A selected isolated first order and approved Email/LINE recipients are still
 required for a real end-to-end delivery check. No live test order or notification
 was generated. WEB-04 stays in acceptance until those human steps and actual
 receipts are verified.
+
+## Owner acceptance progress — 2026-10-08
+
+The human completed browser-bound email verification and personally confirmed
+the isolated test calendar. The authenticated owner page now reports the website
+connected, and opening the calendar verifies one test-only physical room with no
+bookings. The approved fixture is one room for two people, TWD 1,000 per night,
+with accommodation dates October 20–22 and explicit no-payment/no-real-stay
+terms. This is not approval to sell actual accommodation.
+
+The private builder's normal **檢查連接結果** flow read back the connected state;
+the confirmed settings were saved to the browser draft. Its booking preview
+shows October 20 check-in / October 22 check-out as two nights, one room, two
+adults and a TWD 2,000 trial total, with the approved test terms. The page
+explicitly states that preview creates no booking, occupancy or notification.
+
+The owner's earlier restriction to keep the test unpublished remains in force.
+The public guest site's booking button still leads to its existing Booking.com
+destination; the new test setup has not been published. No live reservation,
+payment, cancellation or booking notification was generated in this acceptance
+step. Browser preview evidence must not be counted as live order acceptance.
+
+After the human privately sent the pairing command, the normal owner-page
+refresh confirmed **本次 LINE 配對完成**, with a pairing time of 10:17 Asia/Taipei
+on October 8. This verifies the account binding, not delivery of a booking
+notification.
+
+Live booking acceptance now requires a private test path or explicit permission
+to publish the test settings. The existing guest Worker loads the published
+snapshot for new availability, quote and reservation requests, while the private
+preview intentionally has no write effects. Do not bypass that distinction or
+publish against the owner's earlier restriction. No full website-to-calendar
+or real booking Email/LINE delivery success is claimed. Legacy Sheet/OwlNest
+acceptance remains separate.
+
+### Private acceptance deployment and first live order — 2026-10-08
+
+After the owner chose private acceptance, the existing owner-only Sites builder
+received `/acceptance/` and an identity-checked private proxy. The guest service
+received service-authenticated private acceptance routes; the public published
+snapshot and public booking availability were not enabled by these routes.
+Only the authenticated owner's Email, one test-named room and the exact
+owner-approved configuration can prepare the private snapshot. Reservations
+reuse the production adapter and are marked as private acceptance orders.
+
+The guest release is source `3d8533abd354a0c0bf479d105d2e1c21125d4c2a`,
+deployment `appgdep_6ac7003b37bc8191b6958919b76ce457`, environment revision 2.
+The owner-only builder release is source
+`5d506056736f7ebd79cbb57c7d59ad9b6fba3915`, deployment
+`appgdep_6ac7005cd8748191b8bdeb53963fbe99`, environment revision 1.
+Both native deployment results succeeded; neither audience nor credentials
+changed. Eight new private-boundary checks and the existing lifecycle,
+calendar-connection and publication checks passed.
+
+The authenticated live private flow loaded the approved fixture, obtained the
+OS price for October 20–22 (two nights, TWD 2,000), and created one synthetic
+hold. The owner calendar showed exactly those two occupied nights and no
+occupancy on checkout day. The order detail read back the same website order,
+two room-nights, total TWD 2,000 and zero receipts. Reloading the private page
+recovered its original lookup reference and offered a query instead of another
+submission. Two matching guest/owner emails were found in the approved
+recipient's inbox. LINE booking-message delivery has not yet been verified.
+
+During the morning checks, the browser's admin-policy verification became
+unavailable for both the private Site and OS. Browser access was denied. No
+alternative browser or API mutation was used to bypass that boundary. The
+test order remained held at that checkpoint; release, restored availability and
+the post-reload result were not yet verified. The afternoon evidence below
+supersedes that temporary block and the held-state checkpoint. No real money
+was recorded.
+
+### Private hold/release acceptance completed — 2026-10-08 afternoon
+
+The human released the same synthetic hold through the normal owner UI and
+provided a LINE screenshot showing both the original hold message and its
+release message, with matching booking reference and stay dates. The release
+message arrived at 15:09 Asia/Taipei. Browser access subsequently worked through
+the normal interface; no access-policy workaround was used.
+
+The authenticated OS order detail now reads **保留已釋出** and explicitly says
+the order no longer occupies the room. It retains the original two-night stay,
+TWD 2,000 historical amount and zero receipts. Two matching release emails were
+found in the approved recipient's inbox, completing guest/owner Email delivery
+evidence alongside the human-confirmed LINE receipt.
+
+The original private page retained its original lookup reference across reload.
+Its **查詢最新結果** action now reads **這次申請已結束**, with no retained room,
+the same booking reference and original stay details. A separate private page
+queried October 20–22 for the same room and two adults and successfully reached
+the contact-details stage with the original TWD 2,000 quote. This verifies that
+the released room is available again. No second reservation was submitted.
+
+This completes the real private create-hold → calendar occupancy → Email/LINE
+delivery → owner release → guest status lookup → restored-availability flow.
+It does not claim real same-order amendment, payment/refund or overdue-reminder
+acceptance, nor legacy Sheet/OwlNest integration or public launch. The public
+guest site's test settings remain unpublished, and the synthetic hold is now
+released.
+
+### Private amendment, conversion, refund and cancellation — 2026-10-08
+
+After the owner requested continued acceptance, one additional synthetic order
+was created through the private entry using the same approved room, recipient
+and October 20–22 fixture. The guest name and order notes explicitly identify
+the test and state that all payment entries are simulations with no real funds
+or accommodation. The entire lifecycle retained the same order identifier.
+
+The initial automation date fill did not persist through the controlled form;
+readback caught a price-only update. A subsequent native date-control update,
+checked before submission, changed checkout to October 21. The canonical order
+and guest lookup both showed one night and TWD 1,000, while the original hold
+deadline remained unchanged. This was an input-automation correction, not
+evidence of a backend amendment failure.
+
+A simulated TWD 500 deposit using the `other` method converted the hold into a
+formal order. Owner readback showed one deposit, TWD 500 received and TWD 500
+remaining; the guest lookup showed **預訂已確認**. A second amendment restored
+October 22 checkout and TWD 2,000 while preserving formal status, the original
+order identifier and the single TWD 500 deposit. A TWD 500 simulated refund,
+explicitly labelled as test-only in its note, reduced the net received amount
+to zero. The owner UI then cancelled the formal order and released its rooms.
+
+Reloading the order verified **已取消**, both offsetting TWD 500 ledger entries
+and zero net received. The original guest lookup reported **這次申請已結束** with
+the current October 20–22 details and original reference. The authenticated
+October calendar reported zero occupied room-nights on October 20 and 21.
+Both synthetic acceptance orders are now inactive; no active test hold remains.
+
+Read-only receipt inspection, restricted to the exact test order's deterministic
+notification jobs, confirmed `sent` and provider acknowledgement for all three
+channels (`guestEmail`, `ownerEmail`, `ownerLine`) on the amendment,
+hold-conversion and formal-cancellation events. The new order's original
+hold-created jobs were safely superseded by its rapid amendment before delivery;
+that is not a second hold-delivery acceptance claim. Matching amendment emails
+were found in the approved inbox. Gmail subsequently rate-limited lookup, so
+conversion/cancellation inbox arrival and human reading of the new LINE messages
+are not claimed beyond the recorded provider acknowledgements.
+
+At this checkpoint real expiry/reminder acceptance was still pending. The
+subsequent owner-authorized accelerated test below replaces the proposed
+cross-day approach. No overnight hold or automation was created. Public launch
+and legacy Sheet/OwlNest scope remain separate.
+
+### Accelerated expiry-reminder acceptance — 2026-10-08
+
+The owner explicitly requested changing the test time rather than waiting
+overnight. A third synthetic order was created through the same private entry,
+using the approved room and dates, with its guest name and note identifying the
+accelerated expiry test. Its original 24-hour hold and all three creation
+notification receipts were verified first.
+
+A temporary, narrowly scoped acceptance helper changed only that order's
+`hold.expiresAt` to 90 seconds ahead. It checked the exact connection, test
+workspace, property, room, booking identifier, test name/note, approved owner
+identity, zero payment records and absence of other active orders. The write
+used the existing compare-and-swap store, incremented booking/workspace versions,
+preserved the rest of the workspace, and saved an audit and idempotent receipt.
+No production endpoint, normal 24-hour configuration, system clock, other
+booking or public snapshot was changed. This helper was local acceptance tooling,
+not a feature added to the application.
+
+The normal owner and guest UIs read back the shortened deadline as 15:35:20
+Asia/Taipei on October 8. After it elapsed, the owner page displayed
+**保留到期・待業主決定**, and the guest page displayed **保留到期，等待民宿確認**.
+The calendar still showed one occupied room-night on each of October 20 and 21,
+with no occupancy on checkout day. No cancellation, automatic release,
+conversion or payment entry occurred at expiry.
+
+Without manually enqueueing the first reminder or running a mail sender, the
+existing scheduled process created `hold_expired` jobs at 15:36:16. The owner
+Email job obtained a provider acknowledgement at 15:36:17 and the owner LINE job
+at 15:37:04. Both durable jobs read back as `sent`; no guest expiry-email job
+was created. Gmail inbox queries remained rate-limited, so this specifically
+proves provider acknowledgement rather than independently observed inbox arrival
+or human reading of this new LINE message.
+
+After both acknowledgements, an explicit second execution of the existing
+expiry-enqueue function returned `queued: 0`. The complete workspace and
+notification projections were unchanged, verifying the repeat guard. The
+normal owner UI then released the test hold. Canonical/UI readback showed
+**保留已釋出**, and the calendar returned to zero occupied room-nights on both
+test dates. All three synthetic orders are now inactive; no overnight task,
+unsettled test money or active test hold remains.
+
+This verifies the real expiry/reminder mechanism using an accelerated test
+deadline. It is not a claim that 24 hours elapsed during acceptance. The normal
+24-hour hold setting remains unchanged.
+
+### Final private acceptance and code review — 2026-10-08
+
+This section supersedes the three-order cleanup count and pending native LINE
+acceptance above. The owner requested completion of the remaining tests,
+followed by code review and correction of critical issues.
+
+Live acceptance completed through the existing private Sites page, authenticated
+OS UI and the owner's already-paired LINE desktop conversation:
+
+- On the released expiry-test order, a simulated late receipt of TWD 500 left
+  inventory released; the same room remained quotable. A TWD 500 refund returned
+  its net receipts to zero without reviving the booking.
+- Two browser tabs obtained quotes for the same final room and submitted
+  separately. Exactly one hold succeeded; the other received the changed
+  availability message. Only the winning booking appeared in LINE.
+- Native LINE `OS 查看`, `OS 延期 12` and confirmation extended that same booking
+  by exactly 12 hours. OS and the guest's original lookup showed the new deadline.
+  `OS 釋出` and confirmation released it; the original guest lookup then showed
+  the application had ended.
+- A final private one-night booking was opened in LINE and converted through
+  `OS 收訂金` and confirmation with a simulated TWD 500 cash receipt. LINE and
+  OS showed the same booking, TWD 1,000 total, TWD 500 received and TWD 500 due;
+  the guest page showed confirmed. The normal OS UI recorded a TWD 500 refund
+  and cancelled the order.
+- The guest result was visually checked at a 390 × 844 viewport, including its
+  long reference, deadline and accepted terms; no horizontal overflow was
+  observed. The override was reset. This is browser responsive verification,
+  not physical iPhone/Android or LINE in-app-browser acceptance.
+
+At **16:14:29 Asia/Taipei**, a scoped read-only canonical check confirmed all
+**five** synthetic bookings were cancelled, each had zero net receipts, and
+the test property's active-order count was **zero**. Each booking's latest
+guest Email, owner Email and owner LINE notification had `sent` state and a
+provider acknowledgement. Actual LINE created/extended/released/converted
+messages were also visually observed. The earlier expiry reminder was visible
+in that conversation. No real payment, public test publication, external stock
+write or overnight automation occurred. Payment entries remain as an audit trail.
+
+Regression verification: **259 checks passed**: OS booking/hold/amendment/LINE/
+notification/email/login suites 96, native LINE suites 104, actual-handler
+cross-system checks 14, private access checks 8, booking lifecycle checks 8,
+calendar integration checks 8 and publishing checks 21. Cross-system fault
+tests cover a committed operation whose response is lost and recovery of the
+same request, plus both identical-request and different-guest concurrency.
+These are isolated fault injections; no production network outage was induced.
+Frontend lint completed with zero errors and six existing warnings. Production
+Webpack build passed, including TypeScript and 74 prerendered pages. Default
+Turbopack could not bind a local helper port in this execution environment,
+including the elevated attempt; no source change was made to mask that error.
+
+Review covered server-owned binding/actor authority, owner revocation fences,
+private proxy identity and credential boundaries, shared inventory CAS,
+idempotent request/operation receipts, late-payment/refund accounting,
+amendment capacity/price guards, immutable accepted terms and notification
+claim/delivery/reconciliation boundaries. **No new P0/P1 issue was found** in
+this reviewed scope; therefore no critical runtime patch or deployment was
+needed in this final pass.
+
+One **P2 usability finding remains** in the native LINE adapter: a later push
+notification replaces the quick-reply confirmation buttons while the pending
+confirmation remains valid. This was reproduced when the created notification
+arrived after a deposit preview. Resending the same unconfirmed instruction
+generated a fresh preview and completed normally, with exactly one receipt.
+The token appears only in quick replies in
+`int02-native-line-20261007/src/website_booking/owner_actions.py`; a future fix
+should also include the actor-bound confirmation command in the preview text
+and verify that old/expired confirmations still cannot write. This is not a
+duplicate-charge or authorization failure and was not silently marked fixed.
+
+Private native-calendar acceptance is complete within those stated limits.
+Public sales still require real sale configuration and explicit publication
+authorization. Legacy Google Sheet/OwlNest synchronization remains INT-03's
+separate integration boundary; these platform-only tests do not certify it.
