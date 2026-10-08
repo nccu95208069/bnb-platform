@@ -8,6 +8,7 @@ import {useT} from "@/components/i18n/language-provider";
 import { OsPaymentPanel } from "@/components/payments/os-payment-panel";
 
 import { CalendarPrivacy } from "./calendar-privacy";
+import { CalendarToolbar } from "./calendar-toolbar";
 import {
   useCallback,
   useEffect,
@@ -15,6 +16,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type ReactNode,
 } from "react";
 import {
   AlertCircle,
@@ -54,10 +56,7 @@ import type {
 } from "@/components/calendar/calendar-types";
 import { DayView, MonthScroller } from "@/components/calendar/calendar-views";
 import {
-  PAYMENT_DOT_STYLES,
-  PAYMENT_LABELS,
   PLATFORM_LABELS,
-  PLATFORM_STYLES,
   VIEW_LABELS,
   addDays,
   addMonths,
@@ -144,12 +143,12 @@ function MetricCard({
   const uiText = useT();
 
   return (
-    <div className="rounded-xl border bg-card px-4 py-3 shadow-xs">
+    <div className="rounded-xl border bg-card px-3 py-2 shadow-xs">
       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <Icon className="size-3.5" />
         {uiText(label)}
       </div>
-      <p className="mt-1 text-xl font-semibold tracking-tight text-foreground">
+      <p className="mt-0.5 text-lg font-semibold tracking-tight text-foreground">
         {value}
       </p>
     </div>
@@ -184,7 +183,7 @@ function overlayEdits(
   };
 }
 
-function SoldBookingCalendar() {
+function SoldBookingCalendar({ renderToolbar }: { renderToolbar: (data: CalendarResponse | null) => ReactNode }) {
 const uiLocale = useIntlLocale();
 
   const uiText = useT();
@@ -699,7 +698,8 @@ const uiLocale = useIntlLocale();
   }
 
   return (
-    <div className="pb-0 md:space-y-4 md:pb-8">
+    <div className="pb-0 md:space-y-2">
+      {renderToolbar(data)}
       {PAYMENT_SANDBOX && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card p-3 text-sm">
           <div>
@@ -736,16 +736,10 @@ const uiLocale = useIntlLocale();
       )}
 
       <section className="sticky top-0 z-30 hidden overflow-hidden rounded-2xl border bg-background/95 shadow-sm backdrop-blur md:block">
-        <div className="flex flex-col gap-4 border-b px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
           <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                SF
-              </span>
-              Sweetfun Operations
-            </div>
-            <div className="mt-2 flex items-center gap-3">
-              <h1 className="text-2xl font-semibold tracking-tight">
+            <div className="flex items-center gap-3">
+              <h1 className="text-lg font-semibold tracking-tight">
                 {uiText("訂單與房況日曆")}</h1>
               {effectiveRole !== "owner" && (
                 <span className="rounded-full border bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
@@ -789,7 +783,7 @@ const uiLocale = useIntlLocale();
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 px-5 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
           <div className="flex min-w-0 items-center gap-2">
             <Button
               variant="outline"
@@ -809,13 +803,13 @@ const uiLocale = useIntlLocale();
             >
               <ChevronRight className="size-4" />
             </Button>
-            <div className="ml-1 min-w-48 truncate text-base font-semibold">
+            <div className="ml-1 min-w-28 truncate text-base font-semibold">
               {displayPeriod.label}
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="relative w-72">
+            <div className="relative w-56">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
@@ -849,7 +843,7 @@ const uiLocale = useIntlLocale();
           {item.label}{uiText("暫時無法載入，相關房況與統計尚無法確認。其他民宿仍可正常查看。")}</div>
       ))}
 
-      <div className="hidden gap-3 sm:grid-cols-2 md:grid xl:grid-cols-5">
+      <div className="hidden gap-2 md:grid md:grid-cols-5">
         <MetricCard
           icon={CalendarDays}
           label={data?.source ? uiText("訂單紀錄") : uiText("訂單")}
@@ -867,65 +861,12 @@ const uiLocale = useIntlLocale();
         />
       </div>
 
-      <div className="hidden flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border bg-card px-4 py-2.5 text-xs text-muted-foreground shadow-xs lg:flex">
-        <span className="font-semibold text-foreground">{uiText("圖例")}</span>
-        {Object.entries(PLATFORM_LABELS).map(([platform, label]) => (
-          <span key={platform} className="flex items-center gap-1.5">
-            <span
-              className={cn(
-                "size-2.5 rounded-sm border",
-                PLATFORM_STYLES[platform] ?? PLATFORM_STYLES.other,
-              )}
-            />
-            {uiText(label)}
-          </span>
-        ))}
-        {permissions.viewPrices && <span className="payment-review-legend ml-auto flex flex-wrap items-center gap-3">
-          {(Object.keys(PAYMENT_LABELS) as PaymentStatus[]).map((status) => (
-            <span key={status} className="flex items-center gap-1.5">
-              <span
-                className={cn(
-                  "size-2 rounded-full",
-                  PAYMENT_DOT_STYLES[status],
-                )}
-              />
-              {uiText(PAYMENT_LABELS[status])}
-            </span>
-          ))}
-        </span>}
-      </div>
-
-      {permissions.viewPrices && <p className="payment-review-legend px-2 text-[10px] text-muted-foreground">{uiText("灰底：已付清 · 訂：已付訂金 · 未：未付款")}</p>}
-
       {DEMO_MODE && !LIVE_SHEET && !PAYMENT_SANDBOX && data?.data_mode === "anonymized_multi_property_demo" && (
         <div className="hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 md:block">
           {uiText("示範模式：可測試權限、付款、改期與取消；變更只保存在這台裝置。")}</div>
       )}
 
       {data?.guest_access?.available && <CalendarPrivacy authenticated={data.guest_access.authenticated} />}
-
-      {(data?.sources ?? (data?.source ? [{ property_id: "sweetfun", source: data.source, summary: data.source_summary }] : []))
-        .filter(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)))
-        .map(({ property_id, source, summary }) => (
-        <div key={property_id} className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-[11px] text-sky-950" role="status">
-          <details>
-            <summary className="cursor-pointer py-0.5">
-              <span className="font-medium">{source.label}</span> {uiText("· 唯讀 ·")}{source.automatic_sync && source.sync ? uiText(({ healthy: "同步正常", confirming: "確認變更中", waiting: "等待首次檢查", error: "檢查失敗，保留上次資料", stale: "資料可能過期" })[source.sync.status]) : uiText("尚未自動同步")}
-              {source.sync?.last_successful_check_at && <span className="ml-1 text-sky-800">{new Date(source.sync.last_successful_check_at).toLocaleTimeString(uiLocale, {timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false})}</span>}
-            </summary>
-            <div className="mt-1 space-y-1 border-t border-sky-200 pt-1.5">
-          <p className="font-medium">{source.label} · {data?.guest_access?.authenticated ? uiText("私人唯讀檢視") : uiText("匿名唯讀快照")} · {new Date(source.observed_at).toLocaleString(uiLocale, { timeZone: "Asia/Taipei" })}</p>
-          {source.automatic_sync && source.sync ? <div aria-live="polite">
-            <p>{({ waiting: "監控已設定，等待首次檢查。", healthy: "每分鐘自動檢查訂房表。", confirming: "發現資料變更，等待下一次檢查確認；目前保留上次資料。", error: "訂房表檢查失敗，目前保留上次資料，系統會自動重試。", stale: "已超過 5 分鐘未完成檢查，目前顯示上次資料。" })[source.sync.status]}</p>
-            <p>{uiText("最後成功確認：")}{source.sync.last_successful_check_at ? new Date(source.sync.last_successful_check_at).toLocaleString(uiLocale, { timeZone: "Asia/Taipei" }) : uiText("尚無確認紀錄")} · {uiText("最近嘗試：")}{source.sync.last_checked_at ? new Date(source.sync.last_checked_at).toLocaleString(uiLocale, { timeZone: "Asia/Taipei" }) : uiText("尚未完成")} {uiText("· 比對")}{source.sync.cutoff} {uiText("起的入住紀錄與所有未來訂單。")}</p>
-          </div> : <p>{uiText("尚未啟用自動同步。")}</p>}
-          <p>{uiText("已付清指客人已付清，OTA 收款與旅宿入帳尚未記錄。")}</p>
-          <p>{uiText("訂單編號可空白，使用唯一 ID 識別每列；跨列連住需共同編號。")}</p>
-            </div>
-          </details>
-          {(summary?.new_issue_rows ?? 0) > 0 && <p className="mt-1">{uiText("新增或變更的問題涉及")}{summary?.new_issue_rows} {uiText("列，相關房況待核對。")}</p>}
-        </div>
-      ))}
 
       {query.trim() && <section className="m-2 rounded-xl border bg-card p-3 md:m-0" aria-label={uiText("搜尋結果")}>
         <h2 className="text-sm font-semibold">{uiText("搜尋結果 ·")}{filteredBookings.length} {uiText("筆（2025–2027）")}</h2>
@@ -1072,34 +1013,13 @@ export function BookingCalendarResponsive() {
     return <p className="p-4 text-sm text-muted-foreground">{uiText("讀取日曆…")}</p>;
   return (
     <GuestNotificationProvider><div className={paymentReview && viewPrices && mode === "sold" ? "payment-review" : ""}>
-      {(showUnsold || (viewPrices && mode === "sold")) && (
-        <div className="sticky top-14 z-40 mb-1 flex flex-wrap items-center justify-end gap-1 bg-background/95 py-1 backdrop-blur md:top-0">
-          {viewPrices && mode === "sold" && <Button size="sm" variant={paymentReview ? "default" : "outline"} aria-pressed={paymentReview} onClick={() => setPaymentReview(v=>!v)} className="mr-auto">{uiText("檢視付款狀態")}</Button>}
-          {showUnsold && <div
-            className="inline-flex gap-1 rounded-xl border bg-muted/40 p-1"
-            role="group"
-            aria-label={uiText("切換已售與未售")}
-          >
-            {(["sold", "unsold"] as const).map((value) => (
-              <Button
-                key={value}
-                size="sm"
-                variant={mode === value ? "default" : "ghost"}
-                aria-pressed={mode === value}
-                onClick={() => {
-                  setMode(value);
-                }}
-              >
-                {value === "sold" ? uiText("已售訂單") : uiText("未售房況")}
-              </Button>
-            ))}
-          </div>}
-        </div>
-      )}
       {mode === "unsold" && showUnsold ? (
-        <AvailabilityCalendar key={selectedPropertyIds.join(",")} />
+        <>
+          <CalendarToolbar showUnsold={showUnsold} paymentReview={paymentReview} onPaymentReview={() => setPaymentReview(v => !v)} />
+          <AvailabilityCalendar key={selectedPropertyIds.join(",")} />
+        </>
       ) : (
-        <SoldBookingCalendar />
+        <SoldBookingCalendar renderToolbar={data => <CalendarToolbar data={data} showUnsold={showUnsold} paymentReview={paymentReview} onPaymentReview={() => setPaymentReview(v => !v)} />} />
       )}
     </div></GuestNotificationProvider>
   );
