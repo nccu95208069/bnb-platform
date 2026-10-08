@@ -285,7 +285,7 @@ const uiLocale = useIntlLocale();
                 style={{gridColumn: index + 1, gridRow: visibleLanes + 2}}
                 aria-expanded={false} aria-label={uiText("{0} 展開其餘訂單", [week[index]])}
                 onClick={() => setExpandedWeeks(current => current.includes(weekKey) ? current : [...current, weekKey])}
-                className="relative mx-1 min-w-0 rounded px-1 text-left text-[10px] font-semibold text-muted-foreground hover:bg-accent md:text-[11px]">
+                className="relative mx-0.5 min-w-0 truncate rounded px-0.5 text-left text-[9px] font-semibold text-muted-foreground hover:bg-accent sm:mx-1 md:text-[11px]">
                 {uiText("還有")}{count} {uiText("筆")}</button>)}
             </div>
 

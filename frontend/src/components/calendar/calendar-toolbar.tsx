@@ -37,7 +37,7 @@ export function CalendarToolbar({ data, showUnsold, paymentReview, onPaymentRevi
         {viewPrices && <p className="text-muted-foreground">{t("已付清指客人已付清，OTA 收款與旅宿入帳尚未記錄。")}</p>}
       </div>
     </details>
-    <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5">
+    <div className="order-3 flex w-full flex-wrap items-center justify-end gap-1.5 sm:order-none sm:w-auto sm:flex-1 sm:justify-start">
       {sources.map(({ property_id, source, summary }) => {
         const issue = (summary?.new_issue_rows ?? 0) > 0;
         const status = source.automatic_sync && source.sync ? source.sync.status : "waiting";
@@ -46,7 +46,7 @@ export function CalendarToolbar({ data, showUnsold, paymentReview, onPaymentRevi
         const label = property_id === "sweetfun" ? "Sweetfun" : property_id === "offland" ? "OFFLAND" : source.label;
         const text = incomplete ? "待確認" : issue ? "待核對" : ({ healthy: "正常", confirming: "確認中", waiting: "待同步", error: "同步失敗", stale: "已過期" })[status];
         return <details key={property_id} className="md:relative">
-          <summary className={cn("flex cursor-pointer list-none items-center gap-1 rounded-full border px-2 py-1 text-[10px] [&::-webkit-details-marker]:hidden", healthy ? "border-border text-muted-foreground" : "border-amber-300 bg-amber-50 text-amber-950")}>
+          <summary className={cn("flex cursor-pointer list-none items-center gap-1 whitespace-nowrap rounded-full border px-2 py-1 text-[10px] [&::-webkit-details-marker]:hidden", healthy ? "border-border text-muted-foreground" : "border-amber-300 bg-amber-50 text-amber-950")}>
             <span className={cn("size-1.5 rounded-full", healthy ? "bg-emerald-500" : "bg-amber-500")} />
             {label} · {t(text)}
           </summary>
