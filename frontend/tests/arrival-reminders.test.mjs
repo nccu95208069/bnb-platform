@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { legacyArrivals, nativeArrivals, reminderText, taipeiDay } from '../src/lib/arrival-reminders/domain.ts';
+import { inspectLegacyArrivals, legacyArrivals, nativeArrivals, reminderText, taipeiDay } from '../src/lib/arrival-reminders/domain.ts';
 import { claimReminder, acknowledgeReminder, arrivalView, markHandled } from '../src/lib/arrival-reminders/service.ts';
 import { reminderWorker, workerOperation } from '../src/lib/arrival-reminders/worker.ts';
 import { customerList, legacyList } from '../src/lib/arrival-reminders/source.ts';
@@ -111,4 +111,35 @@ test('two target bindings cannot send the same property order twice in one day',
   const results=await Promise.all(['first-binding','second-binding'].map(target=>claimReminder(store,'worker',target,recipient,randomUUID(),data,now)));
   assert.equal(results.flatMap(r=>r.jobs).length,1);
   assert.equal((await claimReminder(store,'worker','third-binding',recipient,randomUUID(),data,now)).jobs.length,0);
+});
+
+
+test('partial arrival source retains safe notes, quarantines conflicts and prevents every automated send', async () => {
+  const data=list(), {store}=fixture();
+  const partial=inspectLegacyArrivals([
+    row('2026-10-10','2026-10-11'),
+    row('2026-10-11','2026-10-12',{order_id:'unlinked',source_order_linked:false}),
+    row('2026-10-10','2026-10-11',{order_id:'conflict',source_conflict:true,guest_name:'must not expose'})
+  ],'sweetfun',data.day);
+  assert.equal(partial.arrivals.length,1);assert.equal(partial.unconfirmed.length,2);
+  const unlinked=partial.unconfirmed.find(a=>a.id==='unlinked');assert.equal(unlinked.notes,'需要嬰兒床');assert.match(unlinked.href,/stay=2026-10-11_101/);
+  const conflict=partial.unconfirmed.find(a=>a.id==='conflict');assert.equal(conflict.notes,undefined);assert.equal(conflict.guest,undefined);
+  for(const extra of [{unconfirmed:partial.unconfirmed},{sourceIncomplete:true}]) await assert.rejects(()=>claimReminder(store,'worker','target',recipient,randomUUID(),{...data,...extra},now),/UNCONFIRMED/);
+});
+
+test('legacy source reports missing parent keys without losing notes and never uses OFFLAND card status as a key',async t=>{
+  const prior=[process.env.CALENDAR_SOURCE,process.env.BOOKING_SHEET_SOURCES];
+  process.env.CALENDAR_SOURCE='sheet_snapshot';process.env.BOOKING_SHEET_SOURCES='sweetfun,offland';
+  t.after(()=>{for(const [i,key] of ['CALENDAR_SOURCE','BOOKING_SHEET_SOURCES'].entries()){if(prior[i]===undefined)delete process.env[key];else process.env[key]=prior[i];}});
+  const {HEADERS}=await import('../src/lib/sheet-monitor/reconcile.ts');
+  const cells=['301','Synthetic','Agoda','2026/10/10','2026/10/11','2026/10/1','2500','done','OK','synthetic-row','晚到','','2'];
+  const result=await legacyList('sweetfun',now,async()=>[HEADERS,cells]);
+  assert.equal(result.arrivals.length,0);assert.equal(result.unconfirmed.length,1);assert.equal(result.unconfirmed[0].notes,'晚到');
+  const valid=cells.map((v,i)=>i===11?'linked-parent':v);
+  const earlier=valid.map((v,i)=>i===3?'2026/10/9':i===4?'2026/10/10':i===8?'pending':i===9?'earlier-row':v);
+  const quarantined=await legacyList('sweetfun',now,async()=>[HEADERS,earlier,valid]);
+  assert.equal(quarantined.arrivals.length,0);assert.equal(quarantined.unconfirmed[0].reason,'source');
+  const offlandHeaders=HEADERS.map(h=>h==='訂單編號'?'刷卡狀態':h);
+  const offland=await legacyList('offland',now,async()=>[offlandHeaders,[...cells.map((v,i)=>i===0?'OFFLAND':i===11?'已刷卡':v)]]);
+  assert.equal(offland.arrivals.length,0);assert.equal(offland.unconfirmed[0].reason,'order_link');assert.equal(offland.unconfirmed[0].notes,'晚到');
 });

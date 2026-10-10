@@ -28,6 +28,7 @@ export async function markHandled(store: CustomerStore, list: ArrivalList, actor
 // function. Records contain hashes and receipts only; original notes stay at source.
 export async function claimReminder(store: CustomerStore, worker: string, target: string, recipient: string, attempt: string, list: ArrivalList, now = new Date()) {
   if (!/^[a-f0-9-]{36}$/i.test(attempt) || !/^U[a-f0-9]{32}$/i.test(recipient)) throw Error('INVALID_INPUT');
+  if (list.sourceIncomplete || list.unconfirmed?.length) throw Error('ARRIVAL_SOURCE_UNCONFIRMED');
   const pointerKey = attemptKey(worker, target, attempt), pointer = await store.read<string>(pointerKey);
   const view = await arrivalView(store, list);
   const candidates = pointer.value ? [pointer.value] : view.arrivals.filter(a => !a.handledAt).map(a => a.id);
