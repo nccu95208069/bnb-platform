@@ -1,5 +1,19 @@
 # OS 入口、onboarding 與入住備註 — 2026-10-10
 
+## LINE 串接候選續作
+
+2026-10-10：下列是正式版本 `5e80ee3` 之後的候選變更，尚未啟用真實發送。
+
+- 小助手獨立 arrival sender、Firestore 日誌及 internal endpoint 已完成，預設關閉。成功回覆包含 `schemaVersion=1`，拒絕 Origin/Cookie。
+- claim 必須附持久 day，不能隔日沿用舊 attempt 領新工作。新增 `action=status`，與 ACK 一樣可於任意時窗、來源不可讀時查核原日回條；比對 jobId、worker、target、attempt 與 providerReceipt。
+- 回條不保存收件人原值；sender 日誌只存識別、雜湊與回條，不存姓名、備註及全文。
+- 來源部分不完整時，已確認訂單仍能獨立提醒。target 可明確設定 `includeUnconfirmed=true`，每日另外發一則「房晚待核對」，不可稱為新入住；未設定時不發待核對摘要。
+- OFFLAND 提醒 reader 單獨讀 Q 欄母訂單；Q schema 缺少則拒絕，Q 空白仍待核對。O 刷卡狀態不作訂單身份。連結指向指定入住日房況，舊日曆／財務身份遷移留在 INT-03；沒有更動 Sheet。
+- 17 項 domain／route／隔離真實 Redis／跨服務測試及 1 項 DOM 通過。Python sender → HTTP Next route → Redis → 模擬 LINE，ACK 連線中斷後隔日只補回報，provider 總計呼叫 1 次。
+- 小助手完整離線測試 3312 passed／11 deselected，含 27 項新增 sender 測試；三項獨立複本反例均被測試抓到。OS production build（含 TypeScript）通過，lint 0 errors／5 個既有 warnings。
+
+新 scheduler 預定每分鐘輪詢，只有台北 09 時可領新訊息，其餘時段補回條。正式小助手切換仍需沿用既有 5–10 分鐘入口暫停／drain／查核／恢復程序；管理者收件人、獨立權限與首次真實訊息驗收尚待啟用步驟。下方較早的正式驗收紀錄保留當時狀態。
+
 ## 交付狀態
 
 本次程式與隔離驗證完成，使用者允許推送後建立 draft PR #32，並依「請繼續」發布至正式主網域。變更基於 PR #31，PR 尚未合併。LINE 真實發送、外部新客戶與實體手機驗收仍分開列出，不將合成測試當成正式啟用。
