@@ -70,6 +70,7 @@ export type CalendarMapping = {
   overrides: Record<string, CalendarEventOverride>;
 };
 export type CalendarDraft = {
+  notes?: string | null;
   kind: "booking" | "block";
   guestName: string | null;
   reason: string | null;
@@ -105,6 +106,7 @@ export type CalendarReference = {
   fingerprint: string;
   externalId: string | null;
   sourceVersion: string;
+  sourceNotes?: string | null;
   financialEvidence?: { total: number | null; paid: number | null };
 };
 export type CalendarBinding = {

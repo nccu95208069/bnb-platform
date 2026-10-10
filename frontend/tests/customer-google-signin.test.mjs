@@ -73,8 +73,8 @@ async function setup() {
   });
   return { store, ...started, hash: draftHash(started.cookie) };
 }
-async function oauth(t, f, payload = {}, overrides = {}, draft = true) {
-  const flow = await beginGoogleSignIn(f.store, draft ? f.hash : undefined),
+async function oauth(t, f, payload = {}, overrides = {}, draft = true, destination) {
+  const flow = await beginGoogleSignIn(f.store, draft ? f.hash : undefined, destination),
     url = new URL(flow.url),
     state = url.searchParams.get("state");
   const id_token = await jwt(url.searchParams.get("nonce"), payload);
@@ -258,9 +258,13 @@ test("Google login, readonly consent, preview and atomic save need no password; 
     [...f.store.data.values()].join("").includes("synthetic-refresh"),
     false,
   );
-  const login = await oauth(t, f, {}, {}, false);
+  const destination = `/w/${saved.slug}/orders?property=${d.value.propertyId}`;
+  const login = await oauth(t, f, {}, {}, false, destination);
   assert.equal(login.url.searchParams.get("scope"), "openid email");
-  assert.equal((await login.finish()).account.id, signed.account.id);
+  const loggedIn = await login.finish();
+  assert.equal(loggedIn.account.id, signed.account.id);
+  assert.equal(loggedIn.destination, destination);
+  await assert.rejects(() => beginGoogleSignIn(f.store, undefined, "https://evil.test"), /INVALID_INPUT/);
 });
 test("Google partial consent never creates an account; third-party email cannot seize an existing account", async (t) => {
   const partial = await setup(),

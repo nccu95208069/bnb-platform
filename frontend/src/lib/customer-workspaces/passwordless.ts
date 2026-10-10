@@ -1,3 +1,4 @@
+import { customerReturnPath } from "./return-path.ts";
 import {
   createHmac,
   randomBytes,
@@ -23,6 +24,7 @@ type LoginLink = {
   expiresAt: number;
   draftHash?: string;
   websiteConnectionId?: string;
+  returnPath?: string;
   accountId: string | null;
   binding: string | null;
   // The request creates an account only for an active calendar preview. Generic
@@ -51,11 +53,14 @@ export async function requestEmailLogin(
     proof?: string;
     draftHash?: string;
     websiteConnectionId?: string;
+    returnPath?: string;
   },
   send: CustomerMail,
   preview = false,
 ) {
   const email = normalizedEmail(input.email);
+  const returnPath = customerReturnPath(input.returnPath ?? null) ?? undefined;
+  if (input.returnPath !== undefined && (!returnPath || input.draftHash || input.websiteConnectionId)) throw new Error("INVALID_INPUT");
   if (
     !validEmail(email) ||
     /[\r\n]/.test(email) ||
@@ -74,7 +79,8 @@ export async function requestEmailLogin(
     (old.value.email !== email ||
       old.value.proof !== digest(input.proof) ||
       old.value.draftHash !== input.draftHash ||
-      old.value.websiteConnectionId !== input.websiteConnectionId)
+      old.value.websiteConnectionId !== input.websiteConnectionId ||
+      old.value.returnPath !== returnPath)
   )
     throw new Error("IDEMPOTENCY_CONFLICT");
   const link: LoginLink = old.value ?? {
@@ -84,6 +90,7 @@ export async function requestEmailLogin(
     expiresAt: Date.now() + LOGIN_SECONDS * 1000,
     ...(input.draftHash ? { draftHash: input.draftHash } : {}),
     ...(input.websiteConnectionId ? { websiteConnectionId: input.websiteConnectionId } : {}),
+    ...(returnPath ? { returnPath } : {}),
     accountId: current.value?.id ?? null,
     binding: current.value
       ? customerCredentialBinding(current.value.credential)
@@ -147,7 +154,7 @@ export async function consumeEmailLogin(
       customerCredentialBinding(current.value.credential) !== link.usedBinding
     )
       throw new Error("LINK_INVALID");
-    return { account: current.value, draftHash: link.draftHash, websiteConnectionId: link.websiteConnectionId };
+    return { account: current.value, draftHash: link.draftHash, websiteConnectionId: link.websiteConnectionId, returnPath: customerReturnPath(link.returnPath ?? null) };
   }
   if (
     (current.value?.id ?? null) !== link.accountId ||
@@ -190,6 +197,6 @@ export async function consumeEmailLogin(
     customerCredentialBinding(verified.credential) !== used.usedBinding
   )
     throw new Error("WRITE_UNCONFIRMED");
-  return { account: verified, draftHash: link.draftHash, websiteConnectionId: link.websiteConnectionId };
+  return { account: verified, draftHash: link.draftHash, websiteConnectionId: link.websiteConnectionId, returnPath: customerReturnPath(link.returnPath ?? null) };
 }
 export const newLoginProof = () => randomBytes(32).toString("base64url");

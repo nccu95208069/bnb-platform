@@ -291,6 +291,7 @@ export function normalizeCalendar(
         stays,
         total,
         paid,
+        ...(kind === "booking" && event.description.trim() ? { notes: event.description.trim() } : {}),
       });
     } catch (e) {
       if (e instanceof Error && e.message === "CALENDAR_SIZE") throw e;
@@ -344,6 +345,8 @@ export function normalizeCalendar(
             "累計已付",
           ),
         };
+        const notes = [...new Set(values.flatMap(v => v.notes ? [v.notes] : []))].join("\n\n");
+        if (notes) row.draft.notes = notes;
         const overridden = row.eventKeys
           .filter((key) => Object.keys(mapping.overrides[key] ?? {}).length)
           .map((key) => [
