@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { inspectLegacyArrivals, legacyArrivals, nativeArrivals, reminderText, taipeiDay } from '../src/lib/arrival-reminders/domain.ts';
-import { claimReminder, acknowledgeReminder, arrivalView, markHandled } from '../src/lib/arrival-reminders/service.ts';
+import { inspectLegacyArrivals, notificationCandidates, legacyArrivals, nativeArrivals, reminderText, taipeiDay } from '../src/lib/arrival-reminders/domain.ts';
+import { claimReminder, acknowledgeReminder, reminderStatus, arrivalView, markHandled } from '../src/lib/arrival-reminders/service.ts';
 import { reminderWorker, workerOperation } from '../src/lib/arrival-reminders/worker.ts';
 import { customerList, legacyList } from '../src/lib/arrival-reminders/source.ts';
 import { fixture } from './helpers/calendar-fixture.mjs';
@@ -72,9 +72,9 @@ test('worker capability is separate, scope exact and outside-window claims do no
   assert.throws(()=>reminderWorker('Bearer '+token+'x',JSON.stringify(config),now),/UNAUTHORIZED/);
   assert.throws(()=>reminderWorker('Bearer '+token,JSON.stringify([...config,...config]),now),/CONFIG/);
   const {store}=fixture();let reads=0;const load=async()=>{reads++;return {list:list(),recipient};};
-  await assert.rejects(()=>workerOperation(store,worker,{action:'claim',targetId:'foreign',attemptId:randomUUID()},now,load),/FORBIDDEN/);
-  assert.equal((await workerOperation(store,worker,{action:'claim',targetId:'sweetfun',attemptId:randomUUID()},new Date('2026-10-10T00:59:00Z'),load)).status,'outside_window');assert.equal(reads,0);
-  assert.equal((await workerOperation(store,worker,{action:'claim',targetId:'sweetfun',attemptId:randomUUID()},now,load)).jobs.length,1);assert.equal(reads,1);
+  await assert.rejects(()=>workerOperation(store,worker,{action:'claim',day:'2026-10-10',targetId:'foreign',attemptId:randomUUID()},now,load),/FORBIDDEN/);
+  assert.equal((await workerOperation(store,worker,{action:'claim',day:'2026-10-10',targetId:'sweetfun',attemptId:randomUUID()},new Date('2026-10-10T00:59:00Z'),load)).status,'outside_window');assert.equal(reads,0);
+  assert.equal((await workerOperation(store,worker,{action:'claim',day:'2026-10-10',targetId:'sweetfun',attemptId:randomUUID()},now,load)).jobs.length,1);assert.equal(reads,1);
 });
 test('native source revalidates membership, property grants and connected-calendar freshness',async()=>{
   const {store,workspace}=fixture();const key=`workspace:${workspace.id}`;
@@ -114,7 +114,7 @@ test('two target bindings cannot send the same property order twice in one day',
 });
 
 
-test('partial arrival source retains safe notes, quarantines conflicts and prevents every automated send', async () => {
+test('partial arrival source retains safe notes and separates optional review messages from confirmed arrivals', async () => {
   const data=list(), {store}=fixture();
   const partial=inspectLegacyArrivals([
     row('2026-10-10','2026-10-11'),
@@ -124,7 +124,14 @@ test('partial arrival source retains safe notes, quarantines conflicts and preve
   assert.equal(partial.arrivals.length,1);assert.equal(partial.unconfirmed.length,2);
   const unlinked=partial.unconfirmed.find(a=>a.id==='unlinked');assert.equal(unlinked.notes,'需要嬰兒床');assert.match(unlinked.href,/stay=2026-10-11_101/);
   const conflict=partial.unconfirmed.find(a=>a.id==='conflict');assert.equal(conflict.notes,undefined);assert.equal(conflict.guest,undefined);
-  for(const extra of [{unconfirmed:partial.unconfirmed},{sourceIncomplete:true}]) await assert.rejects(()=>claimReminder(store,'worker','target',recipient,randomUUID(),{...data,...extra},now),/UNCONFIRMED/);
+  const mixed={...data,...partial};
+  assert.equal(notificationCandidates(mixed).length,1);
+  const candidates=notificationCandidates(mixed,true);assert.equal(candidates.length,2);assert.equal(candidates[1].kind,'review');
+  const text=reminderText(mixed,candidates[1]);assert.match(text,/房晚待核對/);assert.match(text,/可能包含續住/);assert.match(text,/需要嬰兒床/);assert.ok(!text.includes('must not expose'));
+  const empty={...mixed,arrivals:[]};
+  assert.equal((await claimReminder(store,'worker','target',recipient,randomUUID(),empty,now)).jobs.length,0);
+  const review=await claimReminder(store,'worker','target',recipient,randomUUID(),empty,now,true);assert.equal(review.jobs.length,1);
+  assert.equal((await claimReminder(store,'worker','target',recipient,randomUUID(),empty,now,true)).jobs.length,0);
 });
 
 test('legacy source reports missing parent keys without losing notes and never uses OFFLAND card status as a key',async t=>{
@@ -139,7 +146,27 @@ test('legacy source reports missing parent keys without losing notes and never u
   const earlier=valid.map((v,i)=>i===3?'2026/10/9':i===4?'2026/10/10':i===8?'pending':i===9?'earlier-row':v);
   const quarantined=await legacyList('sweetfun',now,async()=>[HEADERS,earlier,valid]);
   assert.equal(quarantined.arrivals.length,0);assert.equal(quarantined.unconfirmed[0].reason,'source');
-  const offlandHeaders=HEADERS.map(h=>h==='訂單編號'?'刷卡狀態':h);
-  const offland=await legacyList('offland',now,async()=>[offlandHeaders,[...cells.map((v,i)=>i===0?'OFFLAND':i===11?'已刷卡':v)]]);
+  const offlandHeaders=[...HEADERS.map(h=>h==='訂單編號'?'刷卡狀態':h),'unused','unused2','付款UID','訂單編號'];
+  const offland=await legacyList('offland',now,async def=>{assert.equal(def.lastColumn,'Q');return [offlandHeaders,[...cells.map((v,i)=>i===0?'OFFLAND':i===11?'已刷卡':v)]];});
   assert.equal(offland.arrivals.length,0);assert.equal(offland.unconfirmed[0].reason,'order_link');assert.equal(offland.unconfirmed[0].notes,'晚到');
+  const linked=cells.map((v,i)=>i===0?'OFFLAND':i===11?'已刷卡':v);linked[16]='canonical-parent';
+  const next=[...linked];next[3]='2026/10/11';next[4]='2026/10/12';next[9]='second-row';
+  const grouped=await legacyList('offland',now,async()=>[offlandHeaders,linked,next]);
+  assert.equal(grouped.arrivals.length,1);assert.equal(grouped.arrivals[0].checkOut,'2026-10-12');assert.equal(grouped.unconfirmed.length,0);assert.equal(grouped.arrivals[0].linkLabel,'查看入住日房況');
+  await assert.rejects(()=>legacyList('offland',now,async()=>[offlandHeaders.slice(0,16),linked.slice(0,16)]),/SCHEMA/);
+});
+
+
+test('receipt recovery does not read sources and survives the dispatch window and day rollover',async()=>{
+  const {store}=fixture(),data=list(),attempt=randomUUID();
+  const job=(await claimReminder(store,'worker','target',recipient,attempt,data,now)).jobs[0];
+  await acknowledgeReminder(store,'worker','target',data.day,attempt,job.id,'sent','synthetic-receipt',now);
+  const worker={id:'worker',targets:[{id:'target',kind:'legacy',propertyId:'sweetfun'}]};
+  const later=new Date('2026-10-11T04:00:00Z');let reads=0;
+  const load=async()=>{reads++;throw Error('Source unavailable');};
+  const status=await workerOperation(store,worker,{action:'status',targetId:'target',day:data.day,attemptId:attempt,jobId:job.id},later,load);
+  assert.deepEqual(status,{jobId:job.id,state:'sent',providerReceipt:'synthetic-receipt'});assert.equal(reads,0);
+  await assert.rejects(()=>reminderStatus(store,'other','target',data.day,attempt,job.id),/NOT_FOUND/);
+  const retry=await workerOperation(store,worker,{action:'claim',targetId:'target',day:data.day,attemptId:attempt},new Date('2026-10-11T01:00:00Z'),load);
+  assert.equal(retry.status,'outside_window');assert.equal(reads,0);
 });

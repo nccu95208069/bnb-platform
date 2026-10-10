@@ -8,7 +8,8 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: NextRequest) {
   try {
     if (process.env.ARRIVAL_REMINDERS_ENABLED !== 'true') return NextResponse.json({ code: 'ARRIVAL_DISABLED' }, { status: 503, headers });
+    if (request.headers.has('origin') || request.headers.has('cookie')) throw Error('FORBIDDEN');
     const worker = reminderWorker(request.headers.get('authorization'));
-    return NextResponse.json(await workerOperation(new RedisCustomerStore(), worker, await jsonInput(request)), { headers });
+    return NextResponse.json({ schemaVersion: 1, ...await workerOperation(new RedisCustomerStore(), worker, await jsonInput(request)) }, { headers });
   } catch (error) { return failure(error); }
 }

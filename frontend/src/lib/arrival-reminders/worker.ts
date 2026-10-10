@@ -4,10 +4,10 @@ import type { WebsiteBinding } from '../website-booking/types.ts';
 import { loadWorkspace } from '../customer-workspaces/service.ts';
 import { customerList, legacyList } from './source.ts';
 import { taipeiDay } from './domain.ts';
-import { acknowledgeReminder, claimReminder } from './service.ts';
+import { acknowledgeReminder, claimReminder, reminderStatus } from './service.ts';
 
-type LegacyTarget = { id: string; kind: 'legacy'; propertyId: 'sweetfun' | 'offland'; recipientId: string; verifiedAt: string; verifiedBy: string };
-type NativeTarget = { id: string; kind: 'workspace'; bindingId: string };
+type LegacyTarget = { includeUnconfirmed?: boolean; id: string; kind: 'legacy'; propertyId: 'sweetfun' | 'offland'; recipientId: string; verifiedAt: string; verifiedBy: string };
+type NativeTarget = { includeUnconfirmed?: boolean; id: string; kind: 'workspace'; bindingId: string };
 type Target = LegacyTarget | NativeTarget;
 export type ReminderWorker = { id: string; token_sha256: string; targets: Target[] };
 
@@ -25,6 +25,7 @@ export function reminderWorker(authorization: string | null, configuration = pro
       ids.add(worker.id); tokens.add(worker.token_sha256);
       for (const t of worker.targets) {
         if (typeof t.id !== 'string' || !/^[\w-]{1,80}$/.test(t.id) || targets.has(t.id)) throw Error(); targets.add(t.id);
+        if (t.includeUnconfirmed !== undefined && typeof t.includeUnconfirmed !== 'boolean') throw Error();
         if (t.kind === 'legacy') {
           if (!['sweetfun', 'offland'].includes(t.propertyId) || !/^U[a-f0-9]{32}$/i.test(t.recipientId) || !t.verifiedBy?.trim() || !Number.isFinite(Date.parse(t.verifiedAt)) || Date.parse(t.verifiedAt) > now.getTime()) throw Error();
         } else if (t.kind !== 'workspace' || !/^[a-f0-9-]{36}$/i.test(t.bindingId)) throw Error();
@@ -52,13 +53,17 @@ export async function workerOperation(store: CustomerStore, worker: ReminderWork
   if (!target) throw Error('FORBIDDEN');
   if (typeof input.attemptId !== 'string' || !/^[a-f0-9-]{36}$/i.test(input.attemptId)) throw Error('INVALID_INPUT');
   await store.limit(`arrival-worker:${worker.id}:${target.id}`, 300);
-  if (input.action === 'ack') {
-    if (typeof input.day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(input.day) || typeof input.jobId !== 'string') throw Error('INVALID_INPUT');
+  if (input.action === 'ack' || input.action === 'status') {
+    if (typeof input.day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(input.day) || typeof input.jobId !== 'string' || !/^[a-f0-9]{64}$/.test(input.jobId) || !Number.isFinite(Date.parse(input.day)) || new Date(input.day).toISOString().slice(0, 10) !== input.day) throw Error('INVALID_INPUT');
+    if (input.action === 'status') return reminderStatus(store, worker.id, target.id, input.day, input.attemptId, input.jobId);
     return acknowledgeReminder(store, worker.id, target.id, input.day, input.attemptId, input.jobId, input.outcome as 'sent' | 'failed' | 'unknown', input.providerReceipt as string | undefined, now);
   }
   if (input.action !== 'claim') throw Error('INVALID_INPUT');
+  // Bind a persisted attempt to its original Taipei day; an overnight retry must
+  // never silently claim tomorrow's notes using yesterday's send identity.
+  if (input.day !== taipeiDay(now)) return { day: taipeiDay(now), jobs: [], results: [], status: 'outside_window' };
   const hour = new Date(now.getTime() + 8 * 3600_000).getUTCHours();
   if (hour !== 9) return { day: taipeiDay(now), jobs: [], results: [], status: 'outside_window' };
   const { list, recipient } = await load(store, target, now);
-  return { day: list.day, ...await claimReminder(store, worker.id, target.id, recipient, input.attemptId, list, now) };
+  return { day: list.day, ...await claimReminder(store, worker.id, target.id, recipient, input.attemptId, list, now, target.includeUnconfirmed === true) };
 }

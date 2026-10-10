@@ -2,14 +2,14 @@ import { createHash } from 'node:crypto';
 import type { CalendarBooking } from '../../components/calendar/calendar-types';
 import type { Booking, Property } from '../customer-workspaces/types';
 
-export type Arrival = { id: string; guest: string; checkIn: string; checkOut: string; rooms: string[]; notes: string; href: string; fingerprint: string };
+export type Arrival = { kind?: 'review'; linkLabel?: string; id: string; guest: string; checkIn: string; checkOut: string; rooms: string[]; notes: string; href: string; fingerprint: string };
 export type UnconfirmedArrival = { id: string; date: string; rooms: string[]; reason: 'order_link' | 'source'; guest?: string; notes?: string; href: string };
 export type ArrivalList = { unconfirmed?: UnconfirmedArrival[]; sourceIncomplete?: boolean; scope: string; propertyName: string; checkedAt: string; day: string; arrivals: Arrival[] };
 export const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function taipeiDay(now = new Date()) { return new Date(now.getTime() + 8 * 3600_000).toISOString().slice(0, 10); }
 export function tomorrow(day: string) { return new Date(Date.parse(day + 'T00:00:00Z') + 86400_000).toISOString().slice(0, 10); }
 function arrival(value: Omit<Arrival, 'fingerprint'>): Arrival {
-  return { ...value, fingerprint: hash([value.id, value.guest, value.checkIn, value.checkOut, value.rooms, value.notes]) };
+  return { ...value, fingerprint: hash([value.id, value.guest, value.checkIn, value.checkOut, value.rooms, value.notes, ...(value.kind ? [value.kind] : [])]) };
 }
 export function nativeArrivals(bookings: Booking[], property: Property, slug: string, day: string): Arrival[] {
   return bookings.filter(b => b.propertyId === property.id && b.status === 'confirmed' &&
@@ -52,9 +52,21 @@ export function legacyArrivals(rows: CalendarBooking[], propertyId: string, day:
   if (result.unconfirmed.length) throw Error('ARRIVAL_SOURCE_UNCONFIRMED');
   return result.arrivals;
 }
+export function notificationCandidates(list: ArrivalList, includeUnconfirmed = false): Arrival[] {
+  if (!includeUnconfirmed || (!list.unconfirmed?.length && !list.sourceIncomplete)) return list.arrivals;
+  const pending = list.unconfirmed ?? [];
+  const notes = pending.map(item => `${item.date}｜${item.rooms.join('、')}${item.guest ? `｜${item.guest}` : ''}\n${item.notes || '備註／訂單關聯尚待核對。'}`).join('\n\n');
+  const property = list.scope.startsWith('legacy:') ? list.scope.slice(7) : '';
+  const href = property ? `/arrivals?property=${encodeURIComponent(property)}` : '/workspaces';
+  return [...list.arrivals, arrival({ kind: 'review', id: `review-${hash([list.scope, list.day])}`, guest: '需人工核對',
+    checkIn: list.day, checkOut: tomorrow(tomorrow(list.day)), rooms: [...new Set(pending.flatMap(item => item.rooms))].sort(),
+    notes: `以下是今日／明日的房晚紀錄，尚不能判定是否為新入住，可能包含續住。\n\n${notes || '部分來源資料未通過核對，請開啟 OS 查看來源狀態。'}`,
+    href })];
+}
 export function reminderText(list: ArrivalList, item: Arrival) {
-  const title = `${list.propertyName}｜${item.checkIn === list.day ? '今日' : '明日'}入住備註`;
+  const title = `${list.propertyName}｜${item.kind === 'review' ? '房晚待核對' : `${item.checkIn === list.day ? '今日' : '明日'}入住備註`}`;
   // LINE's limit is UTF-16 code units. Full original notes stay available in OS.
   const notes = item.notes.length > 3200 ? item.notes.slice(0, 3200) + '\n（其餘備註請開啟訂單查看）' : item.notes;
-  return `${title}\n${item.guest.slice(0, 160)}｜${item.rooms.join('、').slice(0, 200)}\n入住 ${item.checkIn}；退房 ${item.checkOut}\n\n${notes}\n\nhttps://sweetfun-os.vercel.app${item.href}\n送達不代表已處理，請在 OS 入住備註頁確認。`;
+  if (item.kind === 'review') return `${title}\n${list.day}／${tomorrow(list.day)}\n\n${notes}\n\nhttps://sweetfun-os.vercel.app${item.href}`;
+  return `${title}\n${item.guest.slice(0, 160)}｜${item.rooms.join('、').slice(0, 200)}\n入住 ${item.checkIn}；退房 ${item.checkOut}\n\n${notes}\n\nhttps://sweetfun-os.vercel.app${item.href}\n送達不代表已處理，請在 OS 入住備註頁確認。${list.unconfirmed?.length || list.sourceIncomplete ? '\n另有房晚待核對，請在 OS 查看。' : ''}`;
 }

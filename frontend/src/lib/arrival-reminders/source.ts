@@ -12,8 +12,9 @@ export async function legacyList(propertyId: string, now = new Date(), read = re
   if (process.env.CALENDAR_SOURCE !== 'sheet_snapshot' || !activeSources().some(s => s.property.id === propertyId)) throw Error('FORBIDDEN');
   const source = sourceDefinition(propertyId);
   // OFFLAND's old calendar adapter aliases a card-status column as an order key.
-  // Until INT-03 migrates the calendar's IDs, do not infer arrival grouping from it.
-  const definition = propertyId === 'offland' ? { ...source, parentOrderOptional: true,
+  // Q is the canonical parent key in the LINE writer's T-29 contract. Read it
+  // independently, keeping the old calendar/finance key migration in INT-03.
+  const definition = propertyId === 'offland' ? { ...source, lastColumn: 'Q', parentOrderOptional: false,
     headerAliases: Object.fromEntries(Object.entries(source.headerAliases ?? {}).filter(([name]) => name !== '刷卡狀態')) } : source;
   const values = await read(definition);
   const columns = (values[0] ?? []).map(value => { const name = String(value).trim(); return definition.headerAliases?.[name] ?? name; });
@@ -29,7 +30,10 @@ export async function legacyList(propertyId: string, now = new Date(), read = re
   const rows = attachPrivateGuestNames(snapshot.bookings, values, definition).map(row =>
     affectedParents.has(row.order_id) ? { ...row, source_notes_unconfirmed: true } : row);
   const sourceIncomplete = snapshot.issues.some(i => !i.date || [taipeiDay(now), tomorrow(taipeiDay(now))].includes(i.date));
-  return { sourceIncomplete, scope: `legacy:${propertyId}`, propertyName: definition.property.name, checkedAt: now.toISOString(), day: taipeiDay(now), ...inspectLegacyArrivals(rows, propertyId, taipeiDay(now)) };
+  const inspected = inspectLegacyArrivals(rows, propertyId, taipeiDay(now));
+  if (propertyId === 'offland') inspected.arrivals = inspected.arrivals.map(item => ({ ...item,
+    href: `/calendar?date=${item.checkIn}&properties=offland&mode=sold&stay=${encodeURIComponent(`${item.checkIn}_包棟`)}`, linkLabel: '查看入住日房況' }));
+  return { sourceIncomplete, scope: `legacy:${propertyId}`, propertyName: definition.property.name, checkedAt: now.toISOString(), day: taipeiDay(now), ...inspected };
 }
 export async function customerList(store: CustomerStore, accountId: string, slug: string, propertyId: string, now = new Date()): Promise<ArrivalList> {
   const { workspace, member } = await loadWorkspace(store, accountId, slug);
