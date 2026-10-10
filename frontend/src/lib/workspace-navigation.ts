@@ -1,5 +1,6 @@
 export const WORKSPACE_MODULES=[
  {id:'calendar',label:'日曆',href:'/calendar',description:'訂單、房況與日常入住安排。',enabled:true},
+ {id:'arrivals',label:'入住備註',href:'/arrivals',description:'今日與明日入住的備註和接待準備。',enabled:true},
  {id:'conversations',label:'對話',href:'/conversations',description:'集中處理旅客訊息與對話。',enabled:false},
  {id:'marketing',label:'攬客',href:'/marketing',description:'經營客源、行銷與回訪。',enabled:false},
  {id:'competitors',label:'競品',href:'/competitors',description:'掌握市場與周邊旅宿動態。',enabled:false},

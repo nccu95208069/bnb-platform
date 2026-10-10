@@ -68,7 +68,7 @@ export default async function Page({
   return (
     <main className="min-h-dvh bg-stone-50 p-4 text-slate-900 sm:p-8">
       <div className="mx-auto max-w-6xl">
-        <a href="/start" className="text-sm text-teal-800 underline">
+        <a href="/workspaces" className="text-sm text-teal-800 underline">
           我的旅宿
         </a>
         <h1 className="mt-3 text-2xl font-semibold">{data.name} · 訂單查詢</h1>

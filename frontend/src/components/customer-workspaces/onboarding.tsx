@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api, button, field, secondary } from "./client";
 import { receptionChoices } from "@/lib/hospitality-mode";
 import { PasswordlessLogin } from "./passwordless-login";
+import { customerReturnPath } from "@/lib/customer-workspaces/return-path";
 type Profile = {
   email: string;
   workspaces: { id: string; slug: string; name: string }[];
@@ -57,13 +58,8 @@ export function Onboarding({
       });
       const next = await api<Profile>("/api/customer-session");
       setProfile(next);
-      const destination = new URLSearchParams(location.search).get("next");
-      if (
-        destination &&
-        /^\/w\/[a-z0-9-]{3,48}\/(calendar|availability|finance|settings|import)$/.test(
-          destination,
-        )
-      )
+      const destination = customerReturnPath(new URLSearchParams(location.search).get("next"));
+      if (destination)
         location.assign(destination);
       else if (next.workspaces.length === 1)
         location.assign(`/w/${next.workspaces[0].slug}/calendar`);
@@ -104,6 +100,7 @@ export function Onboarding({
   return (
     <main className="min-h-dvh bg-stone-50 px-5 py-12 text-slate-800">
       <div className="mx-auto max-w-xl">
+        <a href="/workspaces" className="mb-4 block text-sm text-teal-800 underline">我的旅宿／切換日曆</a>
         <a
           href="/join"
           className="mb-5 inline-block text-sm text-teal-800 underline"
