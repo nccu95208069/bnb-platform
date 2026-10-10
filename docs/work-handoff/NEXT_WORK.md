@@ -1,6 +1,9 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
-2026-10-10: OS entry/onboarding/arrival implementation and remaining LINE activation boundaries are recorded in [OS readiness](OS_READINESS_2026-10-10.md). Deploy and verify the candidate before treating the new UI as live; keep reminder dispatch disabled until the LINE sender is connected and verified.
+2026-10-10 release: [OS readiness production acceptance](OS_READINESS_2026-10-10.md) is live at runtime `5e80ee3`. Workspace entry and both legacy arrival-source views are verified using normal owner login; partial notes remain visible and explicitly unconfirmed. LINE reminder delivery and INT-03 parent-order mapping remain open.
+
+
+2026-10-10: OS entry/onboarding/arrival implementation and remaining LINE activation boundaries are recorded in [OS readiness](OS_READINESS_2026-10-10.md). Production deployment and normal-login readback are complete; keep reminder dispatch disabled until the LINE sender and source order links are connected and verified.
 
 2026-10-08 private WEB-04 acceptance completed: [final real LINE operations, last-room concurrency, cleanup and code review](WEBSITE_BOOKING_API_2026-10-07.md#final-private-acceptance-and-code-review--2026-10-08). Live expiry/late-payment/refund, LINE extension/release/deposit conversion, guest readback and two-tab last-room contention pass. All five synthetic orders are cancelled with zero occupancy and zero net receipts; latest Email/LINE jobs have provider acknowledgements. 259 regression checks and the production Webpack build pass; lint has zero errors. Review found no new P0/P1 issue; one recoverable P2 LINE quick-reply replacement issue is documented. Physical-device acceptance, public sales authorization and legacy Sheet/OwlNest integration remain explicitly outside this completed private acceptance.
 
