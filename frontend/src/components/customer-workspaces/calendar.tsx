@@ -239,7 +239,7 @@ export function CustomerCalendar({
       <div className="mx-auto max-w-6xl">
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <a href="/start" className="text-sm text-teal-800 underline">
+            <a href="/workspaces" className="text-sm text-teal-800 underline">
               我的旅宿
             </a>
             <h1 className="mt-2 text-2xl font-semibold">{data.name}</h1>

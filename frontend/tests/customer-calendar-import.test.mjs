@@ -398,3 +398,21 @@ test("stale or failing connected bindings fail closed and prohibit local occupan
   w.calendarSources[0].error = "CALENDAR_CONNECT_REQUIRED";
   assert.equal(propertyReadiness(w, w.properties[0]).complete, false);
 });
+
+test("calendar descriptions survive import and source updates without overwriting owner notes", async () => {
+  const f = fixture();
+  const first = await imported(f, ics([event({uid: "notes", description: "需要嬰兒床"})]));
+  assert.equal((await f.current()).bookings[0].notes, "需要嬰兒床");
+  async function update(description) {
+    const source = await upload(f, ics([event({uid: "notes", description})]));
+    const preview = await previewCalendar(...f.args, source.id, mapping(), first.batch.bindingId);
+    assert.equal(preview.rows[0].disposition, "changed");
+    await commitCalendar(...f.args, command(preview, {selected: [preview.rows[0].id], acceptChanges: true}));
+  }
+  await update("需要嬰兒床，晚上九點抵達");
+  assert.equal((await f.current()).bookings[0].notes, "需要嬰兒床，晚上九點抵達");
+  const w = await f.current(); w.bookings[0].notes = "已與旅客確認晚到"; await f.put(w);
+  await update("來源新增需求");
+  assert.equal((await f.current()).bookings[0].notes, "已與旅客確認晚到");
+  assert.equal((await f.current()).bookings[0].calendar.sourceNotes, "來源新增需求");
+});

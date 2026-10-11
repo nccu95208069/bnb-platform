@@ -1,4 +1,5 @@
 "use client";
+import { customerReturnPath } from "@/lib/customer-workspaces/return-path";
 import { useRef, useState } from "react";
 import { api, button, field, secondary } from "./client";
 import { useCommand } from "./use-command";
@@ -32,6 +33,7 @@ export function PasswordlessLogin({
         action: "request",
         email,
         destination,
+        ...(destination === "start" ? { returnPath: customerReturnPath(new URLSearchParams(location.search).get("next")) ?? undefined } : {}),
       });
       if (result) setNotice(result.data.detail);
     } catch (e) {
@@ -49,6 +51,7 @@ export function PasswordlessLogin({
     try {
       const result = await api<{ url: string }>("/api/customer-login", "POST", {
         action: "google",
+        returnPath: customerReturnPath(new URLSearchParams(location.search).get("next")) ?? undefined,
       });
       window.location.assign(result.url);
     } catch (e) {

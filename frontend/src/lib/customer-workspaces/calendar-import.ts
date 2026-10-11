@@ -546,6 +546,7 @@ export async function commitCalendar(
       fingerprint: row.fingerprint,
       externalId: row.draft?.externalId ?? null,
       sourceVersion: source.contentHash,
+      sourceNotes: row.draft?.notes ?? null,
       ...(row.draft
         ? {
             financialEvidence: { total: row.draft.total, paid: row.draft.paid },
@@ -623,6 +624,9 @@ export async function commitCalendar(
             ...booking,
             ...occupancy,
             guestName: draft.guestName,
+            // Only refresh source-owned notes; preserve subsequent owner edits.
+            notes: booking.notes === (booking.calendar?.sourceNotes ?? null)
+              ? draft.notes ?? null : booking.notes,
             version: booking.version + 1,
             calendar: reference(row),
           }
@@ -644,7 +648,7 @@ export async function commitCalendar(
               sourcePaid: draft.paid,
             },
             contact: null,
-            notes: null,
+            notes: draft.notes ?? null,
             status: "confirmed",
             guestNotified: false,
             createdAt: at,

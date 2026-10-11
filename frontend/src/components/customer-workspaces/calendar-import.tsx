@@ -386,9 +386,11 @@ export function CalendarImport({
           <p className="mt-2 text-sm leading-6">
             {onboarding
               ? `預覽尚未保存為正式訂單。暫存於 ${new Date(onboarding.expiresAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })} 到期，登入後仍需確認保存。`
-              : status.readiness.complete
+              : status.readiness.complete && status.readiness.coverageFrom && status.readiness.coverageTo
                 ? `已核對 ${status.readiness.coverageFrom} 至 ${status.readiness.coverageTo}（不含末日）`
-                : status.readiness.stale
+                : !status.sources.length
+                  ? "尚未匯入日曆；請選擇來源並先預覽核對。"
+                  : status.readiness.stale
                   ? "同步尚未恢復，未顯示訂單的日期暫不能視為空房。"
                   : "尚有來源或資料待核對，未顯示訂單的日期暫不能視為空房。"}
           </p>

@@ -1,3 +1,4 @@
+import { customerReturnPath } from "./return-path.ts";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 import { accountKey, digest } from "./auth.ts";
@@ -21,6 +22,7 @@ const keys = createRemoteJWKSet(
   { timeoutDuration: 8000, cooldownDuration: 30000, cacheMaxAge: 3600000 },
 );
 type GoogleState = {
+  returnPath?: string;
   draftHash?: string;
   browser: string;
   nonce: string;
@@ -180,7 +182,10 @@ export async function linkVerifiedGoogleIdentity(
 export async function beginGoogleSignIn(
   store: CustomerStore,
   draftHash?: string,
+  destination?: string,
 ) {
+  const returnPath = customerReturnPath(destination ?? null) ?? undefined;
+  if (destination !== undefined && (!returnPath || draftHash)) throw new Error("INVALID_INPUT");
   if (draftHash) {
     const { value } = await draftForHash(store, draftHash);
     if (value.completed || value.prepared)
@@ -197,6 +202,7 @@ export async function beginGoogleSignIn(
       before: null,
       after: {
         ...(draftHash ? { draftHash } : {}),
+        ...(returnPath ? { returnPath } : {}),
         browser: digest(browser),
         nonce,
         verifier,
@@ -318,6 +324,6 @@ export async function finishGoogleSignIn(
   if (!account && !draft) throw new Error("GOOGLE_EMAIL_CHALLENGE_REQUIRED");
   return {
     account,
-    destination: draft ? "/join/calendar?calendar=connected" : "/start",
+    destination: draft ? "/join/calendar?calendar=connected" : customerReturnPath(data.returnPath ?? null) || "/start",
   };
 }

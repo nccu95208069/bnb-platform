@@ -293,3 +293,19 @@ test("passwordless accounts accept collaboration invitations with their verified
     invitee.id,
   );
 });
+
+
+test("email login preserves a validated order return path across retries without accepting redirects", async () => {
+  environment(); const { store } = fixture(); store.data.clear();
+  const email = "return-path@example.test", account = { id: randomUUID(), email, credential: newPasswordlessCredential(), emailVerifiedAt: new Date().toISOString(), workspaces: [] };
+  await store.commit([{key:accountKey(email),before:null,after:account}]);
+  const proof=newLoginProof(), requestKey=randomUUID(), sent=[];
+  const input={email,proof,requestKey,returnPath:"/w/calendar-inn/orders/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"};
+  const send=async(...args)=>{sent.push(args);return "synthetic-return-mail";};
+  await requestEmailLogin(store,input,send);
+  await requestEmailLogin(store,input,send); assert.equal(sent.length,1);
+  const result=await consumeEmailLogin(store,mailToken(sent[0][2]),proof);
+  assert.equal(result.returnPath,input.returnPath);
+  await assert.rejects(()=>requestEmailLogin(store,{...input,returnPath:"/w/different-inn/calendar"},send),/IDEMPOTENCY_CONFLICT/);
+  await assert.rejects(()=>requestEmailLogin(store,{...input,requestKey:randomUUID(),returnPath:"https://evil.test"},send),/INVALID_INPUT/);
+});

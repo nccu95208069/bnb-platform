@@ -58,6 +58,16 @@ export default async function Page({
       search.property ?? loaded.workspace.properties[0]?.id,
     );
     const initialProperty = workspace.properties[0]?.id === property.id;
+    const establishedSource = property.setup?.mode || (initialProperty && (workspace.onboarding?.calendarKind || workspace.onboarding?.sheetUrl));
+    if (!establishedSource && !search.source) return <main className="mx-auto max-w-2xl space-y-6 p-6">
+      <a className="text-teal-800 underline" href={`/w/${slug}/calendar`}>← 回房況日曆</a>
+      <h1 className="text-2xl font-semibold">你的訂房目前記在哪裡？</h1>
+      <p className="text-slate-600">選擇來源後先預覽、核對房間與日期，再由你確認匯入。原始資料不會被修改。</p>
+      <div className="grid gap-3 sm:grid-cols-2">{[["sheet", "Google Sheet"], ["google_calendar", "Google 日曆"], ["ios_calendar", "iPhone／iPad 日曆匯出檔"], ["android_calendar", "Android 日曆匯出檔"]].map(([source, label]) =>
+        <a key={source} href={`?${new URLSearchParams({ property: property.id, source })}`} className="rounded-xl border bg-white p-5 text-teal-900 hover:border-teal-700">{label}</a>)}</div>
+      <p className="text-sm text-slate-500">手機日曆需使用可匯出的 ICS／ZIP，或連接其 Google 帳號。</p>
+    </main>;
+
     const calendarKind =
       property.setup?.calendarKind ??
       (initialProperty ? workspace.onboarding?.calendarKind : undefined) ??

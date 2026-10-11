@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
       return response;
     }
     if (input.action === "google") {
-      const started = await beginGoogleSignIn(store),
+      const started = await beginGoogleSignIn(store, undefined, input.returnPath as string | undefined),
         response = NextResponse.json({ url: started.url }, { headers });
       response.cookies.set(CALENDAR_STATE_COOKIE, started.browser, {
         httpOnly: true,
@@ -100,6 +100,7 @@ export async function POST(request: NextRequest) {
           requestKey: input.requestKey,
           proof: request.cookies.get(LOGIN_PROOF_COOKIE)?.value,
           draftHash: hash,
+          returnPath: input.returnPath as string | undefined,
         },
         sendCustomerLifecycleMail,
         intakePreview(),
@@ -162,7 +163,7 @@ export async function POST(request: NextRequest) {
           );
       }
       const response = NextResponse.json(
-        { url: result.websiteConnectionId ? `/website-booking?connection=${result.websiteConnectionId}` : result.draftHash ? "/join/calendar?verified=1" : "/start" },
+        { url: result.websiteConnectionId ? `/website-booking?connection=${result.websiteConnectionId}` : result.draftHash ? "/join/calendar?verified=1" : result.returnPath || "/workspaces" },
         { headers },
       );
       response.cookies.set(CUSTOMER_COOKIE, sessionFor(account), {
