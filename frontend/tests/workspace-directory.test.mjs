@@ -11,6 +11,6 @@ test('directory uses fresh scoped membership and names; removed grants disappear
   assert.deepEqual(await workspaceDirectory(store,account),[]);
 });
 test('login return preserves real order and property routes, rejects redirects and malicious parameters',()=>{
-  for(const value of ['/w/calendar-inn/orders','/w/calendar-inn/arrivals?property=abc','/w/calendar-inn/orders/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee']) assert.equal(customerReturnPath(value),value);
+  for(const value of ['/w/calendar-inn/website?property=abc','/w/calendar-inn/orders','/w/calendar-inn/arrivals?property=abc','/w/calendar-inn/orders/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee']) assert.equal(customerReturnPath(value),value);
   for(const value of ['//evil.test','https://evil.test','/w/calendar-inn/../admin','/w/calendar-inn/orders?next=https://evil.test','/w/calendar-inn/orders#x',{},null]) assert.equal(customerReturnPath(value),null);
 });

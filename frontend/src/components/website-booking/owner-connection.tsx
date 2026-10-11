@@ -583,7 +583,7 @@ function ApprovalForm({
       <section className="space-y-5 rounded-2xl border border-teal-200 bg-white p-5 sm:p-7">
         <p role="status" className="text-xl font-semibold text-teal-900">{connection.siteName} 已連接 OS 日曆</p>
         <p className="leading-7 text-slate-600">業主：{view.email}。你可以回到建站台檢查連接狀態，並確認已發布這份設定。</p>
-        {calendarUrl && <a className={`${button} inline-block`} href={calendarUrl}>開啟 OS 日曆</a>}
+        {calendarUrl && <a className={`${button} inline-block`} href={calendarUrl.replace(/\/calendar(?=\?|$)/, "/website")}>開啟民宿管理入口</a>}
         <p className="text-sm leading-6 text-slate-500">此頁顯示日曆連接結果；實際收單與通知狀態仍以官網及個別訂單的結果為準。</p>
       </section>
       <LinePairing view={view} fetchView={fetchView} onView={onView} />
@@ -679,7 +679,7 @@ function ApprovalForm({
         </fieldset>
         <label className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 leading-7">
           <input type="checkbox" className="mt-2 h-4 w-4 shrink-0 accent-teal-800" checked={confirmed} disabled={locked} onChange={(event) => setConfirmed(event.target.checked)} />
-          <span>我確認上列業主信箱、房型、人數、房價、日期及旅客規則正確；已核對開放期間的既有訂單與封房，所有需要保留的日期都已登記在所選 OS 日曆。若建立全新日曆，我確認此範圍目前沒有尚未登記的訂單或封房。我了解目前僅以 OS 日曆管理房況，尚未串接的 Sheet、OwlNest 或其他管道不會自動占房。</span>
+          <span>我確認上列業主信箱、房型、人數、日期及旅客規則正確；新日曆使用上列初始房價，既有日曆保留 OS 已設定房價；已核對開放期間的既有訂單與封房，所有需要保留的日期都已登記在所選 OS 日曆。若建立全新日曆，我確認此範圍目前沒有尚未登記的訂單或封房。我了解目前僅以 OS 日曆管理房況，尚未串接的 Sheet、OwlNest 或其他管道不會自動占房。</span>
         </label>
         {uncertain && <p role="status" className="rounded-xl bg-amber-50 p-4 leading-7 text-amber-900">送出結果尚未確認。已保留原本的設定與請求，請先查詢結果，或重試同一筆確認；不要重新建立另一個日曆。</p>}
         {status && <p role="status" className="leading-7 text-slate-600">{status}</p>}
