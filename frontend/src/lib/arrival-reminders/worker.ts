@@ -5,10 +5,12 @@ import { loadWorkspace } from '../customer-workspaces/service.ts';
 import { customerList, legacyList } from './source.ts';
 import { taipeiDay } from './domain.ts';
 import { acknowledgeReminder, claimReminder, reminderStatus } from './service.ts';
+import { activeTenantRecipient, consumeRecipientPairing, tenantTargets, targetSetting } from './recipient-settings.ts';
 
 type LegacyTarget = { includeUnconfirmed?: boolean; id: string; kind: 'legacy'; propertyId: 'sweetfun' | 'offland'; recipientId: string; verifiedAt: string; verifiedBy: string };
 type NativeTarget = { includeUnconfirmed?: boolean; id: string; kind: 'workspace'; bindingId: string };
-type Target = LegacyTarget | NativeTarget;
+type TenantTarget = { includeUnconfirmed: boolean; id: string; kind: 'tenant'; workspaceId: string; slug: string; propertyId: string; slot: number };
+type Target = LegacyTarget | NativeTarget | TenantTarget;
 export type ReminderWorker = { id: string; token_sha256: string; targets: Target[] };
 
 // Separate explicit capability: a price/change or guest-site token cannot read notes.
@@ -39,6 +41,14 @@ export function reminderWorker(authorization: string | null, configuration = pro
 }
 export async function targetList(store: CustomerStore, target: Target, now = new Date()) {
   if (target.kind === 'legacy') return { list: await legacyList(target.propertyId, now), recipient: target.recipientId };
+  if (target.kind === 'tenant') {
+    const result = await targetSetting(store, target.id);
+    if (!result || result.setting.workspaceId !== target.workspaceId || result.setting.propertyId !== target.propertyId || result.slot !== target.slot || !result.accountId) throw Error('FORBIDDEN');
+    const setting = result.setting;
+    const active = await activeTenantRecipient(store, setting, result.accountId);
+    if (!active) throw Error('FORBIDDEN');
+    return { list: await customerList(store, active.ownerAccountId, setting.slug, setting.propertyId, now), recipient: active.recipient };
+  }
   const binding = (await store.read<WebsiteBinding>(`website:binding:${target.bindingId}`)).value;
   if (!binding || binding.id !== target.bindingId || !binding.enabled || !binding.ownerLine || !/^U[a-f0-9]{32}$/i.test(binding.ownerLine.recipientId) || !binding.ownerLine.verifiedBy || !Number.isFinite(Date.parse(binding.ownerLine.verifiedAt)) || Date.parse(binding.ownerLine.verifiedAt) > now.getTime()) throw Error('FORBIDDEN');
   // Re-check the current owner's active membership/property grant on every dispatch.
@@ -48,8 +58,16 @@ export async function targetList(store: CustomerStore, target: Target, now = new
   return { list, recipient: binding.ownerLine.recipientId };
 }
 export async function workerOperation(store: CustomerStore, worker: ReminderWorker, input: Record<string, unknown>, now = new Date(), load = targetList) {
-  if (input.action === 'targets') return { targets: worker.targets.map(t => t.id), day: taipeiDay(now), scheduledHour: 9, timezone: 'Asia/Taipei' };
-  const target = worker.targets.find(t => t.id === input.targetId);
+  if (input.action === 'pair') {
+    const result = await consumeRecipientPairing(store, worker.id, input.pairingToken, input.recipientId, now);
+    return { ...result };
+  }
+  const tenantRows = await tenantTargets(store);
+  const dynamicTargets: TenantTarget[] = tenantRows.map(row => ({ ...row, kind: 'tenant', includeUnconfirmed: false }));
+  const allTargets: Target[] = [...worker.targets, ...dynamicTargets];
+  if (allTargets.length > 50 || new Set(allTargets.map(t => t.id)).size !== allTargets.length) throw Error('ARRIVAL_TARGET_CONFIG');
+  if (input.action === 'targets') return { targets: allTargets.map(t => t.id), day: taipeiDay(now), scheduledHour: 9, timezone: 'Asia/Taipei' };
+  const target = allTargets.find(t => t.id === input.targetId);
   if (!target) throw Error('FORBIDDEN');
   if (typeof input.attemptId !== 'string' || !/^[a-f0-9-]{36}$/i.test(input.attemptId)) throw Error('INVALID_INPUT');
   await store.limit(`arrival-worker:${worker.id}:${target.id}`, 300);
@@ -64,6 +82,12 @@ export async function workerOperation(store: CustomerStore, worker: ReminderWork
   if (input.day !== taipeiDay(now)) return { day: taipeiDay(now), jobs: [], results: [], status: 'outside_window' };
   const hour = new Date(now.getTime() + 8 * 3600_000).getUTCHours();
   if (hour !== 9) return { day: taipeiDay(now), jobs: [], results: [], status: 'outside_window' };
+  if (target.kind === 'tenant') {
+    const result = await targetSetting(store, target.id);
+    if (!result) throw Error('ARRIVAL_TARGET_CONFIG');
+    if (!result.accountId || !await activeTenantRecipient(store, result.setting, result.accountId)) return { day: taipeiDay(now), jobs: [], results: [], status: 'disabled' };
+    target.includeUnconfirmed = result.setting.includeUnconfirmed;
+  }
   const { list, recipient } = await load(store, target, now);
-  return { day: list.day, ...await claimReminder(store, worker.id, target.id, recipient, input.attemptId, list, now, target.includeUnconfirmed === true) };
+  return { day: list.day, ...await claimReminder(store, worker.id, target.id, recipient, input.attemptId, list, now, target.includeUnconfirmed === true, target.kind === 'tenant' ? recipient : undefined) };
 }
