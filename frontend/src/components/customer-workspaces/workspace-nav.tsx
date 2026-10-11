@@ -5,7 +5,7 @@ export function WorkspaceNav({
   propertyId,
 }: {
   data: WorkspaceView;
-  current: "arrivals" | "orders" | "calendar" | "availability" | "finance" | "revenue" | "settings";
+  current: "arrivals" | "arrival-notifications" | "orders" | "calendar" | "availability" | "finance" | "revenue" | "settings";
   propertyId?: string;
 }) {
   const suffix = propertyId
@@ -15,6 +15,7 @@ export function WorkspaceNav({
     ["calendar", "房況日曆"],
     ["orders", "訂單查詢"],
     ...(["owner", "admin"].includes(data.role) ? [["arrivals", "入住備註"]] : []),
+    ...(["owner", "admin", "housekeeper"].includes(data.role) ? [["arrival-notifications", "入住提醒設定"]] : []),
     ["availability", "尚未出售"],
     ...(data.role !== "viewer_no_price" ? [["finance", "收款記帳"]] : []),
     ...(["owner", "admin", "viewer"].includes(data.role) ? [["revenue", "訂單健檢"]] : []),

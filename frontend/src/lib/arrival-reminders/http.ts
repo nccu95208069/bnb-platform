@@ -17,6 +17,9 @@ export function failure(error: unknown) {
     UNAUTHORIZED: [401, '請先登入。'], FORBIDDEN: [403, '此帳號沒有這間旅宿的提醒權限。'],
     NOT_FOUND: [404, '找不到旅宿或提醒。'], INVALID_INPUT: [400, '請確認輸入資料。'],
     VERSION_CONFLICT: [409, '備註或狀態已更新，請重新載入後確認。'],
+    PAIRING_EXPIRED: [410, 'LINE 配對指令已過期，請重新產生。'],
+    IDEMPOTENCY_CONFLICT: [409, 'LINE 配對狀態已改變，請重新查詢。'],
+    LIMIT_REACHED: [409, '目前可啟用的旅宿數量已達上限，請聯絡管理員。'],
     ARRIVAL_SOURCE_UNCONFIRMED: [503, '來源尚待核對，暫時不能確認入住備註。請稍後重新載入。'],
   };
   const [status, detail] = errors[code] ?? [503, '暫時無法讀取或保存入住提醒，請稍後重試。'];
