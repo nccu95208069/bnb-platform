@@ -28,7 +28,7 @@ test('owner-only settings route and selected steward-only LINE pairing route enf
   const req = (account, input, origin = 'https://app.test') => new NextRequest(url, { method: input ? 'POST' : 'GET', headers: { ...(account ? { cookie: `${CUSTOMER_COOKIE}=${sessionFor(account)}` } : {}), ...(input ? { origin, 'content-type': 'application/json' } : {}) }, ...(input ? { body: JSON.stringify(input) } : {}) });
   assert.equal((await GET(req(null))).status, 401);
   assert.equal((await GET(req(owner))).status, 200);
-  const input = { action: 'save', recipientAccountId: steward.id, enabled: true, includeUnconfirmed: false };
+  const input = { action: 'save', recipientAccountIds: [steward.id], enabled: true, includeUnconfirmed: false };
   assert.equal((await POST(req(owner, input, 'https://evil.test'))).status, 403);
   assert.equal((await POST(req(steward, input))).status, 403);
   assert.equal((await POST(req(owner, input))).status, 200);
@@ -48,6 +48,6 @@ test('owner-only settings route and selected steward-only LINE pairing route enf
   assert.equal((await workerPost(pairReq({ origin: 'https://app.test' }))).status, 403);
   assert.equal((await workerPost(pairReq())).status, 200);
   assert.equal((await GET(req(steward))).status, 200);
-  assert.equal((await (await GET(req(steward))).json()).lineConnected, true);
+  assert.equal((await (await GET(req(steward))).json()).recipients[0].lineConnected, true);
   assert.equal((await workerPost(pairReq({}, 'U' + 'c'.repeat(32)))).status, 409);
 });

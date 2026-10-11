@@ -5,11 +5,11 @@ import { loadWorkspace } from '../customer-workspaces/service.ts';
 import { customerList, legacyList } from './source.ts';
 import { taipeiDay } from './domain.ts';
 import { acknowledgeReminder, claimReminder, reminderStatus } from './service.ts';
-import { activeTenantRecipient, consumeRecipientPairing, targetIndex, targetSetting } from './recipient-settings.ts';
+import { activeTenantRecipient, consumeRecipientPairing, tenantTargets, targetSetting } from './recipient-settings.ts';
 
 type LegacyTarget = { includeUnconfirmed?: boolean; id: string; kind: 'legacy'; propertyId: 'sweetfun' | 'offland'; recipientId: string; verifiedAt: string; verifiedBy: string };
 type NativeTarget = { includeUnconfirmed?: boolean; id: string; kind: 'workspace'; bindingId: string };
-type TenantTarget = { includeUnconfirmed: boolean; id: string; kind: 'tenant'; workspaceId: string; slug: string; propertyId: string };
+type TenantTarget = { includeUnconfirmed: boolean; id: string; kind: 'tenant'; workspaceId: string; slug: string; propertyId: string; slot: number };
 type Target = LegacyTarget | NativeTarget | TenantTarget;
 export type ReminderWorker = { id: string; token_sha256: string; targets: Target[] };
 
@@ -42,9 +42,10 @@ export function reminderWorker(authorization: string | null, configuration = pro
 export async function targetList(store: CustomerStore, target: Target, now = new Date()) {
   if (target.kind === 'legacy') return { list: await legacyList(target.propertyId, now), recipient: target.recipientId };
   if (target.kind === 'tenant') {
-    const setting = await targetSetting(store, target.id);
-    if (!setting || setting.workspaceId !== target.workspaceId || setting.propertyId !== target.propertyId) throw Error('FORBIDDEN');
-    const active = await activeTenantRecipient(store, setting);
+    const result = await targetSetting(store, target.id);
+    if (!result || result.setting.workspaceId !== target.workspaceId || result.setting.propertyId !== target.propertyId || result.slot !== target.slot || !result.accountId) throw Error('FORBIDDEN');
+    const setting = result.setting;
+    const active = await activeTenantRecipient(store, setting, result.accountId);
     if (!active) throw Error('FORBIDDEN');
     return { list: await customerList(store, active.ownerAccountId, setting.slug, setting.propertyId, now), recipient: active.recipient };
   }
@@ -61,9 +62,9 @@ export async function workerOperation(store: CustomerStore, worker: ReminderWork
     const result = await consumeRecipientPairing(store, worker.id, input.pairingToken, input.recipientId, now);
     return { ...result };
   }
-  const tenantRows = await targetIndex(store);
-  const tenantTargets: TenantTarget[] = tenantRows.map(row => ({ ...row, kind: 'tenant', includeUnconfirmed: false }));
-  const allTargets: Target[] = [...worker.targets, ...tenantTargets];
+  const tenantRows = await tenantTargets(store);
+  const dynamicTargets: TenantTarget[] = tenantRows.map(row => ({ ...row, kind: 'tenant', includeUnconfirmed: false }));
+  const allTargets: Target[] = [...worker.targets, ...dynamicTargets];
   if (allTargets.length > 50 || new Set(allTargets.map(t => t.id)).size !== allTargets.length) throw Error('ARRIVAL_TARGET_CONFIG');
   if (input.action === 'targets') return { targets: allTargets.map(t => t.id), day: taipeiDay(now), scheduledHour: 9, timezone: 'Asia/Taipei' };
   const target = allTargets.find(t => t.id === input.targetId);
@@ -82,11 +83,11 @@ export async function workerOperation(store: CustomerStore, worker: ReminderWork
   const hour = new Date(now.getTime() + 8 * 3600_000).getUTCHours();
   if (hour !== 9) return { day: taipeiDay(now), jobs: [], results: [], status: 'outside_window' };
   if (target.kind === 'tenant') {
-    const setting = await targetSetting(store, target.id);
-    if (!setting) throw Error('ARRIVAL_TARGET_CONFIG');
-    if (!await activeTenantRecipient(store, setting)) return { day: taipeiDay(now), jobs: [], results: [], status: 'disabled' };
-    target.includeUnconfirmed = setting.includeUnconfirmed;
+    const result = await targetSetting(store, target.id);
+    if (!result) throw Error('ARRIVAL_TARGET_CONFIG');
+    if (!result.accountId || !await activeTenantRecipient(store, result.setting, result.accountId)) return { day: taipeiDay(now), jobs: [], results: [], status: 'disabled' };
+    target.includeUnconfirmed = result.setting.includeUnconfirmed;
   }
   const { list, recipient } = await load(store, target, now);
-  return { day: list.day, ...await claimReminder(store, worker.id, target.id, recipient, input.attemptId, list, now, target.includeUnconfirmed === true) };
+  return { day: list.day, ...await claimReminder(store, worker.id, target.id, recipient, input.attemptId, list, now, target.includeUnconfirmed === true, target.kind === 'tenant' ? recipient : undefined) };
 }

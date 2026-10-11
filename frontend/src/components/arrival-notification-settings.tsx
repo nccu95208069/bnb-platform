@@ -3,8 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 type Settings = {
   propertyName: string; enabled: boolean; includeUnconfirmed: boolean;
-  selectedAccountId: string | null; selectedEmail: string | null;
-  lineConnected: boolean; lineVerifiedAt: string | null;
+  recipients: { accountId: string; email: string | null; lineConnected: boolean; lineVerifiedAt: string | null }[];
   canManage: boolean; canPair: boolean;
   members: { accountId: string; email?: string; role: string }[];
 };
@@ -17,11 +16,11 @@ export function ArrivalNotificationSettings({ slug, properties, initialProperty 
 }) {
   const [property, setProperty] = useState(properties.find(p => p.id === initialProperty)?.id ?? properties[0]?.id ?? '');
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [selected, setSelected] = useState(''), [enabled, setEnabled] = useState(false), [includeUnconfirmed, setIncludeUnconfirmed] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]), [enabled, setEnabled] = useState(false), [includeUnconfirmed, setIncludeUnconfirmed] = useState(false);
   const [pairing, setPairing] = useState<Pairing | null>(null), [error, setError] = useState(''), [notice, setNotice] = useState(''), [busy, setBusy] = useState(false);
   const url = `/api/arrival-reminders/settings?${new URLSearchParams({ workspace: slug, property })}`;
   const receive = (value: Settings) => {
-    setSettings(value); setSelected(value.selectedAccountId ?? ''); setEnabled(value.enabled); setIncludeUnconfirmed(value.includeUnconfirmed);
+    setSettings(value); setSelected(value.recipients.map(r => r.accountId)); setEnabled(value.enabled); setIncludeUnconfirmed(value.includeUnconfirmed);
   };
   const refresh = useCallback(async (signal?: AbortSignal) => {
     if (!property) return;
@@ -41,13 +40,13 @@ export function ArrivalNotificationSettings({ slug, properties, initialProperty 
       const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), cache: 'no-store' });
       const data = await response.json();
       if (!response.ok) throw Error(data.detail ?? '保存失敗');
-      if (input.action === 'save') { receive(data); setPairing(null); setNotice('通知設定已保存。若尚未配對 LINE，請由選定的管家登入後完成配對。'); }
+      if (input.action === 'save') { receive(data); setPairing(null); setNotice('通知設定已保存。若尚未配對 LINE，請由選定的管家各自登入後完成配對。'); }
       else setPairing(data);
     } catch (caught) { setError((caught as Error).message); }
     finally { setBusy(false); }
   }
   return <section className="space-y-6">
-    <p className="text-slate-700">每間旅宿可指定一位已加入工作區的管家或業主。收件人須親自登入 OS、用自己的 LINE 私訊民宿小幫手完成配對。已啟用且配對完成後，系統每天台北時間 09:00–09:59 為今日與明日入住、含備註的每筆訂單各發一則；沒有符合條件的訂單就不發訊息。</p>
+    <p className="text-slate-700">每間旅宿可指定最多三位已加入工作區的管家或業主。每位收件人須親自登入 OS、用自己的 LINE 私訊民宿小幫手完成配對。已啟用且配對完成後，系統每天台北時間 09:00–09:59 為今日與明日入住、含備註的每筆訂單向每位已配對收件人各發一則；沒有符合條件的訂單就不發訊息。</p>
     <label className="block font-medium">旅宿
       <select className={classInput} value={property} disabled={busy} onChange={event => setProperty(event.target.value)}>{properties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>
     </label>
@@ -55,24 +54,20 @@ export function ArrivalNotificationSettings({ slug, properties, initialProperty 
     {notice && <p role="status" className="rounded-xl bg-teal-50 p-4 text-teal-900">{notice}</p>}
     {busy && <p role="status">讀取或保存中…</p>}
     {settings && <>
-      {settings.canManage && <form className="space-y-4 rounded-2xl border bg-white p-5" onSubmit={event => { event.preventDefault(); void post({ action: 'save', recipientAccountId: selected, enabled, includeUnconfirmed }); }}>
+      {settings.canManage && <form className="space-y-4 rounded-2xl border bg-white p-5" onSubmit={event => { event.preventDefault(); void post({ action: 'save', recipientAccountIds: selected, enabled, includeUnconfirmed }); }}>
         <h2 className="text-lg font-semibold">誰接收提醒</h2>
-        <label className="block">選擇管家
-          <select className={classInput} value={selected} onChange={event => setSelected(event.target.value)} required disabled={busy}>
-            <option value="">請選擇已加入的成員</option>
-            {settings.members.map(member => <option key={member.accountId} value={member.accountId}>{member.email ?? '未提供信箱'} · {member.role === 'owner' ? '業主' : member.role === 'housekeeper' ? '管家' : '管理員'}</option>)}
-          </select>
-        </label>
+        <fieldset className="space-y-2"><legend className="font-medium">選擇最多三位收件人（{selected.length}/3）</legend>
+          {settings.members.map(member => <label key={member.accountId} className="flex items-center gap-3 rounded-xl border p-3"><input type="checkbox" checked={selected.includes(member.accountId)} disabled={busy || (selected.length >= 3 && !selected.includes(member.accountId))} onChange={event => setSelected(current => event.target.checked ? [...current, member.accountId] : current.filter(id => id !== member.accountId))} />{member.email ?? '未提供信箱'} · {member.role === 'owner' ? '業主' : member.role === 'housekeeper' ? '管家' : '管理員'}</label>)}
+        </fieldset>
         <p className="text-sm text-slate-600">管家尚未加入？請先到<a className="ml-1 text-teal-800 underline" href={`/w/${slug}/settings?property=${encodeURIComponent(property)}`}>旅宿與協作設定</a>邀請並開放這間旅宿。</p>
         <label className="flex items-start gap-3"><input type="checkbox" className="mt-1" checked={enabled} onChange={event => setEnabled(event.target.checked)} disabled={busy} />啟用每日入住備註提醒</label>
         <label className="flex items-start gap-3"><input type="checkbox" className="mt-1" checked={includeUnconfirmed} onChange={event => setIncludeUnconfirmed(event.target.checked)} disabled={busy} />另發「房晚待核對」摘要；不把可能續住的房晚說成新入住</label>
-        <button className={classButton} type="submit" disabled={busy || !selected}>保存通知設定</button>
+        <button className={classButton} type="submit" disabled={busy || (enabled && !selected.length)}>保存通知設定</button>
       </form>}
       <section className="space-y-3 rounded-2xl border bg-white p-5" aria-label="LINE 配對狀態">
         <h2 className="text-lg font-semibold">LINE 收件人</h2>
-        <p role="status">{settings.lineConnected ? '已配對，可接收提醒' : settings.selectedAccountId ? '選定管家尚未完成 LINE 配對' : '尚未選擇管家'}{!settings.enabled ? '；目前提醒關閉' : ''}</p>
-        {settings.selectedEmail && <p className="text-sm text-slate-600">選定成員：{settings.selectedEmail}</p>}
-        {settings.lineVerifiedAt && <p className="text-sm text-slate-600">最近配對：{new Date(settings.lineVerifiedAt).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}（台北）</p>}
+        <p role="status">{settings.recipients.length ? `已選 ${settings.recipients.length} 位收件人` : '尚未選擇管家'}{!settings.enabled ? '；目前提醒關閉' : ''}</p>
+        {settings.recipients.map(recipient => <p key={recipient.accountId} className="text-sm text-slate-600">{recipient.email ?? '未提供信箱'}：{recipient.lineConnected ? '已配對，可接收提醒' : '選定管家尚未完成 LINE 配對'}{recipient.lineVerifiedAt ? `（最近配對 ${new Date(recipient.lineVerifiedAt).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })} 台北）` : ''}</p>)}
         {settings.canPair && <>
           <p className="text-sm leading-7">請用你要接收訊息的 LINE 帳號，與「民宿小幫手」一對一私訊。取得以下指令後，10 分鐘內送出，再回來查詢狀態。</p>
           <button className={classButton} type="button" disabled={busy} onClick={() => void post({ action: 'pair' })}>產生我的 LINE 配對指令</button>
