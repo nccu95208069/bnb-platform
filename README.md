@@ -1,5 +1,7 @@
 # BnB Platform
 
+2026-10-11 OS-04: owner-approved OS and LINE rollout is complete. Sweetfun and OFFLAND reminders are enabled for Taipei 09:00, with separately labeled unconfirmed room-night summaries. The new scheduler returned HTTP 200; one authorized synthetic LINE message has a persisted provider receipt and was visibly received in LINE desktop. First automatic arrival-note dispatch is due October 12 and has not yet been observed; physical-phone and external-customer acceptance remain open. See [release evidence](docs/work-handoff/OS_READINESS_2026-10-10.md#正式-line-啟用--2026-10-11).
+
 Current product/deployment context: [WORK_CONTEXT.md](WORK_CONTEXT.md). The owner-approved calendar pilot is live at [the customer entry](https://sweetfun-os.vercel.app/join); see [production verification and limits](docs/work-handoff/CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md#primary-domain-owner-pilot). The customer branch remains in draft PR #26. The older messaging subsystem overview below is historical context.
 
 Happy House native website integration is now deployed on the OS primary domain after direct owner authorization. Scoped Email/expiry scheduling and both partner deployments are enabled; the owner’s own calendar approval/LINE pairing and real delivery acceptance are tracked in [the website integration release record](docs/work-handoff/WEBSITE_BOOKING_API_2026-10-07.md).

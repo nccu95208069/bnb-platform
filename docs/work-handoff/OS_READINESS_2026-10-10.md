@@ -1,6 +1,21 @@
 # OS 入口、onboarding 與入住備註 — 2026-10-10
 
-## LINE 串接候選續作
+## 正式 LINE 啟用 — 2026-10-11
+
+本節取代下方 10/10「候選／發布阻塞／尚未啟用」狀態。使用者明確允許兩個既有 repository 發布、兩端部署、5–10 分鐘背景暫停與恢復、本人 LINE 單次合成測試及每日提醒啟用。PR #32 與小助手 PR #83 維持 draft；未合併。
+
+- OS runtime `b05516a`（建置提交 `4591ea9`）已於主網域上線，READY deployment `dpl_3tkZJDKJEJK4wmyKhTUsGmvXHW5J`。候選 8 項匿名／跨來源／預設停用檢查，以及 8 項啟用權限／時窗檢查通過；正常 owner 登入唯讀確認兩館來源。
+- 小助手 runtime `a4ad407525e516f14977debd302bad025727c001`，build `2aa8cd4a-5096-4c85-a6ae-7cb3a4063e3b`；image `sha256:7aaf4764a5b7c7602d9aba361af4629c0e0fbcdf5b0c8c412936b39c8969e1b8`。Ready revision `gmail-order-handler-os04-a4ad407` 承接 100%。保留原 38 項設定，另加 4 項提醒設定與兩個獨立 Secret Manager 權限；LINE 編輯器仍 OFF。
+- 兩館收件人沿用本人已驗證 LINE 綁定，並比對既有管理者設定。兩館 `includeUnconfirmed=true`，待核對房晚每日另列，不能稱為已確認新入住。未更動 Sheet 或真實訂單。
+- 新 `arrival-line-reminders` 排程已啟用，Asia/Taipei 每分鐘 POST；只有 09:00–09:59 可領取新發送，其餘時間補回條。實際 Google-Cloud-Scheduler 請求於 UTC 15:40:30、15:41:03、15:42:02 均 HTTP 200。
+- 正式切換前後均確認無進行中／不明訂單、未過期待確認卡、待收 Gmail 或 OwlNest queue 工作；既有 Gmail 路由檢查成功且計數為零。原 Gmail push、兩個 scheduler 及 OwlNest queue 全部恢復，總暫停 **352.82 秒**。最終唯讀查核新版 100%、42 項 runtime、原背景入口、舊 revision Ready；ERROR／5xx 查詢零筆，既有通知排程亦 HTTP 200。
+- 台北 23:40 僅送出一次明確授權的合成「入住備註提醒｜串接測試」，獨立 Firestore intent／provider receipt 保存與讀回成功，LINE 桌面版實際可見。未重送，也未用真實客人備註測試。這證明訊息鏈路與本人桌面收件，不等於實體手機驗收。
+- **第一輪 09 時正式來源自動備註提醒尚未發生**，預定 10/12；尚未取得該輪 OS job ACK／status 的正式證據。跨服務含失聯／隔日恢復驗證為隔離測試，不把合成鏈路測試冒充正式來源全程驗收。
+
+回復：先 pause 新 arrival scheduler；保留發送日誌及 unknown，絕不重播。LINE 回復目標 `gmail-order-handler-t37-e9cc4d2`，使用相同 bounded pause／drain／前後查核／明確流量切換／恢復流程；同步移除本次 4 項設定才可對回原 38 項指紋。OS 可先關閉提醒 capability，前版 deployment `dpl_Di95CsJYC1v49xaFRmQ4SHQCuAZU` 保留。不得刪除佇列或清除回條。
+
+
+## 10/10 歷史：LINE 串接候選續作
 
 2026-10-10：下列是正式版本 `5e80ee3` 之後的候選變更，尚未啟用真實發送。
 
@@ -71,7 +86,7 @@
 Worker 設定為陣列：每筆 `id`、`token_sha256`、`targets`。Target 可為 `kind=legacy`（propertyId、recipientId、verifiedAt、verifiedBy）或 `kind=workspace`（既有且本人已驗證的 website bindingId）。所有名稱／ID 都由伺服器設定，不能由請求任意指定收件人。新館在每次 claim 重新檢查 binding、配對、目前 owner 身分與館別。
 
 1. `action=targets` 取得允許的 target ID、day、台北排程時點 09:00。
-2. `action=claim,targetId,attemptId`：只於台北 09:00–09:59 提供工作，一次最多一筆。每次新 claim 使用持久的 UUID；不確定回覆時沿用原 UUID 查回。
+2. `action=claim,targetId,day,attemptId`：只於台北 09:00–09:59 提供工作，一次最多一筆。每次新 claim 使用持久的 UUID；不確定回覆時沿用原 UUID 查回。
 3. 工作包含 job id、attemptId、bookingId、recipient、text、claimExpiresAt；文字含原訂單連結，超長備註限制訊息長度但 OS 保留全文。
 4. 發送端須先持久保存發送意圖，以同一工作恢復；在發送前再次沿用原 attempt 查核有效工作。不可在程序重啟或 LINE 回覆不明時直接重發。
 5. `action=ack,targetId,day,attemptId,jobId,outcome,providerReceipt`：sent 必須附 LINE receipt；failed／unknown 不自動重試發送。ACK 可於時窗外補回。
