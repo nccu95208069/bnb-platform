@@ -40,7 +40,11 @@ export function emailDeliveryBindings() {
 }
 
 export function emailDeliverySiteScopes() {
-  try { return workerSiteScopes(JSON.parse(process.env.WEBSITE_BOOKING_EMAIL_SITE_SCOPES || "[]")); }
+  try {
+    const existing = workerSiteScopes(JSON.parse(process.env.WEBSITE_BOOKING_EMAIL_SITE_SCOPES || "[]"));
+    const studio = workerSiteScopes(JSON.parse(process.env.WEBSITE_BOOKING_STUDIO_EMAIL_SITE_SCOPES || "[]"));
+    return workerSiteScopes([...existing, ...studio]);
+  }
   catch { throw Error("EMAIL_DELIVERY_UNAVAILABLE"); }
 }
 

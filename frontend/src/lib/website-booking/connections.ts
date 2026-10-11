@@ -9,6 +9,7 @@ import { amount, bindingToken, email, fields, integer, permittedSite, plain, rec
 import type { RoomOffer, WebsiteBinding, WebsiteClient, WebsiteConnection } from "./types.ts";
 
 export const connectionKey = (id: string) => `website:connection:${id}`;
+export const workspaceBindingsKey = (id: string) => `website:workspace-bindings:${id}`;
 export const bindingKey = (id: string) => `website:binding:${id}`;
 const siteKey = (client: string, site: string) => `website:site:${digest(JSON.stringify([client, site]))}`;
 type Site = { bindingId: string; ownerAccountId: string; ownerEmail: string };
@@ -18,7 +19,7 @@ export async function connectionFor(store: CustomerStore, id: unknown, now = new
   if (saved.value.state === "awaiting_owner" && Date.parse(saved.value.expiresAt) <= now.getTime()) throw Error("CONNECTION_EXPIRED");
   return { ...saved, value: saved.value };
 }
-export function calendarUrl(binding: Pick<WebsiteBinding, "slug">) { return `${customerOrigin()}/w/${binding.slug}/calendar`; }
+export function calendarUrl(binding: Pick<WebsiteBinding, "slug" | "propertyId">) { return `${customerOrigin()}/w/${binding.slug}/calendar?property=${encodeURIComponent(binding.propertyId)}`; }
 export async function connectionStatus(store: CustomerStore, client: WebsiteClient, input: Record<string, unknown>, now = new Date()) {
   fields(input, ["schemaVersion", "action", "siteId", "connectionId"]);
   if (input.schemaVersion !== 1 || input.action !== "status") throw Error("INVALID_INPUT");
@@ -186,14 +187,17 @@ export async function approveConnection(store: CustomerStore, account: Account, 
   const base = { ...property.pricing?.base };
   for (const mapping of physicalMappings) {
     const type = activeTypes.find(t => t.roomTypeId === mapping.roomTypeId)!;
-    if (c.config.sellingMode !== "whole_house") for (const room of mapping.roomIds) base[room] = amount(type.nightly) / 100;
+    if (c.config.sellingMode !== "whole_house") for (const room of mapping.roomIds) {
+      // Website configuration changes must not replace owner-managed OS prices.
+      if (base[room] == null) base[room] = amount(type.nightly) / 100;
+    }
   }
-  if (c.config.sellingMode !== "rooms") base.villa = amount(c.config.wholeHouseNightly) / 100;
-  property = { ...property, pricing: { currency: "TWD", enabled: true, base, overrides: property.pricing?.overrides ?? [] } };
+  if (c.config.sellingMode !== "rooms" && base.villa == null) base.villa = amount(c.config.wholeHouseNightly) / 100;
+  property = { ...property, pricing: { currency: "TWD", enabled: property.pricing?.enabled ?? true, base, overrides: property.pricing?.overrides ?? [] } };
   const b: WebsiteBinding = { id: oldBinding.value?.id ?? randomUUID(), clientId: c.clientId, siteId: c.siteId, siteName: c.siteName,
     ownerAccountId: account.id, ownerEmail: account.email, workspaceId: workspace.id, slug, propertyId: property.id,
     configurationHash: c.configurationHash, config: c.config, roomRecords: c.roomRecords, offers, physicalMappings,
-    inventoryMode: "platform_only", enabled: true, credentialGeneration: oldBinding.value?.credentialGeneration ?? randomUUID(),
+    inventoryMode: "platform_only", enabled: oldBinding.value?.enabled ?? true, credentialGeneration: oldBinding.value?.credentialGeneration ?? randomUUID(),
     connectionId: c.id, revision: (oldBinding.value?.revision ?? 0) + 1, approvedAt: now.toISOString(),
     ...(oldBinding.value?.ownerLine ? { ownerLine: oldBinding.value.ownerLine } : {}) };
   // Verify key readiness before any mutation so failed credential setup creates no binding.
@@ -205,6 +209,8 @@ export async function approveConnection(store: CustomerStore, account: Account, 
     { key: bindingKey(b.id), before: oldBinding.raw, after: b },
     { key: siteKey(c.clientId, c.siteId), before: site.raw, after: { bindingId: b.id, ownerAccountId: account.id, ownerEmail: account.email } },
     { key: connectionKey(c.id), before: saved.raw, after: { ...c, state: "connected", bindingId: b.id, approvedBy: account.id, approvalKey, approvalHash } });
+  const bindingIndex = await store.read<string[]>(workspaceBindingsKey(workspace.id));
+  changes.push({ key: workspaceBindingsKey(workspace.id), before: bindingIndex.raw, after: [...new Set([...(bindingIndex.value ?? []), b.id])] });
   await store.commit(changes);
   const readback = await store.read<WebsiteConnection>(connectionKey(c.id));
   const stored = (await store.read<WebsiteBinding>(bindingKey(b.id))).value;

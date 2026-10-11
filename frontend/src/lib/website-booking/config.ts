@@ -87,7 +87,12 @@ export function bindingToken(binding: WebsiteBinding) {
 export function sameSecret(left: string, right: string) { return timingSafeEqual(Buffer.from(digest(left)), Buffer.from(digest(right))); }
 export function serviceClient(token: string | null): WebsiteClient {
   let rows: WebsiteClient[];
-  try { rows = JSON.parse(process.env.WEBSITE_BOOKING_CLIENTS || "[]"); } catch { throw Error("WEBSITE_BOOKING_UNAVAILABLE"); }
+  try {
+    const existing = JSON.parse(process.env.WEBSITE_BOOKING_CLIENTS || "[]");
+    const studio = JSON.parse(process.env.WEBSITE_BOOKING_STUDIO_CLIENTS || "[]");
+    if (!Array.isArray(existing) || !Array.isArray(studio)) throw Error();
+    rows = [...existing, ...studio];
+  } catch { throw Error("WEBSITE_BOOKING_UNAVAILABLE"); }
   if (!Array.isArray(rows) || rows.length > 50) throw Error("WEBSITE_BOOKING_UNAVAILABLE");
   const ids = new Set<string>(), hashes = new Set<string>();
   for (const c of rows) {

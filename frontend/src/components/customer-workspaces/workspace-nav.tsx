@@ -24,6 +24,7 @@ export function WorkspaceNav({
   ];
   return (
     <nav aria-label="旅宿功能" className="my-5 flex flex-wrap gap-2">
+      <a href={`/w/${data.slug}/website${suffix}`} className="rounded-xl border border-teal-300 px-4 py-3 text-sm">管理首頁</a>
       <a href="/workspaces" className="rounded-xl border border-slate-300 px-4 py-3 text-sm">我的旅宿</a>
       {(data.features?.holds || data.bookings.some(b => b.hold)) && <>
         <a className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm" href={`/w/${data.slug}/orders?${new URLSearchParams({ status: "held", ...(propertyId ? { property: propertyId } : {}) })}`}>保留單</a>
