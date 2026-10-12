@@ -582,7 +582,7 @@ function ApprovalForm({
       <>
       <section className="space-y-5 rounded-2xl border border-teal-200 bg-white p-5 sm:p-7">
         <p role="status" className="text-xl font-semibold text-teal-900">{connection.siteName} 已連接 OS 日曆</p>
-        <p className="leading-7 text-slate-600">業主：{view.email}。你可以回到建站台檢查連接狀態，並確認已發布這份設定。</p>
+        <p className="leading-7 text-slate-600">業主：{view.email}。請先在民宿管理入口核對房況並明確開放官網接單，再回建站台確認發布設定。</p>
         {calendarUrl && <a className={`${button} inline-block`} href={calendarUrl.replace(/\/calendar(?=\?|$)/, "/website")}>開啟民宿管理入口</a>}
         <p className="text-sm leading-6 text-slate-500">此頁顯示日曆連接結果；實際收單與通知狀態仍以官網及個別訂單的結果為準。</p>
       </section>

@@ -14,7 +14,7 @@ test('simplified owner entry uses selected property links and its pause button r
  assert.match(document.body.textContent,/OS 允許接單/);
  const calendar=[...document.querySelectorAll('a')].find(a=>a.textContent.includes('房況日曆'));assert.equal(new URL(calendar.href).searchParams.get('property'),w.properties[0].id);
  await ui.click(ui.button('暫停官網收單'));
- assert.equal(calls.filter(c=>c.method==='POST').length,1);assert.match(document.body.textContent,/OS 已暫停接單/);
+ assert.equal(calls.filter(c=>c.method==='POST').length,1);assert.match(document.body.textContent,/OS 尚未開放接單/);
  assert.equal((await f.call('bootstrap')).state,'unavailable');
  const sent=JSON.parse(calls.find(c=>c.method==='POST').body);assert.equal(sent.enabled,false);assert.equal(sent.bindingId,f.binding.id);assert.equal('ownerAccountId' in sent,false);
 });

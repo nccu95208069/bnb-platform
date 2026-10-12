@@ -52,7 +52,11 @@ check. Existing or imported unknown inventory is never assumed empty.
 On approval, OS atomically saves the workspace/property, binding, site index and
 consumed connection. `status` then returns to the private editor:
 `{schemaVersion:1,state:"connected",bindingId,bindingToken,configurationHash,
-inventoryMode,calendarUrl}`. The editor stores the token in private server
+inventoryMode,salesEnabled,calendarUrl}`. New bindings start with
+`salesEnabled:false`: connection approval establishes identity and physical
+room mapping but does not open bookings. The verified owner must separately
+use the OS workspace website control to enable sales after checking inventory.
+The editor stores the token in private server
 metadata and strips it from its browser response. No token travels in a URL.
 
 One client/site has one binding. A fresh `prepare` for that site is a pending

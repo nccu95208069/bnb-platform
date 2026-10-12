@@ -30,7 +30,8 @@ export async function connectionStatus(store: CustomerStore, client: WebsiteClie
     if (!b || b.clientId !== client.id || b.siteId !== site) throw Error("WRITE_UNCONFIRMED");
     if (b.connectionId !== c.id) return { schemaVersion: 1, state: "superseded", connectionId: c.id, configurationHash: b.configurationHash };
     return { schemaVersion: 1, state: "connected", connectionId: c.id, bindingId: b.id,
-      bindingToken: bindingToken(b), configurationHash: b.configurationHash, inventoryMode: b.inventoryMode, calendarUrl: calendarUrl(b) };
+      bindingToken: bindingToken(b), configurationHash: b.configurationHash, inventoryMode: b.inventoryMode,
+      salesEnabled: b.enabled, calendarUrl: calendarUrl(b) };
   }
   const currentSite = (await store.read<Site>(siteKey(c.clientId, c.siteId))).value;
   const currentBinding = currentSite ? (await store.read<WebsiteBinding>(bindingKey(currentSite.bindingId))).value : null;
@@ -197,7 +198,7 @@ export async function approveConnection(store: CustomerStore, account: Account, 
   const b: WebsiteBinding = { id: oldBinding.value?.id ?? randomUUID(), clientId: c.clientId, siteId: c.siteId, siteName: c.siteName,
     ownerAccountId: account.id, ownerEmail: account.email, workspaceId: workspace.id, slug, propertyId: property.id,
     configurationHash: c.configurationHash, config: c.config, roomRecords: c.roomRecords, offers, physicalMappings,
-    inventoryMode: "platform_only", enabled: oldBinding.value?.enabled ?? true, credentialGeneration: oldBinding.value?.credentialGeneration ?? randomUUID(),
+    inventoryMode: "platform_only", enabled: oldBinding.value?.enabled ?? false, credentialGeneration: oldBinding.value?.credentialGeneration ?? randomUUID(),
     connectionId: c.id, revision: (oldBinding.value?.revision ?? 0) + 1, approvedAt: now.toISOString(),
     ...(oldBinding.value?.ownerLine ? { ownerLine: oldBinding.value.ownerLine } : {}) };
   // Verify key readiness before any mutation so failed credential setup creates no binding.

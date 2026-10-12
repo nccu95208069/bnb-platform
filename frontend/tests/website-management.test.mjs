@@ -26,6 +26,21 @@ test('owner management lists only own websites, pauses atomically, replays safel
  await assert.rejects(websiteManagement(f.store,w.members[1].accountId,w.slug),/FORBIDDEN/);
 });
 
+test('owner approval connects the site while new sales stay off until a separate owner action',async()=>{
+ const f=await websiteFixture({activateSales:false});
+ assert.equal(f.status.state,'connected');
+ assert.equal(f.status.salesEnabled,false);
+ assert.equal((await f.call('bootstrap')).state,'unavailable');
+ await assert.rejects(f.call('availability',f.stay),/WEBSITE_BOOKING_UNAVAILABLE/);
+ const before=await websiteManagement(f.store,f.account.id,f.binding.slug);
+ assert.equal(before.sites[0].enabled,false);
+ const activated=await setWebsiteSales(f.store,f.account.id,f.binding.slug,{action:'sales',bindingId:f.binding.id,revision:f.binding.revision,enabled:true,requestKey:randomUUID()});
+ assert.equal(activated.sites[0].enabled,true);
+ assert.equal((await f.call('bootstrap')).state,'ready');
+ const current=await connectionStatus(f.store,f.client,{schemaVersion:1,action:'status',siteId:f.prepare.siteId,connectionId:f.connection.connectionId});
+ assert.equal(current.salesEnabled,true);
+});
+
 test('website reapproval preserves owner-managed base prices, overrides, pricing disable and sales pause',async()=>{
  const f=await websiteFixture();
  await setWebsiteSales(f.store,f.account.id,f.binding.slug,{action:'sales',bindingId:f.binding.id,revision:1,enabled:false,requestKey:randomUUID()});

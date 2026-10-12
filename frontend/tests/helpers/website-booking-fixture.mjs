@@ -19,7 +19,7 @@ export function testEnvironment(){
  process.env.CUSTOMER_WORKSPACES_ENABLED='true';process.env.CUSTOMER_SESSION_SECRET='synthetic-local-session-secret-not-for-production';
  process.env.CUSTOMER_HOLDS_ENABLED='true';process.env.WEBSITE_BOOKING_ENABLED='true';process.env.WEBSITE_BOOKING_CLIENTS=JSON.stringify([client]);
 }
-export async function websiteFixture({store=memoryStore(),units=1,mode='mixed',approve=true,now=new Date(),siteId='synthetic:website',ownerEmail='synthetic-owner@example.invalid'}={}) {
+export async function websiteFixture({store=memoryStore(),units=1,mode='mixed',approve=true,activateSales=true,now=new Date(),siteId='synthetic:website',ownerEmail='synthetic-owner@example.invalid'}={}) {
  testEnvironment();const day=businessDate(now.toISOString());
  const config={schema:1,kind:'new',sellingMode:mode,currency:'TWD',timezone:'Asia/Taipei',holdHours:24,
   opensOn:day,closesOn:addDays(day,60),transferInstructions:'Synthetic instructions for isolated tests.',cancellationPolicy:'Synthetic cancellation policy.',availabilityConfirmed:true,
@@ -34,6 +34,13 @@ export async function websiteFixture({store=memoryStore(),units=1,mode='mixed',a
  const approval={action:'approve',connectionId:connection.connectionId,requestKey:randomUUID(),confirmed:true,mode:'new',slug:'synthetic-'+randomUUID().slice(0,8)};
  if(!approve)return {store,client:editorClient,config,prepare,connection,approval,account,now};
  await approveConnection(store,account,approval,now);
+ // Most booking tests start from an already active synthetic site. The actual
+ // owner activation path is exercised separately with activateSales:false.
+ if(activateSales){
+  const approved=await connectionStatus(store,editorClient,{schemaVersion:1,action:'status',siteId:prepare.siteId,connectionId:connection.connectionId},now);
+  const key='website:binding:'+approved.bindingId,saved=await store.read(key);
+  await store.commit([{key,before:saved.raw,after:{...saved.value,enabled:true}}]);
+ }
  const status=await connectionStatus(store,editorClient,{schemaVersion:1,action:'status',siteId:prepare.siteId,connectionId:connection.connectionId},now);
  const binding=(await store.read('website:binding:'+status.bindingId)).value;
  const envelope={schemaVersion:1,configurationHash,source:'Official Website'};

@@ -29,6 +29,15 @@ a mutation. The event readback endpoint accepts IDs as claims but checks them
 against the credential's configured tenant/property/source scope and the OS
 order. Website owner actions recheck current membership and property scope.
 
+New website bindings are disabled for sales when the owner approves the
+connection. The connected status exposes `salesEnabled:false`; a second,
+versioned owner action in the OS workspace enables sales after inventory
+review. Reapproving an existing binding preserves its current sales setting.
+The Studio service credential still uses exact `site_ids`; each new generated
+site needs an OS-side site grant before connection preparation. A reusable
+registration/grant flow is not implemented, so an ungranted site cannot be
+presented as connected or bookable.
+
 ## Booking and occupancy state
 
 OS is authoritative for **native** booking and hold writes. Availability is an
@@ -185,6 +194,12 @@ last-room website/hold contention, a stale website quote after a synthetic
 OTA booking, event credential isolation/readback, and loss/retry behavior. Frontend ESLint and TypeScript pass;
 the production Webpack build passes. These are local synthetic checks, not
 provider or public-site acceptance.
+
+The tenant event endpoint was also exercised through actual local HTTP POST
+and GET calls backed by a synthetic Redis REST fixture: two tenants received
+separate receipts, exact retry/readback matched, cross-tenant read/write were
+rejected, and a changed payload under the same event ID returned 409. The
+fixture used synthetic credentials and did not contact production Redis.
 
 `BETA-03` remains open for real owner formats, mobile file selection and
 source-coverage acceptance. `BETA-02/INT-01` native private flow is implemented;
