@@ -23,7 +23,7 @@ test('uses correct channel and checkout semantics, does not expose guest informa
 test('source outage, overlapping marker, locked stock and missing price never become confirmed inventory or invented prices',()=>{
  const p=structuredClone(prices);p.cells[0].stock.is_lock=true;p.cells[1].stock.count=0;delete p.cells[2].channels.booking;
  const r=liveAvailability(query,{...source,bookings:[{room_number:'301',check_in:'2026-09-07',check_out:'2026-09-08',source_conflict:true}]},p,now);
- assert.equal(r.cells[0].state,'available');assert.equal(r.cells[1].state,'available');assert.equal(r.cells[0].channel_inventory.is_lock,true);assert.equal(r.cells[1].channel_inventory.count,0);assert.equal(r.cells[2].pricing.current_price,null);assert.equal(r.cells[4].state,'conflict');
+ assert.equal(r.cells[0].state,'unknown');assert.equal(r.cells[1].state,'unknown');assert.equal(r.cells[0].channel_inventory.is_lock,true);assert.equal(r.cells[1].channel_inventory.count,0);assert.match(r.cells[1].reason,/核對後再接單/);assert.equal(r.cells[2].pricing.current_price,null);assert.equal(r.cells[4].state,'conflict');
  const stale=liveAvailability(query,{...source,source:{...source.source,sync:{status:'stale'}}},null,now);
  assert.equal(stale.counts.available,0);assert.equal(stale.counts.unknown,6);
  const old=liveAvailability(query,source,{...prices,observed_at:'2026-09-01T00:00:00Z'},now);
@@ -68,6 +68,11 @@ test('old zero inventory stays a separate observation and newer overlay wins wit
  const r=liveAvailability(query,source,prior,now,'sweetfun',inventory);
  assert.equal(r.cells[0].state,'available');assert.equal(r.cells[0].channel_inventory.is_lock,false);assert.equal(r.cells[0].channel_inventory.checked_today,true);
  assert.equal(r.cells[0].pricing.observed_at,prior.observed_at);assert.equal(r.pricing_observed_at,prior.observed_at);
+ const oldOnly=liveAvailability(query,source,prior,now);
+ assert.equal(oldOnly.cells[0].state,'available');assert.equal(oldOnly.cells[0].channel_inventory.checked_today,false);
  const fresh=structuredClone(prices);fresh.cells[0].stock={count:0,is_lock:true};fresh.cells[0].stock_observed_at='2026-09-07T12:01:00Z';fresh.observed_at='2026-09-07T12:01:00Z';
- assert.equal(liveAvailability(query,source,fresh,now,'sweetfun',inventory).cells[0].channel_inventory.is_lock,true);
+ const newer=liveAvailability(query,source,fresh,now,'sweetfun',inventory);
+ assert.equal(newer.cells[0].channel_inventory.is_lock,true);assert.equal(newer.cells[0].state,'unknown');
+ const sold=liveAvailability(query,{...source,bookings:[{room_number:'101',check_in:'2026-09-07',check_out:'2026-09-08'}]},fresh,now,'sweetfun',inventory);
+ assert.equal(sold.cells[0].state,'sold');
 });

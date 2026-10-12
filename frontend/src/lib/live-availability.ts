@@ -22,10 +22,11 @@ export function liveAvailability(query: AvailabilityQuery, bookings: BookingSour
     const overlay = stockMap.get(`${date}|${room}`);
     const stockAt = p?.stock_observed_at ?? observed;
     const stock = overlay && (!p?.stock || Date.parse(overlay.observed_at) >= Date.parse(stockAt)) ? overlay : p?.stock ? { ...p.stock, observed_at: stockAt } : null;
-    const checkedToday = !!stock && new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year:'numeric',month:'2-digit',day:'2-digit' }).format(new Date(stock.observed_at)) === today;
-    const state: InventoryState = date < today ? 'past' : occupied.some(b => b.source_conflict) ? 'conflict' : occupied.length ? 'sold' : !healthy ? 'unknown' : 'available';
-    // Sheet absence is an unsold observation, not a promise that all channels are open.
-    const reason = {available:'訂房表尚無訂單；接單前仍須確認通路庫存與住宿限制。',sold:'訂房表已有訂單',past:'已過去的房晚',conflict:'訂房表有衝突，需先確認',unknown:'訂房表同步待確認',blocked:'OwlNest 最近一次觀測為封房，重新開放前請再次確認',held:'暫留',maintenance:'維修'}[state];
+    const checkedToday = !!stock && Number.isFinite(Date.parse(stock.observed_at)) && new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year:'numeric',month:'2-digit',day:'2-digit' }).format(new Date(stock.observed_at)) === today;
+    const stockDisagrees = healthy && checkedToday && !!stock && (stock.count === 0 || stock.is_lock);
+    const state: InventoryState = date < today ? 'past' : occupied.some(b => b.source_conflict) ? 'conflict' : occupied.length ? 'sold' : !healthy || stockDisagrees ? 'unknown' : 'available';
+    // A channel closure does not prove a booking, but it must not look available either.
+    const reason = stockDisagrees && state === 'unknown' ? '訂房表無單，但今日 OwlNest 庫存為 0 或鎖房；請核對後再接單。' : {available:'訂房表尚無訂單；接單前仍須確認通路庫存與住宿限制。',sold:'訂房表已有訂單',past:'已過去的房晚',conflict:'訂房表有衝突，需先確認',unknown:'訂房表同步待確認',blocked:'OwlNest 最近一次觀測為封房，重新開放前請再次確認',held:'暫留',maintenance:'維修'}[state];
     const stalePrice = !!p && now.getTime() - Date.parse(observed) > 4 * 86400000;
     cells.push({date,room,state,reason,pricing_decision:p?.pricing_decisions?.[query.channel] ?? null,channel_inventory: stock ? { count: stock.count, is_lock: stock.is_lock, observed_at: stock.observed_at, checked_today: checkedToday } : null,sales_probability:p?.sales_probability ?? null,sellable_units:null,minimum_nights:0,max_guests:0,
       inventory_observed_at:bookings.source.sync?.last_checked_at ?? bookings.source.observed_at,
@@ -42,5 +43,5 @@ export function liveAvailability(query: AvailabilityQuery, bookings: BookingSour
   const priceTimes = prices?.cells.map(c => c.observed_at ?? prices.observed_at).filter(t => Number.isFinite(Date.parse(t))) ?? [];
   const latestPrice = priceTimes.sort((a,b) => Date.parse(b)-Date.parse(a))[0] ?? null;
   return {pricing_observed_at:latestPrice,status:'read_only',mode:'live_sheet_pricing_snapshot',snapshot_id:`${bookings.source.snapshot_version}:${prices?.version ?? 'missing'}:${inventory?.version ?? 'missing'}`,asof:today,query,property_id:property,rooms,cells,counts,price_hidden:false,continuous_windows:[],
-    source_notice: prices ? `已售／未售以訂房表為準；通路庫存另列上次觀測。可按「更新 OwlNest 價格」讀取未來三個月價格；各日期的抓取時間見明細。此為 OwlNest 通路系統價，客人促銷後實付可能不同。` : '訂房表持續同步；價格來源尚未發布，請勿據此報價。'};
+    source_notice: prices ? `已售以訂房表為準；表內無單只表示尚未登記。若今日 OwlNest 顯示零庫存或鎖房，將標成待確認。可按「更新 OwlNest 價格」讀取未來三個月價格；各日期的抓取時間見明細。此為 OwlNest 通路系統價，客人促銷後實付可能不同。` : '訂房表持續同步；價格來源尚未發布，請勿據此報價。'};
 }
