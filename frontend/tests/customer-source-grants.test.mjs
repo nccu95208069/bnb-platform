@@ -110,6 +110,8 @@ test('OTA source upsert blocks the last website room, retries read back one orde
  assert.equal(created.guestName,'OTA 測試');
  const linked=await sourceBookingLink(f.store,s.grant.grantId,3,s.auth,'mailbox-123','OTA-123');
  assert.equal(linked.orderId,created.orderId);assert.equal(linked.sourceVersion,'v1');
+ assert.equal(linked.requestKey,input.requestKey);assert.equal(linked.checkIn,f.stay.checkIn);
+ assert.deepEqual(linked.roomIds,[roomId]);assert.equal(linked.diverged,false);
  assert.equal(created.verified,true);assert.equal(created.status,'confirmed');assert.equal(created.orderVersion,1);
  assert.deepEqual(await mutateSourceBooking(f.store,input,s.auth,now),created);
  assert.equal((await f.workspace()).bookings.length,1);
@@ -143,12 +145,31 @@ test('OTA cancellation before create leaves a durable source-version tombstone',
   previousSourceVersion:null,guestName:null,expectedWorkspaceVersion:w.version,checkIn:f.stay.checkIn,
   checkOut:f.stay.checkOut,roomIds:[roomId]};
  const result=await mutateSourceBooking(f.store,cancelled,s.auth,now);
- assert.equal((await sourceBookingLink(f.store,s.grant.grantId,3,s.auth,'mailbox-123','booking:early-cancel')).sourceVersion,'v2');
+ const link=await sourceBookingLink(f.store,s.grant.grantId,3,s.auth,'mailbox-123','booking:early-cancel');
+ assert.equal(link.sourceVersion,'v2');assert.equal(link.requestKey,cancelled.requestKey);
+ assert.deepEqual(link.roomIds,[roomId]);assert.equal(link.checkIn,f.stay.checkIn);
  assert.equal(result.verified,true);assert.equal(result.orderId,null);assert.equal(result.status,'cancelled');
  assert.equal((await f.workspace()).bookings.length,0);
  assert.equal((await sourceBookingStatus(f.store,s.grant.grantId,s.auth,cancelled.requestKey)).sourceVersion,'v2');
  await assert.rejects(mutateSourceBooking(f.store,{...cancelled,kind:'upsert',sourceVersion:'v1',eventId:randomUUID(),
   requestKey:randomUUID(),expectedWorkspaceVersion:result.workspaceVersion},s.auth,now),/SOURCE_VERSION_CONFLICT/);
+});
+test('external source refuses to overwrite an OS edit made after the last source version',async()=>{
+ const f=await websiteFixture({store:memoryStore(),now}), s=await setup(f);
+ await activate(f,s);
+ const w=await f.workspace(),roomId=w.properties[0].rooms[0].id;
+ const input={schemaVersion:1,grantId:s.grant.grantId,grantVersion:3,eventId:randomUUID(),requestKey:randomUUID(),
+  kind:'upsert',sourceAccount:'mailbox-123',externalOrderId:'booking:changed',sourceVersion:'v1',
+  previousSourceVersion:null,guestName:'李測試',expectedWorkspaceVersion:w.version,
+  checkIn:f.stay.checkIn,checkOut:f.stay.checkOut,roomIds:[roomId]};
+ await mutateSourceBooking(f.store,input,s.auth,now);
+ const saved=await f.store.read(`workspace:${w.id}`),booking=saved.value.bookings[0];
+ await f.store.commit([{key:`workspace:${w.id}`,before:saved.raw,after:{...saved.value,
+  version:saved.value.version+1,bookings:[{...booking,version:booking.version+1,notes:'Owner changed'}]}}]);
+ const link=await sourceBookingLink(f.store,s.grant.grantId,3,s.auth,'mailbox-123','booking:changed');
+ assert.equal(link.diverged,true);assert.equal(link.sourceOrderVersion,1);
+ await assert.rejects(mutateSourceBooking(f.store,{...input,eventId:randomUUID(),requestKey:randomUUID(),
+  sourceVersion:'v2',previousSourceVersion:'v1',expectedWorkspaceVersion:link.workspaceVersion},s.auth,now),/SOURCE_CONFLICT/);
 });
 test('two grants cannot cross properties, owner account or source account',async()=>{
  const store=memoryStore(), a=await websiteFixture({store,now,siteId:'tenant-a',ownerEmail:'a@example.invalid'}),
@@ -160,6 +181,7 @@ test('two grants cannot cross properties, owner account or source account',async
   kind:'upsert',sourceAccount:'a-mailbox',externalOrderId:'OTA-X',sourceVersion:'v1',previousSourceVersion:null,guestName:'A guest',
   expectedWorkspaceVersion:w.version,checkIn:a.stay.checkIn,checkOut:a.stay.checkOut,roomIds:[roomId]};
  await assert.rejects(mutateSourceBooking(store,input,sb.auth,now),/UNAUTHORIZED/);
+ await assert.rejects(mutateSourceBooking(store,{...input,externalOrderId:null},sa.auth,now),/INVALID_INPUT/);
  await assert.rejects(mutateSourceBooking(store,{...input,roomIds:[(await b.workspace()).properties[0].rooms[0].id]},sa.auth,now),/INVALID_INPUT/);
  await assert.rejects(mutateSourceBooking(store,{...input,sourceAccount:'b-mailbox'},sa.auth,now),/FORBIDDEN/);
  assert.equal((await mutateSourceBooking(store,input,sa.auth,now)).propertyId,sa.propertyId);

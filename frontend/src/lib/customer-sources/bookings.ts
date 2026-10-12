@@ -10,7 +10,9 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const VERSION = /^[A-Za-z0-9._:-]{1,128}$/;
 const EXTERNAL_ID = /^[^\x00-\x1f\x7f]{1,160}$/;
 type SourceOrder = { workspaceId: string; propertyId: string; provider: "gmail" | "line";
-  sourceAccount: string; externalOrderId: string; bookingId: string | null; sourceVersion: string; requestHash: string };
+  sourceAccount: string; externalOrderId: string; bookingId: string | null; sourceVersion: string;
+  requestKey: string; requestHash: string; orderVersion: number;
+  checkIn: string; checkOut: string; roomIds: string[] };
 type Receipt = { bodyHash: string; eventId: string; requestKey: string; grantId: string; workspaceId: string;
   propertyId: string; bookingId: string | null; orderVersion: number; workspaceVersion: number;
   kind: "upsert" | "cancel"; sourceVersion: string; sourceAccount: string; externalOrderId: string;
@@ -36,10 +38,10 @@ function inputShape(input: Record<string, unknown>) {
     "expectedWorkspaceVersion", "checkIn", "checkOut", "roomIds"];
   if (Object.keys(input).length !== keys.length || Object.keys(input).some(key => !keys.includes(key)) ||
     input.schemaVersion !== 1 || !["upsert", "cancel"].includes(String(input.kind)) ||
-    !VERSION.test(String(input.sourceVersion)) ||
+    typeof input.sourceVersion !== "string" || !VERSION.test(input.sourceVersion) ||
     !(input.previousSourceVersion === null ||
       (typeof input.previousSourceVersion === "string" && VERSION.test(input.previousSourceVersion))) ||
-    !EXTERNAL_ID.test(String(input.externalOrderId)) ||
+    typeof input.externalOrderId !== "string" || !EXTERNAL_ID.test(input.externalOrderId) ||
     !(input.guestName === null || (typeof input.guestName === "string" &&
       input.guestName.length >= 1 && input.guestName.length <= 100 &&
       ![...input.guestName].some(c => c.charCodeAt(0) < 32))) ||
@@ -79,7 +81,7 @@ export async function sourceBookingStatus(store: CustomerStore, grantId: unknown
 export async function sourceBookingLink(store: CustomerStore, grantId: unknown, grantVersion: unknown,
   authorization: string | null, sourceAccount: unknown, externalOrderId: unknown) {
   const id = uuid(grantId);
-  if (!EXTERNAL_ID.test(String(externalOrderId))) throw Error("INVALID_INPUT");
+  if (typeof externalOrderId !== "string" || !EXTERNAL_ID.test(externalOrderId)) throw Error("INVALID_INPUT");
   const { grant, saved, workspace, workspaceSnapshot } = await authorizedGrant(store, id, authorization, grantVersion, true);
   if ((grant.provider !== "gmail" && grant.provider !== "line") ||
     grant.sourceAccount !== sourceAccount) throw Error("FORBIDDEN");
@@ -102,7 +104,12 @@ export async function sourceBookingLink(store: CustomerStore, grantId: unknown, 
     provider: grant.provider, sourceAccount: grant.sourceAccount, externalOrderId,
     exists: !!linked, sourceVersion: linked?.sourceVersion ?? null,
     orderId: linked?.bookingId ?? null, orderVersion: booking?.version ?? 0,
-    status: booking?.status ?? (linked ? "cancelled" : null), guestName: booking?.guestName ?? null };
+    status: booking?.status ?? (linked ? "cancelled" : null), guestName: booking?.guestName ?? null,
+    requestKey: linked?.requestKey ?? null, sourceOrderVersion: linked?.orderVersion ?? null,
+    diverged: !!booking && booking.version !== linked?.orderVersion,
+    checkIn: booking?.checkIn ?? linked?.checkIn ?? null,
+    checkOut: booking?.checkOut ?? linked?.checkOut ?? null,
+    roomIds: booking?.roomIds ?? linked?.roomIds ?? null };
 }
 export async function mutateSourceBooking(store: CustomerStore, input: Record<string, unknown>,
   authorization: string | null, now = new Date()) {
@@ -135,13 +142,15 @@ export async function mutateSourceBooking(store: CustomerStore, input: Record<st
   const existing = linked?.bookingId ? workspace.bookings.find(b => b.id === linked.bookingId && b.propertyId === property.id) : null;
   if (linked?.bookingId && (!existing || existing.actor !== `source:${grant.provider}:${digest(JSON.stringify([grant.sourceAccount, input.externalOrderId]))}`))
     throw Error("SOURCE_CONFLICT");
+  if (linked?.bookingId && existing?.version !== linked.orderVersion) throw Error("SOURCE_CONFLICT");
   // A cancellation may arrive before its create event. Persist its source
   // version as a tombstone so an older create cannot later revive the room.
   if (input.kind === "cancel" && !existing) {
     const at = now.toISOString();
     const tombstone: SourceOrder = { workspaceId: workspace.id, propertyId: property.id,
       provider: grant.provider, sourceAccount: grant.sourceAccount!, externalOrderId: String(input.externalOrderId),
-      bookingId: null, sourceVersion: String(input.sourceVersion), requestHash: bodyHash };
+      bookingId: null, sourceVersion: String(input.sourceVersion), requestKey, requestHash: bodyHash, orderVersion: 0,
+      checkIn: stay.checkIn, checkOut: stay.checkOut, roomIds: stay.roomIds };
     const next: Workspace = { ...workspace, version: workspace.version + 1,
       audit: [...workspace.audit, { at, actor: `source:${grant.provider}`, action: "source.booking.cancelled.unmatched", targetId: grant.id }] };
     const receipt: Receipt = { bodyHash, eventId, requestKey, grantId: grant.id, workspaceId: workspace.id,
@@ -203,7 +212,9 @@ export async function mutateSourceBooking(store: CustomerStore, input: Record<st
       existing ? "source.booking.changed" : "source.booking.created", targetId: booking.id }] };
   const nextSource: SourceOrder = { workspaceId: workspace.id, propertyId: property.id,
     provider: grant.provider, sourceAccount: grant.sourceAccount!, externalOrderId: String(input.externalOrderId),
-    bookingId, sourceVersion: String(input.sourceVersion), requestHash: bodyHash };
+    bookingId, sourceVersion: String(input.sourceVersion), requestKey, requestHash: bodyHash,
+    orderVersion: booking.version,
+    checkIn: stay.checkIn, checkOut: stay.checkOut, roomIds: stay.roomIds };
   const receipt: Receipt = { bodyHash, eventId, requestKey, grantId: grant.id, workspaceId: workspace.id,
     propertyId: property.id, bookingId, orderVersion: booking.version, workspaceVersion: nextWorkspace.version,
     kind: input.kind as "upsert" | "cancel", sourceVersion: String(input.sourceVersion),
