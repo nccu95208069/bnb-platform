@@ -227,6 +227,8 @@ export async function proposeSourceAccount(store: CustomerStore, input: Record<s
   const { saved, grant, workspace, workspaceSnapshot } = await authorizedGrant(store, input.grantId, authorization, input.grantVersion);
   exact(input, ["action", "grantId", "grantVersion", "sourceAccount", "sourceLabel", "requestKey",
     ...(grant.provider === "line" ? ["ownerSubject"] : [])]);
+  if (typeof input.sourceAccount !== "string" || typeof input.sourceLabel !== "string")
+    throw Error("INVALID_INPUT");
   const sourceAccount = String(input.sourceAccount), sourceLabel = String(input.sourceLabel);
   if (!SOURCE_ACCOUNT.test(sourceAccount) || !SOURCE_ACCOUNT.test(sourceLabel) ||
     (grant.provider === "line" && (!LINE_ACCOUNT.test(sourceAccount) || !LINE_SUBJECT.test(String(input.ownerSubject)))))
