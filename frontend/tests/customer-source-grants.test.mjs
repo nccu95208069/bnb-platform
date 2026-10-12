@@ -9,7 +9,7 @@ import { mutateSourceBooking, sourceBookingLink, sourceBookingStatus } from '../
 import { acquireInventoryGuard, finalizeInventoryGuard, inventoryNight, inventoryStatus,
   recordInventoryVerified } from '../src/lib/customer-sources/inventory.ts';
 import { sourceOwnerCommand, sourceOwnerRead } from '../src/lib/customer-sources/owner-actions.ts';
-import { availability } from '../src/lib/customer-workspaces/operations.ts';
+import { availability, bookingOperation } from '../src/lib/customer-workspaces/operations.ts';
 
 const serviceToken = 'synthetic-source-service-token-for-local-tests';
 const verifier = 'v'.repeat(43);
@@ -360,4 +360,13 @@ test('LINE stale preview rejects without write; paid cancellation preserves rece
  await sourceOwnerCommand(f.store,{action:'commit',grant:s.grant,confirmation:confirmation(c)},s.auth,now);
  const after=await sourceOwnerRead(f.store,{action:'inspect',grant:s.grant,order_id:receipt.order_id},s.auth);
  assert.equal(after.status,'cancelled');assert.equal(after.received,'500.00');assert.equal(after.refund_review_required,true);
+ const current=await f.workspace();
+ await assert.rejects(bookingOperation(f.store,f.account.id,s.w.slug,{action:'payment',bookingId:receipt.order_id,
+  bookingVersion:after.order_version,version:current.version,requestKey:randomUUID(),
+  kind:'deposit',amount:1,receivedAt:now.toISOString(),method:'cash'}),/ORDER_CANCELLED/);
+ const refunded=await bookingOperation(f.store,f.account.id,s.w.slug,{action:'payment',bookingId:receipt.order_id,
+  bookingVersion:after.order_version,version:current.version,requestKey:randomUUID(),
+  kind:'refund',amount:500,receivedAt:now.toISOString(),method:'cash'});
+ assert.equal(refunded.summary.received,0);
+ assert.equal((await f.workspace()).bookings[0].lineOwner.refundReviewRequired,false);
 });
