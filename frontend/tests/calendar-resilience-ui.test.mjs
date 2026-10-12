@@ -22,7 +22,7 @@ test('mounted calendar retains readonly data through retry, blocks unvisited ran
   await rerender({ reload: 1 });
   await act(async () => { attempts[1].reject(Error('offline')); await tick(); });
   assert.equal(state.data.bookings[0].snapshot_only, true);
-  await rerender({ reload: 2 }); assert.equal(state.data.bookings[0].snapshot_only, true); assert.equal(state.error, 'offline');
+  await rerender({ reload: 2 }); assert.equal(state.data.bookings[0].snapshot_only, true); assert.equal(state.error, null);
   await act(async () => { attempts[2].resolve({}); await tick(); }); assert.equal(state.data.bookings.length, 1); assert.match(state.error, /不完整/);
   await rerender({ start: '2026-11-01', end: '2026-12-01' });
   await act(async () => { attempts[3].reject(Error('offline')); await tick(); }); assert.equal(hasCalendarCoverage(state.data, props.start, props.end), false);
@@ -38,4 +38,32 @@ test('mounted calendar retains readonly data through retry, blocks unvisited ran
   await rerender({ scope: 'viewer-no-price' }); assert.equal(state.data, null); assert.equal(document.body.textContent.includes('SYNTHETIC_PRIVATE'), false);
   await rerender({ scope: 'owner' }); assert.equal(state.data, null);
   assert.equal(dom.window.localStorage.length, 0); assert.equal(dom.window.sessionStorage.length, 0);
+});
+
+test('switching to an uncovered date range renders loading immediately, and only a failed request exposes the unavailable state', async t => {
+  const attempts = [], renders = [];
+  const read = () => new Promise((resolve, reject) => attempts.push({ resolve, reject }));
+  const onProperties = () => {}, onAccessLost = () => {};
+  const props = { start: '2026-10-01', end: '2026-11-01', scope: 'owner', reload: 0 };
+  function Probe({ start, end, scope, reload }) {
+    const value = useCalendarData({ start, end, scope, reload, read, onProperties, onAccessLost });
+    renders.push({ start, loading: value.loading, covered: hasCalendarCoverage(value.data, start, end), failed: value.requestFailed });
+    return createElement('span', null, value.loading ? 'loading' : value.requestFailed ? 'failed' : 'calendar');
+  }
+  const { root } = await mount(t, Probe, props);
+  await act(async () => { attempts[0].resolve(response()); await tick(); });
+  assert.equal(document.body.textContent, 'calendar');
+
+  props.start = '2026-11-01'; props.end = '2026-12-01';
+  const firstNewRender = renders.length;
+  await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+  assert.ok(renders.slice(firstNewRender).some(item => item.start === props.start));
+  assert.ok(renders.slice(firstNewRender).filter(item => item.start === props.start && !item.covered).every(item => item.loading));
+  assert.equal(document.body.textContent, 'loading');
+
+  await act(async () => { attempts[1].reject(Error('offline')); await tick(); });
+  assert.equal(document.body.textContent, 'failed');
+  props.start = '2026-12-01'; props.end = '2027-01-01';
+  await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+  assert.equal(document.body.textContent, 'loading');
 });
