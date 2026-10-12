@@ -105,7 +105,7 @@ test("owner reviews visible policy text and explicitly confirms before an author
   assert.equal("price" in posts[0], false);
   assert.equal("tenant" in posts[0], false);
   assert.match(document.body.textContent, /已連接 OS 日曆/);
-  assert.equal(document.querySelector("a").getAttribute("href"), "/w/isolated-house/calendar");
+  assert.equal(document.querySelector("a").getAttribute("href"), "/w/isolated-house/website");
 });
 
 test("a lost response locks edits and retries the exact request even after a pending readback", async (t) => {
