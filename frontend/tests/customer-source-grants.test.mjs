@@ -321,6 +321,40 @@ test('OwlNest pending open cannot be released after a competing booking; revoked
  assert.equal((await f.workspace()).integrationFences[0].state,'pending');
  assert.equal((await f.call('bootstrap')).state,'unavailable');
 });
+test('a replacement OwlNest account cannot reopen or read proof from an older grant fence',async()=>{
+ const f=await websiteFixture({store:memoryStore(),now}), old=await setup(f,'owlnest');
+ await activate(f,old,'owl-account-old');
+ const w=await f.workspace(), roomId=w.properties[0].rooms[0].id, day=f.stay.checkIn;
+ const close={schemaVersion:1,action:'acquire_guard',grantId:old.grant.grantId,grantVersion:3,
+  operationKey:randomUUID(),sourceAccount:'owl-account-old',expectedWorkspaceVersion:w.version,
+  mode:'close',checkIn:day,checkOut:new Date(Date.parse(day+'T00:00:00Z')+86400000).toISOString().slice(0,10),
+  roomIds:[roomId],closedFenceId:null,
+  providerBefore:{observedAt:now.toISOString(),sourceVersion:'old-v1',cells:[{roomId,date:day,count:1,isLock:false}]}};
+ const guard=await acquireInventoryGuard(f.store,close,old.auth,now);
+ const recorded=await recordInventoryVerified(f.store,{schemaVersion:1,action:'record_verified',
+  grantId:old.grant.grantId,grantVersion:3,operationKey:close.operationKey,
+  nightOperationKey:'owl-night:old-close',expectedWorkspaceVersion:guard.workspaceVersion,
+  providerAfter:{observedAt:new Date(now.getTime()+1000).toISOString(),sourceVersion:'old-v2',
+   cells:[{roomId,date:day,count:0,isLock:true}]}},old.auth,new Date(now.getTime()+2000));
+ await finalizeInventoryGuard(f.store,{schemaVersion:1,action:'finalize_guard',
+  grantId:old.grant.grantId,grantVersion:3,operationKey:close.operationKey,
+  expectedWorkspaceVersion:recorded.workspaceVersion,
+  providerAfter:{observedAt:new Date(now.getTime()+3000).toISOString(),sourceVersion:'old-v2',
+   cells:[{roomId,date:day,count:0,isLock:true}]}},old.auth,new Date(now.getTime()+4000));
+ const replacement=await setup(f,'owlnest');
+ await activate(f,replacement,'owl-account-new');
+ const after=await f.workspace();
+ const night=await inventoryNight(f.store,replacement.grant.grantId,3,replacement.auth,
+  replacement.propertyId,roomId,day);
+ assert.equal(night.canOpen,false);
+ assert.equal(night.fences[0].evidence,null);
+ await assert.rejects(acquireInventoryGuard(f.store,{...close,grantId:replacement.grant.grantId,
+  operationKey:randomUUID(),sourceAccount:'owl-account-new',expectedWorkspaceVersion:after.version,
+  mode:'open',closedFenceId:guard.fenceId,
+  providerBefore:{observedAt:new Date(now.getTime()+5000).toISOString(),sourceVersion:'new-v1',
+   cells:[{roomId,date:day,count:0,isLock:true}]}},replacement.auth,new Date(now.getTime()+5000)),/FENCE_CONFLICT/);
+ assert.equal((await f.workspace()).integrationFences[0].state,'closed');
+});
 
 async function activeLine(f) {
  const s=await setup(f,'line');

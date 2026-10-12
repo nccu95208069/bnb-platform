@@ -114,7 +114,8 @@ export async function inventoryNight(store: CustomerStore, grantId: unknown, gra
   const fences = await Promise.all((workspace.integrationFences ?? [])
     .filter(f => f.propertyId === property && bookingsOverlap(f, window)).map(async f => {
       const receipt = (await store.read<Receipt>(receiptKey(f.grantId, f.operationKey))).value;
-      const proof = receipt && output(receipt).evidence.find(e => e.roomId === room && e.date === night);
+      const proof = f.grantId === grant.id && receipt?.grantId === grant.id ?
+        output(receipt).evidence.find(e => e.roomId === room && e.date === night) : null;
       return { fenceId: f.id, operationKey: f.operationKey, mode: f.mode, state: f.state,
         evidence: proof ?? null };
     }));
@@ -157,7 +158,8 @@ export async function acquireInventoryGuard(store: CustomerStore, input: Record<
     workspace.reviewRecords?.some(r => r.propertyId === property.id))) throw Error("IMPORT_INCOMPLETE");
   const window = { checkIn, checkOut, roomIds };
   const overlapping = (workspace.integrationFences ?? []).filter(f => f.propertyId === property.id && bookingsOverlap(f, window));
-  const closed = input.closedFenceId === null ? null : overlapping.find(f => f.id === input.closedFenceId && f.state === "closed");
+  const closed = input.closedFenceId === null ? null : overlapping.find(f =>
+    f.id === input.closedFenceId && f.state === "closed" && f.grantId === grant.id);
   if (input.closedFenceId !== null && (!closed || closed.checkIn !== checkIn || closed.checkOut !== checkOut ||
     closed.roomIds.length !== roomIds.length || closed.roomIds.some(id => !roomIds.includes(id)))) throw Error("FENCE_CONFLICT");
   if (overlapping.some(f => f.id !== closed?.id) || (input.mode === "close" && overlapping.length)) throw Error("FENCE_CONFLICT");
