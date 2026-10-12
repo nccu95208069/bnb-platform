@@ -1,6 +1,6 @@
 # Work Handoff Index — 2026-09-05
 
-2026-10-12 BNB-SAAS v1 coordination: [shared tenant/property/room/order identity, event authority and replay contract](BNB_V1_SHARED_ID_EVENT_CONTRACT_2026-10-12.md). The OS branch adds bounded Excel/CSV file intake to the existing per-property import preview and commit path; synthetic two-tenant and stale-quote checks pass. Real samples, tenant Gmail/LINE/OwlNest senders and public-sales gates remain open.
+2026-10-12 BNB-SAAS v1 coordination: [shared tenant/property/room/order identity, event authority and replay contract](BNB_V1_SHARED_ID_EVENT_CONTRACT_2026-10-12.md). The OS branch adds bounded Excel/CSV file intake to the existing per-property import preview and commit path, plus a default-disabled tenant event readback receipt; synthetic two-tenant and stale-quote checks pass. Real samples, tenant Gmail/LINE/OwlNest senders and public-sales gates remain open.
 
 2026-10-11 OS-04: owner-approved OS and LINE rollout is complete. Sweetfun and OFFLAND reminders are enabled for Taipei 09:00, with separately labeled unconfirmed room-night summaries. The new scheduler returned HTTP 200; one authorized synthetic LINE message has a persisted provider receipt and was visibly received in LINE desktop. First automatic arrival-note dispatch is due October 12 and has not yet been observed; physical-phone and external-customer acceptance remain open. See [release evidence](OS_READINESS_2026-10-10.md#正式-line-啟用--2026-10-11).
 

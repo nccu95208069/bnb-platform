@@ -2,9 +2,11 @@
 
 This is the OS-side contract for the website and LINE/Gmail teams. It freezes the
 identity, authority, idempotency and recovery rules before another integration
-is activated. **A contract is not an assertion that every endpoint below is
-deployed.** The native website binding and reservation API are implemented;
-the customer-tenant change receiver and the legacy Sheet/OwlNest bridge are not.
+is activated. **A contract is not an assertion that every flow below is
+deployed.** The native website binding and reservation API are implemented.
+The customer-tenant event readback endpoint in this branch is default-disabled
+and has only synthetic verification. The legacy Sheet/OwlNest bridge is not
+implemented.
 
 ## Identity and tenancy
 
@@ -22,9 +24,10 @@ and a server-held binding token, and sends only the approved room-type ID in
 quote requests. The private editor completes owner authorization before it can
 receive the token. LINE/Gmail resolves a verified sender/recipient through a
 scoped binding, then sends `bookingId`; it cannot provide an arbitrary
-`workspaceId`, `propertyId`, room ID, price or owner identity as authority.
-Every service credential has an explicit tenant/binding, action and channel
-allowlist. OS rechecks current owner membership and property scope at use time.
+`workspaceId`, `propertyId`, room ID, price or owner identity as authority for
+a mutation. The event readback endpoint accepts IDs as claims but checks them
+against the credential's configured tenant/property/source scope and the OS
+order. Website owner actions recheck current membership and property scope.
 
 ## Booking and occupancy state
 
@@ -57,31 +60,52 @@ not be inferred from wall time or replaced by a newly generated retry ID.
 An outbound event represents a *verified state transition*, not a request to
 write the booking again. Producers save an immutable event ID and payload in a
 durable outbox in the same transaction as, or after readback of, the
-authoritative mutation. The recommended envelope for a future tenant receiver
-is:
+authoritative mutation. The implemented, default-disabled readback endpoint is
+`POST /api/integration/customer-events/v1` with this exact JSON shape:
 
 ```json
 {
   "schema": 1,
   "event_id": "stable-producer-id",
-  "binding_id": "OS-issued UUID",
+  "workspace_id": "OS-issued UUID",
+  "property_id": "OS-issued UUID",
   "order_id": "OS-issued UUID",
   "order_version": 2,
   "source_version": "opaque-original-source-version",
-  "kind": "booking.confirmed",
+  "source": "gmail",
+  "kind": "booking.changed",
   "occurred_at": "2026-10-12T00:00:00Z",
-  "verified": true
+  "verified": true,
+  "check_in": "2026-10-20",
+  "check_out": "2026-10-22",
+  "room_ids": ["OS-issued room UUID"]
 }
 ```
 
 No guest details, credentials, bank data or free-text message in this event.
-The credential and stored binding determine tenant and property; payload IDs
-must match that scope. A receiver must reject a reused `event_id` with a
-different body, stale version or unrecognized binding, and retain a status
-receipt. A `2xx` transport response without `verified:true` readback is not a
-completed handoff. The old `/api/v1/calendar/changes` contract accepts only
-`sweetfun`/`offland`; it is **not** this proposed tenant endpoint and must not
-be reused with a customer UUID.
+`source` is `website`, `line`, `gmail` or `owlnest`; `kind` is
+`booking.created`, `booking.changed`, `booking.cancelled` or `hold.converted`.
+The dedicated Bearer credential has SHA-256 hash and explicit
+`workspace_id`/`property_ids`/`sources` allowlists in server-only
+`CUSTOMER_EVENT_CLIENTS`; `CUSTOMER_EVENTS_ENABLED=true` is also required.
+Neither setting is installed by this branch. Payload IDs, current dates, rooms,
+order version and terminal state must match the OS order. The endpoint does
+**not** write an order, toggle OwlNest, parse Gmail or independently verify an
+external source version. The producer remains responsible for that source
+write and readback before setting `verified:true`.
+
+POST returns `200` with the same `event_id`, `order_id`, `order_version`,
+`source_version`, `workspace_version`, `completed_at`, `verified:true` and a
+relative `status_url`. GET that URL with the **same** Bearer credential and
+check the exact IDs/versions and `verified:true`. The receipt lasts 30 days.
+Exact POST retries return it; changed payload under one event ID is `409`.
+If the OS order is absent, stale or different, POST returns
+`409 SOURCE_NOT_VERIFIED` without a receipt. The producer retains the original
+outbox event, resolves the discrepancy and retries the **same** body/ID;
+notification retry must not repeat the booking or inventory write. The
+workspace read and receipt commit share a compare-and-set fence. The old
+`/api/v1/calendar/changes` contract accepts only `sweetfun`/`offland`; it is
+not this tenant endpoint and must not be reused with a customer UUID.
 
 ## Idempotency, failure and notification handoff
 
@@ -145,16 +169,18 @@ this gate does not authorize public booking or claim end-to-end OTA protection.
 - Native OS occupancy/holds: `OS_HOLDS_PRICING_2026-10-07.md`,
   `frontend/src/lib/customer-workspaces/{holds,operations,calendar-import}.ts`.
 - Legacy two-property change receipts: `CALENDAR_CHANGE_ENDPOINT_2026-10-07.md`.
+- Tenant OS event receipt: `frontend/src/lib/customer-events/contract.ts` and
+  `frontend/src/app/api/integration/customer-events/v1/route.ts`.
 - Calendar import onboarding: `CALENDAR_ONBOARDING_2026-10-04.md` and
   `CALENDAR_PREVIEW_FIRST_2026-10-04.md`.
 
 ## Isolated verification and remaining work (2026-10-12)
 
 The file intake and existing Sheet import share the same scope and commit path.
-The focused suite passes 39 tests: two synthetic file-import tenants, source
+The focused suite passes 42 tests: two synthetic file-import tenants, source
 scope, revised-file deduplication, conflicting room-night, xlsx parsing,
 last-room website/hold contention, a stale website quote after a synthetic
-OTA booking, and loss/retry behavior. Frontend ESLint and TypeScript pass;
+OTA booking, event credential isolation/readback, and loss/retry behavior. Frontend ESLint and TypeScript pass;
 the production Webpack build passes. These are local synthetic checks, not
 provider or public-site acceptance.
 
@@ -163,8 +189,8 @@ source-coverage acceptance. `BETA-02/INT-01` native private flow is implemented;
 legacy Sheet/OwlNest formal confirmation and public sale remain blocked.
 `BETA-04/OS-05/OWL-01` external tenant LINE identity and multi-customer
 OwlNest credentials/mapping/readback, and `BETA-05/ING-01` tenant Gmail/OTA
-authorization, four-platform parsing, durable sender and OS receipt, are not
-implemented by this file-import change. Their producers should use the
-identity and replay rules above. The proposed tenant event receiver requires a
-separate implementation and scoped credentials; the deployed legacy endpoint
-cannot be used as a shortcut. The tentative cross-line checkpoint is 2026-10-26.
+authorization, four-platform parsing and durable sender are not implemented
+by this branch. The tenant OS receipt exists only as a default-disabled
+readback endpoint; no producer is wired to it and no scoped production
+credential is installed. The deployed legacy endpoint cannot be used as a
+shortcut. The tentative cross-line checkpoint is 2026-10-26.
