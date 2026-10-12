@@ -42,9 +42,11 @@ publication, OS connection approval and live sales are separate decisions.
   shows the source interval and requires a separate acknowledgement that a
   static file does not update itself or other channels.
 - The owner management page reports effective sale readiness separately from
-  the saved sales switch. If coverage is revoked or a connected read-only
-  calendar replaces the file, it shows new reservations as paused and explains
-  the source restriction rather than displaying the old switch as available.
+  the saved sales switch. If coverage is revoked, a connected read-only
+  calendar replaces the file, room mapping/owner access is lost, pricing is
+  disabled or the website/hold feature is off, it shows new reservations as
+  paused rather than displaying the old switch as available. Sales activation
+  checks the same gates; pausing remains possible during a feature outage.
 
 ## Gaps before a public self-service booking journey
 

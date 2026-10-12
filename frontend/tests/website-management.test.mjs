@@ -41,6 +41,59 @@ test('owner approval connects the site while new sales stay off until a separate
  assert.equal(current.salesEnabled,true);
 });
 
+test('effective readiness and sales activation fail closed when price or website service is disabled',async()=>{
+ const f=await websiteFixture({activateSales:false});
+ const input={action:'sales',bindingId:f.binding.id,revision:f.binding.revision,enabled:true,requestKey:randomUUID()};
+ assert.equal((await websiteManagement(f.store,f.account.id,f.binding.slug)).sites[0].ready,true);
+ const saved=await f.store.read('workspace:'+f.binding.workspaceId);
+ const repriced=structuredClone(saved.value);
+ repriced.properties[0].pricing.enabled=false;
+ await f.store.commit([{key:'workspace:'+f.binding.workspaceId,before:saved.raw,after:repriced}]);
+ assert.equal((await websiteManagement(f.store,f.account.id,f.binding.slug)).sites[0].ready,false);
+ await assert.rejects(setWebsiteSales(f.store,f.account.id,f.binding.slug,input),/PRICING_NOT_ENABLED/);
+ const current=await f.store.read('workspace:'+f.binding.workspaceId);
+ const restored=structuredClone(current.value);
+ restored.properties[0].pricing.enabled=true;
+ await f.store.commit([{key:'workspace:'+f.binding.workspaceId,before:current.raw,after:restored}]);
+ const previous=process.env.WEBSITE_BOOKING_ENABLED;
+ process.env.WEBSITE_BOOKING_ENABLED='false';
+ try {
+  assert.equal((await websiteManagement(f.store,f.account.id,f.binding.slug)).sites[0].ready,false);
+  await assert.rejects(setWebsiteSales(f.store,f.account.id,f.binding.slug,input),/WEBSITE_BOOKING_UNAVAILABLE/);
+ } finally { process.env.WEBSITE_BOOKING_ENABLED=previous; }
+ assert.equal((await f.call('bootstrap')).state,'unavailable');
+});
+
+test('an exact lost-response retry reads back the prior sales action even after a feature outage',async()=>{
+ const f=await websiteFixture({activateSales:false});
+ const input={action:'sales',bindingId:f.binding.id,revision:f.binding.revision,enabled:true,requestKey:randomUUID()};
+ await setWebsiteSales(f.store,f.account.id,f.binding.slug,input);
+ const previous=process.env.WEBSITE_BOOKING_ENABLED;
+ process.env.WEBSITE_BOOKING_ENABLED='false';
+ try {
+  const replay=await setWebsiteSales(f.store,f.account.id,f.binding.slug,input);
+  assert.equal(replay.sites[0].enabled,true);
+  assert.equal(replay.sites[0].ready,false);
+  await assert.rejects(setWebsiteSales(f.store,f.account.id,f.binding.slug,{...input,enabled:false}),/IDEMPOTENCY_CONFLICT/);
+  assert.equal((await f.call('bootstrap')).state,'unavailable');
+  const paused=await setWebsiteSales(f.store,f.account.id,f.binding.slug,{action:'sales',bindingId:f.binding.id,
+   revision:replay.sites[0].revision,enabled:false,requestKey:randomUUID()});
+  assert.equal(paused.sites[0].enabled,false);
+ } finally { process.env.WEBSITE_BOOKING_ENABLED=previous; }
+});
+
+test('a saved sales switch cannot make guest bootstrap ready after pricing is disabled',async()=>{
+ const f=await websiteFixture();
+ const saved=await f.store.read('workspace:'+f.binding.workspaceId);
+ const changed=structuredClone(saved.value);
+ changed.properties[0].pricing.enabled=false;
+ await f.store.commit([{key:'workspace:'+f.binding.workspaceId,before:saved.raw,after:changed}]);
+ const site=(await websiteManagement(f.store,f.account.id,f.binding.slug)).sites[0];
+ assert.equal(site.enabled,true);
+ assert.equal(site.ready,false);
+ assert.equal((await f.call('bootstrap')).state,'unavailable');
+});
+
 test('website reapproval preserves owner-managed base prices, overrides, pricing disable and sales pause',async()=>{
  const f=await websiteFixture();
  await setWebsiteSales(f.store,f.account.id,f.binding.slug,{action:'sales',bindingId:f.binding.id,revision:1,enabled:false,requestKey:randomUUID()});

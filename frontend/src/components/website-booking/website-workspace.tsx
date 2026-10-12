@@ -61,7 +61,7 @@ export function WebsiteWorkspace({ data, initialPropertyId }: { data: WorkspaceV
       {!management && !error ? <p>正在讀取連接設定…</p> : null}
       {management?.sites.filter(s => s.propertyId === propertyId).map(site => <article key={site.id} className="my-5 rounded-2xl border border-slate-200 p-5">
         <div className="flex flex-wrap items-center justify-between gap-4"><div><h3 className="font-semibold">{site.siteName}</h3><p className="mt-1 text-sm">{site.enabled && site.ready ? "OS 允許接單" : site.enabled ? "OS 已暫停新預訂，房況需核對" : "OS 尚未開放接單"} · 開放住宿 {site.config.opensOn} 至 {site.config.closesOn}</p></div><button className={site.enabled ? secondary : button} disabled={busy || (!site.enabled && !canEnable(site))} onClick={() => toggle(site)}>{busy ? "處理中…" : site.enabled ? "暫停官網收單" : "開放官網收單"}</button></div>
-        {!site.ready ? <p className="mt-3 text-sm text-rose-800">目前來源或涵蓋期間尚未通過 OS 房況核對，官網不可新增預訂；請先完成匯入、處理衝突並重新查詢。</p> : null}
+        {!site.ready ? <p className="mt-3 text-sm text-rose-800">目前官網不可新增預訂；請核對房況來源與範圍、房價及網站連接狀態，再重新查詢。</p> : null}
         {site.source.mode === "connected" ? <p className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-950">此館別使用持續連線的日曆，但 OS 尚無安全回寫到該來源的能力，不能開放官網接單。</p> : null}
         {(site.source.mode === "calendar" || site.source.mode === "sheet") ? <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-950">
           <p>目前房況來自{site.source.mode === "calendar" ? "已上傳的日曆檔" : "已匯入的表格"}，不是持續同步。匯入範圍：{site.source.coverageFrom ?? "未確認"} 至 {site.source.coverageTo ?? "未確認"}（結束日不含）。來源有新訂單、取消或改房時，請先更新 OS 並核對房況；其他通路不會由這個開關自動更新。</p>

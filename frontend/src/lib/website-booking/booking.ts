@@ -101,7 +101,11 @@ export async function guestAction(store: CustomerStore, bindingId: string, token
   if (action === "bootstrap") {
     fields(input, common);
     let ready = true;
-    try { requireReady(binding, input.configurationHash); await bindingWorkspace(store, binding); } catch { ready = false; }
+    try {
+      requireReady(binding, input.configurationHash);
+      const { property } = await bindingWorkspace(store, binding);
+      if (!property.pricing?.enabled) throw Error("PRICING_NOT_ENABLED");
+    } catch { ready = false; }
     return { schemaVersion: 1, state: ready ? "ready" : "unavailable", inventoryMode: binding.inventoryMode, configurationHash: binding.configurationHash };
   }
   if (!["availability", "quotes"].includes(action)) throw Error("NOT_FOUND");

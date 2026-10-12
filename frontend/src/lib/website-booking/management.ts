@@ -1,8 +1,10 @@
 import { digest } from "../customer-workspaces/auth.ts";
 import { loadWorkspace } from "../customer-workspaces/service.ts";
+import { holdsEnabled } from "../customer-workspaces/hold-state.ts";
 import type { CustomerStore } from "../customer-workspaces/store.ts";
+import { bindingWorkspace } from "./booking.ts";
 import { bindingCoverage, bindingKey, nativeProperty, workspaceBindingsKey } from "./connections.ts";
-import { fields, integer, uuid } from "./config.ts";
+import { enabled as websiteEnabled, fields, integer, requireEnabled, uuid } from "./config.ts";
 import type { WebsiteBinding } from "./types.ts";
 
 export async function websiteManagement(store: CustomerStore, accountId: string, slug: string) {
@@ -16,9 +18,11 @@ export async function websiteManagement(store: CustomerStore, accountId: string,
       (!member.allProperties && !member.propertyIds.includes(binding.propertyId))) continue;
     const property = workspace.properties.find(p => p.id === binding.propertyId);
     let ready = false;
-    if (property) {
-      try { nativeProperty(workspace, property); bindingCoverage(property, binding.config); ready = true; }
-      catch { /* A stale source or incomplete coverage keeps the persisted switch ineffective. */ }
+    try {
+      const current = await bindingWorkspace(store, binding);
+      ready = websiteEnabled() && holdsEnabled() && current.property.pricing?.enabled === true;
+    } catch {
+      // A stale source, revoked owner or invalid room mapping makes the saved switch ineffective.
     }
     const connected = workspace.calendarSources?.some(s => s.propertyId === binding.propertyId && s.mode === "connected");
     sites.push({ id: binding.id, siteName: binding.siteName, propertyId: binding.propertyId, enabled: binding.enabled,
@@ -43,18 +47,22 @@ export async function setWebsiteSales(store: CustomerStore, accountId: string, s
   if (member.role !== "owner") throw Error("FORBIDDEN");
   if (!binding || binding.ownerAccountId !== accountId || binding.workspaceId !== workspace.id || binding.slug !== slug ||
     (!member.allProperties && !member.propertyIds.includes(binding.propertyId))) throw Error("NOT_FOUND");
-  if (input.enabled) {
-    const property = workspace.properties.find(p => p.id === binding.propertyId);
-    if (!property) throw Error("BINDING_UNAVAILABLE");
-    nativeProperty(workspace, property);
-    bindingCoverage(property, binding.config);
-    if ((property.setup?.mode === "calendar" || property.setup?.mode === "sheet") && input.confirmedStaticSource !== true)
-      throw Error("STATIC_SOURCE_CONFIRMATION_REQUIRED");
-  }
   const requestKey = `website:management:${id}:${key}`, hash = digest(JSON.stringify({ accountId, id, revision, enabled: input.enabled,
     confirmedStaticSource: input.confirmedStaticSource === true }));
   const receipt = await store.read<{ hash: string }>(requestKey);
   if (receipt.value) { if (receipt.value.hash !== hash) throw Error("IDEMPOTENCY_CONFLICT"); return websiteManagement(store, accountId, slug); }
+  if (input.enabled) {
+    const property = workspace.properties.find(p => p.id === binding.propertyId);
+    if (!property) throw Error("BINDING_UNAVAILABLE");
+    requireEnabled();
+    if (!holdsEnabled()) throw Error("HOLDS_UNAVAILABLE");
+    if (!property.pricing?.enabled) throw Error("PRICING_NOT_ENABLED");
+    nativeProperty(workspace, property);
+    bindingCoverage(property, binding.config);
+    await bindingWorkspace(store, binding);
+    if ((property.setup?.mode === "calendar" || property.setup?.mode === "sheet") && input.confirmedStaticSource !== true)
+      throw Error("STATIC_SOURCE_CONFIRMATION_REQUIRED");
+  }
   if (binding.revision !== revision) throw Error("VERSION_CONFLICT");
   const next = { ...binding, enabled: input.enabled, revision: binding.revision + 1 };
   await store.commit([
