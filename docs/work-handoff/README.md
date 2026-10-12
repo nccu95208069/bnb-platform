@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-12 BETA self-service correction: [owner-led website admission without preregistered email, existing safeguards, import-to-booking gap and deployment order](BETA_SELF_SERVICE_OS_ADMISSION_2026-10-12.md). A pending Studio UUID site can be approved by a newly verified owner with sales off; imported calendar inventory is not yet sale-ready through that binding.
+
 2026-10-12 BETA-02/03 pilots: [愉園 and 蘭城 Booking.com source options, physical-room questions, and separate calendar acceptance](BETA_PILOTS_YUYUAN_LANCHENG_2026-10-12.md). Public labels are not room inventory; both owner mappings and real source samples await verification. Sales remain disabled.
 
 2026-10-12 BNB-SAAS v1 coordination: [shared tenant/property/room/order identity, event authority and replay contract](BNB_V1_SHARED_ID_EVENT_CONTRACT_2026-10-12.md). The OS branch adds bounded Excel/CSV file intake to the existing per-property import preview and commit path, plus a default-disabled tenant event readback receipt; synthetic two-tenant and stale-quote checks pass. Real samples, tenant Gmail/LINE/OwlNest senders and public-sales gates remain open.

@@ -46,7 +46,13 @@ bookings/blocks and how those affect authoritative occupancy. 蘭城 has no
 confirmed OwlNest connection; do not assume one.
 
 Create each tenant/workspace and property from that owner's verified account;
-only then allocate canonical OS UUIDs and the new Studio UUID site ID. Do not
+the owner can establish this account during the flow, so PM need not know an
+email or issue an invitation beforehand. The public website's ChatGPT login
+does not replace the OS email-verification step until a trusted identity
+exchange is specified.
+Studio may allocate its stable project/site UUID before OS verification; OS
+allocates canonical tenant, property and physical-room UUIDs only after the
+verified owner's approval. Do not
 derive tenant, property, room, site or order IDs from a similar display name.
 In particular, the similar **Happy House B&B** display name does not establish
 identity with the existing Happy House synthetic/native trial binding. Never

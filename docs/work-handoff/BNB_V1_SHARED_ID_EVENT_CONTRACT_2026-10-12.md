@@ -42,6 +42,13 @@ token, and even an approved new binding remains closed for sales. The Studio
 must show the same stable site ID to the owner. No production Studio opt-in is
 installed by this branch.
 
+The public self-service target does not require PM to precreate owner accounts
+or collect email addresses. A new owner can supply their intended email in the
+Studio flow and verify it through the browser-bound OS login link before
+approving a binding. Website ChatGPT login is not itself an OS identity proof.
+The current import-to-booking compatibility gap and safe rollout sequence are
+tracked in [BETA self-service OS admission](BETA_SELF_SERVICE_OS_ADMISSION_2026-10-12.md).
+
 ## Booking and occupancy state
 
 OS is authoritative for **native** booking and hold writes. Availability is an
