@@ -80,6 +80,9 @@ test("email login prepares proof first, retains the connection and safely retrie
 test("owner reviews visible policy text and explicitly confirms before an authoritative readback", async (t) => {
   const posts = [];
   let state = ownerView();
+  state.connection.siteId = "5a2db0b2-87d9-4f72-a20b-82890d944e20";
+  state.connection.editorOrigin = "https://studio.example.invalid";
+  state.connection.requiresSiteApproval = true;
   t.mock.method(globalThis, "fetch", async (url, options) => {
     if (!options.body) return Response.json(state);
     posts.push(JSON.parse(options.body));
@@ -93,6 +96,8 @@ test("owner reviews visible policy text and explicitly confirms before an author
   assert.match(document.body.textContent, /每房最多 2 人/);
   assert.match(document.body.textContent, /2099-10-01 至 2099-12-31/);
   assert.match(document.body.textContent, /<script>unsafe\(\)<\/script>/);
+  assert.match(document.body.textContent, /5a2db0b2-87d9-4f72-a20b-82890d944e20/);
+  assert.match(document.body.textContent, /https:\/\/studio\.example\.invalid/);
   assert.equal(document.querySelector("script"), null);
   await fill(control("日曆網址代稱"), "isolated-house");
   assert.equal(button("確認並連接日曆").disabled, true);

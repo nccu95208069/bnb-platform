@@ -8,7 +8,13 @@ and limits are recorded at the end. No production activation is implied.
 
 The private editor uses a configured service credential whose allowed `siteIds`
 and editor origin are server-owned. A guest/browser never receives this token or
-a booking binding token. Service routes reject cookie authentication.
+a booking binding token. Service routes reject cookie authentication. The
+dedicated Studio registry may additionally opt in to new UUID-v4 site IDs with
+`allow_new_sites:true`; legacy clients retain exact site-ID grants. An opted-in
+Studio request creates only a one-hour pending connection. It cannot create a
+binding or enable sales until the verified intended owner reviews the visible
+site ID, Studio origin, configuration and physical-room mapping in OS and
+explicitly approves.
 
 `POST /api/integration/website-booking/v1/connections`
 
@@ -255,6 +261,11 @@ New connection/pairing/sales require `WEBSITE_BOOKING_ENABLED=true`, existing
 operations still require the workspace and hold switches; disabling new sales
 alone never prevents managing the existing orders. The private editor registry
 `WEBSITE_BOOKING_CLIENTS` contains exact `id,token_sha256,site_ids,editor_origin`.
+`WEBSITE_BOOKING_STUDIO_CLIENTS` accepts the same fields and may set
+`allow_new_sites:true` for a trusted Studio credential. This permits only
+canonical lowercase UUID-v4 site IDs outside its exact list; an empty
+`site_ids` list is valid only with that opt-in. The opt-in is absent by default,
+and this branch does not install or enable a production Studio credential.
 The OS login/calendar origin must be the intended deployment via existing
 customer-origin configuration. All credentials remain server-only; never use
 NEXT_PUBLIC variables, URL query parameters or committed files for secrets.

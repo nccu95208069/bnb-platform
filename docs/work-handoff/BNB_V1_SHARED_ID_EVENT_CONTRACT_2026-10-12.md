@@ -33,10 +33,14 @@ New website bindings are disabled for sales when the owner approves the
 connection. The connected status exposes `salesEnabled:false`; a second,
 versioned owner action in the OS workspace enables sales after inventory
 review. Reapproving an existing binding preserves its current sales setting.
-The Studio service credential still uses exact `site_ids`; each new generated
-site needs an OS-side site grant before connection preparation. A reusable
-registration/grant flow is not implemented, so an ungranted site cannot be
-presented as connected or bookable.
+Legacy service credentials still use exact `site_ids`. A dedicated Studio
+credential can opt in to new UUID-v4 site IDs; this admission is disabled by
+default. It creates only an expiring application. The verified intended owner
+must compare the displayed site ID and Studio origin, then approve the OS
+connection and physical-room mapping. An unapproved site receives no binding
+token, and even an approved new binding remains closed for sales. The Studio
+must show the same stable site ID to the owner. No production Studio opt-in is
+installed by this branch.
 
 ## Booking and occupancy state
 

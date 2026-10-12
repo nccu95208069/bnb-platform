@@ -29,6 +29,9 @@ type OwnerConnectionView = {
   connection: {
     id: string;
     siteName: string;
+    siteId?: string;
+    editorOrigin?: string;
+    requiresSiteApproval?: boolean;
     state: "awaiting_owner" | "connected";
     configurationHash: string;
     expiresAt: string;
@@ -597,6 +600,7 @@ function ApprovalForm({
         <div>
           <h2 className="break-words text-2xl font-semibold">{connection.siteName}</h2>
           <p className="mt-2 break-words text-slate-600">已驗證業主：{view.email}</p>
+          {connection.requiresSiteApproval && <p className="mt-3 break-all rounded-xl bg-amber-50 p-4 text-sm leading-6 text-amber-950">請與建站台核對這份連接申請的網站識別碼 <strong>{connection.siteId}</strong> 及工作台來源 <strong>{connection.editorOrigin}</strong>；若不一致，請勿確認。</p>}
           <p className="mt-2 text-sm text-slate-500">確認期限：{displayTime(connection.expiresAt)}（台北時間）</p>
         </div>
         <div className="rounded-xl bg-stone-50 p-4 leading-7">
@@ -679,7 +683,7 @@ function ApprovalForm({
         </fieldset>
         <label className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 leading-7">
           <input type="checkbox" className="mt-2 h-4 w-4 shrink-0 accent-teal-800" checked={confirmed} disabled={locked} onChange={(event) => setConfirmed(event.target.checked)} />
-          <span>我確認上列業主信箱、房型、人數、日期及旅客規則正確；新日曆使用上列初始房價，既有日曆保留 OS 已設定房價；已核對開放期間的既有訂單與封房，所有需要保留的日期都已登記在所選 OS 日曆。若建立全新日曆，我確認此範圍目前沒有尚未登記的訂單或封房。我了解目前僅以 OS 日曆管理房況，尚未串接的 Sheet、OwlNest 或其他管道不會自動占房。</span>
+          <span>{connection.requiresSiteApproval ? "我確認上列網站識別碼與建站台一致，並確認" : "我確認"}業主信箱、房型、人數、日期及旅客規則正確；新日曆使用上列初始房價，既有日曆保留 OS 已設定房價；已核對開放期間的既有訂單與封房，所有需要保留的日期都已登記在所選 OS 日曆。若建立全新日曆，我確認此範圍目前沒有尚未登記的訂單或封房。我了解目前僅以 OS 日曆管理房況，尚未串接的 Sheet、OwlNest 或其他管道不會自動占房。</span>
         </label>
         {uncertain && <p role="status" className="rounded-xl bg-amber-50 p-4 leading-7 text-amber-900">送出結果尚未確認。已保留原本的設定與請求，請先查詢結果，或重試同一筆確認；不要重新建立另一個日曆。</p>}
         {status && <p role="status" className="leading-7 text-slate-600">{status}</p>}

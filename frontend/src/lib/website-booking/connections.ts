@@ -58,6 +58,7 @@ export async function prepareConnection(store: CustomerStore, client: WebsiteCli
   if (site.value && !currentBinding) throw Error("BINDING_UNAVAILABLE");
   await store.limit(`website-prepare:${client.id}`, 30);
   const value: WebsiteConnection = { id: requestId, clientId: client.id, siteId, siteName, ownerEmail, hash, ...config,
+    editorOrigin: client.editor_origin, admission: client.site_ids.includes(siteId) ? "exact" : "owner_approval",
     createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + 3600000).toISOString(), state: "awaiting_owner", bindingRevision: currentBinding?.revision ?? 0 };
   try { await store.commit([{ key, before: null, after: value, ttlSeconds: 3600 }]); }
   catch (error) {
@@ -95,7 +96,8 @@ export async function ownerConnection(store: CustomerStore, account: Account, id
   if (c.state === "awaiting_owner" && (binding?.revision ?? 0) !== c.bindingRevision) throw Error("CONNECTION_SUPERSEDED");
   if (c.state === "connected" && binding?.connectionId !== c.id) throw Error("CONNECTION_SUPERSEDED");
   return { authenticated: true, email: account.email, connection: {
-    id: c.id, siteName: c.siteName, state: c.state, configurationHash: c.configurationHash,
+    id: c.id, siteName: c.siteName, siteId: c.siteId, editorOrigin: c.editorOrigin,
+    requiresSiteApproval: c.admission === "owner_approval", state: c.state, configurationHash: c.configurationHash,
     expiresAt: c.expiresAt, config: c.config, roomRecords: c.roomRecords,
     ...(binding ? { calendarUrl: calendarUrl(binding), binding: {
       slug: binding.slug, propertyId: binding.propertyId,

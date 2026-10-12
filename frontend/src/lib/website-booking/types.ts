@@ -10,12 +10,13 @@ export type WebsiteConfig = {
     capacity: string | number; nightly: string | number }[];
 };
 export type RoomRecord = { id: string; name: string };
-export type WebsiteClient = { id: string; token_sha256: string; site_ids: string[]; editor_origin: string };
+export type WebsiteClient = { id: string; token_sha256: string; site_ids: string[]; editor_origin: string; allow_new_sites?: true };
 export type WebsiteConnection = {
   id: string; clientId: string; siteId: string; siteName: string; ownerEmail: string;
   hash: string; configurationHash: string; config: WebsiteConfig; roomRecords: RoomRecord[];
   createdAt: string; expiresAt: string; state: "awaiting_owner" | "connected";
   bindingRevision: number;
+  editorOrigin?: string; admission?: "exact" | "owner_approval";
   bindingId?: string; approvedBy?: string; approvalKey?: string; approvalHash?: string;
 };
 export type RoomOffer = { id: string; name: string; roomIds: string[]; capacity: number; wholeHouse: boolean };

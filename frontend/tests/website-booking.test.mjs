@@ -25,6 +25,24 @@ test('prepare creates no property; only verified intended owner can atomically a
  assert.equal([...f.store.values.keys()].filter(k=>k.startsWith('workspace:')).length,1);
  await assert.rejects(approveConnection(f.store,f.account,{...f.approval,slug:'changed'},f.now),/IDEMPOTENCY_CONFLICT/);
 });
+test('a new Studio UUID site stays pending until the intended owner verifies its identity and mapping',async()=>{
+ const f=await websiteFixture({approve:false});
+ const studio={...f.client,id:'trusted-studio',site_ids:[],allow_new_sites:true};
+ const siteId=randomUUID(),request={...f.prepare,requestId:randomUUID(),siteId};
+ const pending=await prepareConnection(f.store,studio,request,f.now);
+ assert.equal((await f.store.read('website:site:'+digest(JSON.stringify([studio.id,siteId])))).value,null);
+ const review=await ownerConnection(f.store,f.account,pending.connectionId,f.now);
+ assert.equal(review.connection.siteId,siteId);
+ assert.equal(review.connection.editorOrigin,studio.editor_origin);
+ assert.equal(review.connection.requiresSiteApproval,true);
+ await assert.rejects(approveConnection(f.store,{...f.account,email:'other@example.invalid'},{...f.approval,connectionId:pending.connectionId},f.now),/WEBSITE_OWNER_MISMATCH/);
+ await assert.rejects(connectionStatus(f.store,{...studio,id:'other-studio'},{schemaVersion:1,action:'status',siteId,connectionId:pending.connectionId},f.now),/NOT_FOUND/);
+ const approved=await approveConnection(f.store,f.account,{...f.approval,connectionId:pending.connectionId},f.now);
+ assert.equal(approved.state,'connected');
+ const status=await connectionStatus(f.store,studio,{schemaVersion:1,action:'status',siteId,connectionId:pending.connectionId},f.now);
+ assert.equal(status.salesEnabled,false);
+ await assert.rejects(prepareConnection(f.store,studio,{...request,requestId:randomUUID(),ownerEmail:'other@example.invalid'},f.now),/WEBSITE_OWNER_MISMATCH/);
+});
 test('service and binding credentials are separate; invalid site and caller authority are rejected',async()=>{
  const f=await websiteFixture();assert.equal(serviceClient(editorToken).id,client.id);
  assert.throws(()=>serviceClient(f.status.bindingToken),/UNAUTHORIZED/);
