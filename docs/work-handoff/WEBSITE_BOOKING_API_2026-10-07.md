@@ -99,7 +99,9 @@ request never allocates another order, even after quote expiry, response loss or
 process restart. The receipt survives for the order lifecycle. Changed content
 under the same key returns 409. A quote is single-use across request IDs.
 
-Status response: `{status,orderId,reference,holdUntil?,notifications}`. Status is
+Status response: `{status,orderId,orderVersion,reference,stay,acceptedTerms,payment,holdUntil?,notifications}`. `payment` is a guest-safe OS readback with `{status,receivedCents,remainingCents,refundedCents,refundReviewRequired}`. Its status is `unpaid`, `partial`, `paid`, `overpaid` or `unknown`; amounts are integer TWD cents or `null` where OS cannot establish a balance. `refundedCents` is only the amount of actual refund entries OS has recorded. `refundReviewRequired` means an owner review remains open; neither field claims a bank transfer or provider refund completed merely because one was requested. The same fields appear on an original reservation response and a later `requests` recovery lookup.
+
+Reservation status is
 `hold_active`, `hold_expired_waiting_owner`, `preparing`, `review_required`,
 `confirmed`, `released` or `rejected`. `holdUntil` is present for both hold states;
 an expired deadline does not release occupancy. Each notification field

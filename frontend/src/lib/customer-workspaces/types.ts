@@ -83,6 +83,8 @@ export type Payment = {
   note?: string | null;
 };
 export type Booking = {
+  lineOwner?: { guestCount: number; refundReviewRequired?: boolean };
+  channelClose?: { provider: "owlnest"; grantId: string; verifiedAt: string };
   website?: import("../website-booking/types.ts").WebsiteBookingData;
   platform?: string | null;
   bookedAt?: string | null; // Source booking date, never the import/creation date.
@@ -147,7 +149,7 @@ export type OrderReviewRecord = {
   id: string;
   propertyId: string;
   sourceId: string;
-  source: "sheet" | "calendar";
+  source: "sheet" | "calendar" | "external";
   label: string;
   guestName: string | null;
   checkIn: string | null;
@@ -156,7 +158,22 @@ export type OrderReviewRecord = {
   issues: string[];
 };
 export type Workspace = {
+  sourceConnections?: { propertyId: string; provider: "line" | "gmail" | "owlnest";
+    grantId: string; status: "pending_verification" | "revoked" }[];
   reviewRecords?: OrderReviewRecord[];
+  integrationFences?: {
+    id: string;
+    grantId: string;
+    propertyId: string;
+    operationKey: string;
+    mode: "open" | "close";
+    state: "pending" | "closed";
+    checkIn: string;
+    checkOut: string;
+    roomIds: string[];
+    createdAt: string;
+    verifiedAt?: string;
+  }[];
   id: string;
   slug: string;
   name: string;

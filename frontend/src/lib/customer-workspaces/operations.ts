@@ -331,6 +331,9 @@ export async function availability(
     ...(workspace.blocks ?? []).filter(
       (b) => b.propertyId === property.id && b.status === "active",
     ),
+    ...(workspace.integrationFences ?? []).filter(
+      (f) => f.propertyId === property.id,
+    ),
   ].flatMap(staysOf);
   const rows: {
     date: string;

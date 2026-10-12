@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { digest } from "../customer-workspaces/auth.ts";
-import { bookingsOverlap, businessDate, cents } from "../customer-workspaces/domain.ts";
+import { bookingsOverlap, businessDate, cents, financeSummary } from "../customer-workspaces/domain.ts";
 import { holdPhase, holdsEnabled, occupiesInventory } from "../customer-workspaces/hold-state.ts";
 import type { CustomerStore, Snapshot } from "../customer-workspaces/store.ts";
 import type { Property, Workspace } from "../customer-workspaces/types.ts";
@@ -20,6 +20,7 @@ export async function bindingWorkspace(store: CustomerStore, binding: WebsiteBin
   const property = w?.properties.find(p => p.id === binding.propertyId);
   if (!w || !property || w.slug !== binding.slug || !w.members.some(m => m.accountId === binding.ownerAccountId && m.active && m.role === "owner" && (m.allProperties || m.propertyIds.includes(binding.propertyId)))) throw Error("BINDING_UNAVAILABLE");
   nativeProperty(w, property);
+  if (w.sourceConnections?.some(c => c.propertyId === property.id)) throw Error("BINDING_UNAVAILABLE");
   bindingCoverage(property, binding.config);
   if (binding.offers.some(o => o.roomIds.some(id => !property.rooms.some(r => r.id === id)))) throw Error("BINDING_UNAVAILABLE");
   return { raw: saved.raw, workspace: w, property };
@@ -28,7 +29,8 @@ function availableRooms(workspace: Workspace, property: Property, offer: RoomOff
   const free = offer.roomIds.filter(id => {
     const window = { checkIn: stay.checkIn, checkOut: stay.checkOut, roomIds: [id] };
     return !workspace.bookings.some(b => b.propertyId === property.id && occupiesInventory(b) && bookingsOverlap(b, window)) &&
-      !workspace.blocks?.some(b => b.propertyId === property.id && b.status === "active" && bookingsOverlap(b, window));
+      !workspace.blocks?.some(b => b.propertyId === property.id && b.status === "active" && bookingsOverlap(b, window)) &&
+      !workspace.integrationFences?.some(f => f.propertyId === property.id && bookingsOverlap(f, window));
   });
   return offer.wholeHouse ? (free.length === offer.roomIds.length ? free : []) : free;
 }
@@ -73,12 +75,16 @@ async function resultFor(store: CustomerStore, binding: WebsiteBinding, receipt:
   const originalOffer = binding.offers.find(o => o.id === booking.website.roomTypeId && coversRooms(o) &&
     (!o.wholeHouse || o.roomIds.length === booking.roomIds.length));
   const offer = originalOffer ?? binding.offers.find(o => !o.wholeHouse && coversRooms(o));
-  return { status, orderId: booking.id, reference: receipt.reference,
+  const finance = financeSummary(booking);
+  return { status, orderId: booking.id, orderVersion: booking.version, reference: receipt.reference,
     stay: { checkIn: booking.checkIn, checkOut: booking.checkOut,
       roomTypeName: offer?.name ?? "房間預訂", quantity: offer?.wholeHouse ? 1 : booking.roomIds.length,
       adults: booking.website.adults, children: booking.website.children,
       totalCents: booking.total === null ? null : cents(booking.total), currency: "TWD" as const },
     acceptedTerms: booking.website.acceptedTerms ?? null,
+    payment: { status: finance.status, receivedCents: finance.received === null ? null : cents(finance.received),
+      remainingCents: finance.remaining === null ? null : cents(finance.remaining),
+      refundedCents: cents(finance.refunds), refundReviewRequired: booking.hold?.latePaymentReview === true },
     ...(["hold_active", "hold_expired_waiting_owner"].includes(status) ? { holdUntil: booking.hold!.expiresAt } : {}),
     notifications: await notificationStates(store, booking) };
 }
