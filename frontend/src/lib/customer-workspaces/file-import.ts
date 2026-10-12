@@ -26,7 +26,8 @@ async function guardXlsx(buffer: Buffer) {
   await new Promise<void>((resolve, reject) => {
     let zip: ZipFile | undefined;
     let finished = false;
-    let total = 0;
+    let declaredTotal = 0;
+    let expandedTotal = 0;
     let entries = 0;
     const fail = (code: string) => {
       if (finished) return;
@@ -44,14 +45,34 @@ async function guardXlsx(buffer: Buffer) {
         resolve();
       });
       zip.on("entry", (entry: Entry) => {
-        total += entry.uncompressedSize;
+        declaredTotal += entry.uncompressedSize;
         if (
-          ++entries > 300 || total > EXPANDED_LIMIT ||
+          ++entries > 300 || declaredTotal > EXPANDED_LIMIT ||
           entry.isEncrypted() ||
           /(^|\/)\.\.(\/|$)|^\/|\\|^[A-Za-z]:/.test(entry.fileName) ||
           /vbaProject\.bin$/i.test(entry.fileName)
         ) return fail("FILE_IMPORT_SIZE");
-        zip!.readEntry();
+        // ZIP headers are untrusted. Read each entry with yauzl's size checks
+        // before handing the workbook to a second ZIP parser.
+        zip!.openReadStream(entry, (streamError, stream) => {
+          if (streamError || !stream) return fail("FILE_IMPORT_FORMAT");
+          let entryBytes = 0;
+          stream.on("error", () => fail("FILE_IMPORT_FORMAT"));
+          stream.on("data", (chunk: Buffer) => {
+            if (finished) return;
+            entryBytes += chunk.length;
+            expandedTotal += chunk.length;
+            if (expandedTotal > EXPANDED_LIMIT || entryBytes > entry.uncompressedSize) {
+              stream.destroy();
+              fail("FILE_IMPORT_SIZE");
+            }
+          });
+          stream.on("end", () => {
+            if (finished) return;
+            if (entryBytes !== entry.uncompressedSize) return fail("FILE_IMPORT_FORMAT");
+            zip!.readEntry();
+          });
+        });
       });
       zip.readEntry();
     });

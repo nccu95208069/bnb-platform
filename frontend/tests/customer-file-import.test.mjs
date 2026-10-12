@@ -70,6 +70,19 @@ test("Excel tabs are bounded and preserve displayed dates; invalid files are rej
   const bytes = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" });
   const parsed = await parseImportFile(bytes, "orders.xlsx");
   assert.equal(parsed.tabs[0].rows[1][0], "2026-10-20");
+  const forged = Buffer.from(bytes);
+  let altered = false;
+  for (let offset = 0; offset + 46 < forged.length; offset++) {
+    if (forged.readUInt32LE(offset) !== 0x02014b50) continue;
+    const nameLength = forged.readUInt16LE(offset + 28);
+    const name = forged.subarray(offset + 46, offset + 46 + nameLength).toString("utf8");
+    if (!name.startsWith("xl/worksheets/")) continue;
+    forged.writeUInt32LE(1, offset + 24); // Forge an undersized central-directory claim.
+    altered = true;
+    break;
+  }
+  assert.equal(altered, true);
+  await assert.rejects(parseImportFile(forged, "forged.xlsx"), /FILE_IMPORT_(SIZE|FORMAT)/);
   await assert.rejects(parseImportFile(Buffer.from("not an xlsx"), "orders.xlsx"), /FILE_IMPORT_FORMAT/);
   await assert.rejects(parseImportFile(Buffer.from(rows), "orders.xls"), /FILE_IMPORT_FORMAT/);
 });

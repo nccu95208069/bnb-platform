@@ -167,6 +167,8 @@ never bypass human confirmation. Unselected or conflicting rows remain in
 review. The upload does not prove that future OTA changes or omitted source
 files are covered; an active source or a separate owner check is needed before
 using that period for public sales.
+The `.xlsx` intake measures each ZIP entry's actual expanded bytes before
+parsing, in addition to checking declared sizes and the total expansion cap.
 
 Before any public pilot, run at least two synthetic tenants through the same
 IDs and credential paths: cross-tenant/property access must fail; two parallel
