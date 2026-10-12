@@ -5,8 +5,8 @@ import { customerOrigin } from "../customer-workspaces/site-url.ts";
 import { loadWorkspace, validSlug } from "../customer-workspaces/service.ts";
 import type { Change, CustomerStore } from "../customer-workspaces/store.ts";
 import type { Account, Property, Workspace } from "../customer-workspaces/types.ts";
-import { amount, bindingToken, email, fields, integer, permittedSite, plain, record, requireEnabled, uuid, validateConfiguration } from "./config.ts";
-import type { RoomOffer, WebsiteBinding, WebsiteClient, WebsiteConnection } from "./types.ts";
+import { addDays, amount, bindingToken, email, fields, integer, permittedSite, plain, record, requireEnabled, uuid, validateConfiguration } from "./config.ts";
+import type { RoomOffer, WebsiteBinding, WebsiteClient, WebsiteConfig, WebsiteConnection } from "./types.ts";
 
 export const connectionKey = (id: string) => `website:connection:${id}`;
 export const workspaceBindingsKey = (id: string) => `website:workspace-bindings:${id}`;
@@ -70,10 +70,36 @@ export async function prepareConnection(store: CustomerStore, client: WebsiteCli
 }
 
 export function nativeProperty(workspace: Workspace, property: Property) {
-  if (property.sourceMode !== "native" || (property.setup && property.setup.mode !== "empty") ||
-    workspace.calendarSources?.some(s => s.propertyId === property.id) ||
-    !propertyReadiness(workspace, property).complete ||
+  if (property.sourceMode !== "native" || !propertyReadiness(workspace, property).complete ||
+    workspace.reviewRecords?.some(r => r.propertyId === property.id)) throw Error("LEGACY_INTEGRATION_REQUIRED");
+  const sources = workspace.calendarSources?.filter(s => s.propertyId === property.id) ?? [];
+  if (property.setup?.mode === "calendar") {
+    const from = property.setup.coverageFrom, to = property.setup.coverageTo;
+    if (!sources.length || !from || !to ||
+      sources.some(s => s.mode !== "migration" || s.transport !== "file" || !s.coverageConfirmed || s.pendingCount || s.issueCount ||
+        s.from > from || s.to < to) ||
+      workspace.bookings.some(b => b.propertyId === property.id && b.status !== "cancelled" && b.entry === "sheet"))
+      throw Error("LEGACY_INTEGRATION_REQUIRED");
+    return;
+  }
+  if (property.setup?.mode === "sheet") {
+    if (!property.setup.coverageFrom || !property.setup.coverageTo || sources.length ||
+      !workspace.importBatches?.some(b => b.propertyId === property.id) ||
+      workspace.bookings.some(b => b.propertyId === property.id && b.status !== "cancelled" && b.entry === "calendar"))
+      throw Error("LEGACY_INTEGRATION_REQUIRED");
+    return;
+  }
+  // An empty native property is still available for a new owner's calendar.
+  // Imported records without a confirmed source interval cannot be sold.
+  if ((property.setup && property.setup.mode !== "empty") || sources.length ||
     workspace.bookings.some(b => b.propertyId === property.id && b.entry !== "os")) throw Error("LEGACY_INTEGRATION_REQUIRED");
+}
+
+export function bindingCoverage(property: Property, config: WebsiteConfig) {
+  if (property.setup?.mode !== "calendar" && property.setup?.mode !== "sheet") return;
+  const from = property.setup.coverageFrom, to = property.setup.coverageTo;
+  if (!from || !to || config.opensOn < from || addDays(config.closesOn, 1) > to)
+    throw Error("SOURCE_COVERAGE");
 }
 
 export async function ownerConnection(store: CustomerStore, account: Account, id: unknown, now = new Date()) {
@@ -86,7 +112,7 @@ export async function ownerConnection(store: CustomerStore, account: Account, id
     const member = ws.members.find(m => m.accountId === account.id && m.active && m.role === "owner")!;
     const properties = ws.properties.filter(p => {
       if (!member.allProperties && !member.propertyIds.includes(p.id)) return false;
-      try { nativeProperty(ws, p); return true; } catch { return false; }
+      try { nativeProperty(ws, p); bindingCoverage(p, c.config); return true; } catch { return false; }
     }).map(p => ({ id: p.id, name: p.name, kind: p.kind, rooms: p.rooms }));
     workspaces.push({ slug: ws.slug, name: ws.name, version: ws.version, properties });
   }
@@ -161,7 +187,7 @@ export async function approveConnection(store: CustomerStore, account: Account, 
     workspace = loaded.workspace; workspaceRaw = loaded.raw;
     const p = workspace.properties.find(p => p.id === input.propertyId);
     if (!p || (!loaded.member.allProperties && !loaded.member.propertyIds.includes(p.id))) throw Error("NOT_FOUND");
-    property = p; nativeProperty(workspace, property);
+    property = p; nativeProperty(workspace, property); bindingCoverage(property, c.config);
     if (oldBinding.value && (oldBinding.value.workspaceId !== workspace.id || oldBinding.value.propertyId !== property.id)) throw Error("WEBSITE_OWNER_MISMATCH");
     if (!Array.isArray(input.roomMappings) || input.roomMappings.length !== activeTypes.length) throw Error("INVALID_INPUT");
     const seen = new Set<string>();

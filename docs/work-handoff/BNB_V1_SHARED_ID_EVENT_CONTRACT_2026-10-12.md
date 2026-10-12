@@ -70,6 +70,17 @@ order-ID discrepancy is a blocking mapping question. Imported calendar/Sheet
 coverage is limited to the owner-confirmed interval; a missing source row or
 unresolved collision is **unknown**, not a free room.
 
+This branch permits a confirmed, file-backed ICS calendar in one-time
+`migration` mode, or a single-source Sheet/CSV/Excel import with an owner-
+confirmed exclusive `coverageTo`, to share a native website binding's
+inventory. Coverage must contain the full advertised stay interval (including
+checkout). Pending source review, incomplete coverage, mixed sources, undo or
+connected-mode change stops website readiness. The owner must separately
+acknowledge the static-source update duty before enabling sales. A file export
+is only a snapshot; it does not write a new OS hold to Booking/OwlNest or
+receive subsequent OTA changes automatically. Google connected mode remains
+read-only and is not sale-ready through this binding.
+
 ## Mutation and event versions
 
 The canonical `booking.version` increments on every accepted order mutation;

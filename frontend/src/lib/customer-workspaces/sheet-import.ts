@@ -22,6 +22,7 @@ export type ImportPreview = {
   workspaceId: string;
   propertyId: string;
   coverageFrom?: string;
+  coverageTo?: string;
   version: number;
   expiresAt: number;
   sourceKey: string;
@@ -128,6 +129,7 @@ export async function previewImport(
     workspaceId: workspace.id,
     propertyId,
     coverageFrom: mapping.from,
+    ...(mapping.coverageConfirmed ? { coverageTo: mapping.coverageTo } : {}),
     version: workspace.version,
     expiresAt: Date.now() + 3600000,
     sourceKey,
@@ -213,6 +215,8 @@ export async function commitImport(
     throw new Error("INVALID_INPUT");
   if (workspace.bookings.length + rows.length > 5000)
     throw new Error("LIMIT_REACHED");
+  if (preview.coverageTo && workspace.bookings.some(b => b.propertyId === propertyId && b.status !== "cancelled" &&
+    b.imported && b.imported.sourceKey !== preview.sourceKey)) throw new Error("SOURCE_COVERAGE");
   const at = new Date().toISOString();
   const bookings: Booking[] = rows.map((r) => {
     const { externalId, ...draft } = r!.draft!;
@@ -319,12 +323,14 @@ export async function commitImport(
             ? {
                 ...p,
                 setup: {
-                  ...(p.setup ?? { mode: "sheet" }),
+                  ...p.setup,
+                  mode: "sheet",
                   readyAt: p.setup?.readyAt ?? at,
                   unresolvedCount,
-                  ...(preview.coverageFrom
-                    ? { coverageFrom: preview.coverageFrom }
-                    : {}),
+                  coverageFrom: preview.coverageFrom,
+                  // A new import without explicit full-range confirmation
+                  // revokes any previous website sale bound.
+                  coverageTo: preview.coverageTo,
                 },
               }
             : p,

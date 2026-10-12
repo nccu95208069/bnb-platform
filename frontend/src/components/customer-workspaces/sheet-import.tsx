@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Property, Workspace } from "@/lib/customer-workspaces/types";
 import type {
   ImportPreview,
@@ -86,6 +86,7 @@ export function SheetImport({
     from: today(),
   });
   const [confirmedEmpty, setConfirmedEmpty] = useState(false);
+  const [coverageConfirmed, setCoverageConfirmed] = useState(false);
   const [confirmed, setConfirmed] = useState(false),
     [preview, setPreview] = useState<ImportPreview | null>(null),
     [selection, setSelection] = useState<number[]>([]);
@@ -95,6 +96,7 @@ export function SheetImport({
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
   const [uncertain, setUncertain] = useState(false);
+  useEffect(() => { setCoverageConfirmed(false); }, [source?.id]);
   const pending = useRef<Record<string, unknown> | null>(null);
   const endpoint = `/api/customer-workspaces/${slug}/import`;
   const send = <T,>(input: Record<string, unknown>) =>
@@ -117,6 +119,7 @@ export function SheetImport({
     setSelection([]);
     setConfirmed(false);
     setConfirmedEmpty(false);
+    setCoverageConfirmed(false);
   }
   async function commit() {
     if (!preview) return;
@@ -816,6 +819,28 @@ export function SheetImport({
                 }
               />
             </label>
+            <label className="mt-4 block">
+              來源完整涵蓋到哪一天（不含；留空時不作為官網可售房況）
+              <input
+                className={field}
+                type="date"
+                min={mapping.from}
+                max="2100-12-31"
+                value={mapping.coverageTo ?? ""}
+                onChange={(e) =>
+                  changeMapping({ ...mapping, coverageTo: e.target.value || undefined })
+                }
+              />
+            </label>
+            {mapping.coverageTo && <label className="mt-4 flex items-start gap-3">
+              <input
+                type="checkbox"
+                checked={coverageConfirmed}
+                onChange={(e) => { setCoverageConfirmed(e.target.checked); setConfirmed(false); }}
+                className="mt-1"
+              />
+              <span>我已核對這段期間、所有實體房間的既有訂單與封房，包括其他通路；這是一次匯入快照，日後 OTA 或原檔變動不會自動進入 OS。</span>
+            </label>}
             {!mappingComplete && (
               <p className="mt-4 text-sm text-amber-800">
                 請選齊此紀錄方式需要的日期、房間與訂單編號。若選了房費欄，請確認金額是整筆、每列或每晚；不匯入金額時，請把對應欄位設為「不匯入」。
@@ -835,13 +860,13 @@ export function SheetImport({
             </label>
             <button
               className={`${button} mt-4`}
-              disabled={!confirmed || !mappingComplete}
+              disabled={!confirmed || !mappingComplete || (Boolean(mapping.coverageTo) && !coverageConfirmed)}
               onClick={() =>
                 run(async () => {
                   const result = await send<ImportPreview>({
                     action: "preview",
                     sourceId: source.id,
-                    mapping,
+                    mapping: { ...mapping, ...(coverageConfirmed ? { coverageConfirmed: true as const } : {}) },
                   });
                   setPreview(result);
                   setSelection(

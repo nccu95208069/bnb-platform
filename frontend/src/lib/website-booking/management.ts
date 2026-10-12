@@ -1,7 +1,7 @@
 import { digest } from "../customer-workspaces/auth.ts";
 import { loadWorkspace } from "../customer-workspaces/service.ts";
 import type { CustomerStore } from "../customer-workspaces/store.ts";
-import { bindingKey, workspaceBindingsKey } from "./connections.ts";
+import { bindingCoverage, bindingKey, nativeProperty, workspaceBindingsKey } from "./connections.ts";
 import { fields, integer, uuid } from "./config.ts";
 import type { WebsiteBinding } from "./types.ts";
 
@@ -14,8 +14,12 @@ export async function websiteManagement(store: CustomerStore, accountId: string,
     const binding = (await store.read<WebsiteBinding>(bindingKey(id))).value;
     if (!binding || binding.workspaceId !== workspace.id || binding.slug !== slug || binding.ownerAccountId !== accountId ||
       (!member.allProperties && !member.propertyIds.includes(binding.propertyId))) continue;
+    const property = workspace.properties.find(p => p.id === binding.propertyId);
     sites.push({ id: binding.id, siteName: binding.siteName, propertyId: binding.propertyId, enabled: binding.enabled,
       revision: binding.revision, approvedAt: binding.approvedAt, config: binding.config,
+      source: property?.setup?.mode === "sheet" || property?.setup?.mode === "calendar"
+        ? { mode: property.setup.mode, coverageFrom: property.setup.coverageFrom, coverageTo: property.setup.coverageTo }
+        : { mode: "native" as const },
       roomMappings: binding.physicalMappings.map(mapping => ({ roomTypeName: binding.roomRecords.find(r => r.id === mapping.roomTypeId)?.name ?? "房型",
         roomNames: mapping.roomIds.map(id => workspace.properties.find(p => p.id === binding.propertyId)?.rooms.find(r => r.id === id)?.name ?? "需核對") })) });
   }
@@ -23,15 +27,25 @@ export async function websiteManagement(store: CustomerStore, accountId: string,
 }
 
 export async function setWebsiteSales(store: CustomerStore, accountId: string, slug: string, input: Record<string, unknown>, now = new Date()) {
-  fields(input, ["action", "bindingId", "revision", "enabled", "requestKey"]);
-  if (input.action !== "sales" || typeof input.enabled !== "boolean") throw Error("INVALID_INPUT");
+  fields(input, ["action", "bindingId", "revision", "enabled", "requestKey", "confirmedStaticSource"]);
+  if (input.action !== "sales" || typeof input.enabled !== "boolean" ||
+    (input.confirmedStaticSource !== undefined && typeof input.confirmedStaticSource !== "boolean")) throw Error("INVALID_INPUT");
   const id = uuid(input.bindingId), key = uuid(input.requestKey), revision = integer(input.revision, 1, Number.MAX_SAFE_INTEGER);
   const { workspace, member, raw } = await loadWorkspace(store, accountId, slug);
   const saved = await store.read<WebsiteBinding>(bindingKey(id)), binding = saved.value;
   if (member.role !== "owner") throw Error("FORBIDDEN");
   if (!binding || binding.ownerAccountId !== accountId || binding.workspaceId !== workspace.id || binding.slug !== slug ||
     (!member.allProperties && !member.propertyIds.includes(binding.propertyId))) throw Error("NOT_FOUND");
-  const requestKey = `website:management:${id}:${key}`, hash = digest(JSON.stringify({ accountId, id, revision, enabled: input.enabled }));
+  if (input.enabled) {
+    const property = workspace.properties.find(p => p.id === binding.propertyId);
+    if (!property) throw Error("BINDING_UNAVAILABLE");
+    nativeProperty(workspace, property);
+    bindingCoverage(property, binding.config);
+    if ((property.setup?.mode === "calendar" || property.setup?.mode === "sheet") && input.confirmedStaticSource !== true)
+      throw Error("STATIC_SOURCE_CONFIRMATION_REQUIRED");
+  }
+  const requestKey = `website:management:${id}:${key}`, hash = digest(JSON.stringify({ accountId, id, revision, enabled: input.enabled,
+    confirmedStaticSource: input.confirmedStaticSource === true }));
   const receipt = await store.read<{ hash: string }>(requestKey);
   if (receipt.value) { if (receipt.value.hash !== hash) throw Error("IDEMPOTENCY_CONFLICT"); return websiteManagement(store, accountId, slug); }
   if (binding.revision !== revision) throw Error("VERSION_CONFLICT");

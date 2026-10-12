@@ -27,6 +27,20 @@ publication, OS connection approval and live sales are separate decisions.
 - Sheet, Google Calendar and ICS onboarding are already deployed; Excel/CSV
   file intake in this PR uses the same owner/property-scoped preview, mapping,
   confirmation and deduplication path. This is not yet two-real-owner acceptance.
+- This branch now permits a **confirmed file-backed ICS calendar in migration
+  mode** to share inventory with an approved website binding. The complete
+  source interval must cover every advertised night through checkout. Existing
+  imported bookings and blocks participate in the same room-night conflict
+  check. Any pending review, shortened coverage or conversion to connected
+  mode makes website bootstrap unavailable; sales activation also refuses it.
+  The owner still has to enable sales as a separate action.
+- A Sheet, CSV or Excel import can also share OS inventory after the owner
+  confirms its exclusive end date and the complete source interval covers the
+  website's advertised nights. Sold nights use the same physical-room conflict
+  check. Unresolved rows, mixed sources, an unconfirmed or shortened interval,
+  and undo of imported inventory close website readiness. The sales switch
+  shows the source interval and requires a separate acknowledgement that a
+  static file does not update itself or other channels.
 
 ## Gaps before a public self-service booking journey
 
@@ -39,22 +53,21 @@ publication, OS connection approval and live sales are separate decisions.
    at both sides, and preserve the request ID after reload. Single sign-on
    would require a separately specified signed, audience-bound identity
    exchange; a browser-submitted email or cookie cannot replace verification.
+   Sites' `oai-authenticated-user-id` is scoped to each Site and cannot be
+   compared across the Studio and OS as one person's canonical ID.
 2. **Site admission configuration.** Production does not yet install the new
    Studio `allow_new_sites:true` opt-in or deploy this PR's OS runtime. The
    service credential, editor origin and notification scopes must remain
    server-only. No individual owner email or site UUID needs advance entry in
    the opt-in registry, but enabling the registry is an operator rollout step.
-3. **Import-to-booking compatibility.** Today's website approval accepts an
-   empty native property or an already eligible native property. The
-   `nativeProperty` guard rejects a property with imported bookings or calendar
-   bindings; importing Sheet/ICS after an approved website connection makes
-   website bootstrap unavailable. Thus the owner can self-create a calendar
-   and self-import data, but those two actions do not yet form a sale-ready
-   shared-inventory journey. Static imports need an explicit, tested rule for
-   complete source coverage, existing orders/blocks, reimport conflicts and
-   quote date bounds. A connected Google calendar remains read-only and
-   cannot be treated as two-way inventory without an authority/writeback
-   contract. Keep sales off while this is unresolved.
+3. **Static source operations and connected Google.** The ICS and
+   Sheet/CSV/Excel paths above are implemented only in this draft branch.
+   Their end date is an owner assertion about a complete source export, not
+   independent evidence that Booking/OwlNest has no other orders. Each new
+   external change requires a refreshed import and review before OS can safely
+   sell that night. Connected Google remains read-only, and OS holds cannot
+   write occupancy back to it; it needs an explicit authority/writeback design.
+   Keep connected sources and unresolved imports outside sale-ready status.
 4. **Physical package mapping.** Current mixed selling mode maps one whole-house
    offer to *all* physical rooms. It cannot infer arbitrary overlapping Villa
    packages from Booking labels. The owner must confirm actual room units and
@@ -78,11 +91,11 @@ publication, OS connection approval and live sales are separate decisions.
    project/site UUID, collect the owner's chosen OS contact email during setup,
    and show the same site ID and approval URL. Test the real Studio-to-OS
    request with two different owners before changing the primary OS runtime.
-3. Implement and test the static-import/shared-inventory rules in gap 3,
-   including explicit date coverage and package conflicts, then verify one
-   owner-led import per source type in separate workspaces. Keep connected
-   Google, OTA/OwlNest and unresolved imports outside sale-ready status until
-   their authority paths pass end-to-end acceptance.
+3. Verify the new ICS and Sheet/CSV/Excel inventory paths with two owner-led
+   imports, including source completeness, revised files, undo, package overlap
+   and last-room/OTA conflict. Keep
+   connected Google, OTA/OwlNest and unresolved imports outside sale-ready
+   status until their authority paths pass end-to-end acceptance.
 4. Deploy the reviewed OS source to the primary domain only after candidate
    readback and rollback checks. Approve each pilot's mapping in the owner's
    own session, leave sales off, and enable it separately only after real

@@ -5,7 +5,7 @@ import { holdPhase, holdsEnabled, occupiesInventory } from "../customer-workspac
 import type { CustomerStore, Snapshot } from "../customer-workspaces/store.ts";
 import type { Property, Workspace } from "../customer-workspaces/types.ts";
 import { addDays, bindingToken, email, enabled, fields, plain, record, sameSecret, stayInput, uuid } from "./config.ts";
-import { bindingKey, nativeProperty } from "./connections.ts";
+import { bindingCoverage, bindingKey, nativeProperty } from "./connections.ts";
 import { notificationPlan, notificationStates } from "./notifications.ts";
 import type { RoomOffer, Stay, WebsiteBinding, WebsiteBooking, WebsiteObservation, WebsiteQuote, WebsiteReceipt } from "./types.ts";
 
@@ -20,6 +20,7 @@ export async function bindingWorkspace(store: CustomerStore, binding: WebsiteBin
   const property = w?.properties.find(p => p.id === binding.propertyId);
   if (!w || !property || w.slug !== binding.slug || !w.members.some(m => m.accountId === binding.ownerAccountId && m.active && m.role === "owner" && (m.allProperties || m.propertyIds.includes(binding.propertyId)))) throw Error("BINDING_UNAVAILABLE");
   nativeProperty(w, property);
+  bindingCoverage(property, binding.config);
   if (binding.offers.some(o => o.roomIds.some(id => !property.rooms.some(r => r.id === id)))) throw Error("BINDING_UNAVAILABLE");
   return { raw: saved.raw, workspace: w, property };
 }

@@ -1,6 +1,6 @@
 # Work Handoff Index — 2026-09-05
 
-2026-10-12 BETA self-service correction: [owner-led website admission without preregistered email, existing safeguards, import-to-booking gap and deployment order](BETA_SELF_SERVICE_OS_ADMISSION_2026-10-12.md). A pending Studio UUID site can be approved by a newly verified owner with sales off; imported calendar inventory is not yet sale-ready through that binding.
+2026-10-12 BETA self-service correction: [owner-led website admission without preregistered email, confirmed static-source inventory gate, connected-calendar gaps, and deployment order](BETA_SELF_SERVICE_OS_ADMISSION_2026-10-12.md). A pending Studio UUID site can be approved by a newly verified owner with sales off; a confirmed ICS, Sheet, CSV or Excel snapshot can share inventory only when its coverage contains the entire advertised period and the owner acknowledges manual updates.
 
 2026-10-12 BETA-02/03 pilots: [愉園 and 蘭城 Booking.com source options, physical-room questions, and separate calendar acceptance](BETA_PILOTS_YUYUAN_LANCHENG_2026-10-12.md). Public labels are not room inventory; both owner mappings and real source samples await verification. Sales remain disabled.
 
