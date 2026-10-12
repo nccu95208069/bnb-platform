@@ -15,9 +15,16 @@ export async function websiteManagement(store: CustomerStore, accountId: string,
     if (!binding || binding.workspaceId !== workspace.id || binding.slug !== slug || binding.ownerAccountId !== accountId ||
       (!member.allProperties && !member.propertyIds.includes(binding.propertyId))) continue;
     const property = workspace.properties.find(p => p.id === binding.propertyId);
+    let ready = false;
+    if (property) {
+      try { nativeProperty(workspace, property); bindingCoverage(property, binding.config); ready = true; }
+      catch { /* A stale source or incomplete coverage keeps the persisted switch ineffective. */ }
+    }
+    const connected = workspace.calendarSources?.some(s => s.propertyId === binding.propertyId && s.mode === "connected");
     sites.push({ id: binding.id, siteName: binding.siteName, propertyId: binding.propertyId, enabled: binding.enabled,
-      revision: binding.revision, approvedAt: binding.approvedAt, config: binding.config,
-      source: property?.setup?.mode === "sheet" || property?.setup?.mode === "calendar"
+      ready, revision: binding.revision, approvedAt: binding.approvedAt, config: binding.config,
+      source: connected ? { mode: "connected" as const }
+        : property?.setup?.mode === "sheet" || property?.setup?.mode === "calendar"
         ? { mode: property.setup.mode, coverageFrom: property.setup.coverageFrom, coverageTo: property.setup.coverageTo }
         : { mode: "native" as const },
       roomMappings: binding.physicalMappings.map(mapping => ({ roomTypeName: binding.roomRecords.find(r => r.id === mapping.roomTypeId)?.name ?? "房型",

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { available, failure, headers, principal, store } from "@/lib/customer-workspaces/http";
 import { FILE_IMPORT_LIMIT, stageImportFile } from "@/lib/customer-workspaces/file-import";
+import { importAccess } from "@/lib/customer-workspaces/sheet-import";
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
@@ -17,6 +18,8 @@ export async function POST(
     await store.limit(`file-import:${account.id}`, 30);
     const propertyId = request.nextUrl.searchParams.get("propertyId") ?? "";
     const filename = request.nextUrl.searchParams.get("filename") ?? "";
+    // Check the tenant and physical property before reading or parsing bytes.
+    await importAccess(store, account.id, slug, propertyId);
     const length = request.headers.get("content-length");
     if (length && (!/^\d+$/.test(length) || Number(length) > FILE_IMPORT_LIMIT))
       throw new Error("FILE_IMPORT_SIZE");

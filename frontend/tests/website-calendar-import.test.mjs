@@ -5,7 +5,7 @@ import { websiteFixture } from './helpers/website-booking-fixture.mjs';
 import { ics, event } from './helpers/calendar-fixture.mjs';
 import { addDays } from '../src/lib/website-booking/config.ts';
 import { uploadCalendar, previewCalendar, commitCalendar } from '../src/lib/customer-workspaces/calendar-import.ts';
-import { setWebsiteSales } from '../src/lib/website-booking/management.ts';
+import { setWebsiteSales, websiteManagement } from '../src/lib/website-booking/management.ts';
 
 async function importStay(f, to = addDays(f.config.closesOn, 1)) {
  const roomId=f.binding.physicalMappings[0].roomIds[0];
@@ -67,6 +67,7 @@ test('pending source changes or a connected read-only calendar stop a previously
  pending.properties[0].setup.unresolvedCount=1;
  await f.store.commit([{key:'workspace:'+f.binding.workspaceId,before:saved.raw,after:pending}]);
  assert.equal((await f.call('bootstrap')).state,'unavailable');
+ assert.equal((await websiteManagement(f.store,f.account.id,f.binding.slug)).sites[0].ready,false);
  await assert.rejects(f.call('availability',f.stay),/LEGACY_INTEGRATION_REQUIRED/);
  saved=await f.store.read('workspace:'+f.binding.workspaceId);
  const connected=structuredClone(saved.value);
@@ -75,5 +76,8 @@ test('pending source changes or a connected read-only calendar stop a previously
  connected.properties[0].setup.unresolvedCount=0;
  await f.store.commit([{key:'workspace:'+f.binding.workspaceId,before:saved.raw,after:connected}]);
  assert.equal((await f.call('bootstrap')).state,'unavailable');
+ const site=(await websiteManagement(f.store,f.account.id,f.binding.slug)).sites[0];
+ assert.equal(site.ready,false);
+ assert.equal(site.source.mode,'connected');
  await assert.rejects(f.call('availability',f.stay),/LEGACY_INTEGRATION_REQUIRED/);
 });

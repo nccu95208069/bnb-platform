@@ -45,3 +45,16 @@ test('an imported static source shows its coverage and needs acknowledgement bef
  assert.equal(requests.length,1);
  assert.equal(requests[0].confirmedStaticSource,true);
 });
+
+test('a previously enabled site shows effective sales paused when its connected calendar is not sale-ready',async t=>{
+ const f=await websiteFixture(),w=await f.workspace(),data=view(w,w.members[0]);
+ const old=globalThis.fetch;t.after(()=>{globalThis.fetch=old});
+ const management=await websiteManagement(f.store,f.account.id,w.slug);
+ management.sites[0].ready=false;
+ management.sites[0].source={mode:'connected'};
+ globalThis.fetch=async()=>Response.json(management);
+ await mount(t,WebsiteWorkspace,{data});
+ assert.match(document.body.textContent,/OS 已暫停新預訂，房況需核對/);
+ assert.match(document.body.textContent,/尚無安全回寫/);
+ assert.doesNotMatch(document.body.textContent,/OS 允許接單/);
+});

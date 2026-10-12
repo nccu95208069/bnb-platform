@@ -23,8 +23,10 @@ export function WebsiteWorkspace({ data, initialPropertyId }: { data: WorkspaceV
   const href = (page: string, query: Record<string, string> = {}) => `/w/${data.slug}/${page}?${new URLSearchParams({ property: propertyId, ...query })}`;
   const held = data.bookings.filter(b => b.propertyId === propertyId && b.status === "held");
   const pending = held.filter(b => b.hold?.state === "awaiting_owner");
+  const canEnable = (site: Management["sites"][number]) => site.ready &&
+    (site.source.mode !== "sheet" && site.source.mode !== "calendar" || staticAcknowledged[site.id] === true);
   async function toggle(site: Management["sites"][number]) {
-    if (busy || (!site.enabled && site.source.mode !== "native" && !staticAcknowledged[site.id])) return;
+    if (busy || (!site.enabled && !canEnable(site))) return;
     setBusy(true); setError(""); setNotice("");
     try {
       const result = await api<Management>(endpoint, "POST", { action: "sales", bindingId: site.id, revision: site.revision,
@@ -58,8 +60,10 @@ export function WebsiteWorkspace({ data, initialPropertyId }: { data: WorkspaceV
       <p className="my-4 text-rose-800" role="alert">{error}</p><p className="my-4 text-teal-800" role="status">{notice}</p>
       {!management && !error ? <p>正在讀取連接設定…</p> : null}
       {management?.sites.filter(s => s.propertyId === propertyId).map(site => <article key={site.id} className="my-5 rounded-2xl border border-slate-200 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-4"><div><h3 className="font-semibold">{site.siteName}</h3><p className="mt-1 text-sm">{site.enabled ? "OS 允許接單" : "OS 尚未開放接單"} · 開放住宿 {site.config.opensOn} 至 {site.config.closesOn}</p></div><button className={site.enabled ? secondary : button} disabled={busy || (!site.enabled && site.source.mode !== "native" && !staticAcknowledged[site.id])} onClick={() => toggle(site)}>{busy ? "處理中…" : site.enabled ? "暫停官網收單" : "開放官網收單"}</button></div>
-        {site.source.mode !== "native" ? <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-950">
+        <div className="flex flex-wrap items-center justify-between gap-4"><div><h3 className="font-semibold">{site.siteName}</h3><p className="mt-1 text-sm">{site.enabled && site.ready ? "OS 允許接單" : site.enabled ? "OS 已暫停新預訂，房況需核對" : "OS 尚未開放接單"} · 開放住宿 {site.config.opensOn} 至 {site.config.closesOn}</p></div><button className={site.enabled ? secondary : button} disabled={busy || (!site.enabled && !canEnable(site))} onClick={() => toggle(site)}>{busy ? "處理中…" : site.enabled ? "暫停官網收單" : "開放官網收單"}</button></div>
+        {!site.ready ? <p className="mt-3 text-sm text-rose-800">目前來源或涵蓋期間尚未通過 OS 房況核對，官網不可新增預訂；請先完成匯入、處理衝突並重新查詢。</p> : null}
+        {site.source.mode === "connected" ? <p className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-950">此館別使用持續連線的日曆，但 OS 尚無安全回寫到該來源的能力，不能開放官網接單。</p> : null}
+        {(site.source.mode === "calendar" || site.source.mode === "sheet") ? <div className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-950">
           <p>目前房況來自{site.source.mode === "calendar" ? "已上傳的日曆檔" : "已匯入的表格"}，不是持續同步。匯入範圍：{site.source.coverageFrom ?? "未確認"} 至 {site.source.coverageTo ?? "未確認"}（結束日不含）。來源有新訂單、取消或改房時，請先更新 OS 並核對房況；其他通路不會由這個開關自動更新。</p>
           {!site.enabled ? <label className="mt-3 flex gap-2"><input type="checkbox" checked={staticAcknowledged[site.id] === true} onChange={event => setStaticAcknowledged(previous => ({ ...previous, [site.id]: event.target.checked }))} /><span>我已核對來源範圍與所有通路房況，並會在來源變動時先更新 OS，再開放官網接單。</span></label> : null}
         </div> : null}

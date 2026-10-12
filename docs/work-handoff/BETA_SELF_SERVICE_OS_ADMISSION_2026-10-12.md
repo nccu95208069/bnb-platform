@@ -41,6 +41,10 @@ publication, OS connection approval and live sales are separate decisions.
   and undo of imported inventory close website readiness. The sales switch
   shows the source interval and requires a separate acknowledgement that a
   static file does not update itself or other channels.
+- The owner management page reports effective sale readiness separately from
+  the saved sales switch. If coverage is revoked or a connected read-only
+  calendar replaces the file, it shows new reservations as paused and explains
+  the source restriction rather than displaying the old switch as available.
 
 ## Gaps before a public self-service booking journey
 
