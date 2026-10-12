@@ -20,7 +20,11 @@ export async function bindingWorkspace(store: CustomerStore, binding: WebsiteBin
   const property = w?.properties.find(p => p.id === binding.propertyId);
   if (!w || !property || w.slug !== binding.slug || !w.members.some(m => m.accountId === binding.ownerAccountId && m.active && m.role === "owner" && (m.allProperties || m.propertyIds.includes(binding.propertyId)))) throw Error("BINDING_UNAVAILABLE");
   nativeProperty(w, property);
-  if (binding.admission === "owner_approval" && property.setup?.mode !== "sheet" && property.setup?.mode !== "calendar")
+  if (binding.admission === "owner_approval" && property.setup?.mode === "empty" &&
+      (!binding.emptyCalendarCoverage || binding.emptyCalendarCoverage.from > binding.config.opensOn ||
+       binding.emptyCalendarCoverage.to < addDays(binding.config.closesOn, 1) ||
+       !Number.isFinite(Date.parse(binding.emptyCalendarCoverage.confirmedAt)))) throw Error("SOURCE_COVERAGE");
+  if (binding.admission === "owner_approval" && !["empty", "sheet", "calendar"].includes(property.setup?.mode ?? ""))
     throw Error("SOURCE_COVERAGE");
   if (w.sourceConnections?.some(c => c.propertyId === property.id)) throw Error("BINDING_UNAVAILABLE");
   bindingCoverage(property, binding.config);

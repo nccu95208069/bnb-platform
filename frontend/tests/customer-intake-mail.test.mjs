@@ -69,6 +69,7 @@ test('isolated acceptance refuses recipients outside an exact configured test li
   process.env.CUSTOMER_ISOLATED_ACCEPTANCE = 'true';
   process.env.CUSTOMER_ACCEPTANCE_EMAIL_RECIPIENTS = '["owner@example.test","guest@example.test"]';
   assert.doesNotThrow(() => assertAcceptanceRecipient('owner@example.test'));
+  assert.doesNotThrow(() => assertAcceptanceRecipient('another-tester@example.test', 'auth'));
   assert.throws(() => assertAcceptanceRecipient('actual-guest@example.test'), /MAIL_RECIPIENT_NOT_ALLOWED/);
   await assert.rejects(sendCustomerLifecycleMail('actual-guest@example.test', 'Synthetic notice', 'Synthetic text'), /MAIL_RECIPIENT_NOT_ALLOWED/);
   process.env.CUSTOMER_ACCEPTANCE_EMAIL_RECIPIENTS = '[]';

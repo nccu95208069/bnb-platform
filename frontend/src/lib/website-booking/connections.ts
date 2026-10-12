@@ -226,6 +226,9 @@ export async function approveConnection(store: CustomerStore, account: Account, 
   property = { ...property, pricing: { currency: "TWD", enabled: property.pricing?.enabled ?? true, base, overrides: property.pricing?.overrides ?? [] } };
   const b: WebsiteBinding = { id: oldBinding.value?.id ?? randomUUID(), clientId: c.clientId, siteId: c.siteId, siteName: c.siteName,
     admission: oldBinding.value?.admission ?? c.admission,
+    ...(property.setup?.mode === "empty" ? { emptyCalendarCoverage: {
+      from: c.config.opensOn, to: addDays(c.config.closesOn, 1), confirmedAt: now.toISOString(),
+    } } : {}),
     ownerAccountId: account.id, ownerEmail: account.email, workspaceId: workspace.id, slug, propertyId: property.id,
     configurationHash: c.configurationHash, config: c.config, roomRecords: c.roomRecords, offers, physicalMappings,
     inventoryMode: "platform_only", enabled: oldBinding.value?.enabled ?? false, credentialGeneration: oldBinding.value?.credentialGeneration ?? randomUUID(),

@@ -30,6 +30,8 @@ export async function websiteManagement(store: CustomerStore, accountId: string,
       source: connected ? { mode: "connected" as const }
         : property?.setup?.mode === "sheet" || property?.setup?.mode === "calendar"
         ? { mode: property.setup.mode, coverageFrom: property.setup.coverageFrom, coverageTo: property.setup.coverageTo }
+        : binding.admission === "owner_approval" && property?.setup?.mode === "empty"
+        ? { mode: "empty" as const, coverageFrom: binding.emptyCalendarCoverage?.from, coverageTo: binding.emptyCalendarCoverage?.to }
         : { mode: "native" as const },
       roomMappings: binding.physicalMappings.map(mapping => ({ roomTypeName: binding.roomRecords.find(r => r.id === mapping.roomTypeId)?.name ?? "房型",
         roomNames: mapping.roomIds.map(id => workspace.properties.find(p => p.id === binding.propertyId)?.rooms.find(r => r.id === id)?.name ?? "需核對") })) });
@@ -38,9 +40,10 @@ export async function websiteManagement(store: CustomerStore, accountId: string,
 }
 
 export async function setWebsiteSales(store: CustomerStore, accountId: string, slug: string, input: Record<string, unknown>, now = new Date()) {
-  fields(input, ["action", "bindingId", "revision", "enabled", "requestKey", "confirmedStaticSource"]);
+  fields(input, ["action", "bindingId", "revision", "enabled", "requestKey", "confirmedStaticSource", "confirmedEmptyCalendar"]);
   if (input.action !== "sales" || typeof input.enabled !== "boolean" ||
-    (input.confirmedStaticSource !== undefined && typeof input.confirmedStaticSource !== "boolean")) throw Error("INVALID_INPUT");
+    (input.confirmedStaticSource !== undefined && typeof input.confirmedStaticSource !== "boolean") ||
+    (input.confirmedEmptyCalendar !== undefined && typeof input.confirmedEmptyCalendar !== "boolean")) throw Error("INVALID_INPUT");
   const id = uuid(input.bindingId), key = uuid(input.requestKey), revision = integer(input.revision, 1, Number.MAX_SAFE_INTEGER);
   const { workspace, member, raw } = await loadWorkspace(store, accountId, slug);
   const saved = await store.read<WebsiteBinding>(bindingKey(id)), binding = saved.value;
@@ -48,7 +51,7 @@ export async function setWebsiteSales(store: CustomerStore, accountId: string, s
   if (!binding || binding.ownerAccountId !== accountId || binding.workspaceId !== workspace.id || binding.slug !== slug ||
     (!member.allProperties && !member.propertyIds.includes(binding.propertyId))) throw Error("NOT_FOUND");
   const requestKey = `website:management:${id}:${key}`, hash = digest(JSON.stringify({ accountId, id, revision, enabled: input.enabled,
-    confirmedStaticSource: input.confirmedStaticSource === true }));
+    confirmedStaticSource: input.confirmedStaticSource === true, confirmedEmptyCalendar: input.confirmedEmptyCalendar === true }));
   const receipt = await store.read<{ hash: string }>(requestKey);
   if (receipt.value) { if (receipt.value.hash !== hash) throw Error("IDEMPOTENCY_CONFLICT"); return websiteManagement(store, accountId, slug); }
   if (input.enabled) {
@@ -58,11 +61,11 @@ export async function setWebsiteSales(store: CustomerStore, accountId: string, s
     if (!holdsEnabled()) throw Error("HOLDS_UNAVAILABLE");
     if (!property.pricing?.enabled) throw Error("PRICING_NOT_ENABLED");
     nativeProperty(workspace, property);
-    if (binding.admission === "owner_approval" && property.setup?.mode !== "sheet" && property.setup?.mode !== "calendar")
-      throw Error("SOURCE_COVERAGE");
     if (workspace.sourceConnections?.some(c => c.propertyId === property.id)) throw Error("BINDING_UNAVAILABLE");
     bindingCoverage(property, binding.config);
     await bindingWorkspace(store, binding);
+    if (binding.admission === "owner_approval" && property.setup?.mode === "empty" && input.confirmedEmptyCalendar !== true)
+      throw Error("EMPTY_CALENDAR_CONFIRMATION_REQUIRED");
     if ((property.setup?.mode === "calendar" || property.setup?.mode === "sheet") && input.confirmedStaticSource !== true)
       throw Error("STATIC_SOURCE_CONFIRMATION_REQUIRED");
   }

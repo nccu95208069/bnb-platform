@@ -683,7 +683,7 @@ function ApprovalForm({
         </fieldset>
         <label className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 leading-7">
           <input type="checkbox" className="mt-2 h-4 w-4 shrink-0 accent-teal-800" checked={confirmed} disabled={locked} onChange={(event) => setConfirmed(event.target.checked)} />
-          <span>{connection.requiresSiteApproval ? "我確認上列網站識別碼與建站台一致，並確認" : "我確認"}業主信箱、房型、人數、日期及旅客規則正確；新日曆使用上列初始房價，既有日曆保留 OS 已設定房價；已核對開放期間的既有訂單與封房，所有需要保留的日期都已登記在所選 OS 日曆。若建立全新日曆，我確認此範圍目前沒有尚未登記的訂單或封房。我了解目前僅以 OS 日曆管理房況，尚未串接的 Sheet、OwlNest 或其他管道不會自動占房。</span>
+          <span>{connection.requiresSiteApproval ? "我確認上列網站識別碼與建站台一致，並確認" : "我確認"}業主信箱、房型、人數、日期及旅客規則正確；可售住宿從 {connection.config.opensOn} 至 {connection.config.closesOn}，新日曆使用上列初始房價，既有日曆保留 OS 已設定房價；已核對此期間的既有訂單與封房，所有需要保留的日期都已登記在所選 OS 日曆。若建立全新空日曆，我確認此範圍目前沒有尚未登記的訂單或封房。我了解目前僅以 OS 日曆管理房況，尚未串接的 Sheet、OwlNest 或其他管道不會自動占房。</span>
         </label>
         {uncertain && <p role="status" className="rounded-xl bg-amber-50 p-4 leading-7 text-amber-900">送出結果尚未確認。已保留原本的設定與請求，請先查詢結果，或重試同一筆確認；不要重新建立另一個日曆。</p>}
         {status && <p role="status" className="leading-7 text-slate-600">{status}</p>}
