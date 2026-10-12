@@ -98,6 +98,8 @@ POST returns `200` with the same `event_id`, `order_id`, `order_version`,
 `source_version`, `workspace_version`, `completed_at`, `verified:true` and a
 relative `status_url`. GET that URL with the **same** Bearer credential and
 check the exact IDs/versions and `verified:true`. The receipt lasts 30 days.
+It proves the OS snapshot at `completed_at`; a later order mutation requires
+its own versioned event and receipt.
 Exact POST retries return it; changed payload under one event ID is `409`.
 If the OS order is absent, stale or different, POST returns
 `409 SOURCE_NOT_VERIFIED` without a receipt. The producer retains the original
