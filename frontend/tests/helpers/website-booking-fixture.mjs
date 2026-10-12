@@ -19,21 +19,22 @@ export function testEnvironment(){
  process.env.CUSTOMER_WORKSPACES_ENABLED='true';process.env.CUSTOMER_SESSION_SECRET='synthetic-local-session-secret-not-for-production';
  process.env.CUSTOMER_HOLDS_ENABLED='true';process.env.WEBSITE_BOOKING_ENABLED='true';process.env.WEBSITE_BOOKING_CLIENTS=JSON.stringify([client]);
 }
-export async function websiteFixture({store=memoryStore(),units=1,mode='mixed',approve=true,now=new Date()}={}) {
+export async function websiteFixture({store=memoryStore(),units=1,mode='mixed',approve=true,now=new Date(),siteId='synthetic:website',ownerEmail='synthetic-owner@example.invalid'}={}) {
  testEnvironment();const day=businessDate(now.toISOString());
  const config={schema:1,kind:'new',sellingMode:mode,currency:'TWD',timezone:'Asia/Taipei',holdHours:24,
   opensOn:day,closesOn:addDays(day,60),transferInstructions:'Synthetic instructions for isolated tests.',cancellationPolicy:'Synthetic cancellation policy.',availabilityConfirmed:true,
   wholeHouseNightly:'5000',rooms:[{roomTypeId:'double',enabled:true,units:String(units),capacity:'2',nightly:'2000'}]};
  const roomRecords=[{id:'double',name:'Synthetic double'}],configurationHash=digest(JSON.stringify({reservationConfig:config,roomIds:roomRecords.map(r=>r.id)}));
- const account={id:randomUUID(),email:'synthetic-owner@example.invalid',credential:newPasswordlessCredential(),emailVerifiedAt:now.toISOString(),workspaces:[]};
+ const account={id:randomUUID(),email:ownerEmail,credential:newPasswordlessCredential(),emailVerifiedAt:now.toISOString(),workspaces:[]};
  await store.commit([{key:accountKey(account.email),before:null,after:account}]);
- const prepare={schemaVersion:1,action:'prepare',requestId:randomUUID(),siteId:'synthetic:website',siteName:'Synthetic property',ownerEmail:account.email,
+ const prepare={schemaVersion:1,action:'prepare',requestId:randomUUID(),siteId,siteName:'Synthetic property',ownerEmail:account.email,
   reservationConfig:config,roomRecords,configurationHash};
- const connection=await prepareConnection(store,client,prepare,now);
+ const editorClient={...client,site_ids:[siteId]};
+ const connection=await prepareConnection(store,editorClient,prepare,now);
  const approval={action:'approve',connectionId:connection.connectionId,requestKey:randomUUID(),confirmed:true,mode:'new',slug:'synthetic-'+randomUUID().slice(0,8)};
- if(!approve)return {store,client,config,prepare,connection,approval,account,now};
+ if(!approve)return {store,client:editorClient,config,prepare,connection,approval,account,now};
  await approveConnection(store,account,approval,now);
- const status=await connectionStatus(store,client,{schemaVersion:1,action:'status',siteId:prepare.siteId,connectionId:connection.connectionId},now);
+ const status=await connectionStatus(store,editorClient,{schemaVersion:1,action:'status',siteId:prepare.siteId,connectionId:connection.connectionId},now);
  const binding=(await store.read('website:binding:'+status.bindingId)).value;
  const envelope={schemaVersion:1,configurationHash,source:'Official Website'};
  const stay={checkIn:addDays(day,10),checkOut:addDays(day,12),roomTypeId:mode==='whole_house'?'whole-house':'double',quantity:1,adults:2,children:0};
@@ -41,5 +42,5 @@ export async function websiteFixture({store=memoryStore(),units=1,mode='mixed',a
  const quote=async(data={})=>{const selected={...stay,...data};const a=await call('availability',selected);return call('quotes',{...selected,availabilityToken:a.availabilityToken});};
  const reserve=async(q)=>{const input={quoteId:(q??await quote()).quoteId,guest:{name:'Synthetic guest',email:'synthetic-guest@example.invalid',phone:'+000000000',note:'Synthetic request'},acceptedPolicy:true,idempotencyKey:randomUUID()};return {input,result:await call('reservations',input)};};
  const workspace=async()=>(await store.read('workspace:'+binding.workspaceId)).value;
- return {store,client,config,prepare,connection,approval,account,now,status,binding,envelope,stay,call,quote,reserve,workspace};
+ return {store,client:editorClient,config,prepare,connection,approval,account,now,status,binding,envelope,stay,call,quote,reserve,workspace};
 }

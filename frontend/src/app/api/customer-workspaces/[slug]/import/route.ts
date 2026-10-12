@@ -125,6 +125,13 @@ export async function POST(
           ? await sharedSource(...args, shared.url, input.sheetId)
           : await readSheet(...args, input.spreadsheetId, input.sheetId);
         break;
+      case "file-source": {
+        const source = await sourceFor(...args, input.sourceId);
+        if (!source.spreadsheetId.startsWith("file:"))
+          throw new Error("INVALID_INPUT");
+        result = { id: input.sourceId, title: source.title, rows: source.rows };
+        break;
+      }
       case "preview":
         result = await previewImport(
           ...args,

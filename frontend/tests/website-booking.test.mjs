@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { websiteFixture, editorToken, client, testEnvironment } from './helpers/website-booking-fixture.mjs';
+import { websiteFixture, memoryStore, editorToken, client, testEnvironment } from './helpers/website-booking-fixture.mjs';
 import { accountKey, digest } from '../src/lib/customer-workspaces/auth.ts';
 import { createHold, view } from '../src/lib/customer-workspaces/service.ts';
 import { holdOperation } from '../src/lib/customer-workspaces/holds.ts';
@@ -33,6 +33,17 @@ test('service and binding credentials are separate; invalid site and caller auth
  for(const field of ['tenantId','workspaceId','actor','totalCents','roomIds'])await assert.rejects(f.call('availability',{...f.stay,[field]:'forged'}),/INVALID_INPUT/);
  await assert.rejects(guestAction(f.store,f.binding.id,f.status.bindingToken,'bootstrap',{...f.envelope,source:'LINE'}),/INVALID_INPUT/);
 });
+test('two tenants share a store without sharing bindings, order lookups or room inventory',async()=>{
+ const store=memoryStore();
+ const a=await websiteFixture({store,siteId:'synthetic:tenant-a',ownerEmail:'owner-a@example.invalid'});
+ const b=await websiteFixture({store,siteId:'synthetic:tenant-b',ownerEmail:'owner-b@example.invalid'});
+ assert.notEqual(a.binding.workspaceId,b.binding.workspaceId);
+ assert.notEqual(a.binding.propertyId,b.binding.propertyId);
+ const reserved=await a.reserve();
+ await assert.rejects(guestAction(store,a.binding.id,b.status.bindingToken,'requests',{...a.envelope,idempotencyKey:reserved.input.idempotencyKey}),/UNAUTHORIZED/);
+ assert.equal((await b.call('requests',{idempotencyKey:reserved.input.idempotencyKey})).status,'not_found');
+ assert.equal((await b.call('availability',b.stay)).options[0].availableUnits,1);
+});
 test('native calendar, server prices, room allocation and persistent outbox form one booking',async()=>{
  const f=await websiteFixture({units:2});const q=await f.quote({quantity:2,adults:4});assert.equal(q.totalCents,800000);
  const {input,result}=await f.reserve(q),w=await f.workspace(),b=w.bookings[0];
@@ -53,6 +64,19 @@ test('last-room website versus manual OS hold cannot both win; whole-house share
  const outcomes=await Promise.allSettled([f.call('reservations',input),createHold(f.store,f.account.id,w.slug,{requestKey:randomUUID(),version:w.version,propertyId:p.id,roomIds:p.rooms.map(r=>r.id),checkIn:f.stay.checkIn,checkOut:f.stay.checkOut,total:4000,confirmPlatformOnly:true})]);
  assert.equal(outcomes.filter(r=>r.status==='fulfilled').length,1);assert.equal((await f.workspace()).bookings.length,1);
  await assert.rejects(f.quote({roomTypeId:'whole-house'}),/ROOM_CONFLICT/);
+});
+test('an OTA booking arriving after a website quote blocks the stale reservation at the legacy-source gate',async()=>{
+ const f=await websiteFixture(),quote=await f.quote(),w=await f.workspace(),roomId=w.properties[0].rooms[0].id;
+ w.bookings.push({
+  id:randomUUID(),version:1,propertyId:w.properties[0].id,guestName:'Synthetic OTA guest',
+  checkIn:f.stay.checkIn,checkOut:f.stay.checkOut,roomIds:[roomId],total:null,payments:[],
+  contact:null,notes:null,status:'confirmed',guestNotified:false,createdAt:f.now.toISOString(),
+  actor:'synthetic-ota',entry:'sheet',platform:'OTA',requestKey:'ota-source-1',requestHash:'ota-source-1',
+ });
+ w.version++;
+ f.store.values.set('workspace:'+w.id,JSON.stringify(w));
+ await assert.rejects(f.reserve(quote),/LEGACY_INTEGRATION_REQUIRED/);
+ assert.equal((await f.workspace()).bookings.length,1);
 });
 test('lost reservation response recovers identical order and jobs; altered or reused quote cannot duplicate',async()=>{
  const f=await websiteFixture(),q=await f.quote();const input={quoteId:q.quoteId,guest:{name:'Synthetic',email:'guest@example.invalid',phone:'+00000000',note:''},acceptedPolicy:true,idempotencyKey:randomUUID()};

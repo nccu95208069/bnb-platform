@@ -45,6 +45,7 @@ export function SheetImport({
   helpMessage?: string;
   shareEmail?: string;
 }) {
+  const fileRef = useRef<HTMLInputElement>(null);
   const [boundUrl, setBoundUrl] = useState(sharedUrl);
   const [suggestion, setSuggestion] = useState<FormatSuggestion | null>(null);
   const [url, setUrl] = useState(sharedUrl ?? "");
@@ -55,6 +56,11 @@ export function SheetImport({
     tabs: { id: number; title: string }[];
   } | null>(null);
   const [tab, setTab] = useState("");
+  const [fileMeta, setFileMeta] = useState<{
+    title: string;
+    tabs: { id: number; title: string; sourceId: string }[];
+  } | null>(null);
+  const [fileTab, setFileTab] = useState("");
   const [source, setSource] = useState<{
     id: string;
     title: string;
@@ -131,7 +137,7 @@ export function SheetImport({
       );
       setVersion(current.version);
       setNotice(
-        `已匯入 ${batch.bookingIds.length} 筆訂房。原試算表未變更；往後請在 OS 登記。`,
+        `已匯入 ${batch.bookingIds.length} 筆訂房。原始來源未變更；往後請在 OS 登記。`,
       );
       setPreview(null);
       setSource(null);
@@ -200,10 +206,10 @@ export function SheetImport({
           ← 回房況日曆
         </a>
         <h1 className="mt-5 text-2xl font-semibold">
-          從 Google Sheet 匯入 · {property.name}
+          從 Google Sheet 或 Excel／CSV 匯入 · {property.name}
         </h1>
         <p className="my-3 text-slate-600">
-          系統會把不同紀錄方式轉成標準訂單，保留原表與來源列。這是一次性匯入，往後以
+          系統會把不同紀錄方式轉成標準訂單，保留來源與列號。這是一次性匯入，往後以
           OS 為準；不會持續讀取原表、通知客人或關閉 OTA 房量。
         </p>
         {error && (
@@ -268,7 +274,7 @@ export function SheetImport({
           disabled={busy || uncertain}
           className="rounded-2xl border bg-white p-5 disabled:opacity-60"
         >
-          <legend className="px-2 font-semibold">1. 連結來源試算表</legend>
+          <legend className="px-2 font-semibold">1. 選擇來源</legend>
           <p className="mb-3 text-sm">
             {boundUrl
               ? "請選擇要匯入的分頁。Sheet 建立者與登入帳號可以不同，不需變更原表格式。"
@@ -311,6 +317,7 @@ export function SheetImport({
               onChange={(e) => {
                 setUrl(e.target.value);
                 setMeta(null);
+                setFileMeta(null);
                 setSource(null);
                 setPreview(null);
               }}
@@ -324,6 +331,7 @@ export function SheetImport({
               run(async () => {
                 setSource(null);
                 setPreview(null);
+                setFileMeta(null);
                 if (shareEmail && !boundUrl) {
                   const linked = await send<{
                     status: string;
@@ -390,6 +398,70 @@ export function SheetImport({
               >
                 讀取資料
               </button>
+            </div>
+          )}
+          {!boundUrl && (
+            <div className="mt-6 border-t pt-5">
+              <h2 className="font-medium">或上傳 Excel／CSV 檔案</h2>
+              <p className="mt-2 text-sm text-slate-600">
+                支援未加密的 .xlsx、UTF-8 或 Big5 CSV，最多 3 MB。檔名與分頁名稱是來源識別；更新同一份資料時請保留名稱。上傳後仍需核對欄位、房間和每筆預覽。
+              </p>
+              <input ref={fileRef} type="file" accept=".xlsx,.csv" className="mt-3 block w-full text-sm" />
+              <button
+                type="button"
+                className={`${secondary} mt-3`}
+                disabled={busy}
+                onClick={() => run(async () => {
+                  const file = fileRef.current?.files?.[0];
+                  if (!file) throw new Error("請先選擇檔案。");
+                  setFileMeta(null);
+                  setSource(null);
+                  setSuggestion(null);
+                  setPreview(null);
+                  setConfirmed(false);
+                  setConfirmedEmpty(false);
+                  const query = new URLSearchParams({ propertyId: property.id, filename: file.name });
+                  const response = await fetch(`${endpoint}/upload?${query}`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/octet-stream" },
+                    body: file,
+                    signal: AbortSignal.timeout(65000),
+                  });
+                  const result = await response.json();
+                  if (!response.ok) throw new Error(result.detail ?? "無法讀取檔案");
+                  const staged = result as NonNullable<typeof fileMeta>;
+                  setFileMeta(staged);
+                  setMeta(null);
+                  setPreview(null);
+                  setFileTab(staged.tabs[0].sourceId);
+                  const first = await send<NonNullable<typeof source>>({ action: "file-source", sourceId: staged.tabs[0].sourceId });
+                  setSource(first);
+                  setSuggestion(suggestFormat(first.rows, property));
+                })}
+              >
+                上傳並讀取
+              </button>
+              {fileMeta && fileMeta.tabs.length > 1 && (
+                <label className="mt-4 block">
+                  檔案分頁
+                  <select
+                    className={field}
+                    value={fileTab}
+                    onChange={(event) => run(async () => {
+                      const sourceId = event.target.value;
+                      setFileTab(sourceId);
+                      setPreview(null);
+                      setConfirmed(false);
+                      setConfirmedEmpty(false);
+                      const selected = await send<NonNullable<typeof source>>({ action: "file-source", sourceId });
+                      setSource(selected);
+                      setSuggestion(suggestFormat(selected.rows, property));
+                    })}
+                  >
+                    {fileMeta.tabs.map((tab) => <option key={tab.sourceId} value={tab.sourceId}>{tab.title}</option>)}
+                  </select>
+                </label>
+              )}
             </div>
           )}
         </fieldset>
