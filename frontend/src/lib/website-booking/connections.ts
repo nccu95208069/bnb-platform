@@ -7,6 +7,7 @@ import type { Change, CustomerStore } from "../customer-workspaces/store.ts";
 import type { Account, Property, Workspace } from "../customer-workspaces/types.ts";
 import { addDays, amount, bindingToken, email, fields, integer, permittedSite, plain, record, requireEnabled, uuid, validateConfiguration } from "./config.ts";
 import type { RoomOffer, WebsiteBinding, WebsiteClient, WebsiteConfig, WebsiteConnection } from "./types.ts";
+import { studioSiteIds, studioSitesKey } from "./studio-sites.ts";
 
 export const connectionKey = (id: string) => `website:connection:${id}`;
 export const workspaceBindingsKey = (id: string) => `website:workspace-bindings:${id}`;
@@ -224,6 +225,7 @@ export async function approveConnection(store: CustomerStore, account: Account, 
   if (c.config.sellingMode !== "rooms" && base.villa == null) base.villa = amount(c.config.wholeHouseNightly) / 100;
   property = { ...property, pricing: { currency: "TWD", enabled: property.pricing?.enabled ?? true, base, overrides: property.pricing?.overrides ?? [] } };
   const b: WebsiteBinding = { id: oldBinding.value?.id ?? randomUUID(), clientId: c.clientId, siteId: c.siteId, siteName: c.siteName,
+    admission: oldBinding.value?.admission ?? c.admission,
     ownerAccountId: account.id, ownerEmail: account.email, workspaceId: workspace.id, slug, propertyId: property.id,
     configurationHash: c.configurationHash, config: c.config, roomRecords: c.roomRecords, offers, physicalMappings,
     inventoryMode: "platform_only", enabled: oldBinding.value?.enabled ?? false, credentialGeneration: oldBinding.value?.credentialGeneration ?? randomUUID(),
@@ -240,6 +242,14 @@ export async function approveConnection(store: CustomerStore, account: Account, 
     { key: connectionKey(c.id), before: saved.raw, after: { ...c, state: "connected", bindingId: b.id, approvedBy: account.id, approvalKey, approvalHash } });
   const bindingIndex = await store.read<string[]>(workspaceBindingsKey(workspace.id));
   changes.push({ key: workspaceBindingsKey(workspace.id), before: bindingIndex.raw, after: [...new Set([...(bindingIndex.value ?? []), b.id])] });
+  if (c.admission === "owner_approval") {
+    const registry = await store.read<string[]>(studioSitesKey(c.clientId));
+    const sites = studioSiteIds(registry.value);
+    if (!sites.includes(c.siteId)) {
+      if (sites.length >= 100) throw Error("LIMIT_REACHED");
+      changes.push({ key: studioSitesKey(c.clientId), before: registry.raw, after: [...sites, uuid(c.siteId)] });
+    }
+  }
   await store.commit(changes);
   const readback = await store.read<WebsiteConnection>(connectionKey(c.id));
   const stored = (await store.read<WebsiteBinding>(bindingKey(b.id))).value;

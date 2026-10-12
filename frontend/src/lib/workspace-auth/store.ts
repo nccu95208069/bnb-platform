@@ -1,6 +1,17 @@
 import { createHash } from 'node:crypto';
 import type { WorkspaceState } from './types.ts';
+export function assertAcceptanceNamespaces() {
+  const mode = process.env.CUSTOMER_ISOLATED_ACCEPTANCE;
+  if (mode === undefined || mode === 'false') return;
+  if (mode !== 'true') throw new Error('ACCEPTANCE_STORE_UNAVAILABLE');
+  const customer = process.env.CUSTOMER_WORKSPACE_NAMESPACE;
+  const auth = process.env.WORKSPACE_AUTH_NAMESPACE;
+  if (!customer || !/^bnb:acceptance:[A-Za-z0-9:_-]{8,100}$/.test(customer) ||
+      !auth || !/^sweetfun-os:acceptance:[A-Za-z0-9:_-]{8,100}$/.test(auth))
+    throw new Error('ACCEPTANCE_STORE_UNAVAILABLE');
+}
 export async function redisCommand(command: (string | number)[]) {
+  assertAcceptanceNamespaces();
   const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
   if (!url || !token || new URL(url).protocol !== 'https:') throw new Error('STORE_UNAVAILABLE');

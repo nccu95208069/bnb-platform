@@ -6,6 +6,7 @@ import { websiteFixture } from './helpers/website-booking-fixture.mjs';
 import { accountKey } from '../src/lib/customer-workspaces/auth.ts';
 import { requestEmailLogin, consumeEmailLogin, newLoginProof, LOGIN_PROOF_COOKIE } from '../src/lib/customer-workspaces/passwordless.ts';
 import { approveConnection, connectionStatus, ownerConnection, prepareConnection } from '../src/lib/website-booking/connections.ts';
+import { studioSitesKey } from '../src/lib/website-booking/studio-sites.ts';
 import { WEBSITE_LOGIN_COOKIE } from '../src/lib/website-booking/login.ts';
 import * as Owner from '../src/app/api/website-booking/owner/route.ts';
 import * as Login from '../src/app/api/customer-login/route.ts';
@@ -54,6 +55,15 @@ test('an unregistered owner can verify email during a pending site request and c
  assert.equal(binding.siteId,siteId);
  assert.equal(binding.enabled,false);
  assert.equal(status.salesEnabled,false);
+ assert.deepEqual((await f.store.read(studioSitesKey(studio.id))).value,[siteId]);
+ const secondSiteId=randomUUID();
+ const second=await prepareConnection(f.store,studio,{...f.prepare,requestId:randomUUID(),siteId:secondSiteId},f.now);
+ await approveConnection(f.store,result.account,{...f.approval,connectionId:second.connectionId,requestKey:randomUUID(),slug:'synthetic-second'},f.now);
+ const secondStatus=await connectionStatus(f.store,studio,{schemaVersion:1,action:'status',siteId:secondSiteId,connectionId:second.connectionId},f.now);
+ const secondBinding=(await f.store.read('website:binding:'+secondStatus.bindingId)).value;
+ assert.notEqual(secondBinding.workspaceId,binding.workspaceId);
+ assert.equal(secondStatus.salesEnabled,false);
+ assert.deepEqual((await f.store.read(studioSitesKey(studio.id))).value,[siteId,secondSiteId]);
 });
 test('owner login route reports preview as unsent and requires browser binding and intended email',async t=>{
  const f=await websiteFixture({approve:false});patch(t,f.store);process.env.CUSTOMER_INTAKE_PREVIEW='true';t.after(()=>delete process.env.CUSTOMER_INTAKE_PREVIEW);

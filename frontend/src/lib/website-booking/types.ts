@@ -22,6 +22,7 @@ export type WebsiteConnection = {
 export type RoomOffer = { id: string; name: string; roomIds: string[]; capacity: number; wholeHouse: boolean };
 export type WebsiteBinding = {
   id: string; clientId: string; siteId: string; siteName: string;
+  admission?: "exact" | "owner_approval";
   ownerAccountId: string; ownerEmail: string; workspaceId: string; slug: string; propertyId: string;
   configurationHash: string; config: WebsiteConfig; roomRecords: RoomRecord[]; offers: RoomOffer[];
   physicalMappings: { roomTypeId: string; roomIds: string[] }[];
