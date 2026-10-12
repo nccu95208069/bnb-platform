@@ -225,43 +225,74 @@ test('OwlNest open uses a durable fence until exact readback, close persists a b
  assert.equal((await acquireInventoryGuard(f.store,open,s.auth,new Date(now.getTime()+86400000))).fenceId,guarded.fenceId);
  assert.equal((await inventoryStatus(f.store,s.grant.grantId,s.auth,open.operationKey)).status,'pending');
  const first=await recordInventoryVerified(f.store,{schemaVersion:1,action:'record_verified',grantId:s.grant.grantId,
-  grantVersion:3,operationKey:open.operationKey,expectedWorkspaceVersion:guarded.workspaceVersion,
+  grantVersion:3,operationKey:open.operationKey,nightOperationKey:'owl-night:one',expectedWorkspaceVersion:guarded.workspaceVersion,
   providerAfter:{observedAt:new Date(now.getTime()+1000).toISOString(),sourceVersion:'owl-v2',cells:cells(1,false).slice(0,1)}},s.auth,new Date(now.getTime()+2000));
  assert.equal(first.status,'pending');assert.equal(first.verifiedCells,1);assert.equal(first.readyToFinalize,false);
+ assert.equal(first.workspaceVersion,guarded.workspaceVersion+1);
+ assert.deepEqual(first.missingCells,[{roomId,date:dates[1]}]);
+ assert.equal(first.evidence[0].nightOperationKey,'owl-night:one');
+ assert.equal(first.evidence[0].recordedWorkspaceVersion,first.workspaceVersion);
+ assert.equal((await f.workspace()).version,first.workspaceVersion);
+ assert.equal((await inventoryNight(f.store,s.grant.grantId,3,s.auth,s.propertyId,roomId,dates[0])).fences[0].evidence.evidenceHash,first.evidence[0].evidenceHash);
+ assert.equal((await inventoryNight(f.store,s.grant.grantId,3,s.auth,s.propertyId,roomId,dates[1])).fences[0].evidence,null);
+ assert.equal((await recordInventoryVerified(f.store,{schemaVersion:1,action:'record_verified',grantId:s.grant.grantId,
+  grantVersion:3,operationKey:open.operationKey,nightOperationKey:'owl-night:one',expectedWorkspaceVersion:guarded.workspaceVersion,
+  providerAfter:{observedAt:new Date(now.getTime()+1000).toISOString(),sourceVersion:'owl-v2',cells:cells(1,false).slice(0,1)}},s.auth,new Date(now.getTime()+2500))).workspaceVersion,first.workspaceVersion);
+ await assert.rejects(recordInventoryVerified(f.store,{schemaVersion:1,action:'record_verified',grantId:s.grant.grantId,
+  grantVersion:3,operationKey:open.operationKey,nightOperationKey:'owl-night:other',expectedWorkspaceVersion:first.workspaceVersion,
+  providerAfter:{observedAt:new Date(now.getTime()+1000).toISOString(),sourceVersion:'owl-v2',cells:cells(1,false).slice(0,1)}},s.auth,new Date(now.getTime()+2500)),/IDEMPOTENCY_CONFLICT/);
+ assert.equal(await ownerAvailable(),false);
+ await assert.rejects(recordInventoryVerified(f.store,{schemaVersion:1,action:'record_verified',grantId:s.grant.grantId,
+  grantVersion:3,operationKey:open.operationKey,nightOperationKey:'owl-night:two',expectedWorkspaceVersion:guarded.workspaceVersion,
+  providerAfter:{observedAt:new Date(now.getTime()+3000).toISOString(),sourceVersion:'owl-v2',cells:cells(1,false).slice(1)}},s.auth,new Date(now.getTime()+4000)),/VERSION_CONFLICT/);
  await assert.rejects(finalizeInventoryGuard(f.store,{schemaVersion:1,action:'finalize_guard',grantId:s.grant.grantId,
-  grantVersion:3,operationKey:open.operationKey,expectedWorkspaceVersion:guarded.workspaceVersion,
+  grantVersion:3,operationKey:open.operationKey,expectedWorkspaceVersion:first.workspaceVersion,
   providerAfter:{observedAt:new Date(now.getTime()+2000).toISOString(),sourceVersion:'owl-v2',cells:cells(1,false)}},s.auth,new Date(now.getTime()+3000)),/SOURCE_READBACK_REQUIRED/);
  assert.equal(await ownerAvailable(),false);
  const second=await recordInventoryVerified(f.store,{schemaVersion:1,action:'record_verified',grantId:s.grant.grantId,
-  grantVersion:3,operationKey:open.operationKey,expectedWorkspaceVersion:guarded.workspaceVersion,
+  grantVersion:3,operationKey:open.operationKey,nightOperationKey:'owl-night:two',expectedWorkspaceVersion:first.workspaceVersion,
   providerAfter:{observedAt:new Date(now.getTime()+3000).toISOString(),sourceVersion:'owl-v2',cells:cells(1,false).slice(1)}},s.auth,new Date(now.getTime()+4000));
- assert.equal(second.readyToFinalize,true);assert.equal(await ownerAvailable(),false);
+ assert.equal(second.readyToFinalize,true);assert.equal(second.evidence.length,2);assert.equal(second.workspaceVersion,first.workspaceVersion+1);
+ assert.equal(await ownerAvailable(),false);
+ assert.deepEqual((await inventoryStatus(f.store,s.grant.grantId,s.auth,open.operationKey)).evidence,second.evidence);
+ await assert.rejects(finalizeInventoryGuard(f.store,{schemaVersion:1,action:'finalize_guard',grantId:s.grant.grantId,
+  grantVersion:3,operationKey:open.operationKey,expectedWorkspaceVersion:second.workspaceVersion,
+  providerAfter:{observedAt:new Date(now.getTime()+5000).toISOString(),sourceVersion:'owl-v2',cells:[cells(0,true)[0],cells(1,false)[1]]}},s.auth,new Date(now.getTime()+6000)),/SOURCE_READBACK_REQUIRED/);
+ assert.equal(await ownerAvailable(),false);
  const opened=await finalizeInventoryGuard(f.store,{schemaVersion:1,action:'finalize_guard',grantId:s.grant.grantId,
-  grantVersion:3,operationKey:open.operationKey,expectedWorkspaceVersion:guarded.workspaceVersion,
+  grantVersion:3,operationKey:open.operationKey,expectedWorkspaceVersion:second.workspaceVersion,
   providerAfter:{observedAt:new Date(now.getTime()+5000).toISOString(),sourceVersion:'owl-v2',cells:cells(1,false)}},s.auth,new Date(now.getTime()+6000));
  assert.equal(opened.status,'open');assert.equal(await ownerAvailable(),true);
  const afterOpen=await f.workspace();
  const close={...open,operationKey:randomUUID(),mode:'close',expectedWorkspaceVersion:afterOpen.version,
   providerBefore:{observedAt:new Date(now.getTime()+7000).toISOString(),sourceVersion:'owl-v2',cells:cells(1,false)}};
  const closing=await acquireInventoryGuard(f.store,close,s.auth,new Date(now.getTime()+7000));
+ const closeFirst=await recordInventoryVerified(f.store,{schemaVersion:1,action:'record_verified',grantId:s.grant.grantId,
+  grantVersion:3,operationKey:close.operationKey,nightOperationKey:'owl-night:close-one',expectedWorkspaceVersion:closing.workspaceVersion,
+  providerAfter:{observedAt:new Date(now.getTime()+8000).toISOString(),sourceVersion:'owl-v3',cells:cells(0,true).slice(0,1)}},s.auth,new Date(now.getTime()+8500));
+ assert.equal(closeFirst.readyToFinalize,false);assert.equal(await ownerAvailable(),false);
  const closeEvidence=await recordInventoryVerified(f.store,{schemaVersion:1,action:'record_verified',grantId:s.grant.grantId,
-  grantVersion:3,operationKey:close.operationKey,expectedWorkspaceVersion:closing.workspaceVersion,
-  providerAfter:{observedAt:new Date(now.getTime()+8000).toISOString(),sourceVersion:'owl-v3',cells:cells(0,true)}},s.auth,new Date(now.getTime()+8500));
+  grantVersion:3,operationKey:close.operationKey,nightOperationKey:'owl-night:close-two',expectedWorkspaceVersion:closeFirst.workspaceVersion,
+  providerAfter:{observedAt:new Date(now.getTime()+8500).toISOString(),sourceVersion:'owl-v3',cells:cells(0,true).slice(1)}},s.auth,new Date(now.getTime()+9000));
  assert.equal(closeEvidence.status,'pending');assert.equal(closeEvidence.readyToFinalize,true);
  const closed=await finalizeInventoryGuard(f.store,{schemaVersion:1,action:'finalize_guard',grantId:s.grant.grantId,
-  grantVersion:3,operationKey:close.operationKey,expectedWorkspaceVersion:closing.workspaceVersion,
-  providerAfter:{observedAt:new Date(now.getTime()+9000).toISOString(),sourceVersion:'owl-v3',cells:cells(0,true)}},s.auth,new Date(now.getTime()+9500));
+  grantVersion:3,operationKey:close.operationKey,expectedWorkspaceVersion:closeEvidence.workspaceVersion,
+  providerAfter:{observedAt:new Date(now.getTime()+9500).toISOString(),sourceVersion:'owl-v3',cells:cells(0,true)}},s.auth,new Date(now.getTime()+10000));
  assert.equal(closed.status,'closed');assert.equal(await ownerAvailable(),false);
  const afterClose=await f.workspace();
  const reopen={...open,operationKey:randomUUID(),expectedWorkspaceVersion:afterClose.version,closedFenceId:closing.fenceId,
   providerBefore:{observedAt:new Date(now.getTime()+10000).toISOString(),sourceVersion:'owl-v3',cells:cells(0,true)}};
  const reopening=await acquireInventoryGuard(f.store,reopen,s.auth,new Date(now.getTime()+10000));
- await recordInventoryVerified(f.store,{schemaVersion:1,action:'record_verified',grantId:s.grant.grantId,
-  grantVersion:3,operationKey:reopen.operationKey,expectedWorkspaceVersion:reopening.workspaceVersion,
-  providerAfter:{observedAt:new Date(now.getTime()+11000).toISOString(),sourceVersion:'owl-v4',cells:cells(1,false)}},s.auth,new Date(now.getTime()+11500));
+ const reopenFirst=await recordInventoryVerified(f.store,{schemaVersion:1,action:'record_verified',grantId:s.grant.grantId,
+  grantVersion:3,operationKey:reopen.operationKey,nightOperationKey:'owl-night:reopen-one',expectedWorkspaceVersion:reopening.workspaceVersion,
+  providerAfter:{observedAt:new Date(now.getTime()+11000).toISOString(),sourceVersion:'owl-v4',cells:cells(1,false).slice(0,1)}},s.auth,new Date(now.getTime()+11500));
+ assert.equal(reopenFirst.readyToFinalize,false);assert.equal(await ownerAvailable(),false);
+ const reopenSecond=await recordInventoryVerified(f.store,{schemaVersion:1,action:'record_verified',grantId:s.grant.grantId,
+  grantVersion:3,operationKey:reopen.operationKey,nightOperationKey:'owl-night:reopen-two',expectedWorkspaceVersion:reopenFirst.workspaceVersion,
+  providerAfter:{observedAt:new Date(now.getTime()+11500).toISOString(),sourceVersion:'owl-v4',cells:cells(1,false).slice(1)}},s.auth,new Date(now.getTime()+12000));
  const reopened=await finalizeInventoryGuard(f.store,{schemaVersion:1,action:'finalize_guard',grantId:s.grant.grantId,
-  grantVersion:3,operationKey:reopen.operationKey,expectedWorkspaceVersion:reopening.workspaceVersion,
-  providerAfter:{observedAt:new Date(now.getTime()+12000).toISOString(),sourceVersion:'owl-v4',cells:cells(1,false)}},s.auth,new Date(now.getTime()+12500));
+  grantVersion:3,operationKey:reopen.operationKey,expectedWorkspaceVersion:reopenSecond.workspaceVersion,
+  providerAfter:{observedAt:new Date(now.getTime()+12500).toISOString(),sourceVersion:'owl-v4',cells:cells(1,false)}},s.auth,new Date(now.getTime()+13000));
  assert.equal(reopened.status,'open');assert.equal((await f.workspace()).integrationFences.length,0);
  assert.equal(await ownerAvailable(),true);
 });
@@ -277,11 +308,11 @@ test('OwlNest pending open cannot be released after a competing booking; revoked
  const current=await f.workspace();
  const external={id:randomUUID(),version:1,propertyId:s.propertyId,roomIds:[roomId],checkIn:input.checkIn,checkOut:input.checkOut,status:'confirmed',entry:'os'};
  f.store.values.set('workspace:'+current.id,JSON.stringify({...current,version:current.version+1,bookings:[...current.bookings,external]}));
- await recordInventoryVerified(f.store,{schemaVersion:1,action:'record_verified',grantId:s.grant.grantId,
-  grantVersion:3,operationKey:input.operationKey,expectedWorkspaceVersion:current.version+1,
+ const recorded=await recordInventoryVerified(f.store,{schemaVersion:1,action:'record_verified',grantId:s.grant.grantId,
+  grantVersion:3,operationKey:input.operationKey,nightOperationKey:'owl-night:conflicted',expectedWorkspaceVersion:current.version+1,
   providerAfter:{observedAt:new Date(now.getTime()+1000).toISOString(),sourceVersion:'owl-v2',cells:[{roomId,date:day,count:1,isLock:false}]}},s.auth,new Date(now.getTime()+2000));
  await assert.rejects(finalizeInventoryGuard(f.store,{schemaVersion:1,action:'finalize_guard',grantId:s.grant.grantId,
-  grantVersion:3,operationKey:input.operationKey,expectedWorkspaceVersion:current.version+1,
+  grantVersion:3,operationKey:input.operationKey,expectedWorkspaceVersion:recorded.workspaceVersion,
   providerAfter:{observedAt:new Date(now.getTime()+3000).toISOString(),sourceVersion:'owl-v2',cells:[{roomId,date:day,count:1,isLock:false}]}},s.auth,new Date(now.getTime()+4000)),/ROOM_CONFLICT/);
  assert.equal((await inventoryStatus(f.store,s.grant.grantId,s.auth,input.operationKey)).status,'pending');
  const status=await ownerSourceGrants(f.store,f.account.id,w.slug);
