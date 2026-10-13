@@ -45,6 +45,16 @@ test("read-only OS gateway signs a fresh member and enforces the response field 
   await assert.rejects(readIronGateBooking(input.store, input.accountId, input.slug,
     input.propertyId, input.bookingId, input.config,
     async () => Response.json({ ...input.booking, totalCents: 100 })), /IRON_GATE_READ_FAILED/);
+  for (const extra of [
+    { guestName: { public: "Synthetic Guest", hiddenContact: "synthetic hidden value" } },
+    { hold: { schema: 1, scope: "platform_only", state: "released",
+      startedAt: new Date().toISOString(), expiresAt: new Date().toISOString(),
+      latePaymentReview: true } },
+    { stays: [{ checkIn: "2026-11-10", checkOut: "2026-11-11", roomIds: [randomUUID()],
+      privateGuestContact: "synthetic hidden value" }] },
+  ]) await assert.rejects(readIronGateBooking(input.store, input.accountId, input.slug,
+    input.propertyId, input.bookingId, input.config,
+    async () => Response.json({ ...input.booking, ...extra })), /IRON_GATE_READ_FAILED/);
 });
 
 test("revoked membership, wrong IDs, and unsafe configuration fail closed", async () => {

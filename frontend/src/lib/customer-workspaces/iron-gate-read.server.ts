@@ -21,6 +21,57 @@ const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const RESPONSE_FIELDS = new Set(["id", "workspaceId", "propertyId", "version", "status",
   "channelSyncState", "stays", "createdAt", "source", "guestName", "contact", "notes",
   "totalCents", "currency", "paymentSummary", "hold"]);
+const HOLD_FIELDS = new Set(["schema", "scope", "startedAt", "expiresAt", "state",
+  "convertedAt", "releasedAt", "latePaymentReview"]);
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function object(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function safeBookingShape(booking: Record<string, unknown>, canReadMoney: boolean): boolean {
+  if (!Number.isSafeInteger(booking.version) || Number(booking.version) < 1 ||
+    !["held", "confirmed", "cancelled"].includes(String(booking.status)) ||
+    !["not_required", "pending", "verified", "review_required"].includes(String(booking.channelSyncState)) ||
+    !["os", "line", "website", "external"].includes(String(booking.source)) ||
+    typeof booking.createdAt !== "string" || !INSTANT.test(booking.createdAt) ||
+    !Array.isArray(booking.stays) || booking.stays.length > 32) return false;
+  for (const [field, max] of [["guestName", 200], ["contact", 256], ["notes", 2048]] as const) {
+    if (field in booking && booking[field] !== null &&
+      (typeof booking[field] !== "string" || booking[field].length > max)) return false;
+  }
+  if ("totalCents" in booking && booking.totalCents !== null &&
+    (!Number.isSafeInteger(booking.totalCents) || Number(booking.totalCents) < 0)) return false;
+  if ("currency" in booking && booking.currency !== "TWD") return false;
+  for (const stay of booking.stays) {
+    if (!object(stay) || Object.keys(stay).some((key) => !["checkIn", "checkOut", "roomIds"].includes(key)) ||
+      typeof stay.checkIn !== "string" || !DATE.test(stay.checkIn) ||
+      typeof stay.checkOut !== "string" || !DATE.test(stay.checkOut) ||
+      !Array.isArray(stay.roomIds) || stay.roomIds.length > 32 ||
+      stay.roomIds.some((roomId) => typeof roomId !== "string" || !UUID.test(roomId))) return false;
+  }
+  if ("paymentSummary" in booking) {
+    const summary = booking.paymentSummary;
+    if (!object(summary) || Object.keys(summary).some((key) =>
+      !["receivedCents", "refundedCents", "netReceivedCents"].includes(key)) ||
+      ["receivedCents", "refundedCents", "netReceivedCents"].some((key) =>
+        !Number.isSafeInteger(summary[key]) || Number(summary[key]) < 0)) return false;
+  }
+  if ("hold" in booking) {
+    const hold = booking.hold;
+    if (!object(hold) || Object.keys(hold).some((key) => !HOLD_FIELDS.has(key)) ||
+      hold.schema !== 1 || hold.scope !== "platform_only" ||
+      !["active", "awaiting_owner", "converted", "released"].includes(String(hold.state)) ||
+      typeof hold.startedAt !== "string" || !INSTANT.test(hold.startedAt) ||
+      typeof hold.expiresAt !== "string" || !INSTANT.test(hold.expiresAt) ||
+      ["convertedAt", "releasedAt"].some((key) => key in hold &&
+        (typeof hold[key] !== "string" || !INSTANT.test(hold[key]))) ||
+      "latePaymentReview" in hold && typeof hold.latePaymentReview !== "boolean" ||
+      !canReadMoney && ("latePaymentReview" in hold || "convertedAt" in hold)) return false;
+  }
+  return true;
+}
 
 function configuredBaseUrl(value: string): string {
   const url = new URL(value);
@@ -118,7 +169,8 @@ export async function readIronGateBooking(
     !claims.fields.includes("contact") && "contact" in booking ||
     !claims.fields.includes("notes") && "notes" in booking ||
     !claims.fields.includes("money") &&
-      ["totalCents", "currency", "paymentSummary"].some((key) => key in booking))
+      ["totalCents", "currency", "paymentSummary"].some((key) => key in booking) ||
+    !safeBookingShape(booking, claims.fields.includes("money")))
     throw new Error("IRON_GATE_READ_FAILED");
   return booking;
 }
