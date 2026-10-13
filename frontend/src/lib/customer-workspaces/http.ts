@@ -239,8 +239,18 @@ export function failure(error: unknown) {
       400,
       "每次可讀取最多 501 列、52 欄；請將資料整理成較小分頁再試。",
     ],
+    FILE_IMPORT_SIZE: [
+      400,
+      "檔案最多 3 MB，解壓後最多 8 MB；每個分頁最多 501 列、52 欄。請縮小檔案再試。",
+    ],
+    FILE_IMPORT_FORMAT: [
+      400,
+      "無法讀取檔案。請使用未加密的 .xlsx 或 CSV；舊版 Excel 請另存為 .xlsx。",
+    ],
     IMPORT_EXPIRED: [409, "預覽已過期，請重新讀取試算表。"],
     FEATURE_UNAVAILABLE: [503, "新客戶入口尚未開放。"],
+    SOURCES_UNAVAILABLE: [503, "此環境尚未開放來源連接。現有房況不會改變。"],
+    CONNECTION_EXPIRED: [410, "來源連接申請已過期，請重新從連接器開始。"],
     UNAUTHORIZED: [
       401,
       "請重新登入，再繼續操作；若登入失敗，請確認信箱及使用的登入方式。",

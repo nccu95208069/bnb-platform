@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import { INTAKE_RECIPIENT } from "../customer-intake/config.ts";
 import {
   gmailAuthorization,
+  mailSender,
   sendGmail,
   type GmailAuthorization,
 } from "./gmail.ts";
@@ -11,8 +12,24 @@ import {
   createHash,
   randomBytes,
 } from "node:crypto";
-import { ADMIN_EMAIL, validEmail } from "./types.ts";
+import { validEmail } from "./types.ts";
+import { customerOrigin } from "../customer-workspaces/site-url.ts";
 import { redisCommand, workspacePrefix } from "./store.ts";
+export function assertAcceptanceRecipient(to: string, purpose: "auth" | "lifecycle" = "lifecycle") {
+  const mode = process.env.CUSTOMER_ISOLATED_ACCEPTANCE;
+  if (mode === undefined || mode === "false") return;
+  if (mode !== "true") throw new Error("MAIL_RECIPIENT_NOT_ALLOWED");
+  // A tester must be able to receive their own login/recovery link. Guest,
+  // import and booking notices still require the exact acceptance allowlist.
+  if (purpose === "auth") return;
+  let configured: unknown;
+  try { configured = JSON.parse(process.env.CUSTOMER_ACCEPTANCE_EMAIL_RECIPIENTS || "[]"); }
+  catch { throw new Error("MAIL_RECIPIENT_NOT_ALLOWED"); }
+  if (!Array.isArray(configured) || configured.length < 1 || configured.length > 20 ||
+      configured.some(value => typeof value !== "string" || !validEmail(value) || value !== value.trim().toLowerCase()) ||
+      new Set(configured).size !== configured.length || !configured.includes(to.trim().toLowerCase()))
+    throw new Error("MAIL_RECIPIENT_NOT_ALLOWED");
+}
 function encryptionKey() {
   const secret = process.env.CALENDAR_OWNER_SESSION_SECRET;
   if (!secret || !/^[a-f0-9]{64}$/.test(secret))
@@ -47,11 +64,14 @@ async function storedMail() {
 }
 export async function mailStatus() {
   const value = await storedMail();
+  const sender = process.env.CUSTOMER_ISOLATED_ACCEPTANCE === "true" && !value?.secret &&
+    !process.env.CUSTOMER_ACCEPTANCE_SENDER_EMAIL ? null : mailSender();
   return {
     configured: Boolean(value?.secret),
-    sender: ADMIN_EMAIL,
+    sender,
     verifiedAt: value?.verifiedAt ?? null,
     method: value?.secret ? (value.method ?? "app_password") : null,
+    oauthRequired: process.env.CUSTOMER_ISOLATED_ACCEPTANCE === "true",
   };
 }
 function transport(password: string) {
@@ -59,7 +79,7 @@ function transport(password: string) {
     host: "smtp.gmail.com",
     port: 465,
     secure: true,
-    auth: { user: ADMIN_EMAIL, pass: password },
+    auth: { user: mailSender(), pass: password },
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 15000,
@@ -67,14 +87,17 @@ function transport(password: string) {
   });
 }
 export async function configureMail(input: unknown) {
+  if (process.env.CUSTOMER_ISOLATED_ACCEPTANCE === "true")
+    throw new Error("MAIL_NOT_CONFIGURED");
+  assertAcceptanceRecipient(mailSender());
   const password = typeof input === "string" ? input.replace(/\s/g, "") : "";
   if (!/^[a-zA-Z]{16}$/.test(password)) throw new Error("INVALID_INPUT");
   const smtp = transport(password);
   try {
     await smtp.verify();
     const result = await smtp.sendMail({
-      from: { name: "Sweetfun OS", address: ADMIN_EMAIL },
-      to: ADMIN_EMAIL,
+      from: { name: "Sweetfun OS", address: mailSender() },
+      to: mailSender(),
       subject: "Sweetfun OS 寄信設定測試",
       text: "這是你剛剛在 Sweetfun OS 啟用 Gmail 寄信時送出的測試信。之後成員邀請信會由此信箱寄出。本信不含密碼或登入連結。",
     });
@@ -97,16 +120,17 @@ export async function configureMail(input: unknown) {
     openMailPassword(check.secret) !== password
   )
     throw new Error("WRITE_UNCONFIRMED");
-  return { configured: true, sender: ADMIN_EMAIL, verifiedAt };
+  return { configured: true, sender: mailSender(), verifiedAt, oauthRequired: false };
 }
 // Operator setup only: no public endpoint accepts existing OAuth credentials.
 export async function configureGmailOAuth(input: GmailAuthorization) {
+  assertAcceptanceRecipient(mailSender());
   const config = gmailAuthorization(input);
   const messageId = await sendGmail(
     config,
-    ADMIN_EMAIL,
+    mailSender(),
     "Sweetfun OS 寄信已啟用",
-    "Sweetfun OS 的寄信功能已接通。這封信由 sweetfuntw@gmail.com 寄出。現在可以在權限管理新增成員，對方將收到設定密碼的邀請信。原抓單服務與你的網站登入密碼均未變更。",
+    `Sweetfun OS 的寄信功能已接通。這封信由 ${mailSender()} 寄出。現在可以在權限管理新增成員，對方將收到設定密碼的邀請信。原抓單服務與你的網站登入密碼均未變更。`,
   );
   const plaintext = JSON.stringify(config),
     secret = sealMailPassword(plaintext),
@@ -125,7 +149,7 @@ export async function configureGmailOAuth(input: GmailAuthorization) {
     throw new Error("WRITE_UNCONFIRMED");
   return {
     configured: true,
-    sender: ADMIN_EMAIL,
+    sender: mailSender(),
     method: "gmail_oauth",
     verifiedAt,
     messageId,
@@ -133,15 +157,17 @@ export async function configureGmailOAuth(input: GmailAuthorization) {
 }
 export async function sendInvitation(to: string, token: string) {
   if (!validEmail(to)) throw new Error("INVALID_INPUT");
+  assertAcceptanceRecipient(to);
+  const origin = customerOrigin();
   const value = await storedMail();
   if (!value?.secret) throw new Error("MAIL_NOT_CONFIGURED");
   // Fixed trusted origin; never derive activation links from a Host header.
-  const url = `https://sweetfun-os.vercel.app/activate#${token}`;
+  const url = `${origin}/activate#${token}`;
   const message = {
-    from: { name: "Sweetfun OS", address: ADMIN_EMAIL },
+    from: { name: "Sweetfun OS", address: mailSender() },
     to,
     subject: "Sweetfun OS｜設定你的帳號密碼",
-    text: `管理者邀請你使用 Sweetfun OS。\n\n請於 24 小時內開啟以下連結，自行設定密碼：\n${url}\n\n設定完成後，以本信箱及你設定的密碼登入：\nhttps://sweetfun-os.vercel.app/calendar-access\n\n本連結只能使用一次；若你未預期收到邀請，可忽略本信。管理者不會知道你設定的密碼。`,
+    text: `管理者邀請你使用 Sweetfun OS。\n\n請於 24 小時內開啟以下連結，自行設定密碼：\n${url}\n\n設定完成後，以本信箱及你設定的密碼登入：\n${origin}/calendar-access\n\n本連結只能使用一次；若你未預期收到邀請，可忽略本信。管理者不會知道你設定的密碼。`,
   };
   if (value.method === "gmail_oauth") {
     await sendGmail(
@@ -172,13 +198,24 @@ export async function sendOperatorIntakeNotification(
 
 // Called only with a stored applicant/account address and server-owned templates.
 // There is no endpoint accepting arbitrary recipients or message contents.
-export async function sendCustomerLifecycleMail(
+export async function sendCustomerAuthMail(to: string, subject: string, text: string) {
+  if (!((subject === "旅宿工作區｜你的登入連結" && text.startsWith("請在剛才操作的同一個瀏覽器")) ||
+        (subject === "旅宿服務｜重新設定密碼" && text.startsWith("你剛剛要求重新設定旅宿工作區的密碼"))))
+    throw new Error("INVALID_INPUT");
+  return customerMail(to, subject, text, "auth");
+}
+export async function sendCustomerLifecycleMail(to: string, subject: string, text: string) {
+  return customerMail(to, subject, text, "lifecycle");
+}
+async function customerMail(
   to: string,
   subject: string,
   text: string,
+  purpose: "auth" | "lifecycle",
 ) {
   if (!validEmail(to) || /[\r\n]/.test(to)) throw new Error("INVALID_INPUT");
   if (/[\r\n]/.test(subject)) throw new Error("INVALID_INPUT");
+  assertAcceptanceRecipient(to, purpose);
   const value = await storedMail();
   if (!value?.secret) throw new Error("MAIL_NOT_CONFIGURED");
   if (value.method === "gmail_oauth") {
@@ -192,7 +229,7 @@ export async function sendCustomerLifecycleMail(
   const smtp = transport(openMailPassword(value.secret));
   try {
     const result = await smtp.sendMail({
-      from: { name: "民宿 OS", address: ADMIN_EMAIL },
+      from: { name: "民宿 OS", address: mailSender() },
       to,
       subject,
       text,

@@ -8,7 +8,13 @@ and limits are recorded at the end. No production activation is implied.
 
 The private editor uses a configured service credential whose allowed `siteIds`
 and editor origin are server-owned. A guest/browser never receives this token or
-a booking binding token. Service routes reject cookie authentication.
+a booking binding token. Service routes reject cookie authentication. The
+dedicated Studio registry may additionally opt in to new UUID-v4 site IDs with
+`allow_new_sites:true`; legacy clients retain exact site-ID grants. An opted-in
+Studio request creates only a one-hour pending connection. It cannot create a
+binding or enable sales until the verified intended owner reviews the visible
+site ID, Studio origin, configuration and physical-room mapping in OS and
+explicitly approves.
 
 `POST /api/integration/website-booking/v1/connections`
 
@@ -52,7 +58,11 @@ check. Existing or imported unknown inventory is never assumed empty.
 On approval, OS atomically saves the workspace/property, binding, site index and
 consumed connection. `status` then returns to the private editor:
 `{schemaVersion:1,state:"connected",bindingId,bindingToken,configurationHash,
-inventoryMode,calendarUrl}`. The editor stores the token in private server
+inventoryMode,salesEnabled,calendarUrl}`. New bindings start with
+`salesEnabled:false`: connection approval establishes identity and physical
+room mapping but does not open bookings. The verified owner must separately
+use the OS workspace website control to enable sales after checking inventory.
+The editor stores the token in private server
 metadata and strips it from its browser response. No token travels in a URL.
 
 One client/site has one binding. A fresh `prepare` for that site is a pending
@@ -89,7 +99,9 @@ request never allocates another order, even after quote expiry, response loss or
 process restart. The receipt survives for the order lifecycle. Changed content
 under the same key returns 409. A quote is single-use across request IDs.
 
-Status response: `{status,orderId,reference,holdUntil?,notifications}`. Status is
+Status response: `{status,orderId,orderVersion,reference,stay,acceptedTerms,payment,holdUntil?,notifications}`. `payment` is a guest-safe OS readback with `{status,receivedCents,remainingCents,refundedCents,refundReviewRequired}`. Its status is `unpaid`, `partial`, `paid`, `overpaid` or `unknown`; amounts are integer TWD cents or `null` where OS cannot establish a balance. `refundedCents` is only the amount of actual refund entries OS has recorded. `refundReviewRequired` means an owner review remains open; neither field claims a bank transfer or provider refund completed merely because one was requested. The same fields appear on an original reservation response and a later `requests` recovery lookup.
+
+Reservation status is
 `hold_active`, `hold_expired_waiting_owner`, `preparing`, `review_required`,
 `confirmed`, `released` or `rejected`. `holdUntil` is present for both hold states;
 an expired deadline does not release occupancy. Each notification field
@@ -251,6 +263,11 @@ New connection/pairing/sales require `WEBSITE_BOOKING_ENABLED=true`, existing
 operations still require the workspace and hold switches; disabling new sales
 alone never prevents managing the existing orders. The private editor registry
 `WEBSITE_BOOKING_CLIENTS` contains exact `id,token_sha256,site_ids,editor_origin`.
+`WEBSITE_BOOKING_STUDIO_CLIENTS` accepts the same fields and may set
+`allow_new_sites:true` for a trusted Studio credential. This permits only
+canonical lowercase UUID-v4 site IDs outside its exact list; an empty
+`site_ids` list is valid only with that opt-in. The opt-in is absent by default,
+and this branch does not install or enable a production Studio credential.
 The OS login/calendar origin must be the intended deployment via existing
 customer-origin configuration. All credentials remain server-only; never use
 NEXT_PUBLIC variables, URL query parameters or committed files for secrets.

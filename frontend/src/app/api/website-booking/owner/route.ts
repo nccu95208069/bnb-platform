@@ -3,7 +3,7 @@ import { authenticate, CUSTOMER_COOKIE } from "@/lib/customer-workspaces/auth";
 import { body } from "@/lib/customer-workspaces/http";
 import { LOGIN_PROOF_COOKIE, LOGIN_SECONDS, newLoginProof, requestEmailLogin } from "@/lib/customer-workspaces/passwordless";
 import { intakePreview } from "@/lib/customer-intake/config";
-import { sendCustomerLifecycleMail } from "@/lib/workspace-auth/mail";
+import { sendCustomerAuthMail } from "@/lib/workspace-auth/mail";
 import { email, fields, requireEnabled } from "@/lib/website-booking/config";
 import { approveConnection, connectionFor, ownerConnection } from "@/lib/website-booking/connections";
 import { failure, headers, store } from "@/lib/website-booking/http";
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       if (request.cookies.get(WEBSITE_LOGIN_COOKIE)?.value !== c.id) throw Error("LOGIN_BROWSER_REQUIRED");
       if (email(input.email) !== c.ownerEmail) throw Error("WEBSITE_OWNER_MISMATCH");
       const result = await requestEmailLogin(store, { email: input.email, requestKey: input.requestKey,
-        proof: request.cookies.get(LOGIN_PROOF_COOKIE)?.value, websiteConnectionId: c.id }, sendCustomerLifecycleMail, intakePreview());
+        proof: request.cookies.get(LOGIN_PROOF_COOKIE)?.value, websiteConnectionId: c.id }, sendCustomerAuthMail, intakePreview());
       if (result.status === "preview") return NextResponse.json({ delivery: "preview", detail: "此環境停用寄信，尚未寄出登入連結。請使用可寄信的驗收環境，或聯絡管理員。" }, { headers: ownerHeaders });
       if (result.status !== "accepted") throw Error("LOGIN_DELIVERY_UNCONFIRMED");
       return NextResponse.json({ delivery: "accepted", detail: "登入連結已寄出，請在同一個瀏覽器開啟信件。登入後仍需確認網站設定，才會建立日曆。" }, { headers: ownerHeaders });

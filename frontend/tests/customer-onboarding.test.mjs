@@ -562,7 +562,8 @@ test("failed applicant email remains visible, admin resend is explicit, and prev
 test("email origins use an explicit deployment switch and reject arbitrary hosts", (t) => {
   const before = process.env.CUSTOMER_DEPLOYMENT_LINKS,
     host = process.env.VERCEL_URL,
-    fixed = process.env.CUSTOMER_DEPLOYMENT_ORIGIN;
+    fixed = process.env.CUSTOMER_DEPLOYMENT_ORIGIN,
+    acceptance = process.env.CUSTOMER_ISOLATED_ACCEPTANCE;
   t.after(() => {
     if (before === undefined) delete process.env.CUSTOMER_DEPLOYMENT_LINKS;
     else process.env.CUSTOMER_DEPLOYMENT_LINKS = before;
@@ -570,7 +571,10 @@ test("email origins use an explicit deployment switch and reject arbitrary hosts
     else process.env.VERCEL_URL = host;
     if (fixed === undefined) delete process.env.CUSTOMER_DEPLOYMENT_ORIGIN;
     else process.env.CUSTOMER_DEPLOYMENT_ORIGIN = fixed;
+    if (acceptance === undefined) delete process.env.CUSTOMER_ISOLATED_ACCEPTANCE;
+    else process.env.CUSTOMER_ISOLATED_ACCEPTANCE = acceptance;
   });
+  delete process.env.CUSTOMER_ISOLATED_ACCEPTANCE;
   delete process.env.CUSTOMER_DEPLOYMENT_ORIGIN;
   delete process.env.CUSTOMER_DEPLOYMENT_LINKS;
   process.env.VERCEL_URL = "ignored.invalid";
@@ -607,6 +611,11 @@ test("email origins use an explicit deployment switch and reject arbitrary hosts
   }
   process.env.CUSTOMER_DEPLOYMENT_LINKS = "false";
   assert.equal(customerOrigin(), "https://sweetfun-os.vercel.app");
+  process.env.CUSTOMER_ISOLATED_ACCEPTANCE = "true";
+  assert.throws(customerOrigin, /FEATURE_UNAVAILABLE/);
+  process.env.CUSTOMER_DEPLOYMENT_LINKS = "true";
+  process.env.CUSTOMER_DEPLOYMENT_ORIGIN = "https://synthetic-pilot.vercel.app";
+  assert.equal(customerOrigin(), "https://synthetic-pilot.vercel.app");
 });
 
 test("Google, iOS and Android applicants activate without a Sheet URL and reach calendar import with incomplete inventory", async (t) => {

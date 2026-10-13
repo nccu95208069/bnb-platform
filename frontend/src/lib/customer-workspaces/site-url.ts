@@ -2,6 +2,8 @@
 // is switched. The target comes only from the server environment, never
 // from a request Host header or applicant input.
 export function customerOrigin() {
+  if (process.env.CUSTOMER_ISOLATED_ACCEPTANCE === "true" && process.env.CUSTOMER_DEPLOYMENT_LINKS !== "true")
+    throw new Error("FEATURE_UNAVAILABLE");
   if (process.env.CUSTOMER_DEPLOYMENT_LINKS !== "true")
     return "https://sweetfun-os.vercel.app";
   // A protected stable alias keeps email proof cookies on the same origin as

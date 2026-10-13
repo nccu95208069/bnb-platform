@@ -2,9 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   sealMailPassword,
+  assertAcceptanceRecipient,
   sendOperatorIntakeNotification,
   sendCustomerLifecycleMail,
 } from "../src/lib/workspace-auth/mail.ts";
+import { assertAcceptanceNamespaces } from "../src/lib/workspace-auth/store.ts";
 test("operator intake mail uses configured Gmail, validates sender and always addresses fixed recipient", async (t) => {
   process.env.CALENDAR_OWNER_SESSION_SECRET = "a".repeat(64);
   process.env.KV_REST_API_URL = "https://redis.invalid";
@@ -54,4 +56,38 @@ test("operator intake mail uses configured Gmail, validates sender and always ad
     sendOperatorIntakeNotification("subject\r\nBcc: someone", "text"),
     /INVALID_INPUT/,
   );
+});
+test('isolated acceptance refuses recipients outside an exact configured test list', async t => {
+  const priorMode = process.env.CUSTOMER_ISOLATED_ACCEPTANCE;
+  const priorRecipients = process.env.CUSTOMER_ACCEPTANCE_EMAIL_RECIPIENTS;
+  t.after(() => {
+    if (priorMode === undefined) delete process.env.CUSTOMER_ISOLATED_ACCEPTANCE;
+    else process.env.CUSTOMER_ISOLATED_ACCEPTANCE = priorMode;
+    if (priorRecipients === undefined) delete process.env.CUSTOMER_ACCEPTANCE_EMAIL_RECIPIENTS;
+    else process.env.CUSTOMER_ACCEPTANCE_EMAIL_RECIPIENTS = priorRecipients;
+  });
+  process.env.CUSTOMER_ISOLATED_ACCEPTANCE = 'true';
+  process.env.CUSTOMER_ACCEPTANCE_EMAIL_RECIPIENTS = '["owner@example.test","guest@example.test"]';
+  assert.doesNotThrow(() => assertAcceptanceRecipient('owner@example.test'));
+  assert.doesNotThrow(() => assertAcceptanceRecipient('another-tester@example.test', 'auth'));
+  assert.throws(() => assertAcceptanceRecipient('actual-guest@example.test'), /MAIL_RECIPIENT_NOT_ALLOWED/);
+  await assert.rejects(sendCustomerLifecycleMail('actual-guest@example.test', 'Synthetic notice', 'Synthetic text'), /MAIL_RECIPIENT_NOT_ALLOWED/);
+  process.env.CUSTOMER_ACCEPTANCE_EMAIL_RECIPIENTS = '[]';
+  assert.throws(() => assertAcceptanceRecipient('owner@example.test'), /MAIL_RECIPIENT_NOT_ALLOWED/);
+  process.env.CUSTOMER_ISOLATED_ACCEPTANCE = 'TRUE';
+  assert.throws(() => assertAcceptanceRecipient('owner@example.test'), /MAIL_RECIPIENT_NOT_ALLOWED/);
+});
+test('isolated acceptance refuses default customer and auth storage namespaces', t => {
+  const keys = ['CUSTOMER_ISOLATED_ACCEPTANCE', 'CUSTOMER_WORKSPACE_NAMESPACE', 'WORKSPACE_AUTH_NAMESPACE'];
+  const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  t.after(() => { for (const key of keys) previous[key] === undefined ? delete process.env[key] : process.env[key] = previous[key]; });
+  process.env.CUSTOMER_ISOLATED_ACCEPTANCE = 'true';
+  delete process.env.CUSTOMER_WORKSPACE_NAMESPACE;
+  delete process.env.WORKSPACE_AUTH_NAMESPACE;
+  assert.throws(assertAcceptanceNamespaces, /ACCEPTANCE_STORE_UNAVAILABLE/);
+  process.env.CUSTOMER_WORKSPACE_NAMESPACE = 'bnb:acceptance:pilot-20261013';
+  process.env.WORKSPACE_AUTH_NAMESPACE = 'sweetfun-os:acceptance:pilot-20261013';
+  assert.doesNotThrow(assertAcceptanceNamespaces);
+  process.env.CUSTOMER_ISOLATED_ACCEPTANCE = 'TRUE';
+  assert.throws(assertAcceptanceNamespaces, /ACCEPTANCE_STORE_UNAVAILABLE/);
 });

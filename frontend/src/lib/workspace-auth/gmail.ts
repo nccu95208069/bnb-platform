@@ -1,6 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { ADMIN_EMAIL, validEmail } from './types.ts';
 
+export function mailSender() {
+  const mode = process.env.CUSTOMER_ISOLATED_ACCEPTANCE;
+  if (mode === undefined || mode === 'false') return ADMIN_EMAIL;
+  const sender = process.env.CUSTOMER_ACCEPTANCE_SENDER_EMAIL;
+  if (mode !== 'true' || !sender || sender === ADMIN_EMAIL ||
+      sender !== sender.trim().toLowerCase() || !validEmail(sender))
+    throw new Error('MAIL_NOT_CONFIGURED');
+  return sender;
+}
+
 export type GmailAuthorization = { clientId: string; clientSecret: string; refreshToken: string };
 export function gmailAuthorization(input: unknown): GmailAuthorization {
   const value = input as Partial<GmailAuthorization> | null;
@@ -22,8 +32,23 @@ export async function gmailAccess(input: GmailAuthorization): Promise<string> {
     body: new URLSearchParams({ client_id: config.clientId, client_secret: config.clientSecret, refresh_token: config.refreshToken, grant_type: 'refresh_token' }),
   });
   if (typeof result.access_token !== 'string' || (typeof result.scope === 'string' && !result.scope.split(' ').some((s: string) => SEND_SCOPES.has(s)))) throw new Error('MAIL_FAILED');
+  const scopes = typeof result.scope === 'string' ? result.scope.split(' ') : [];
+  if (scopes.length === 0 || (scopes.includes('openid') && scopes.includes('email'))) {
+    let identity: Record<string, unknown> | null = null;
+    try {
+      const response = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+        headers: { Authorization: `Bearer ${result.access_token}` }, cache: 'no-store', signal: AbortSignal.timeout(15000),
+      });
+      if (response.ok) identity = await response.json();
+    } catch { /* Older grants may lack identity scope; their Gmail profile remains authoritative. */ }
+    if (identity) {
+      if (identity.email_verified !== true || String(identity.email).toLowerCase() !== mailSender())
+        throw new Error('MAIL_SENDER_MISMATCH');
+      return result.access_token;
+    }
+  }
   const profile = await googleJson('https://gmail.googleapis.com/gmail/v1/users/me/profile', { headers: { Authorization: `Bearer ${result.access_token}` } });
-  if (profile.emailAddress?.toLowerCase() !== ADMIN_EMAIL) throw new Error('MAIL_SENDER_MISMATCH');
+  if (profile.emailAddress?.toLowerCase() !== mailSender()) throw new Error('MAIL_SENDER_MISMATCH');
   return result.access_token;
 }
 export function gmailMessage(to: string, subject: string, text: string) {
@@ -31,7 +56,7 @@ export function gmailMessage(to: string, subject: string, text: string) {
   const encodedSubject = Buffer.from(subject).toString('base64');
   const encodedBody = Buffer.from(text).toString('base64').match(/.{1,76}/g)?.join('\r\n') ?? '';
   return Buffer.from([
-    `From: Sweetfun OS <${ADMIN_EMAIL}>`, `To: ${to}`,
+    `From: Sweetfun OS <${mailSender()}>`, `To: ${to}`,
     `Subject: =?UTF-8?B?${encodedSubject}?=`, `Date: ${new Date().toUTCString()}`,
     `Message-ID: <${randomUUID()}@sweetfun-os.vercel.app>`,
     'MIME-Version: 1.0', 'Content-Type: text/plain; charset=UTF-8',

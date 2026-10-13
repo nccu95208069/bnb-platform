@@ -135,6 +135,11 @@ test("Sheet wizard maps columns, quarantines rows, preserves selection after los
   );
   await click(firstRoomGroup.querySelectorAll("input")[0]);
   await click(firstRoomGroup.querySelectorAll("input")[1]);
+  await input([...document.querySelectorAll('input[type="date"]')].at(-1), "2026-12-31");
+  const coverageCheck = [...document.querySelectorAll("label")].find((label) =>
+    label.textContent.includes("這是一次匯入快照"),
+  )?.querySelector('input[type="checkbox"]');
+  await click(coverageCheck);
   const confirmation = [
     ...document.querySelectorAll("input[type=checkbox]"),
   ].at(-1);
@@ -142,6 +147,8 @@ test("Sheet wizard maps columns, quarantines rows, preserves selection after los
   await click(button("產生匯入預覽"));
   assert.deepEqual(previewBody.mapping.roomMap.villa, ["101", "102"]);
   assert.equal(previewBody.mapping.columns.checkIn, 0);
+  assert.equal(previewBody.mapping.coverageTo, "2026-12-31");
+  assert.equal(previewBody.mapping.coverageConfirmed, true);
   assert.equal(
     document.querySelector('[aria-label="匯入第 4 列"]').disabled,
     true,

@@ -1,6 +1,7 @@
 import { digest } from "../customer-workspaces/auth.ts";
 import type { Change, CustomerStore, Snapshot } from "../customer-workspaces/store.ts";
 import type { Booking, Workspace } from "../customer-workspaces/types.ts";
+import { studioSiteIds, studioSitesKey } from "./studio-sites.ts";
 import { email, fields, id, record, sameSecret, uuid } from "./config.ts";
 import type { NotificationChannel, WebsiteBinding, WebsiteBooking, WebsiteNotification } from "./types.ts";
 
@@ -17,7 +18,7 @@ type Index = { schemaVersion: 1; ids: string[] };
 type Claim = { schemaVersion: 1; bindingId: string; workerId: string; attemptId: string; channels: NotificationChannel[]; jobId: string | null; createdAt: string; hasMore: boolean; queueFingerprint: string };
 type Scan = { schemaVersion: 1; next: string | null };
 export type WorkerSiteScope = { client_id: string; site_id: string };
-export type NotificationWorker = { id: string; token_sha256: string; binding_ids: string[]; actions: string[]; channels?: NotificationChannel[]; site_scopes?: WorkerSiteScope[] };
+export type NotificationWorker = { id: string; token_sha256: string; binding_ids: string[]; actions: string[]; channels?: NotificationChannel[]; site_scopes?: WorkerSiteScope[]; studio_client_ids?: string[] };
 
 const jobKey = (jobId: string) => `website:notification:${jobId}`;
 const indexKey = (bindingId: string) => `website:notification-index:${bindingId}`;
@@ -251,8 +252,15 @@ export async function authorizeWorkerBinding(store: CustomerStore, worker: Notif
   const guards: Change[] = [{ key: `website:binding:${bindingId}`, before: bindingSnapshot.raw, after: binding }];
   if (!explicit) {
     const scope = worker.site_scopes?.find(s => s.client_id === binding.clientId && s.site_id === binding.siteId);
-    if (!scope) throw Error("FORBIDDEN");
-    const key = `website:site:${digest(JSON.stringify([scope.client_id, scope.site_id]))}`;
+    const internalStudio = worker.id === "internal:website-email:v1" && worker.studio_client_ids?.includes(binding.clientId);
+    if (!scope && !internalStudio) throw Error("FORBIDDEN");
+    if (internalStudio && !scope) {
+      const registryKey = studioSitesKey(binding.clientId);
+      const registry = await store.read<string[]>(registryKey);
+      if (!studioSiteIds(registry.value).includes(uuid(binding.siteId))) throw Error("FORBIDDEN");
+      guards.push({ key: registryKey, before: registry.raw, after: registry.value });
+    }
+    const key = `website:site:${digest(JSON.stringify([binding.clientId, binding.siteId]))}`;
     const site = await store.read<{ bindingId: string; ownerAccountId: string }>(key);
     if (site.value?.bindingId !== bindingId || site.value.ownerAccountId !== binding.ownerAccountId ||
         !binding.approvedAt || !Number.isFinite(Date.parse(binding.approvedAt))) throw Error("FORBIDDEN");

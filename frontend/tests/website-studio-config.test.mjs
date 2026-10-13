@@ -14,6 +14,15 @@ test('studio client and email grants extend exact scopes without changing legacy
   assert.deepEqual(serviceClient(legacyToken),legacy);assert.deepEqual(serviceClient(studioToken),studio);
   assert.throws(()=>permittedSite(serviceClient(studioToken),'existing-site'),/FORBIDDEN/);
   assert.throws(()=>permittedSite(serviceClient(legacyToken),'studio-a'),/FORBIDDEN/);
+  const newSite='5a2db0b2-87d9-4f72-a20b-82890d944e20';
+  const dynamic={...studio,site_ids:[],allow_new_sites:true};
+  process.env.WEBSITE_BOOKING_STUDIO_CLIENTS=JSON.stringify([dynamic]);
+  assert.equal(permittedSite(serviceClient(studioToken),newSite),newSite);
+  assert.throws(()=>permittedSite(serviceClient(studioToken),'arbitrary-site'),/FORBIDDEN/);
+  process.env.WEBSITE_BOOKING_CLIENTS=JSON.stringify([{...legacy,allow_new_sites:true}]);
+  assert.throws(()=>serviceClient(legacyToken),/WEBSITE_BOOKING_UNAVAILABLE/);
+  process.env.WEBSITE_BOOKING_CLIENTS=JSON.stringify([legacy]);
+  process.env.WEBSITE_BOOKING_STUDIO_CLIENTS=JSON.stringify([studio]);
   const oldScope={client_id:'legacy',site_id:'existing-site'},newScope={client_id:'studio',site_id:'studio-a'};
   process.env.WEBSITE_BOOKING_EMAIL_SITE_SCOPES=JSON.stringify([oldScope]);process.env.WEBSITE_BOOKING_STUDIO_EMAIL_SITE_SCOPES=JSON.stringify([newScope]);
   assert.deepEqual(emailDeliverySiteScopes(),[oldScope,newScope]);
