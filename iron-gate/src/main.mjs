@@ -26,7 +26,7 @@ export async function startPrivateServer(env = process.env) {
     max: 10, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000 });
   try {
     await assertRuntimeDatabase(pool);
-    const server = createPostgresIronGateServer(pool, verifier);
+    const server = createPostgresIronGateServer(pool, verifier, env.IRON_GATE_DATABASE_URL);
     try {
       await new Promise((resolve, reject) => {
         const onError = (error) => { server.off("listening", onListening); reject(error); };

@@ -123,13 +123,15 @@ function readInventoryIndex(state: PropertyState, first: number, end: number) {
 }
 function receiptFor(state: PropertyState, principal: Principal, requestKey: string, hash: string): RequestReceipt | null {
   const prior = state.receipts.find((receipt) => receipt.key === requestKey &&
-    receipt.clientId === principal.clientId && receipt.grantId === (principal.grantId ?? null));
+    receipt.clientId === principal.clientId && receipt.subjectId === principal.subjectId &&
+    receipt.grantId === (principal.grantId ?? null));
   if (prior && prior.requestHash !== hash) reject("IDEMPOTENCY_CONFLICT", 409);
   return prior ?? null;
 }
 function saveReceipt(state: PropertyState, principal: Principal, requestKey: string, action: Action,
   hash: string, response: Record<string, unknown>): void {
-  state.receipts.push({ key: requestKey, clientId: principal.clientId, grantId: principal.grantId ?? null,
+  state.receipts.push({ key: requestKey, clientId: principal.clientId,
+    subjectId: principal.subjectId, grantId: principal.grantId ?? null,
     propertyId: state.propertyId,
     action, requestHash: hash, response });
 }
@@ -457,6 +459,7 @@ export class IronGateService {
     return this.repository.transact(propertyId, (state, tx) => {
       authorize(principal, state, "payment:write", true);
       if (principal.origin !== "os" && principal.origin !== "finance") reject("FORBIDDEN", 403);
+      if (!principal.fields.includes("money")) reject("FORBIDDEN", 403);
       const prior = receiptFor(state, principal, requestKey, hash);
       if (prior) return prior.response;
       const booking = state.bookings.find((item) => item.id === bookingId);
@@ -750,9 +753,12 @@ export class IronGateService {
     if (principal.workspaceId !== state.workspaceId || !Array.isArray(principal.propertyIds) ||
       !principal.propertyIds.includes(propertyId)) reject("FORBIDDEN", 403);
     const receipt = state.receipts.find((item) => item.key === requestKey &&
-      item.clientId === principal.clientId && item.grantId === (principal.grantId ?? null));
+      item.clientId === principal.clientId && item.subjectId === principal.subjectId &&
+      item.grantId === (principal.grantId ?? null));
     if (!receipt) reject("REQUEST_NOT_FOUND", 404);
     authorize(principal, state, receipt.action);
+    if (receipt.action === "payment:write" && !principal.fields.includes("money"))
+      reject("FORBIDDEN", 403);
     if (principal.origin === "guest" && principal.bookingIdScope !== receipt.response.bookingId)
       reject("FORBIDDEN", 403);
     const booking = state.bookings.find((item) => item.id === receipt.response.bookingId);

@@ -117,7 +117,7 @@ test("shared PostgreSQL handler enforces a live credential on every request",
         authorityEpoch: 1, clientId: "synthetic-consumer", subjectId: "synthetic-service",
         origin: "service", actions: ["event:read"], fields: [] },
       new Date(Date.now() + 60_000).toISOString());
-      const handler = createPostgresIronGateHandler(runtimePool);
+      const handler = createPostgresIronGateHandler(runtimePool, null, connectionString);
       const request = () => new Request(
         `https://iron-gate.example/v1/properties/${propertyId}/events`,
         { headers: { authorization: `Bearer ${token}` } });

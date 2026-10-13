@@ -81,6 +81,37 @@ test("same key replays the original order; changed body conflicts", async () => 
   assert.equal(recovered.currentBookingVersion, 1);
 });
 
+test("request receipts stay with the verified member behind a shared OS client", async () => {
+  const { service, repository } = setup();
+  const owner = principal("os", { subjectId: "member-one" });
+  const coworker = principal("os", { subjectId: "member-two" });
+  const requestKey = key();
+  await service.createBooking(owner, propertyId, requestKey, bookingInput());
+  await assert.rejects(service.requestResult(coworker, propertyId, requestKey),
+    errorCode("REQUEST_NOT_FOUND"));
+  await assert.rejects(service.createBooking(coworker, propertyId, requestKey,
+    bookingInput()), errorCode("VERSION_CONFLICT"));
+  const receipts = (await repository.read(propertyId)).receipts;
+  assert.equal(receipts[0].subjectId, "member-one");
+});
+
+test("payment receipts need current money scope as well as payment action", async () => {
+  const { service } = setup();
+  const created = await service.createBooking(principal(), propertyId, key(), bookingInput());
+  const requestKey = key();
+  const writer = principal("os", { actions: ["payment:write"], fields: ["money"] });
+  const noMoney = principal("os", { actions: ["payment:write"], fields: [] });
+  const payment = { expectedBookingVersion: 1, eventId: key(), kind: "received",
+    amountCents: 1000, currency: "TWD", evidenceRef: "synthetic-proof",
+    occurredAt: new Date().toISOString() };
+  await assert.rejects(service.recordPaymentEvent(noMoney, propertyId, created.bookingId,
+    key(), payment), errorCode("FORBIDDEN"));
+  await service.recordPaymentEvent(writer, propertyId, created.bookingId, requestKey, payment);
+  await assert.rejects(service.requestResult(noMoney, propertyId, requestKey),
+    errorCode("FORBIDDEN"));
+  assert.equal((await service.requestResult(writer, propertyId, requestKey)).netReceivedCents, 1000);
+});
+
 test("tenant, property, guest order, and route generation stay scoped", async () => {
   const { service } = setup();
   const receipt = await service.createBooking(principal(), propertyId, key(), bookingInput());

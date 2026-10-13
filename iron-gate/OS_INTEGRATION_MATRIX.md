@@ -20,6 +20,12 @@ OS 的客戶登入 cookie 對應 `Account`；當前 `Workspace.members` 決定�
 | 外部與網站欄位 | `platform`、`calendar`、`imported`、`website`、`lineOwner`、`channelClose` 等 | 只有最小來源欄位 | 須可追溯且無損保留；資料未知時用待核對，不能在轉換時丟棄。 |
 | 封房 | `Workspace.blocks`、`integrationFences` 與 `calendarSources` | `manualBlocks`、`fences` | 逐房晚核對；來源仍掌權的館不得在 Iron Gate 另開賣。 |
 
+## 網站預訂與 LINE 業主操作
+
+現有網站流程在 `frontend/src/lib/website-booking/booking.ts` 依序核對 owner binding、來源涵蓋與開賣開關，先發 120 秒房況觀測 token，再依 OS 定價發 5 分鐘報價。預訂以同一工作區 CAS 一次寫入保留單、消費報價、保存同鍵收據並建立通知；重試先查原收據，報價時與提交時各自重查實體房間、封房、價格與設定版本。Iron Gate 目前只實作本地占房與保留，沒有上述 binding、房型、價格、報價及通知的完整契約，所以網站直接建立訂單固定拒絕 `WEBSITE_QUOTE_REQUIRED`。接線不可把現有報價 ID 當成無需驗證的寫入授權，亦不可讓 OS 和 Iron Gate 同時寫同一筆正式訂單。
+
+現有 `frontend/src/lib/website-booking/owner-actions.ts` 要求 LINE webhook 已驗證的一對一發話者與目前 pairing 相符，再查 owner、binding、原網站訂單及工作區版本；每次操作帶業主確認、請求鍵與訂單／工作區版本，未知提交結果以原收據讀回。Iron Gate 尚無 binding 專屬的完整 inspect 快照及業主確認證據，LINE 一般建單／讀單／取消固定拒絕。後續應把現行協定映射到同一權威訂單，而非另開一條可略過 owner 確認的寫入端點。
+
 ## 必須封住或導流的寫入入口
 
 至少包含原生建單與操作、保留與付款、網站訂房／改期、LINE owner-action、來源連結訂單與庫存 guard、Sheet／日曆匯入、封房及遷移腳本。`customer-workspaces/[slug]/route.ts` 的原生 `createBooking` 仍直接修改 Workspace；`operations/route.ts` 另有保留、付款、取消。只改畫面或路由而留住儲存層旁路，不足以宣布 Iron Gate 為正本。

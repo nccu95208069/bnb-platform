@@ -5,6 +5,7 @@ import { createHandler } from "./http.ts";
 import { PostgresPropertyRepository } from "./postgres-repository.mjs";
 import { PostgresCredentialDirectory } from "./postgres-auth.mjs";
 import { createGrantAuthenticator } from "./authenticator.mjs";
+import { assertRuntimeDatabase, validateDatabaseTransport } from "./runtime-safety.mjs";
 
 /** Adapt the Fetch Request/Response handler to Node HTTP. The caller owns listen(), TLS, and shutdown. */
 export function createNodeServer(handle) {
@@ -37,15 +38,31 @@ export function createNodeServer(handle) {
  * The runtime pool needs iron_gate_runtime only. OS credentials stay denied
  * unless verifyOsMember supplies fresh, independently verified membership.
  */
-export function createPostgresIronGateServer(runtimePool, verifyOsMember = null) {
-  return createNodeServer(createPostgresIronGateHandler(runtimePool, verifyOsMember));
+export function createPostgresIronGateServer(runtimePool, verifyOsMember = null,
+  databaseUrl) {
+  return createNodeServer(createPostgresIronGateHandler(runtimePool, verifyOsMember, databaseUrl));
 }
 
 /** Shared request handler for a separate service deployment or the loopback server. */
-export function createPostgresIronGateHandler(runtimePool, verifyOsMember = null) {
+export function createPostgresIronGateHandler(runtimePool, verifyOsMember = null,
+  databaseUrl) {
+  validateDatabaseTransport(databaseUrl);
   const repository = new PostgresPropertyRepository(runtimePool);
   const directory = new PostgresCredentialDirectory(runtimePool);
   const service = new IronGateService(repository);
   const authenticate = createGrantAuthenticator(directory, repository, verifyOsMember);
-  return createHandler(service, authenticate);
+  const handle = createHandler(service, authenticate);
+  // Every deployment adapter, including a serverless one, must pass the same
+  // database role and RLS check before it can authenticate or serve a request.
+  let ready;
+  return async (request) => {
+    ready ??= assertRuntimeDatabase(runtimePool);
+    try { await ready; }
+    catch {
+      return new Response('{"error":{"code":"SERVICE_UNAVAILABLE"}}', { status: 503,
+        headers: { "content-type": "application/json; charset=utf-8",
+          "cache-control": "private, no-store", "x-content-type-options": "nosniff" } });
+    }
+    return handle(request);
+  };
 }

@@ -121,6 +121,7 @@ export type Fence = {
 export type RequestReceipt = {
   key: string;
   clientId: string;
+  subjectId: string;
   grantId: string | null;
   propertyId: string;
   action: Action;
