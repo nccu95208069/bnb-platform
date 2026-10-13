@@ -65,9 +65,9 @@ export async function signCurrentIronGateMembership(
   const { workspace, member } = await loadWorkspace(store, accountId, slug);
   const property = workspace.properties.find((item) => item.id === grant.propertyId);
   if (!property || workspace.id !== grant.workspaceId || member.active !== true ||
+    typeof member.allProperties !== "boolean" || !Array.isArray(member.propertyIds) ||
     workspace.members.filter((item) => item.accountId === accountId).length !== 1 ||
-    !(member.allProperties === true ||
-      Array.isArray(member.propertyIds) && member.propertyIds.includes(grant.propertyId)))
+    !(member.allProperties === true || member.propertyIds.includes(grant.propertyId)))
     throw new Error("FORBIDDEN");
   const url = new URL(request.url);
   const claims = {

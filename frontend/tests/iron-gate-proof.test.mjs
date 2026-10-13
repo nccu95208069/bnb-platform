@@ -61,6 +61,9 @@ test("revoked member, wrong workspace, and out-of-scope property cannot sign", a
   input.workspace.members[0].allProperties = "true";
   await assert.rejects(signCurrentIronGateMembership(input.store, input.accountId,
     input.slug, input.request, input.grant, secret), /FORBIDDEN/);
+  input.workspace.members[0].propertyIds = [input.propertyId];
+  await assert.rejects(signCurrentIronGateMembership(input.store, input.accountId,
+    input.slug, input.request, input.grant, secret), /FORBIDDEN/);
   input.workspace.members[0].allProperties = false;
   input.workspace.members[0].propertyIds = [input.propertyId];
   input.workspace.members.push({ ...input.workspace.members[0], active: false });
