@@ -1,0 +1,23 @@
+{
+  "name": "iron-gate-contract",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start:private": "node --experimental-strip-types src/main.mjs",
+    "test": "node --experimental-sqlite --experimental-strip-types --test tests/*.test.mjs",
+    "test:pg": "node --experimental-strip-types --test tests/postgres-repository.test.mjs",
+    "test:server": "node --experimental-strip-types --test tests/node-server.integration.mjs",
+    "shadow:report": "node --experimental-strip-types src/os-shadow-cli.mjs",
+    "check": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=22.15.0"
+  },
+  "dependencies": {
+    "pg": "8.20.0"
+  }
+}
