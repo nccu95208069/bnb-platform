@@ -19,6 +19,8 @@ npm run build
 
 `npm run test:server` 會在本機 `127.0.0.1` 啟動短暫的合成 HTTP 測試。`npm run test:pg` 只接受明確指定的本機 `iron_gate_test` 資料庫；先以管理角色套用 [schema](sql/001_property_store.sql)，再配置單獨的 `iron_gate_runtime` 登入角色。測試資料不可指向正式資料庫。
 
+`npm run test:restore` 要求 `IRON_GATE_PG_ADMIN_URL` 指向本機 `iron_gate_test`，以及可選的 `IRON_GATE_PG_BIN`（`pg_dump`／`pg_restore` 所在目錄）。它建立兩個一次性資料庫，產生合成訂單、房晚、事件、稽核與憑證，備份後還原並核對資料及受限執行角色，最後刪除一次性資料庫。這只驗證本機還原鏈路；正式館別仍需另做有紀錄的備份、還原與回滾演練。
+
 `npm run start:private` 只綁定 `127.0.0.1`。它要求 `IRON_GATE_DATABASE_URL`、`IRON_GATE_OS_PROOF_SECRET`，並在啟動時驗證資料庫角色、RLS 與遠端 TLS。資料庫管理憑證與發證功能不在服務程序中。正式部署還需要專用資料庫、備份還原演練、身分配置、監控，以及逐館 writer 封寫與遷移核對。
 
 影子盤點工具 `npm run shadow:report -- report /absolute/private/os-workspace.json` 只輸出去個資報告；輸入檔仍含客資，必須保存在受控私密位置。它不會讀取或修改 OS，也不會啟用切換。現有 OS [只讀橋接](../docs/work-handoff/IRON_GATE_OS_PROOF_2026-10-13.md)預設關閉。

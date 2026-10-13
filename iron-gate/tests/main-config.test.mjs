@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { validateDatabaseTransport } from "../src/main.mjs";
 import { createPostgresIronGateHandler } from "../src/node-server.mjs";
+import { restoreDrill } from "../scripts/pg-restore-drill.mjs";
 
 test("remote booking database requires hostname-verified TLS", () => {
   assert.doesNotThrow(() => validateDatabaseTransport(
@@ -46,4 +47,13 @@ test("shared HTTP handler refuses an unsafe database role before reading credent
   assert.equal(first.headers.get("cache-control"), "private, no-store");
   assert.equal(second.status, 503);
   assert.equal(checks, 1);
+});
+
+test("restore drill refuses any nonlocal or non-test database", async () => {
+  for (const url of [
+    "postgresql://postgres@db.example.test/iron_gate_test",
+    "postgresql://postgres@127.0.0.1:55432/production",
+    "postgresql://postgres@127.0.0.1:55432/iron_gate_test?host=db.example.test",
+  ]) await assert.rejects(restoreDrill({ IRON_GATE_PG_ADMIN_URL: url }),
+    /RESTORE_DRILL_LOCAL_TEST_ONLY/);
 });

@@ -105,4 +105,4 @@ OS 可由私有閘道在**每次請求**重新讀取正式 `Workspace.members`�
 
 ## 5. 合成驗證
 
-`npm test` 執行競爭、同鍵重試、跨館與旅客範圍、保留、改房、取消、OwlNest 部分／過早讀回、來源分歧、亂序取消、SQLite 重啟與 HTTP 錯誤邊界。`npm run check` 做嚴格型別檢查。`npm run test:pg` 在隔離 localhost 的 `iron_gate_test` 資料庫驗證 PostgreSQL 交易、RLS、憑證不可列舉和即時撤銷；`npm run test:server` 驗證本機 HTTP listener。這些結果不證明真實 provider、OS 會員、正式儲存或生產租戶已可用。
+`npm test` 執行競爭、同鍵重試、跨館與旅客範圍、保留、改房、取消、OwlNest 部分／過早讀回、來源分歧、亂序取消、SQLite 重啟與 HTTP 錯誤邊界。`npm run check` 做嚴格型別檢查。`npm run test:pg` 在隔離 localhost 的 `iron_gate_test` 資料庫驗證 PostgreSQL 交易、RLS、憑證不可列舉和即時撤銷；`npm run test:server` 驗證本機 HTTP listener。`npm run test:restore` 在兩個一次性本機資料庫之間演練合成訂單、占房、事件、稽核、憑證與序列的備份／還原，並重查受限執行角色。這些結果不證明真實 provider、OS 會員、正式儲存或生產租戶已可用。
