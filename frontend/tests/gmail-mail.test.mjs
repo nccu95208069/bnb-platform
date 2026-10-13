@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { gmailAccess, gmailMessage, mailSender } from '../src/lib/workspace-auth/gmail.ts';
-import { configureGmailOAuth, mailStatus, sendInvitation } from '../src/lib/workspace-auth/mail.ts';
+import { configureGmailOAuth, configureMail, mailStatus, sendInvitation } from '../src/lib/workspace-auth/mail.ts';
 const config={clientId:'synthetic-client',clientSecret:'synthetic-secret',refreshToken:'synthetic-refresh'};
 
 test('authorized Gmail setup encrypts credentials and invitations use the confirmed sender',async t=>{
@@ -49,6 +49,7 @@ test('isolated acceptance requires its own sender and emits links only to the ca
  process.env.CUSTOMER_ISOLATED_ACCEPTANCE='true';
  delete process.env.CUSTOMER_ACCEPTANCE_SENDER_EMAIL;
  assert.throws(mailSender,/MAIL_NOT_CONFIGURED/);
+ await assert.rejects(configureMail('abcdefghijklmnop'),/MAIL_NOT_CONFIGURED/);
  process.env.CUSTOMER_ACCEPTANCE_SENDER_EMAIL='sweetfuntw@gmail.com';
  assert.throws(mailSender,/MAIL_NOT_CONFIGURED/);
  process.env.CUSTOMER_ACCEPTANCE_SENDER_EMAIL='pilot-sender@example.test';
@@ -68,6 +69,7 @@ test('isolated acceptance requires its own sender and emits links only to the ca
   throw new Error('unexpected endpoint');
  });
  assert.equal(mailSender(),'pilot-sender@example.test');
+ assert.equal((await mailStatus()).oauthRequired,true);
  await configureGmailOAuth(config);
  assert.match(sent[0],/From: Sweetfun OS <pilot-sender@example.test>/);
  await sendInvitation('test-member@example.test','candidate-token');

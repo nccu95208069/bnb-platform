@@ -71,6 +71,7 @@ export async function mailStatus() {
     sender,
     verifiedAt: value?.verifiedAt ?? null,
     method: value?.secret ? (value.method ?? "app_password") : null,
+    oauthRequired: process.env.CUSTOMER_ISOLATED_ACCEPTANCE === "true",
   };
 }
 function transport(password: string) {
@@ -86,6 +87,8 @@ function transport(password: string) {
   });
 }
 export async function configureMail(input: unknown) {
+  if (process.env.CUSTOMER_ISOLATED_ACCEPTANCE === "true")
+    throw new Error("MAIL_NOT_CONFIGURED");
   assertAcceptanceRecipient(mailSender());
   const password = typeof input === "string" ? input.replace(/\s/g, "") : "";
   if (!/^[a-zA-Z]{16}$/.test(password)) throw new Error("INVALID_INPUT");
@@ -117,7 +120,7 @@ export async function configureMail(input: unknown) {
     openMailPassword(check.secret) !== password
   )
     throw new Error("WRITE_UNCONFIRMED");
-  return { configured: true, sender: mailSender(), verifiedAt };
+  return { configured: true, sender: mailSender(), verifiedAt, oauthRequired: false };
 }
 // Operator setup only: no public endpoint accepts existing OAuth credentials.
 export async function configureGmailOAuth(input: GmailAuthorization) {
