@@ -22,6 +22,7 @@ test("remote booking database requires hostname-verified TLS", () => {
 test("shared HTTP handler refuses an unsafe database role before reading credentials", async () => {
   let checks = 0;
   const pool = {
+    options: { connectionString: "postgresql://user@127.0.0.1:55432/iron_gate_test" },
     async query() {
       checks++;
       return { rows: [{ rolsuper: true, rolbypassrls: false,
@@ -36,6 +37,12 @@ test("shared HTTP handler refuses an unsafe database role before reading credent
   assert.throws(() => createPostgresIronGateHandler(pool, null,
     "postgresql://user@db.example.test/iron_gate?sslmode=require"),
   /UNSAFE_DATABASE_TRANSPORT/);
+  assert.throws(() => createPostgresIronGateHandler(pool, null,
+    "postgresql://other@127.0.0.1:55432/iron_gate_test"),
+  /UNSAFE_DATABASE_TRANSPORT/);
+  assert.throws(() => createPostgresIronGateHandler({ ...pool,
+    options: { ...pool.options, ssl: { rejectUnauthorized: false } } }, null,
+  pool.options.connectionString), /UNSAFE_DATABASE_TRANSPORT/);
   const handle = createPostgresIronGateHandler(pool, null,
     "postgresql://user@127.0.0.1:55432/iron_gate_test");
   const request = new Request("http://iron-gate.internal/v1/properties/" +

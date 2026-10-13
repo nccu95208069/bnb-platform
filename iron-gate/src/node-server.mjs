@@ -47,6 +47,12 @@ export function createPostgresIronGateServer(runtimePool, verifyOsMember = null,
 export function createPostgresIronGateHandler(runtimePool, verifyOsMember = null,
   databaseUrl) {
   validateDatabaseTransport(databaseUrl);
+  // The checked URL must be the one used by pg. Separate host/SSL overrides
+  // could otherwise make a safe-looking URL validate an unsafe pool.
+  const poolOptions = runtimePool?.options;
+  if (poolOptions?.connectionString !== databaseUrl ||
+    ["host", "port", "database", "user", "password", "ssl"].some((key) =>
+      Object.hasOwn(poolOptions, key))) throw Error("UNSAFE_DATABASE_TRANSPORT");
   const repository = new PostgresPropertyRepository(runtimePool);
   const directory = new PostgresCredentialDirectory(runtimePool);
   const service = new IronGateService(repository);
