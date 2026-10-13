@@ -12,7 +12,10 @@ Iron Gate 是獨立的訂單與房晚權威服務。此目錄目前提供可執�
 npm ci
 npm test
 npm run check
+npm run build
 ```
+
+`npm run build` 產生可直接由 Node.js 執行的 `dist/`，不需在正式執行時開啟實驗性 TypeScript 解析。`dist/` 是建置產物，不進 Git；`npm run start:built` 在缺少正式環境設定時會拒絕啟動。
 
 `npm run test:server` 會在本機 `127.0.0.1` 啟動短暫的合成 HTTP 測試。`npm run test:pg` 只接受明確指定的本機 `iron_gate_test` 資料庫；先以管理角色套用 [schema](sql/001_property_store.sql)，再配置單獨的 `iron_gate_runtime` 登入角色。測試資料不可指向正式資料庫。
 

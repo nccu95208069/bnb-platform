@@ -9,7 +9,9 @@
     "test:pg": "node --experimental-strip-types --test tests/postgres-repository.test.mjs",
     "test:server": "node --experimental-strip-types --test tests/node-server.integration.mjs",
     "shadow:report": "node --experimental-strip-types src/os-shadow-cli.mjs",
-    "check": "tsc --noEmit -p tsconfig.json"
+    "check": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.build.json",
+    "start:built": "node dist/main.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.0"

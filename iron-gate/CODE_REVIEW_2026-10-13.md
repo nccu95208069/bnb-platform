@@ -44,6 +44,7 @@ PostgreSQL 執行角色只能透過高熵 token 摘要查單筆憑證，不能�
 
 - `npm test`：46 個合成測試通過；3 個 PostgreSQL 測試在預設執行時跳過。
 - `npm run check`：TypeScript 嚴格型別檢查通過。
+- `npm run build`：編出可直接載入的 JavaScript，產物中不含 `.ts` 匯入；缺少設定的正式入口拒絕啟動。
 - `npm run test:pg`：隔離 localhost `iron_gate_test` 的 3 個交易／RLS／憑證與共用 handler 測試通過。
 - `npm run test:server`：127.0.0.1 上的 1 個實際 HTTP 請求流程通過。
 - `npm run start:private`：缺少資料庫設定時會拒絕啟動；隔離 localhost PostgreSQL 實測受限角色可啟動後立即關閉，管理角色被拒絕；尚未在正式環境啟動。
