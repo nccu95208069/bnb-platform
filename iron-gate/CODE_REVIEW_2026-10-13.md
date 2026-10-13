@@ -48,5 +48,5 @@ PostgreSQL 執行角色只能透過高熵 token 摘要查單筆憑證，不能�
 - `npm run test:pg`：隔離 localhost `iron_gate_test` 的 3 個交易／RLS／憑證與共用 handler 測試通過。
 - `npm run test:server`：127.0.0.1 上的 1 個實際 HTTP 請求流程通過。
 - `npm run start:private`：缺少資料庫設定時會拒絕啟動；隔離 localhost PostgreSQL 實測受限角色可啟動後立即關閉，管理角色被拒絕；尚未在正式環境啟動。
-- `openapi.yaml`：16 個路徑；讀回 schema 使用觀測庫存與鎖房資料，YAML 與 88 個本地 `$ref` 均解析通過。
+- `openapi.yaml`：17 個路徑；讀回 schema 使用觀測庫存與鎖房資料，YAML 與 91 個本地 `$ref` 均解析通過。
 - OS 分支：會員證明及只讀轉發 4 個合成測試、TypeScript、lint（零錯誤）及 Webpack 正式建置通過；另以合成請求驗證 OS 簽發與 Iron Gate 驗證器互通。路由預設關閉，尚無正式憑證或真實會員請求。

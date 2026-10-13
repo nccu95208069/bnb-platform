@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 const actions = new Set(["booking:read", "booking:create", "booking:amend", "booking:cancel",
-  "hold:write", "payment:write", "event:read", "occupancy:aggregate",
+  "hold:write", "payment:write", "finance:ledger", "event:read", "occupancy:aggregate",
   "housekeeping:read", "source:write", "channel:verify"]);
 const fields = new Set(["guest_name", "contact", "notes", "money"]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -30,7 +30,8 @@ export function validateGrantShape(grant) {
     action !== "occupancy:aggregate" && action !== "housekeeping:read")))
     throw new Error("INVALID_SERVICE_SCOPE");
   if (grant.origin === "finance" && (grant.actions.some((action) =>
-    action !== "event:read" && action !== "booking:read" && action !== "payment:write") ||
+    action !== "event:read" && action !== "booking:read" && action !== "payment:write" &&
+    action !== "finance:ledger") ||
     grant.fields.some((field) => field !== "money"))) throw new Error("INVALID_FINANCE_SCOPE");
   if (grant.origin === "website" && !grant.bindingId) throw new Error("INVALID_WEBSITE_SCOPE");
   if (grant.origin === "os" && grant.actions.some((action) =>

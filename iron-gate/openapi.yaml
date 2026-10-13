@@ -157,6 +157,28 @@ components:
         paymentEventId: { type: string, format: uuid }
         netReceivedCents: { type: integer, minimum: 0 }
         refundReviewRequired: { type: boolean }
+    FinanceLedger:
+      type: object
+      additionalProperties: false
+      required: [propertyId, events, nextCursor]
+      properties:
+        propertyId: { type: string, format: uuid }
+        nextCursor: { type: [string, 'null'] }
+        events:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [bookingId, eventId, kind, amountCents, currency, evidenceRef, occurredAt, recordedAt]
+            properties:
+              bookingId: { type: string, format: uuid }
+              eventId: { type: string, format: uuid }
+              kind: { type: string, enum: [received, refunded] }
+              amountCents: { type: integer, minimum: 1 }
+              currency: { type: string, enum: [TWD] }
+              evidenceRef: { type: string }
+              occurredAt: { type: string, format: date-time }
+              recordedAt: { type: string, format: date-time }
     BookingProjection:
       type: object
       additionalProperties: false
@@ -627,6 +649,22 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/EventPage' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/properties/{propertyId}/finance/ledger:
+    get:
+      operationId: getFinanceLedger
+      summary: Seek-page through property-scoped payment facts without guest PII
+      description: Requires finance:ledger action and money field grant; only new Iron Gate payment events are represented.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Payment facts and next seek cursor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FinanceLedger' }
         '403': { $ref: '#/components/responses/Forbidden' }
   /v1/properties/{propertyId}/requests/{requestKey}:
     get:

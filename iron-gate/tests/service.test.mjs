@@ -582,7 +582,8 @@ test("native paid booking requires settlement before cancellation; refund stays 
 test("finance grant can append a payment fact but cannot change room nights or cancel", async () => {
   const { service, repository } = setup();
   const created = await service.createBooking(principal(), propertyId, key(), bookingInput());
-  const finance = principal("finance", { actions: ["booking:read", "event:read", "payment:write"],
+  const finance = principal("finance", { actions: ["booking:read", "event:read", "payment:write",
+    "finance:ledger"],
     fields: ["money"] });
   const before = await service.getBooking(finance, propertyId, created.bookingId);
   assert.equal(before.totalCents, 1200000);
@@ -592,10 +593,26 @@ test("finance grant can append a payment fact but cannot change room nights or c
     currency: "TWD", evidenceRef: "synthetic-finance-proof", occurredAt: new Date().toISOString(),
   });
   assert.equal(received.netReceivedCents, 50000);
-  await assert.rejects(service.cancelBooking(finance, propertyId, created.bookingId, key(), 2, 2),
+  await service.recordPaymentEvent(finance, propertyId, created.bookingId, key(), {
+    expectedBookingVersion: 2, eventId: key(), kind: "refunded", amountCents: 10000,
+    currency: "TWD", evidenceRef: "synthetic-finance-refund", occurredAt: new Date().toISOString(),
+  });
+  const first = await service.financeLedger(finance, propertyId, { limit: 1, cursor: null });
+  assert.equal(first.events.length, 1);
+  assert.ok(first.nextCursor);
+  const second = await service.financeLedger(finance, propertyId,
+    { limit: 1, cursor: first.nextCursor });
+  assert.equal(second.events.length, 1);
+  assert.equal(second.nextCursor, null);
+  assert.notEqual(first.events[0].eventId, second.events[0].eventId);
+  assert.equal(JSON.stringify([first, second]).includes("Synthetic Guest"), false);
+  await assert.rejects(service.financeLedger(principal("finance", {
+    actions: ["finance:ledger"], fields: [] }), propertyId, { limit: 10, cursor: null }),
+  errorCode("FORBIDDEN"));
+  await assert.rejects(service.cancelBooking(finance, propertyId, created.bookingId, key(), 3, 2),
     errorCode("FORBIDDEN"));
   await assert.rejects(service.amendBooking(finance, propertyId, created.bookingId, key(), {
-    expectedBookingVersion: 2, expectedInventoryVersion: 2, changes: { notes: "alter" },
+    expectedBookingVersion: 3, expectedInventoryVersion: 2, changes: { notes: "alter" },
   }), errorCode("FORBIDDEN"));
   assert.equal((await repository.read(propertyId)).bookings[0].status, "confirmed");
 });

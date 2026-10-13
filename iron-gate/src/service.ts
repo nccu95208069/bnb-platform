@@ -562,6 +562,50 @@ export class IronGateService {
       hasMore: events.length > limit };
   }
 
+  async financeLedger(principal: Principal, propertyId: string, options: {
+    limit: number; cursor: string | null;
+  }): Promise<Record<string, unknown>> {
+    uuid(propertyId);
+    if (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > 100)
+      reject("INVALID_LIMIT");
+    let seek: { recordedAt: string; eventId: string } | null = null;
+    if (options.cursor !== null) {
+      try {
+        if (!/^[A-Za-z0-9_-]{1,512}$/.test(options.cursor)) throw Error();
+        const decoded = options.cursor.replace(/-/g, "+").replace(/_/g, "/");
+        const parsed = JSON.parse(atob(decoded));
+        if (parsed.v !== 1 || parsed.propertyId !== propertyId) throw Error();
+        timestamp(parsed.recordedAt); uuid(parsed.eventId);
+        seek = { recordedAt: parsed.recordedAt, eventId: parsed.eventId };
+      } catch { reject("INVALID_CURSOR"); }
+    }
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    authorize(principal, state, "finance:ledger");
+    if ((principal.origin !== "finance" && principal.origin !== "os") ||
+      !principal.fields.includes("money")) reject("FORBIDDEN", 403);
+    const rows = [];
+    for (const booking of state.bookings) for (const event of booking.paymentEvents ?? []) {
+      rows.push({ bookingId: booking.id, eventId: event.id, kind: event.kind,
+        amountCents: event.amountCents, currency: event.currency,
+        evidenceRef: event.evidenceRef, occurredAt: event.occurredAt,
+        recordedAt: event.recordedAt });
+      if (rows.length > 100_000) reject("READ_CAPACITY_LIMIT", 409);
+    }
+    if (new Set(rows.map((row) => row.eventId)).size !== rows.length)
+      reject("PAYMENT_INTEGRITY_CONFLICT", 409);
+    const filtered = rows.filter((row) => !seek || row.recordedAt > seek.recordedAt ||
+      (row.recordedAt === seek.recordedAt && row.eventId > seek.eventId))
+      .sort((a, b) => a.recordedAt.localeCompare(b.recordedAt) ||
+        a.eventId.localeCompare(b.eventId));
+    const page = filtered.slice(0, options.limit);
+    const last = page.at(-1);
+    const nextCursor = filtered.length > options.limit && last ?
+      btoa(JSON.stringify({ v: 1, propertyId, recordedAt: last.recordedAt,
+        eventId: last.eventId })).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") : null;
+    return { propertyId, events: page, nextCursor };
+  }
+
   async availability(principal: Principal, propertyId: string, from: string, to: string): Promise<Record<string, unknown>> {
     uuid(propertyId);
     const first = dayNumber(from), end = dayNumber(to);

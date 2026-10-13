@@ -8,6 +8,7 @@ export type Action =
   | "booking:cancel"
   | "hold:write"
   | "payment:write"
+  | "finance:ledger"
   | "event:read"
   | "occupancy:aggregate"
   | "housekeeping:read"
