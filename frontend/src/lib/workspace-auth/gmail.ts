@@ -32,6 +32,21 @@ export async function gmailAccess(input: GmailAuthorization): Promise<string> {
     body: new URLSearchParams({ client_id: config.clientId, client_secret: config.clientSecret, refresh_token: config.refreshToken, grant_type: 'refresh_token' }),
   });
   if (typeof result.access_token !== 'string' || (typeof result.scope === 'string' && !result.scope.split(' ').some((s: string) => SEND_SCOPES.has(s)))) throw new Error('MAIL_FAILED');
+  const scopes = typeof result.scope === 'string' ? result.scope.split(' ') : [];
+  if (scopes.length === 0 || (scopes.includes('openid') && scopes.includes('email'))) {
+    let identity: Record<string, unknown> | null = null;
+    try {
+      const response = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+        headers: { Authorization: `Bearer ${result.access_token}` }, cache: 'no-store', signal: AbortSignal.timeout(15000),
+      });
+      if (response.ok) identity = await response.json();
+    } catch { /* Older grants may lack identity scope; their Gmail profile remains authoritative. */ }
+    if (identity) {
+      if (identity.email_verified !== true || String(identity.email).toLowerCase() !== mailSender())
+        throw new Error('MAIL_SENDER_MISMATCH');
+      return result.access_token;
+    }
+  }
   const profile = await googleJson('https://gmail.googleapis.com/gmail/v1/users/me/profile', { headers: { Authorization: `Bearer ${result.access_token}` } });
   if (profile.emailAddress?.toLowerCase() !== mailSender()) throw new Error('MAIL_SENDER_MISMATCH');
   return result.access_token;

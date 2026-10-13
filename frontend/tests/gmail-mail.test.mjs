@@ -63,8 +63,8 @@ test('isolated acceptance requires its own sender and emits links only to the ca
  const values=new Map(),sent=[];let mailbox='pilot-sender@example.test';
  t.mock.method(globalThis,'fetch',async(url,options)=>{
   if(url==='https://redis.invalid') {const [cmd,key,value]=JSON.parse(options.body);if(cmd==='SET')values.set(key,value);return Response.json({result:cmd==='GET'?values.get(key):'OK'});}
-  if(url==='https://oauth2.googleapis.com/token')return Response.json({access_token:'synthetic-access',scope:'https://www.googleapis.com/auth/gmail.send'});
-  if(url.endsWith('/profile'))return Response.json({emailAddress:mailbox});
+  if(url==='https://oauth2.googleapis.com/token')return Response.json({access_token:'synthetic-access',scope:'https://www.googleapis.com/auth/gmail.send openid email'});
+  if(url==='https://openidconnect.googleapis.com/v1/userinfo')return Response.json({email:mailbox,email_verified:true});
   if(url.endsWith('/messages/send')){sent.push(Buffer.from(JSON.parse(options.body).raw,'base64url').toString());return Response.json({id:'synthetic-message'});}
   throw new Error('unexpected endpoint');
  });
