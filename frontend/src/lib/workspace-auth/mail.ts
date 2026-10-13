@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import { INTAKE_RECIPIENT } from "../customer-intake/config.ts";
 import {
   gmailAuthorization,
+  mailSender,
   sendGmail,
   type GmailAuthorization,
 } from "./gmail.ts";
@@ -11,7 +12,8 @@ import {
   createHash,
   randomBytes,
 } from "node:crypto";
-import { ADMIN_EMAIL, validEmail } from "./types.ts";
+import { validEmail } from "./types.ts";
+import { customerOrigin } from "../customer-workspaces/site-url.ts";
 import { redisCommand, workspacePrefix } from "./store.ts";
 export function assertAcceptanceRecipient(to: string, purpose: "auth" | "lifecycle" = "lifecycle") {
   const mode = process.env.CUSTOMER_ISOLATED_ACCEPTANCE;
@@ -62,9 +64,11 @@ async function storedMail() {
 }
 export async function mailStatus() {
   const value = await storedMail();
+  const sender = process.env.CUSTOMER_ISOLATED_ACCEPTANCE === "true" && !value?.secret &&
+    !process.env.CUSTOMER_ACCEPTANCE_SENDER_EMAIL ? null : mailSender();
   return {
     configured: Boolean(value?.secret),
-    sender: ADMIN_EMAIL,
+    sender,
     verifiedAt: value?.verifiedAt ?? null,
     method: value?.secret ? (value.method ?? "app_password") : null,
   };
@@ -74,7 +78,7 @@ function transport(password: string) {
     host: "smtp.gmail.com",
     port: 465,
     secure: true,
-    auth: { user: ADMIN_EMAIL, pass: password },
+    auth: { user: mailSender(), pass: password },
     connectionTimeout: 10000,
     greetingTimeout: 10000,
     socketTimeout: 15000,
@@ -82,15 +86,15 @@ function transport(password: string) {
   });
 }
 export async function configureMail(input: unknown) {
-  assertAcceptanceRecipient(ADMIN_EMAIL);
+  assertAcceptanceRecipient(mailSender());
   const password = typeof input === "string" ? input.replace(/\s/g, "") : "";
   if (!/^[a-zA-Z]{16}$/.test(password)) throw new Error("INVALID_INPUT");
   const smtp = transport(password);
   try {
     await smtp.verify();
     const result = await smtp.sendMail({
-      from: { name: "Sweetfun OS", address: ADMIN_EMAIL },
-      to: ADMIN_EMAIL,
+      from: { name: "Sweetfun OS", address: mailSender() },
+      to: mailSender(),
       subject: "Sweetfun OS 寄信設定測試",
       text: "這是你剛剛在 Sweetfun OS 啟用 Gmail 寄信時送出的測試信。之後成員邀請信會由此信箱寄出。本信不含密碼或登入連結。",
     });
@@ -113,17 +117,17 @@ export async function configureMail(input: unknown) {
     openMailPassword(check.secret) !== password
   )
     throw new Error("WRITE_UNCONFIRMED");
-  return { configured: true, sender: ADMIN_EMAIL, verifiedAt };
+  return { configured: true, sender: mailSender(), verifiedAt };
 }
 // Operator setup only: no public endpoint accepts existing OAuth credentials.
 export async function configureGmailOAuth(input: GmailAuthorization) {
-  assertAcceptanceRecipient(ADMIN_EMAIL);
+  assertAcceptanceRecipient(mailSender());
   const config = gmailAuthorization(input);
   const messageId = await sendGmail(
     config,
-    ADMIN_EMAIL,
+    mailSender(),
     "Sweetfun OS 寄信已啟用",
-    "Sweetfun OS 的寄信功能已接通。這封信由 sweetfuntw@gmail.com 寄出。現在可以在權限管理新增成員，對方將收到設定密碼的邀請信。原抓單服務與你的網站登入密碼均未變更。",
+    `Sweetfun OS 的寄信功能已接通。這封信由 ${mailSender()} 寄出。現在可以在權限管理新增成員，對方將收到設定密碼的邀請信。原抓單服務與你的網站登入密碼均未變更。`,
   );
   const plaintext = JSON.stringify(config),
     secret = sealMailPassword(plaintext),
@@ -142,7 +146,7 @@ export async function configureGmailOAuth(input: GmailAuthorization) {
     throw new Error("WRITE_UNCONFIRMED");
   return {
     configured: true,
-    sender: ADMIN_EMAIL,
+    sender: mailSender(),
     method: "gmail_oauth",
     verifiedAt,
     messageId,
@@ -151,15 +155,16 @@ export async function configureGmailOAuth(input: GmailAuthorization) {
 export async function sendInvitation(to: string, token: string) {
   if (!validEmail(to)) throw new Error("INVALID_INPUT");
   assertAcceptanceRecipient(to);
+  const origin = customerOrigin();
   const value = await storedMail();
   if (!value?.secret) throw new Error("MAIL_NOT_CONFIGURED");
   // Fixed trusted origin; never derive activation links from a Host header.
-  const url = `https://sweetfun-os.vercel.app/activate#${token}`;
+  const url = `${origin}/activate#${token}`;
   const message = {
-    from: { name: "Sweetfun OS", address: ADMIN_EMAIL },
+    from: { name: "Sweetfun OS", address: mailSender() },
     to,
     subject: "Sweetfun OS｜設定你的帳號密碼",
-    text: `管理者邀請你使用 Sweetfun OS。\n\n請於 24 小時內開啟以下連結，自行設定密碼：\n${url}\n\n設定完成後，以本信箱及你設定的密碼登入：\nhttps://sweetfun-os.vercel.app/calendar-access\n\n本連結只能使用一次；若你未預期收到邀請，可忽略本信。管理者不會知道你設定的密碼。`,
+    text: `管理者邀請你使用 Sweetfun OS。\n\n請於 24 小時內開啟以下連結，自行設定密碼：\n${url}\n\n設定完成後，以本信箱及你設定的密碼登入：\n${origin}/calendar-access\n\n本連結只能使用一次；若你未預期收到邀請，可忽略本信。管理者不會知道你設定的密碼。`,
   };
   if (value.method === "gmail_oauth") {
     await sendGmail(
@@ -221,7 +226,7 @@ async function customerMail(
   const smtp = transport(openMailPassword(value.secret));
   try {
     const result = await smtp.sendMail({
-      from: { name: "民宿 OS", address: ADMIN_EMAIL },
+      from: { name: "民宿 OS", address: mailSender() },
       to,
       subject,
       text,
