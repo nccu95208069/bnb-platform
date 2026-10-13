@@ -15,6 +15,7 @@ const serviceToken = 'synthetic-source-service-token-for-local-tests';
 const verifier = 'v'.repeat(43);
 const challenge = createHash('sha256').update(verifier).digest('base64url');
 const now = new Date('2026-10-12T14:00:00Z');
+const evidenceVersion = digit => 'gmail-evidence-v1:' + digit.repeat(64);
 function pythonStyleHash(value) {
  const sorted=v=>Array.isArray(v)?v.map(sorted):v && typeof v==='object'?
   Object.fromEntries(Object.entries(v).sort(([a],[b])=>a<b?-1:a>b?1:0).map(([k,x])=>[k,sorted(x)])):v;
@@ -113,12 +114,14 @@ test('OTA source upsert blocks the last website room, retries read back one orde
  assert.equal(linked.orderId,created.orderId);assert.equal(linked.sourceVersion,'v1');
  assert.equal(linked.requestKey,input.requestKey);assert.equal(linked.checkIn,f.stay.checkIn);
  assert.deepEqual(linked.roomIds,[roomId]);assert.equal(linked.diverged,false);
+ assert.equal(linked.simpleStayUpdateVersion,null);assert.equal(linked.providerRevision,null);
  assert.equal(created.verified,true);assert.equal(created.status,'confirmed');assert.equal(created.orderVersion,1);
  assert.deepEqual(await mutateSourceBooking(f.store,input,s.auth,now),created);
  assert.equal((await f.workspace()).bookings.length,1);
  assert.equal((await sourceBookingStatus(f.store,s.grant.grantId,s.auth,input.requestKey)).orderId,created.orderId);
  assert.equal((await f.call('bootstrap')).state,'unavailable');
  await assert.rejects(mutateSourceBooking(f.store,{...input,requestKey:randomUUID(),eventId:randomUUID(),sourceVersion:'v2',previousSourceVersion:null,expectedWorkspaceVersion:created.workspaceVersion},s.auth,now),/SOURCE_VERSION_CONFLICT/);
+ await assert.rejects(mutateSourceBooking(f.store,{...input,requestKey:randomUUID(),eventId:randomUUID(),sourceVersion:'v2',previousSourceVersion:'v1',expectedWorkspaceVersion:created.workspaceVersion},s.auth,now),/SOURCE_UPDATE_CONTRACT_REQUIRED/);
  const cancellation={...input,kind:'cancel',eventId:randomUUID(),requestKey:randomUUID(),sourceVersion:'v2',previousSourceVersion:'v1',expectedWorkspaceVersion:created.workspaceVersion};
  const cancelled=await mutateSourceBooking(f.store,cancellation,s.auth,now);
  assert.equal(cancelled.orderId,created.orderId);assert.equal(cancelled.orderVersion,2);assert.equal(cancelled.status,'cancelled');
@@ -154,6 +157,85 @@ test('OTA cancellation before create leaves a durable source-version tombstone',
  assert.equal((await sourceBookingStatus(f.store,s.grant.grantId,s.auth,cancelled.requestKey)).sourceVersion,'v2');
  await assert.rejects(mutateSourceBooking(f.store,{...cancelled,kind:'upsert',sourceVersion:'v1',eventId:randomUUID(),
   requestKey:randomUUID(),expectedWorkspaceVersion:result.workspaceVersion},s.auth,now),/SOURCE_VERSION_CONFLICT/);
+ await assert.rejects(mutateSourceBooking(f.store,{...cancelled,kind:'upsert',sourceVersion:'v3',
+  previousSourceVersion:'v2',eventId:randomUUID(),requestKey:randomUUID(),
+  expectedWorkspaceVersion:result.workspaceVersion},s.auth,now),/SOURCE_CONFLICT/);
+});
+test('Gmail simple-stay update atomically moves one linked order with provider revision and evidence replay protection',async()=>{
+ const f=await websiteFixture({store:memoryStore(),now}),s=await setup(f);await activate(f,s);
+ const w=await f.workspace(),roomId=w.properties[0].rooms[0].id;
+ const create={schemaVersion:1,grantId:s.grant.grantId,grantVersion:3,eventId:randomUUID(),requestKey:randomUUID(),
+  kind:'upsert',sourceAccount:'mailbox-123',externalOrderId:'booking:amend',sourceVersion:evidenceVersion('1'),
+  previousSourceVersion:null,providerRevision:'provider-1',guestName:'Synthetic guest',
+  expectedWorkspaceVersion:w.version,checkIn:f.stay.checkIn,checkOut:f.stay.checkOut,roomIds:[roomId]};
+ const created=await mutateSourceBooking(f.store,create,s.auth,now);
+ const before=(await f.workspace()).bookings.find(b=>b.id===created.orderId);
+ const link=await sourceBookingLink(f.store,s.grant.grantId,3,s.auth,'mailbox-123',create.externalOrderId);
+ assert.equal(link.simpleStayUpdateVersion,1);assert.equal(link.providerRevision,'provider-1');
+ const nextCheckIn=new Date(Date.parse(f.stay.checkIn+'T00:00:00Z')+86400000).toISOString().slice(0,10);
+ const nextCheckOut=new Date(Date.parse(f.stay.checkOut+'T00:00:00Z')+86400000).toISOString().slice(0,10);
+ const update={...create,eventId:randomUUID(),requestKey:randomUUID(),sourceVersion:evidenceVersion('2'),
+  previousSourceVersion:create.sourceVersion,previousProviderRevision:'provider-1',providerRevision:'provider-2',
+  expectedOrderId:created.orderId,expectedOrderVersion:1,simpleStayUpdateVersion:1,
+  guestName:null,expectedWorkspaceVersion:created.workspaceVersion,checkIn:nextCheckIn,checkOut:nextCheckOut};
+ const changed=await mutateSourceBooking(f.store,update,s.auth,now);
+ assert.equal(changed.orderId,created.orderId);assert.equal(changed.orderVersion,2);
+ assert.equal(changed.appliedSimpleStayUpdateVersion,1);assert.equal(changed.previousProviderRevision,'provider-1');
+ assert.equal(changed.appliedProviderRevision,'provider-2');assert.equal(changed.guestName,'Synthetic guest');
+ assert.deepEqual(await mutateSourceBooking(f.store,update,s.auth,now),changed);
+ assert.equal((await sourceBookingStatus(f.store,s.grant.grantId,s.auth,update.requestKey)).orderId,created.orderId);
+ const after=(await f.workspace()).bookings.find(b=>b.id===created.orderId);
+ assert.equal(after.checkIn,nextCheckIn);assert.equal(after.checkOut,nextCheckOut);
+ assert.equal(after.guestName,before.guestName);assert.equal(after.total,before.total);
+ assert.deepEqual(after.payments,before.payments);
+ const linked=await sourceBookingLink(f.store,s.grant.grantId,3,s.auth,'mailbox-123',create.externalOrderId);
+ assert.equal(linked.providerRevision,'provider-2');assert.equal(linked.simpleStayUpdateVersion,1);
+ await assert.rejects(mutateSourceBooking(f.store,{...update,eventId:randomUUID(),requestKey:randomUUID(),
+  previousSourceVersion:update.sourceVersion,previousProviderRevision:'provider-2',providerRevision:'provider-3',
+  sourceVersion:create.sourceVersion,expectedOrderVersion:2,expectedWorkspaceVersion:changed.workspaceVersion},s.auth,now),/SOURCE_VERSION_CONFLICT/);
+ await assert.rejects(mutateSourceBooking(f.store,{...update,eventId:randomUUID(),requestKey:randomUUID(),
+  providerRevision:'provider-3',expectedOrderVersion:2,expectedWorkspaceVersion:changed.workspaceVersion},s.auth,now),/SOURCE_VERSION_CONFLICT/);
+ await assert.rejects(mutateSourceBooking(f.store,{...update,eventId:randomUUID(),requestKey:randomUUID(),
+  previousSourceVersion:update.sourceVersion,previousProviderRevision:'provider-2',providerRevision:'provider-1',
+  sourceVersion:evidenceVersion('3'),expectedOrderVersion:2,expectedWorkspaceVersion:changed.workspaceVersion,
+  checkIn:f.stay.checkIn,checkOut:f.stay.checkOut},s.auth,now),/SOURCE_VERSION_CONFLICT/);
+ const cancelBase={...create};delete cancelBase.providerRevision;
+ const cancelled=await mutateSourceBooking(f.store,{...cancelBase,eventId:randomUUID(),requestKey:randomUUID(),
+  kind:'cancel',sourceVersion:evidenceVersion('4'),previousSourceVersion:update.sourceVersion,
+  expectedWorkspaceVersion:changed.workspaceVersion,checkIn:nextCheckIn,checkOut:nextCheckOut},s.auth,now);
+ assert.equal(cancelled.status,'cancelled');
+ await assert.rejects(mutateSourceBooking(f.store,{...update,eventId:randomUUID(),requestKey:randomUUID(),
+  previousSourceVersion:evidenceVersion('4'),previousProviderRevision:'provider-2',providerRevision:'provider-3',
+  sourceVersion:evidenceVersion('5'),expectedOrderVersion:3,expectedWorkspaceVersion:cancelled.workspaceVersion},s.auth,now),/SOURCE_CONFLICT/);
+});
+test('Gmail update rejects missing evidence, other tenant, and a sold destination without releasing the original stay',async()=>{
+ const store=memoryStore(),a=await websiteFixture({store,now,siteId:'update-a',ownerEmail:'update-a@example.invalid'}),
+  b=await websiteFixture({store,now,siteId:'update-b',ownerEmail:'update-b@example.invalid'});
+ const sa=await setup(a),sb=await setup(b);await activate(a,sa,'a-mailbox');await activate(b,sb,'b-mailbox');
+ const aw=await a.workspace(),roomId=aw.properties[0].rooms[0].id;
+ const create={schemaVersion:1,grantId:sa.grant.grantId,grantVersion:3,eventId:randomUUID(),requestKey:randomUUID(),
+  kind:'upsert',sourceAccount:'a-mailbox',externalOrderId:'booking:two-tenants',sourceVersion:evidenceVersion('a'),
+  previousSourceVersion:null,providerRevision:'rev-a',guestName:'A guest',expectedWorkspaceVersion:aw.version,
+  checkIn:a.stay.checkIn,checkOut:a.stay.checkOut,roomIds:[roomId]};
+ const created=await mutateSourceBooking(store,create,sa.auth,now);
+ const newCheckIn=new Date(Date.parse(a.stay.checkOut+'T00:00:00Z')+86400000).toISOString().slice(0,10);
+ const newCheckOut=new Date(Date.parse(newCheckIn+'T00:00:00Z')+86400000).toISOString().slice(0,10);
+ const update={...create,eventId:randomUUID(),requestKey:randomUUID(),sourceVersion:evidenceVersion('b'),
+  previousSourceVersion:create.sourceVersion,previousProviderRevision:'rev-a',providerRevision:'rev-b',
+  expectedOrderId:created.orderId,expectedOrderVersion:1,simpleStayUpdateVersion:1,guestName:null,
+  expectedWorkspaceVersion:created.workspaceVersion,checkIn:newCheckIn,checkOut:newCheckOut};
+ await assert.rejects(mutateSourceBooking(store,update,sb.auth,now),/UNAUTHORIZED/);
+ await assert.rejects(mutateSourceBooking(store,{...update,previousProviderRevision:undefined},sa.auth,now),/INVALID_INPUT/);
+ await assert.rejects(mutateSourceBooking(store,{...update,expectedOrderId:null},sa.auth,now),/INVALID_INPUT/);
+ await assert.rejects(mutateSourceBooking(store,{...update,providerRevision:'rev-a'},sa.auth,now),/INVALID_INPUT/);
+ const other={...create,eventId:randomUUID(),requestKey:randomUUID(),externalOrderId:'booking:occupied',
+  sourceVersion:evidenceVersion('c'),previousSourceVersion:null,providerRevision:'rev-c',guestName:'Other guest',
+  expectedWorkspaceVersion:created.workspaceVersion,checkIn:newCheckIn,checkOut:newCheckOut};
+ const occupied=await mutateSourceBooking(store,other,sa.auth,now);
+ await assert.rejects(mutateSourceBooking(store,{...update,expectedWorkspaceVersion:occupied.workspaceVersion},sa.auth,now),/ROOM_CONFLICT/);
+ const unchanged=(await a.workspace()).bookings.find(row=>row.id===created.orderId);
+ assert.equal(unchanged.checkIn,a.stay.checkIn);assert.equal(unchanged.version,1);
+ assert.equal((await b.workspace()).bookings.length,0);
 });
 test('external source refuses to overwrite an OS edit made after the last source version',async()=>{
  const f=await websiteFixture({store:memoryStore(),now}), s=await setup(f);

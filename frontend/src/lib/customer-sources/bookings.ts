@@ -8,20 +8,28 @@ import { authorizedGrant, grantOwnerActive, type SourceGrant } from "./grants.ts
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const VERSION = /^[A-Za-z0-9._:-]{1,128}$/;
+const GMAIL_EVIDENCE = /^gmail-evidence-v1:[a-f0-9]{64}$/;
 const EXTERNAL_ID = /^[^\x00-\x1f\x7f]{1,160}$/;
 type SourceOrder = { workspaceId: string; propertyId: string; provider: "gmail" | "line";
   sourceAccount: string; externalOrderId: string; bookingId: string | null; sourceVersion: string;
   requestKey: string; requestHash: string; orderVersion: number;
-  checkIn: string; checkOut: string; roomIds: string[] };
+  checkIn: string; checkOut: string; roomIds: string[];
+  providerRevision?: string | null; simpleStayUpdateVersion?: 1 | null };
 type Receipt = { bodyHash: string; eventId: string; requestKey: string; grantId: string; workspaceId: string;
   propertyId: string; bookingId: string | null; orderVersion: number; workspaceVersion: number;
   kind: "upsert" | "cancel"; sourceVersion: string; sourceAccount: string; externalOrderId: string;
   status: "confirmed" | "cancelled"; guestName: string | null;
-  checkIn: string; checkOut: string; roomIds: string[]; verifiedAt: string };
+  checkIn: string; checkOut: string; roomIds: string[]; verifiedAt: string;
+  previousProviderRevision?: string | null; providerRevision?: string | null;
+  simpleStayUpdateVersion?: 1 | null };
 const requestReceiptKey = (grantId: string, key: string) => `source:booking-request:${grantId}:${key}`;
 const eventReceiptKey = (grantId: string, key: string) => `source:booking-event:${grantId}:${key}`;
 const orderKey = (workspaceId: string, propertyId: string, provider: string, sourceAccount: string, externalId: string) =>
   `source:order:${workspaceId}:${propertyId}:${digest(JSON.stringify([provider, sourceAccount, externalId]))}`;
+const evidenceKey = (sourceKey: string, sourceVersion: string) =>
+  `source:evidence:${digest(JSON.stringify([sourceKey, sourceVersion]))}`;
+const revisionKey = (sourceKey: string, providerRevision: string) =>
+  `source:provider-revision:${digest(JSON.stringify([sourceKey, providerRevision]))}`;
 function uuid(value: unknown) {
   if (typeof value !== "string" || !UUID.test(value)) throw Error("INVALID_INPUT");
   return value;
@@ -33,9 +41,13 @@ function date(value: unknown) {
   return value;
 }
 function inputShape(input: Record<string, unknown>) {
-  const keys = ["schemaVersion", "grantId", "grantVersion", "eventId", "requestKey", "kind",
+  const baseKeys = ["schemaVersion", "grantId", "grantVersion", "eventId", "requestKey", "kind",
     "sourceAccount", "externalOrderId", "sourceVersion", "previousSourceVersion", "guestName",
     "expectedWorkspaceVersion", "checkIn", "checkOut", "roomIds"];
+  const updateKeys = ["previousProviderRevision", "providerRevision", "expectedOrderId",
+    "expectedOrderVersion", "simpleStayUpdateVersion"];
+  const isUpdate = updateKeys.some(key => key !== "providerRevision" && key in input);
+  const keys = isUpdate ? [...baseKeys, ...updateKeys] : input.providerRevision !== undefined ? [...baseKeys, "providerRevision"] : baseKeys;
   if (Object.keys(input).length !== keys.length || Object.keys(input).some(key => !keys.includes(key)) ||
     input.schemaVersion !== 1 || !["upsert", "cancel"].includes(String(input.kind)) ||
     typeof input.sourceVersion !== "string" || !VERSION.test(input.sourceVersion) ||
@@ -49,10 +61,22 @@ function inputShape(input: Record<string, unknown>) {
     !Array.isArray(input.roomIds) || input.roomIds.length < 1 || input.roomIds.length > 30 ||
     input.roomIds.some(id => typeof id !== "string" || !UUID.test(id)) ||
     new Set(input.roomIds).size !== input.roomIds.length) throw Error("INVALID_INPUT");
+  if (isUpdate) {
+    if (input.kind !== "upsert" || input.guestName !== null || input.simpleStayUpdateVersion !== 1 ||
+      typeof input.previousProviderRevision !== "string" || !VERSION.test(input.previousProviderRevision) ||
+      typeof input.providerRevision !== "string" || !VERSION.test(input.providerRevision) ||
+      input.providerRevision === input.previousProviderRevision ||
+      typeof input.expectedOrderId !== "string" || !UUID.test(input.expectedOrderId) ||
+      !Number.isSafeInteger(input.expectedOrderVersion) || Number(input.expectedOrderVersion) < 1 ||
+      !GMAIL_EVIDENCE.test(String(input.sourceVersion))) throw Error("INVALID_INPUT");
+  } else if (input.providerRevision !== undefined &&
+      (input.kind !== "upsert" || input.previousSourceVersion !== null || input.guestName === null ||
+       typeof input.providerRevision !== "string" || !VERSION.test(input.providerRevision) ||
+       !GMAIL_EVIDENCE.test(String(input.sourceVersion)))) throw Error("INVALID_INPUT");
   uuid(input.grantId); uuid(input.eventId); uuid(input.requestKey);
   const checkIn = date(input.checkIn), checkOut = date(input.checkOut);
   if (checkIn >= checkOut || Date.parse(checkOut) - Date.parse(checkIn) > 365 * 86400000) throw Error("INVALID_INPUT");
-  return { checkIn, checkOut, roomIds: input.roomIds as string[] };
+  return { checkIn, checkOut, roomIds: input.roomIds as string[], isUpdate };
 }
 async function output(store: CustomerStore, receipt: Receipt) {
   const workspace = (await store.read<Workspace>(`workspace:${receipt.workspaceId}`)).value;
@@ -66,6 +90,10 @@ async function output(store: CustomerStore, receipt: Receipt) {
     sourceAccount: receipt.sourceAccount, externalOrderId: receipt.externalOrderId,
     status: receipt.status, guestName: receipt.guestName,
     checkIn: receipt.checkIn, checkOut: receipt.checkOut, roomIds: receipt.roomIds,
+    appliedSimpleStayUpdateVersion: receipt.simpleStayUpdateVersion ?? null,
+    previousProviderRevision: receipt.previousProviderRevision ?? null,
+    appliedProviderRevision: receipt.providerRevision ?? null,
+    providerRevision: receipt.providerRevision ?? null,
     current: booking ? { orderVersion: booking.version, workspaceVersion: workspace.version,
       status: booking.status, guestName: booking.guestName,
       checkIn: booking.checkIn, checkOut: booking.checkOut, roomIds: booking.roomIds } : null };
@@ -109,7 +137,9 @@ export async function sourceBookingLink(store: CustomerStore, grantId: unknown, 
     diverged: !!booking && booking.version !== linked?.orderVersion,
     checkIn: booking?.checkIn ?? linked?.checkIn ?? null,
     checkOut: booking?.checkOut ?? linked?.checkOut ?? null,
-    roomIds: booking?.roomIds ?? linked?.roomIds ?? null };
+    roomIds: booking?.roomIds ?? linked?.roomIds ?? null,
+    simpleStayUpdateVersion: linked?.simpleStayUpdateVersion ?? null,
+    providerRevision: linked?.providerRevision ?? null };
 }
 export async function mutateSourceBooking(store: CustomerStore, input: Record<string, unknown>,
   authorization: string | null, now = new Date()) {
@@ -117,6 +147,8 @@ export async function mutateSourceBooking(store: CustomerStore, input: Record<st
   const { saved: grantSnapshot, grant } = await authorizedGrant(store, input.grantId, authorization, input.grantVersion, true);
   if ((grant.provider !== "gmail" && grant.provider !== "line") || grant.sourceAccount !== input.sourceAccount)
     throw Error("FORBIDDEN");
+  if ((stay.isUpdate || input.providerRevision !== undefined) && grant.provider !== "gmail")
+    throw Error("INVALID_INPUT");
   const bodyHash = digest(JSON.stringify(input)), requestKey = String(input.requestKey), eventId = String(input.eventId);
   const receiptKey = requestReceiptKey(grant.id, requestKey), prior = await store.read<Receipt>(receiptKey);
   if (prior.value) {
@@ -139,10 +171,31 @@ export async function mutateSourceBooking(store: CustomerStore, input: Record<st
     linked.externalOrderId !== input.externalOrderId)) throw Error("SOURCE_CONFLICT");
   if ((linked?.sourceVersion ?? null) !== input.previousSourceVersion ||
     linked?.sourceVersion === input.sourceVersion) throw Error("SOURCE_VERSION_CONFLICT");
+  const sourceEvidenceKey = evidenceKey(sourceKey, String(input.sourceVersion));
+  const sourceEvidence = await store.read<{ eventId: string }>(sourceEvidenceKey);
+  if (sourceEvidence.value) throw Error("SOURCE_VERSION_CONFLICT");
+  const previousEvidenceKey = linked ? evidenceKey(sourceKey, linked.sourceVersion) : null;
+  const previousEvidence = previousEvidenceKey ? await store.read<{ eventId: string }>(previousEvidenceKey) : null;
+  const nextRevisionKey = typeof input.providerRevision === "string" ? revisionKey(sourceKey, input.providerRevision) : null;
+  const nextRevision = nextRevisionKey ? await store.read<{ eventId: string }>(nextRevisionKey) : null;
+  if (nextRevision?.value) throw Error("SOURCE_VERSION_CONFLICT");
+  const previousRevisionKey = linked?.providerRevision ? revisionKey(sourceKey, linked.providerRevision) : null;
+  const previousRevision = previousRevisionKey ? await store.read<{ eventId: string }>(previousRevisionKey) : null;
   const existing = linked?.bookingId ? workspace.bookings.find(b => b.id === linked.bookingId && b.propertyId === property.id) : null;
   if (linked?.bookingId && (!existing || existing.actor !== `source:${grant.provider}:${digest(JSON.stringify([grant.sourceAccount, input.externalOrderId]))}`))
     throw Error("SOURCE_CONFLICT");
   if (linked?.bookingId && existing?.version !== linked.orderVersion) throw Error("SOURCE_CONFLICT");
+  if (input.kind === "upsert" && linked && (!existing || existing.status === "cancelled"))
+    throw Error("SOURCE_CONFLICT");
+  if (grant.provider === "gmail" && existing && input.kind === "upsert" && !stay.isUpdate)
+    throw Error("SOURCE_UPDATE_CONTRACT_REQUIRED");
+  if (stay.isUpdate && (!existing || existing.status !== "confirmed" || linked?.simpleStayUpdateVersion !== 1 ||
+      linked.providerRevision !== input.previousProviderRevision || existing.id !== input.expectedOrderId ||
+      existing.version !== input.expectedOrderVersion || existing.guestName === null ||
+      existing.total !== null || existing.payments.length !== 0 || existing.hold ||
+      (existing.checkIn === stay.checkIn && existing.checkOut === stay.checkOut &&
+       existing.roomIds.length === stay.roomIds.length && existing.roomIds.every(id => stay.roomIds.includes(id)))))
+    throw Error("SOURCE_UPDATE_CONFLICT");
   // A cancellation may arrive before its create event. Persist its source
   // version as a tombstone so an older create cannot later revive the room.
   if (input.kind === "cancel" && !existing) {
@@ -150,7 +203,8 @@ export async function mutateSourceBooking(store: CustomerStore, input: Record<st
     const tombstone: SourceOrder = { workspaceId: workspace.id, propertyId: property.id,
       provider: grant.provider, sourceAccount: grant.sourceAccount!, externalOrderId: String(input.externalOrderId),
       bookingId: null, sourceVersion: String(input.sourceVersion), requestKey, requestHash: bodyHash, orderVersion: 0,
-      checkIn: stay.checkIn, checkOut: stay.checkOut, roomIds: stay.roomIds };
+      checkIn: stay.checkIn, checkOut: stay.checkOut, roomIds: stay.roomIds,
+      providerRevision: null, simpleStayUpdateVersion: null };
     const next: Workspace = { ...workspace, version: workspace.version + 1,
       audit: [...workspace.audit, { at, actor: `source:${grant.provider}`, action: "source.booking.cancelled.unmatched", targetId: grant.id }] };
     const receipt: Receipt = { bodyHash, eventId, requestKey, grantId: grant.id, workspaceId: workspace.id,
@@ -164,6 +218,9 @@ export async function mutateSourceBooking(store: CustomerStore, input: Record<st
       { key: sourceKey, before: priorSource.raw, after: tombstone },
       { key: receiptKey, before: null, after: receipt },
       { key: eventReceiptKey(grant.id, eventId), before: null, after: receipt },
+      { key: sourceEvidenceKey, before: null, after: { eventId } },
+      ...(previousEvidenceKey && previousEvidence?.raw === null ? [{ key: previousEvidenceKey, before: null, after: { eventId: linked!.requestKey } }] : []),
+      ...(previousRevisionKey && previousRevision?.raw === null ? [{ key: previousRevisionKey, before: null, after: { eventId: linked!.requestKey } }] : []),
       { key: `source:grant:${grant.id}`, before: grantSnapshot.raw, after: grant },
     ]); }
     catch (error) {
@@ -199,6 +256,7 @@ export async function mutateSourceBooking(store: CustomerStore, input: Record<st
       b.propertyId === property.id && b.status === "active" && bookingsOverlap(b, booking)) === true) ||
     (input.kind === "upsert" && workspace.integrationFences?.some(f =>
       f.propertyId === property.id && bookingsOverlap(f, booking)) === true);
+  if (stay.isUpdate && overlapping) throw Error("ROOM_CONFLICT");
   const reviewId = digest(`source-conflict:${workspace.id}:${bookingId}`);
   const reviews = (workspace.reviewRecords ?? []).filter(r => r.id !== reviewId);
   if (overlapping) reviews.push({ id: reviewId, propertyId: property.id, sourceId: grant.id,
@@ -214,19 +272,27 @@ export async function mutateSourceBooking(store: CustomerStore, input: Record<st
     provider: grant.provider, sourceAccount: grant.sourceAccount!, externalOrderId: String(input.externalOrderId),
     bookingId, sourceVersion: String(input.sourceVersion), requestKey, requestHash: bodyHash,
     orderVersion: booking.version,
-    checkIn: stay.checkIn, checkOut: stay.checkOut, roomIds: stay.roomIds };
+    checkIn: stay.checkIn, checkOut: stay.checkOut, roomIds: stay.roomIds,
+    providerRevision: input.kind === "cancel" ? null : typeof input.providerRevision === "string" ? input.providerRevision : null,
+    simpleStayUpdateVersion: input.kind === "upsert" && typeof input.providerRevision === "string" ? 1 : null };
   const receipt: Receipt = { bodyHash, eventId, requestKey, grantId: grant.id, workspaceId: workspace.id,
     propertyId: property.id, bookingId, orderVersion: booking.version, workspaceVersion: nextWorkspace.version,
     kind: input.kind as "upsert" | "cancel", sourceVersion: String(input.sourceVersion),
     sourceAccount: grant.sourceAccount!, externalOrderId: String(input.externalOrderId),
     status: booking.status === "cancelled" ? "cancelled" : "confirmed", guestName: booking.guestName,
     checkIn: booking.checkIn,
-    checkOut: booking.checkOut, roomIds: booking.roomIds, verifiedAt: at };
+    checkOut: booking.checkOut, roomIds: booking.roomIds, verifiedAt: at,
+    ...(stay.isUpdate ? { previousProviderRevision: String(input.previousProviderRevision),
+      providerRevision: String(input.providerRevision), simpleStayUpdateVersion: 1 as const } : {}) };
   const changes: Change[] = [
     { key: workspaceKey, before: snapshot.raw, after: nextWorkspace },
     { key: sourceKey, before: priorSource.raw, after: nextSource },
     { key: receiptKey, before: null, after: receipt },
     { key: eventReceiptKey(grant.id, eventId), before: null, after: receipt },
+    { key: sourceEvidenceKey, before: null, after: { eventId } },
+    ...(previousEvidenceKey && previousEvidence?.raw === null ? [{ key: previousEvidenceKey, before: null, after: { eventId: linked!.requestKey } }] : []),
+    ...(nextRevisionKey ? [{ key: nextRevisionKey, before: null, after: { eventId } }] : []),
+    ...(previousRevisionKey && previousRevision?.raw === null ? [{ key: previousRevisionKey, before: null, after: { eventId: linked!.requestKey } }] : []),
     { key: `source:grant:${grant.id}`, before: grantSnapshot.raw, after: grant },
   ];
   try { await store.commit(changes); }
