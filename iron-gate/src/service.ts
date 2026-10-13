@@ -557,15 +557,23 @@ export class IronGateService {
     if (principal.origin === "website" &&
       (!principal.bindingId || principal.bindingId !== state.channel.websiteBindingId))
       reject("FORBIDDEN", 403);
+    if (state.roomIds.length * (end - first) > 4096) reject("READ_CAPACITY_LIMIT", 409);
+    const occupied = new Map<string, Booking["status"]>();
+    for (const booking of state.bookings) {
+      if (!occupies(booking)) continue;
+      for (const cell of nightsFor(booking.stays, state.roomIds))
+        occupied.set(keyOf(cell), booking.status);
+    }
+    const blocked = new Set<string>([
+      ...state.manualBlocks.map(keyOf),
+      ...state.fences.flatMap((fence) => fence.cells.map(keyOf)),
+    ]);
     const cells = [];
     for (const roomId of state.roomIds) for (let day = first; day < end; day++) {
       const cell = { roomId, date: new Date(day * DAY).toISOString().slice(0, 10) };
-      const occupied = state.bookings.find((booking) => occupies(booking) &&
-        nightsFor(booking.stays, state.roomIds).some((night) => keyOf(night) === keyOf(cell)));
-      const held = occupied?.status === "held";
-      const blocked = state.manualBlocks.some((night) => keyOf(night) === keyOf(cell)) ||
-        state.fences.some((fence) => fence.cells.some((night) => keyOf(night) === keyOf(cell)));
-      cells.push({ ...cell, state: occupied ? (held ? "held" : "sold") : blocked ? "blocked" : "unsold",
+      const status = occupied.get(keyOf(cell));
+      cells.push({ ...cell, state: status ? (status === "held" ? "held" : "sold") :
+        blocked.has(keyOf(cell)) ? "blocked" : "unsold",
         saleReady: false });
     }
     return { propertyId, inventoryVersion: state.version, authorityEpoch: state.authorityEpoch, cells,

@@ -283,6 +283,15 @@ test("guest order credentials cannot enumerate availability and website sale rea
   assert.equal(cells.cells[0].saleReady, false);
 });
 
+test("availability caps the response before expanding a large property calendar", async () => {
+  const { service, repository } = setup();
+  await repository.transact(propertyId, (state) => {
+    state.roomIds = Array.from({ length: 133 }, () => key());
+  });
+  await assert.rejects(service.availability(principal(), propertyId,
+    "2026-11-01", "2026-12-02"), errorCode("READ_CAPACITY_LIMIT"));
+});
+
 test("cancellation tombstone rejects an older create event", async () => {
   const { service, repository } = setup();
   const source = principal("source");
