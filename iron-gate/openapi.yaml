@@ -207,6 +207,46 @@ components:
           type: array
           items: { $ref: '#/components/schemas/BookingProjection' }
         nextCursor: { type: [string, 'null'] }
+    OccupancySummary:
+      type: object
+      additionalProperties: false
+      required: [propertyId, inventoryVersion, totalRooms, days, saleReady]
+      properties:
+        propertyId: { type: string, format: uuid }
+        inventoryVersion: { type: integer, minimum: 0 }
+        totalRooms: { type: integer, minimum: 0 }
+        saleReady: { type: boolean, enum: [false] }
+        days:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [date, confirmed, held, blocked, unsold, fenced]
+            properties:
+              date: { type: string, format: date }
+              confirmed: { type: integer, minimum: 0 }
+              held: { type: integer, minimum: 0 }
+              blocked: { type: integer, minimum: 0 }
+              unsold: { type: integer, minimum: 0 }
+              fenced: { type: integer, minimum: 0 }
+    HousekeepingTurnovers:
+      type: object
+      additionalProperties: false
+      required: [propertyId, inventoryVersion, turnovers]
+      properties:
+        propertyId: { type: string, format: uuid }
+        inventoryVersion: { type: integer, minimum: 0 }
+        turnovers:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [bookingId, roomId, checkoutDate, channelSyncState]
+            properties:
+              bookingId: { type: string, format: uuid }
+              roomId: { type: string, format: uuid }
+              checkoutDate: { type: string, format: date }
+              channelSyncState: { type: string, enum: [not_required, pending, verified, review_required] }
     BookingEvent:
       type: object
       additionalProperties: false
@@ -541,6 +581,37 @@ paths:
         - { name: to, in: query, required: true, schema: { type: string, format: date }, description: Exclusive }
       responses:
         '200': { description: Property-scoped cells and inventory version }
+  /v1/properties/{propertyId}/occupancy-summary:
+    get:
+      operationId: getOccupancySummary
+      summary: Read PII-free daily totals for analytics or pricing services
+      description: Unsold is local-only and saleReady is always false in this slice.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date }, description: Exclusive }
+      responses:
+        '200':
+          description: Property-scoped daily room counts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OccupancySummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/properties/{propertyId}/housekeeping-turnovers:
+    get:
+      operationId: getHousekeepingTurnovers
+      summary: Read PII-free checkout tasks for a housekeeping service
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date }, description: Exclusive }
+      responses:
+        '200':
+          description: Property-scoped checkout room tasks
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HousekeepingTurnovers' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/properties/{propertyId}/events:
     get:
       operationId: listBookingEvents

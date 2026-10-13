@@ -9,6 +9,8 @@ export type Action =
   | "hold:write"
   | "payment:write"
   | "event:read"
+  | "occupancy:aggregate"
+  | "housekeeping:read"
   | "source:write"
   | "channel:verify";
 export type FieldGrant = "guest_name" | "contact" | "notes" | "money";

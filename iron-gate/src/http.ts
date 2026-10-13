@@ -137,6 +137,16 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         return json(await service.availability(principal, parts[2], url.searchParams.get("from") ?? "",
           url.searchParams.get("to") ?? ""));
       }
+      if (parts[1] === "properties" && parts[2] && parts[3] === "occupancy-summary" &&
+        parts.length === 4 && request.method === "GET") {
+        return json(await service.occupancySummary(principal, parts[2],
+          url.searchParams.get("from") ?? "", url.searchParams.get("to") ?? ""));
+      }
+      if (parts[1] === "properties" && parts[2] && parts[3] === "housekeeping-turnovers" &&
+        parts.length === 4 && request.method === "GET") {
+        return json(await service.housekeepingTurnovers(principal, parts[2],
+          url.searchParams.get("from") ?? "", url.searchParams.get("to") ?? ""));
+      }
       if (parts[1] === "properties" && parts[2] && parts[3] === "requests" && parts[4] &&
         parts.length === 5 && request.method === "GET") {
         return json(await service.requestResult(principal, parts[2], parts[4]));

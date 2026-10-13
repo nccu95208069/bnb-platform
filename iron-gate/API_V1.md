@@ -10,6 +10,8 @@
 | `POST /v1/properties/{propertyId}/bookings` | OS 來源的 confirmed 訂單、房晚撞房、版本、防重、PostgreSQL 交易與持久 outbox、無通路／OwlNest 待同步狀態 | 正式 OS 機器憑證與逐館 writer 切換；LINE 須另走預覽／提交，官網加 OwlNest 須過共同開賣閘門 |
 | `GET /v1/properties/{propertyId}/bookings/{bookingId}` | 館別與訂單範圍、欄位投影；OS 合成會員證明及預設關閉的只讀影子路由 | 正式會員／機器憑證配置、旅客訂單憑據；LINE 完整 `inspect` 快照 |
 | `GET /v1/properties/{propertyId}/availability` | 本地 sold／held／blocked／unsold 與版本；OwlNest 館的 `saleReady` 固定為 false | 真實來源涵蓋、逐晚通路觀測與網站開賣核准 |
+| `GET /v1/properties/{propertyId}/occupancy-summary` | 逐日 confirmed／held／blocked／unsold 數量與 fence 數；不含訂單或旅客資料，`saleReady=false` | 分析／定價服務專用的館別 grant 與正式資料涵蓋驗證 |
+| `GET /v1/properties/{propertyId}/housekeeping-turnovers` | 已確認訂單的退房日、房間與訂單 ID；不含旅客姓名／聯絡方式 | 清掃服務專用 grant、派工與清掃完成回報接線 |
 | `POST /v1/properties/{propertyId}/bookings/{bookingId}/cancel` | 保留訂單、版本檢查；有 OwlNest 時維持 fence 直到開房讀回 | 實際付款／退款審核、外部取消責任分界 |
 | `GET /v1/properties/{propertyId}/requests/{requestKey}` | 同服務／grant 查持久原收據及目前訂單版本，撤銷憑證即時拒絕 | 正式保留期與營運清理流程 |
 | `POST /v1/source-events` | 來源帳號、前一來源版本、上次套用訂單版本、取消 tombstone、衝突停售 | 真實 provider 證據與排序規則、正式來源 grant 配置 |
@@ -41,6 +43,7 @@
 - 取消只改訂單狀態並保留稽核；已有未沖銷收款的原生訂單和保留單會拒絕直接取消或釋出。OwlNest 館的房晚在開房逐晚讀回前仍受 fence 保護。若原關房操作尚未確認，取消進人工核對，避免舊操作晚到後重新關房。
 - 原生保留的 24 小時期限由服務端設定；期限過後仍占房，只有業主明確延長或釋出才改變狀態。釋出後晚到款項只追加財務紀錄及人工處理標記，不重新占房。
 - `GET availability` 的 `unsold` 只代表本地未占用。此切片刻意不讓官網在 OwlNest 館由此判定可售。
+- 分析／定價使用 `occupancy:aggregate`，清掃使用 `housekeeping:read`，兩者分開發證。逐日摘要中的 `fenced` 是額外的風險計數，可與已占用房晚重疊；`confirmed + held + blocked + unsold` 才等於房間總數。清掃資料只提供確認訂單的最後連續住宿夜後退房日期，沒有客資。
 - 回應一律 `private, no-store`，錯誤只含固定代碼。旅客憑據只能讀綁定的單一訂單；PII 由驗證後的欄位 grant 決定是否出現在投影中。每次接受的寫入另記操作者、服務、grant、請求鍵、訂單與版本；一般事件訂閱不含這些稽核欄位。
 
 建立原生訂單的請求例子（所有 ID 和資料均為合成）：

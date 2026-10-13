@@ -104,6 +104,23 @@ function hasConflict(state: PropertyState, cells: Night[], exceptBookingId?: str
   return state.bookings.some((booking) => booking.id !== exceptBookingId && occupies(booking) &&
     nightsFor(booking.stays, state.roomIds).some((cell) => asked.has(keyOf(cell))));
 }
+function readInventoryIndex(state: PropertyState, first: number, end: number) {
+  if (state.roomIds.length * (end - first) > 4096) reject("READ_CAPACITY_LIMIT", 409);
+  const occupied = new Map<string, Booking["status"]>();
+  for (const booking of state.bookings) {
+    if (!occupies(booking)) continue;
+    for (const cell of nightsFor(booking.stays, state.roomIds)) {
+      const day = dayNumber(cell.date);
+      if (day < first || day >= end) continue;
+      const key = keyOf(cell);
+      if (occupied.has(key)) reject("INVENTORY_CONFLICT", 409);
+      occupied.set(key, booking.status);
+    }
+  }
+  const fenced = new Set<string>(state.fences.flatMap((fence) => fence.cells.map(keyOf)));
+  const blocked = new Set<string>([...state.manualBlocks.map(keyOf), ...fenced]);
+  return { occupied, blocked, fenced };
+}
 function receiptFor(state: PropertyState, principal: Principal, requestKey: string, hash: string): RequestReceipt | null {
   const prior = state.receipts.find((receipt) => receipt.key === requestKey &&
     receipt.clientId === principal.clientId && receipt.grantId === (principal.grantId ?? null));
@@ -557,17 +574,7 @@ export class IronGateService {
     if (principal.origin === "website" &&
       (!principal.bindingId || principal.bindingId !== state.channel.websiteBindingId))
       reject("FORBIDDEN", 403);
-    if (state.roomIds.length * (end - first) > 4096) reject("READ_CAPACITY_LIMIT", 409);
-    const occupied = new Map<string, Booking["status"]>();
-    for (const booking of state.bookings) {
-      if (!occupies(booking)) continue;
-      for (const cell of nightsFor(booking.stays, state.roomIds))
-        occupied.set(keyOf(cell), booking.status);
-    }
-    const blocked = new Set<string>([
-      ...state.manualBlocks.map(keyOf),
-      ...state.fences.flatMap((fence) => fence.cells.map(keyOf)),
-    ]);
+    const { occupied, blocked } = readInventoryIndex(state, first, end);
     const cells = [];
     for (const roomId of state.roomIds) for (let day = first; day < end; day++) {
       const cell = { roomId, date: new Date(day * DAY).toISOString().slice(0, 10) };
@@ -578,6 +585,67 @@ export class IronGateService {
     }
     return { propertyId, inventoryVersion: state.version, authorityEpoch: state.authorityEpoch, cells,
       note: "unsold means no local occupancy; it does not prove external channel stock" };
+  }
+
+  async occupancySummary(principal: Principal, propertyId: string, from: string,
+    to: string): Promise<Record<string, unknown>> {
+    uuid(propertyId);
+    const first = dayNumber(from), end = dayNumber(to);
+    if (end <= first || end - first > MAX_READ_DAYS) reject("INVALID_DATE_RANGE");
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    authorize(principal, state, "occupancy:aggregate");
+    if (principal.origin !== "service" && principal.origin !== "os") reject("FORBIDDEN", 403);
+    const { occupied, blocked, fenced: fenceCells } = readInventoryIndex(state, first, end);
+    const days = [];
+    for (let day = first; day < end; day++) {
+      const date = new Date(day * DAY).toISOString().slice(0, 10);
+      let confirmed = 0, held = 0, blockedOnly = 0, unsold = 0, fenced = 0;
+      for (const roomId of state.roomIds) {
+        const key = `${roomId}:${date}`;
+        const status = occupied.get(key);
+        if (status === "confirmed") confirmed++;
+        else if (status === "held") held++;
+        else if (blocked.has(key)) blockedOnly++;
+        else unsold++;
+        if (fenceCells.has(key)) fenced++;
+      }
+      days.push({ date, confirmed, held, blocked: blockedOnly, unsold, fenced });
+    }
+    return { propertyId, inventoryVersion: state.version, totalRooms: state.roomIds.length,
+      days, saleReady: false };
+  }
+
+  async housekeepingTurnovers(principal: Principal, propertyId: string, from: string,
+    to: string): Promise<Record<string, unknown>> {
+    uuid(propertyId);
+    const first = dayNumber(from), end = dayNumber(to);
+    if (end <= first || end - first > MAX_READ_DAYS) reject("INVALID_DATE_RANGE");
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    authorize(principal, state, "housekeeping:read");
+    if (principal.origin !== "service" && principal.origin !== "os") reject("FORBIDDEN", 403);
+    readInventoryIndex(state, first, end);
+    const turnovers = [];
+    for (const booking of state.bookings) {
+      if (booking.status !== "confirmed") continue;
+      const byRoom = new Map<string, Set<number>>();
+      for (const cell of nightsFor(booking.stays, state.roomIds)) {
+        const dates = byRoom.get(cell.roomId) ?? new Set<number>();
+        dates.add(dayNumber(cell.date));
+        byRoom.set(cell.roomId, dates);
+      }
+      for (const [roomId, dates] of byRoom) for (const night of dates) {
+        if (dates.has(night + 1) || night + 1 < first || night + 1 >= end) continue;
+        turnovers.push({ bookingId: booking.id, roomId,
+          checkoutDate: new Date((night + 1) * DAY).toISOString().slice(0, 10),
+          channelSyncState: booking.channelSyncState });
+        if (turnovers.length > 4096) reject("READ_CAPACITY_LIMIT", 409);
+      }
+    }
+    turnovers.sort((a, b) => a.checkoutDate.localeCompare(b.checkoutDate) ||
+      a.roomId.localeCompare(b.roomId) || a.bookingId.localeCompare(b.bookingId));
+    return { propertyId, inventoryVersion: state.version, turnovers };
   }
 
   async cancelBooking(principal: Principal, propertyId: string, bookingId: string, requestKey: string,

@@ -93,6 +93,9 @@ test("finance credential issuer rejects booking mutation scopes", async () => {
       /INVALID_FINANCE_SCOPE/);
     assert.throws(() => directory.issue(grant("os", ["source:write"]), expiry),
       /INVALID_OS_SCOPE/);
+    assert.throws(() => directory.issue(grant("service", ["occupancy:aggregate"], ["guest_name"]), expiry),
+      /INVALID_SERVICE_SCOPE/);
+    assert.equal(typeof directory.issue(grant("service", ["housekeeping:read"]), expiry), "string");
   } finally { directory.close(); rmSync(folder, { recursive: true, force: true }); }
 });
 

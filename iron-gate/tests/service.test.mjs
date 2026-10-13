@@ -292,6 +292,32 @@ test("availability caps the response before expanding a large property calendar"
     "2026-11-01", "2026-12-02"), errorCode("READ_CAPACITY_LIMIT"));
 });
 
+test("housekeeping and occupancy consumers get separate PII-free projections", async () => {
+  const { service } = setup();
+  await service.createBooking(principal(), propertyId, key(), bookingInput(1, {
+    stays: [
+      { checkIn: "2026-11-10", checkOut: "2026-11-11", roomIds: [roomId] },
+      { checkIn: "2026-11-11", checkOut: "2026-11-12", roomIds: [roomId] },
+    ],
+  }));
+  const summaryActor = principal("service", { actions: ["occupancy:aggregate"], fields: [] });
+  const summary = await service.occupancySummary(summaryActor, propertyId,
+    "2026-11-10", "2026-11-13");
+  assert.deepEqual(summary.days.map((day) => day.confirmed), [1, 1, 0]);
+  assert.equal(summary.saleReady, false);
+  assert.equal(JSON.stringify(summary).includes("Synthetic Guest"), false);
+  await assert.rejects(service.housekeepingTurnovers(summaryActor, propertyId,
+    "2026-11-10", "2026-11-13"), errorCode("FORBIDDEN"));
+  const cleaningActor = principal("service", { actions: ["housekeeping:read"], fields: [] });
+  const cleaning = await service.housekeepingTurnovers(cleaningActor, propertyId,
+    "2026-11-10", "2026-11-13");
+  assert.deepEqual(cleaning.turnovers.map((item) => item.checkoutDate), ["2026-11-12"]);
+  assert.equal(cleaning.turnovers[0].roomId, roomId);
+  assert.equal(JSON.stringify(cleaning).includes("Synthetic Guest"), false);
+  await assert.rejects(service.occupancySummary(cleaningActor, propertyId,
+    "2026-11-10", "2026-11-13"), errorCode("FORBIDDEN"));
+});
+
 test("cancellation tombstone rejects an older create event", async () => {
   const { service, repository } = setup();
   const source = principal("source");
