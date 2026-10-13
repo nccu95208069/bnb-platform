@@ -2,6 +2,8 @@
 
 Iron Gate 是獨立的訂單與房晚權威服務。此目錄目前提供可執行的合成 API、PostgreSQL 儲存、館別隔離、憑證與唯讀 OS 影子比對。**尚未部署，也尚未接管任何真實訂單。** 產品和 API 契約分別見 [Iron Gate v1](IRON_GATE_V1.md)、[API v1](API_V1.md) 與 [OpenAPI](openapi.yaml)。
 
+`src/channel-runner.mjs` 提供注入式通路操作模擬，不含正式 OwlNest 寫入連線；只有取得官方寫入 API 契約、測試授權及持久逐館 lease 後，才可接到真實控房程序。
+
 ## 本機驗證
 
 需要 Node.js 22.15 以上：
