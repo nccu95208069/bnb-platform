@@ -60,6 +60,9 @@ test("revoked membership, wrong IDs, and unsafe configuration fail closed", asyn
   await assert.rejects(readIronGateBooking(input.store, input.accountId, input.slug,
     input.propertyId, input.bookingId, input.config,
     async () => { throw new Error("token leaked in transport failure"); }), /IRON_GATE_READ_FAILED/);
+  assert.throws(() => ironGateReadConfig({ IRON_GATE_BASE_URL: "https://gate.invalid",
+    IRON_GATE_OS_PROOF_SECRET: secret,
+    IRON_GATE_OS_READ_GRANTS: JSON.stringify([input.grant]) }), /IRON_GATE_READ_CONFIG_INVALID/);
   assert.throws(() => ironGateReadConfig({ IRON_GATE_SHADOW_ENABLED: "true",
     IRON_GATE_BASE_URL: "http://example.com",
     IRON_GATE_OS_PROOF_SECRET: secret,
