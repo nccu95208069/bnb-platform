@@ -2,8 +2,7 @@
 import {useT} from "@/components/i18n/language-provider";
 
 import Link from "next/link";
-import { LoginDevices } from "@/components/account/login-devices";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 import { CALENDAR_PALETTES, CHANNELS, DEFAULT_PALETTE, paletteById, platformAppearance, type PaletteId } from "@/lib/calendar-palettes";
 import { useCalendarAppearance } from "./calendar-appearance";
@@ -48,8 +47,6 @@ export function CalendarAppearanceSettings() {
   const { palette, scope, saving, error, reload, save } = useCalendarAppearance();
   const [draft, setDraft] = useState<PaletteId | null>(null);
   const [saved, setSaved] = useState(false);
-  const [isOwner, setIsOwner] = useState(false);
-  useEffect(() => { fetch("/api/calendar-session", { cache: "no-store" }).then(r => r.json()).then(d => setIsOwner(["owner", "admin", "god"].includes(d.membership?.role))).catch(() => {}); }, []);
   const selected = draft ?? palette;
   return <section className="mx-auto max-w-4xl space-y-5 pb-8">
     <div>
@@ -60,8 +57,6 @@ export function CalendarAppearanceSettings() {
     <div className="rounded-xl border bg-card px-4 py-3 text-sm" aria-live="polite">
       {scope === "account" ? uiText("私人帳號 · 配色會跨裝置保存，只影響你的畫面。") : scope === "device" ? <>{uiText("目前未登入 · 配色只儲存在這個瀏覽器。")}<Link href="/calendar-access" className="ml-2 underline">{uiText("登入後同步")}</Link></> : scope === "loading" ? uiText("正在讀取你的配色…") : uiText("暫時無法確認個人偏好。")}
     </div>
-    {scope === "account" && <LoginDevices />}
-    {isOwner && <Link href="/settings/email" className="block rounded-xl border bg-card px-4 py-3 text-sm underline">{uiText("Gmail 寄信設定 · 成員邀請與設定密碼")}</Link>}
     <div className="grid gap-3 sm:grid-cols-2" role="group" aria-label={uiText("五種日曆配色")}>
       {CALENDAR_PALETTES.map((preset) => <button key={preset.id} type="button" aria-pressed={selected === preset.id} aria-label={uiText(preset.name)} disabled={saving}
         onClick={() => { setDraft(preset.id); setSaved(false); }}
