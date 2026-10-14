@@ -27,6 +27,11 @@ test('each supported week height shows the maximum number of rows that fits', ()
   }
  }
 });
+test('larger calendar text reserves taller rows instead of clipping bookings', () => {
+ assert.equal(fitMonthWeekLanes(124, 6, 1), 4);
+ assert.equal(fitMonthWeekLanes(124, 6, 1.3), 2);
+ assert.equal(fitMonthWeekLanes(161.2, 6, 1.3), 4);
+});
 test('two-night stay is one segment across Saturday/Sunday', () => {
  const [s] = layoutMonthWeek([stay('a','villa',days[5],'2026-11-16')],days,'2026-11-16');
  assert.deepEqual([s.start,s.end,s.lane,s.continuesBefore,s.continuesAfter],[5,7,0,false,false]);

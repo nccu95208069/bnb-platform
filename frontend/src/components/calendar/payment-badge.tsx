@@ -7,5 +7,5 @@ const symbols={paid:'✓',deposit:'訂',unpaid:'未',unknown:'?'};
 export function PaymentBadge({booking,compact=false}:{booking:CalendarBooking;compact?:boolean}) {
   const uiText=useT();
   if(booking.price_hidden||booking.source_conflict||booking.payment_status==='unknown')return null;
-  return <span title={uiText(PAYMENT_LABELS[booking.payment_status])} aria-label={uiText(PAYMENT_LABELS[booking.payment_status])} className={`payment-badge inline-flex shrink-0 items-center justify-center rounded-sm border px-0.5 text-[9px] leading-3 font-semibold ${styles[booking.payment_status]}`}>{compact?symbols[booking.payment_status]:uiText(PAYMENT_LABELS[booking.payment_status])}</span>;
+  return <span title={uiText(PAYMENT_LABELS[booking.payment_status])} aria-label={uiText(PAYMENT_LABELS[booking.payment_status])} className={`payment-badge inline-flex shrink-0 items-center justify-center rounded-sm border px-0.5 text-[0.5625rem] leading-3 font-semibold ${styles[booking.payment_status]}`}>{compact?symbols[booking.payment_status]:uiText(PAYMENT_LABELS[booking.payment_status])}</span>;
 }

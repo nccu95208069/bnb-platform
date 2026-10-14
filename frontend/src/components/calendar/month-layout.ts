@@ -9,12 +9,12 @@ export type MonthStaySegment = {
   continuesAfter: boolean;
 };
 
-// Compact grid: 20px date + 4px padding, then 18px per booking + 2px gap.
-// Only reserve the extra 14px overflow label + 2px gap when bookings don't fit.
-export function fitMonthWeekLanes(weekHeight: number, laneCount: number): number {
-  const withoutOverflow = Math.max(0, Math.floor((weekHeight - 24) / 20));
+// The date, booking, and overflow rows use rem units, so lane capacity must
+// follow the same root font scale as the visible calendar text.
+export function fitMonthWeekLanes(weekHeight: number, laneCount: number, fontScale = 1): number {
+  const withoutOverflow = Math.max(0, Math.floor((weekHeight - 24 * fontScale) / (20 * fontScale)));
   if (laneCount <= withoutOverflow) return laneCount;
-  return Math.max(1, Math.floor((weekHeight - 40) / 20));
+  return Math.max(1, Math.floor((weekHeight - 40 * fontScale) / (20 * fontScale)));
 }
 
 // Allocate the entire visible stay at once, so it cannot jump vertically or

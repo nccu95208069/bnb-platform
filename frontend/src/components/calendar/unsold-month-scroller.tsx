@@ -64,7 +64,7 @@ const uiLocale = useIntlLocale();
                   {uiText(WEEKDAY_LABELS.map((d) => (
                     <div
                       key={uiText(`週${d}`)}
-                      className="truncate px-0.5 py-2 text-center text-[10px] text-muted-foreground"
+                      className="truncate px-0.5 py-2 text-center text-[0.625rem] text-muted-foreground"
                     >
                       {uiText(`週${d}`)}
                     </div>
@@ -109,7 +109,7 @@ const uiLocale = useIntlLocale();
                               {Number(day.slice(-2))}
                             </span>
                             {inMonth && (
-                              <span className="hidden text-[10px] text-muted-foreground sm:inline">
+                              <span className="hidden text-[0.625rem] text-muted-foreground sm:inline">
                                 {uiText("未售")}{count}
                               </span>
                             )}
@@ -128,7 +128,7 @@ const uiLocale = useIntlLocale();
                                   !expanded && i === 2 && "hidden sm:flex",
                                 )}
                               >
-                                <span className="flex items-center gap-0.5 text-[10px] font-medium sm:text-xs">
+                                <span className="flex items-center gap-0.5 text-[0.625rem] font-medium sm:text-xs">
                                   {c.room}
                                   {availabilityFeatures.pricingReview && c.pricing &&
                                     !c.pricing.eligible &&
@@ -145,7 +145,7 @@ const uiLocale = useIntlLocale();
                             ))}
                           {!expanded && shown.length > 2 && (
                             <button
-                              className="w-full text-left text-[9px] text-muted-foreground sm:hidden"
+                              className="w-full text-left text-[0.5625rem] text-muted-foreground sm:hidden"
                               aria-expanded={false}
                               aria-label={uiText("{0} 展開其餘房間", [day])}
                               onClick={() =>
@@ -156,7 +156,7 @@ const uiLocale = useIntlLocale();
                           )}
                           {!expanded && shown.length > 3 && (
                             <button
-                              className="hidden w-full text-left text-[10px] text-muted-foreground sm:block"
+                              className="hidden w-full text-left text-[0.625rem] text-muted-foreground sm:block"
                               aria-expanded={false}
                               aria-label={uiText("{0} 展開其餘房間", [day])}
                               onClick={() =>
@@ -166,7 +166,7 @@ const uiLocale = useIntlLocale();
                               {uiText("另")}{shown.length - 3} {uiText("房")}</button>
                           )}
                           {inMonth && shown.length === 0 && (
-                            <p className="pt-2 text-[10px] text-muted-foreground">
+                            <p className="pt-2 text-[0.625rem] text-muted-foreground">
                               {!correct || error ? (error ? "待重試" : "載入中") : day < (data?.asof ?? localTodayIso())
                                 ? uiText("已過期")
                                 : search.trim()

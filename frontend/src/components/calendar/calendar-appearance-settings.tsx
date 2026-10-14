@@ -26,7 +26,7 @@ function PaletteCalendarPreview({ palette }: { palette: PaletteId }) {
   const uiText = useT();
 
   return <div className="overflow-hidden rounded-xl border bg-white text-slate-800" aria-label={uiText("{0}日曆示意", [paletteById(palette).name])}>
-    <div className="grid grid-cols-7 border-b bg-slate-50 text-center text-[10px] text-slate-500">
+    <div className="grid grid-cols-7 border-b bg-slate-50 text-center text-[0.625rem] text-slate-500">
       {["一", "二", "三", "四", "五", "六", "日"].map(day => <span key={day} className="py-2">{uiText(`週${day}`)}</span>)}
     </div>
     <div className="grid grid-cols-7 text-center text-xs">
@@ -34,7 +34,7 @@ function PaletteCalendarPreview({ palette }: { palette: PaletteId }) {
     </div>
     <div className="relative grid grid-cols-7 gap-y-1 pb-4">
       <div className="pointer-events-none absolute inset-0 grid grid-cols-7" aria-hidden="true">{Array.from({length:7}, (_, i) => <span key={i} className="border-r last:border-0" />)}</div>
-      {PREVIEW_STAYS.map((stay, i) => <div key={i} className="relative mx-px min-w-0 rounded-sm border px-1 py-1 text-[10px] leading-3.5" style={{...platformAppearance(palette, stay.channel), gridColumn:`${stay.start} / span ${stay.span}`, gridRow:stay.row}}>
+      {PREVIEW_STAYS.map((stay, i) => <div key={i} className="relative mx-px min-w-0 rounded-sm border px-1 py-1 text-[0.625rem] leading-3.5" style={{...platformAppearance(palette, stay.channel), gridColumn:`${stay.start} / span ${stay.span}`, gridRow:stay.row}}>
         <span className="block truncate font-semibold">{stay.label}</span><span className="block truncate">{stay.guest}</span>
       </div>)}
     </div>
@@ -67,7 +67,7 @@ export function CalendarAppearanceSettings() {
         </span>
         <span className="mt-1 block text-xs leading-5 text-muted-foreground">{uiText(preset.description)}</span>
         <span className="mt-3 grid grid-cols-3 gap-1 rounded-xl border bg-white p-2" aria-hidden="true">
-          {CHANNELS.slice(0, 6).map((channel, i) => <span key={channel} className="truncate rounded border px-1.5 py-1 text-[11px] font-medium" style={platformAppearance(preset.id, channel)}>{SAMPLE_LABELS[i]}</span>)}
+          {CHANNELS.slice(0, 6).map((channel, i) => <span key={channel} className="truncate rounded border px-1.5 py-1 text-[0.6875rem] font-medium" style={platformAppearance(preset.id, channel)}>{SAMPLE_LABELS[i]}</span>)}
         </span>
       </button>)}
     </div>

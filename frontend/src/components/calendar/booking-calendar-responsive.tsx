@@ -742,7 +742,7 @@ const uiLocale = useIntlLocale();
               <h1 className="text-lg font-semibold tracking-tight">
                 {uiText("訂單與房況日曆")}</h1>
               {effectiveRole !== "owner" && (
-                <span className="rounded-full border bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                <span className="rounded-full border bg-muted px-2 py-1 text-[0.6875rem] font-medium text-muted-foreground">
                   {uiText("權限預覽")}</span>
               )}
             </div>
@@ -820,7 +820,7 @@ const uiLocale = useIntlLocale();
                 className="bg-background pl-9"
               />
             </div>
-            <span className="whitespace-nowrap text-[11px] text-muted-foreground">
+            <span className="whitespace-nowrap text-[0.6875rem] text-muted-foreground">
               {lastLoadedAt
                 ? uiText("{0} {1}", [lastLoadedAt.toLocaleTimeString(uiLocale, {
                     hour: "2-digit",

@@ -429,7 +429,7 @@ const uiLocale = useIntlLocale();
         </div>
       </div>
       {priceRefreshMessage && <p role={priceRefreshError ? "alert" : "status"} className={cn("text-xs",priceRefreshError ? "text-destructive" : "text-muted-foreground")}>{priceRefreshMessage}<button type="button" aria-label={uiText("關閉")} className="ml-2 px-2" onClick={()=>setPriceRefreshMessage("")}>×</button></p>}
-      {!PAYMENT_SANDBOX && <p className="text-[11px] text-muted-foreground" aria-label={uiText("房價上次更新時間")}>{uiText("房價更新")}{data?.pricing_observed_at ? new Intl.DateTimeFormat("zh-TW", { timeZone:"Asia/Taipei", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" }).format(new Date(data.pricing_observed_at)) : uiText("讀取中")}</p>}
+      {!PAYMENT_SANDBOX && <p className="text-[0.6875rem] text-muted-foreground" aria-label={uiText("房價上次更新時間")}>{uiText("房價更新")}{data?.pricing_observed_at ? new Intl.DateTimeFormat("zh-TW", { timeZone:"Asia/Taipei", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" }).format(new Date(data.pricing_observed_at)) : uiText("讀取中")}</p>}
       <div className="flex items-center gap-3 text-xs" aria-label={uiText("未售房況摘要")}>
         <span>{uiText("未售")}<strong className="tabular-nums">{loading ? "—" : data?.counts.available ?? 0}</strong></span>
         <span className="text-muted-foreground">{uiText("暫留／封房")}<strong className="tabular-nums">{loading ? "—" : (data?.counts.held ?? 0) + (data?.counts.blocked ?? 0) + (data?.counts.maintenance ?? 0)}</strong></span>
@@ -472,7 +472,7 @@ const uiLocale = useIntlLocale();
           )}
         </div>
       </div>
-      <div aria-label={uiText("銷售機率圖例")} className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] leading-4">
+      <div aria-label={uiText("銷售機率圖例")} className="flex flex-wrap gap-x-3 gap-y-1 text-[0.625rem] leading-4">
         <span className="text-red-800">{uiText("● 高 ≥60%")}</span>
         <span className="text-emerald-800" title={uiText("40% 至未滿 60%")}>{uiText("● 中 40–60%")}</span>
         <span className="text-blue-800">{uiText("● 低 <40%")}</span>
@@ -582,7 +582,7 @@ const uiLocale = useIntlLocale();
                                   <PricePair cell={c} hidePrice={hidePrice} />
                                   {c.pricing?.policy !== "tiered" &&
                                     c.state === "available" && (
-                                      <p className="mt-1 truncate text-[10px]">
+                                      <p className="mt-1 truncate text-[0.625rem]">
                                         {policyLabels[c.pricing?.policy ?? ""]}
                                       </p>
                                     )}
@@ -678,7 +678,7 @@ const uiLocale = useIntlLocale();
                       ...(PAYMENT_SANDBOX ? [["建議・未發布", selectedCell.pricing.suggested_price]] : []),
                     ].map(([label, value]) => (
                       <div key={label}>
-                        <p className="text-[10px] text-muted-foreground">
+                        <p className="text-[0.625rem] text-muted-foreground">
                           {uiText(property === "offland" && value === "direct" ? "官網・6 人包棟" : label)}
                         </p>
                         <p className="mt-1 text-base font-semibold">

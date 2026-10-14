@@ -85,7 +85,7 @@ function MobileBookingChip({
       )}
       <BookingIdentity booking={booking} />
       {nights > 1 && (
-        <span className="shrink-0 rounded-full bg-white/20 text-inherit px-1.5 py-0.5 text-[10px] font-semibold">
+        <span className="shrink-0 rounded-full bg-white/20 text-inherit px-1.5 py-0.5 text-[0.625rem] font-semibold">
           {uiText(stayProgressLabel(booking, date) ?? `連住 ${nights} 晚`)}
         </span>
       )}
@@ -146,7 +146,7 @@ const uiLocale = useIntlLocale();
                     {formatShortDate(date)}
                   </span>
                 </span>
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-[0.6875rem] text-muted-foreground">
                   {uiText("入")}{arrivals.length} {uiText("· 退")}{departures.length}
                 </span>
               </button>
@@ -235,7 +235,7 @@ const uiLocale = useIntlLocale();
                     date === today && "bg-primary/[0.08]",
                   )}
                 >
-                  <p className="truncate text-[11px] text-muted-foreground">
+                  <p className="truncate text-[0.6875rem] text-muted-foreground">
                     {formatWeekday(date, true, uiLocale)}
                   </p>
                   <p className="mt-1 truncate text-sm font-semibold">
@@ -275,7 +275,7 @@ const uiLocale = useIntlLocale();
                     />
                   )}
                   <div className="min-w-0">
-                    <p className="truncate text-[11px] text-muted-foreground">
+                    <p className="truncate text-[0.6875rem] text-muted-foreground">
                       {property?.short_name}
                     </p>
                     <p className="truncate text-sm font-semibold">{room.label}</p>
@@ -331,7 +331,7 @@ const uiLocale = useIntlLocale();
                         />
                         <BookingIdentity booking={booking} />
                         {nights > 1 && (
-                          <span className="ml-auto shrink-0 rounded-full bg-white/20 text-inherit px-1.5 py-0.5 text-[10px] font-semibold">
+                          <span className="ml-auto shrink-0 rounded-full bg-white/20 text-inherit px-1.5 py-0.5 text-[0.625rem] font-semibold">
                             {uiText("連住")}{nights} {uiText("晚")}</span>
                         )}
                         <PaymentDot booking={booking} />

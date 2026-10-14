@@ -88,7 +88,7 @@ function BookingChip({
       className={cn(
         "group flex w-full min-w-0 items-center gap-1.5 border text-left shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         compact
-          ? "min-h-7 py-1 px-1.5 text-[10px] sm:text-[11px]"
+          ? "min-h-7 py-1 px-1.5 text-[0.625rem] sm:text-[0.6875rem]"
           : "min-h-9 rounded-md px-2.5 py-1.5 text-xs",
         compact && !continuesBefore && "rounded-l-md",
         compact && continuesBefore && "rounded-l-none border-l-4",
@@ -117,7 +117,7 @@ function BookingChip({
       {!compact && (
         <>
           {nights > 1 && (
-            <span className="shrink-0 rounded-full bg-white/20 text-inherit px-1.5 py-0.5 text-[10px] font-semibold">
+            <span className="shrink-0 rounded-full bg-white/20 text-inherit px-1.5 py-0.5 text-[0.625rem] font-semibold">
               {uiText(progress ?? `連住 ${nights} 晚`)}
             </span>
           )}
@@ -150,10 +150,12 @@ function MonthPanel({
   onSelectDay,
   sectionRef,
   viewportHeight,
+  fontScale,
 }: CalendarViewProps & {
   monthStart: string;
   sectionRef: (node: HTMLElement | null) => void;
   viewportHeight: number;
+  fontScale: number;
 }) {
 const uiLocale = useIntlLocale();
 
@@ -164,7 +166,7 @@ const uiLocale = useIntlLocale();
   const weeks = chunkWeeks(dateRange(period.start, period.end));
   const expandedWeeks = useCalendarPreferences((s) => s.expandedWeeks);
   const setExpandedWeeks = useCalendarPreferences((s) => s.setExpandedWeeks);
-  const weekHeight = Math.max(60, Math.floor((viewportHeight - 58) / weeks.length));
+  const weekHeight = Math.max(60 * fontScale, Math.floor((viewportHeight - 58 * fontScale) / weeks.length));
   const monthBookings = bookings.filter(
     (booking) =>
       booking.check_in < period.end && booking.check_out >= period.start,
@@ -207,7 +209,7 @@ const uiLocale = useIntlLocale();
           <div
             key={weekday}
             className={cn(
-              "flex h-6 items-center justify-center border-r px-1 text-center text-[10px] font-semibold text-muted-foreground last:border-r-0 md:text-xs",
+              "flex h-6 items-center justify-center border-r px-1 text-center text-[0.625rem] font-semibold text-muted-foreground last:border-r-0 md:text-xs",
               index >= 5 && "bg-muted/45",
             )}
           >
@@ -221,7 +223,7 @@ const uiLocale = useIntlLocale();
         const expanded = expandedWeeks.includes(weekKey);
         const segments = layoutMonthWeek(monthBookings, week, addDays(week[6], 1));
         const laneCount = Math.max(0, ...segments.map(s => s.lane + 1));
-        const defaultLimit = fitMonthWeekLanes(weekHeight, laneCount);
+        const defaultLimit = fitMonthWeekLanes(weekHeight, laneCount, fontScale);
         const limit = expanded ? Number.POSITIVE_INFINITY : defaultLimit;
         const weekHasOverflow = laneCount > defaultLimit;
         const visibleLanes = Math.min(laneCount, limit);
@@ -230,7 +232,7 @@ const uiLocale = useIntlLocale();
         return (
           <div key={weekKey} className="border-b last:border-b-0" data-week={weekKey}>
             <div className="relative grid grid-cols-7 py-0.5"
-              style={{ minHeight: expanded ? undefined : weekHeight, gridTemplateRows: `20px ${Array.from({length:visibleLanes},(_,lane)=>expanded ? (segments.some(s=>s.lane===lane&&remarksFor(s.booking).length)?"48px":"32px") : "18px").join(" ")}${hidden.some(Boolean) ? " 14px" : ""}`, rowGap: 2 }}>
+              style={{ minHeight: expanded ? undefined : weekHeight, gridTemplateRows: `1.25rem ${Array.from({length:visibleLanes},(_,lane)=>expanded ? (segments.some(s=>s.lane===lane&&remarksFor(s.booking).length)?"3rem":"2rem") : "1.125rem").join(" ")}${hidden.some(Boolean) ? " 0.875rem" : ""}`, rowGap: "0.125rem" }}>
               <div className="pointer-events-none absolute inset-0 grid grid-cols-7" aria-hidden="true">
                 {week.map(date => <div key={date} className={cn("border-r last:border-r-0",
                   [0, 6].includes(parseIso(date).getUTCDay()) && "bg-muted/15",
@@ -242,12 +244,12 @@ const uiLocale = useIntlLocale();
                 const departures = monthBookings.filter(b => b.check_out === date).length;
                 return <div key={date} className="relative flex items-start justify-between px-1 md:px-2" style={{gridColumn: index + 1, gridRow: 1}}>
                   <button data-calendar-date={date} data-position-date={date} type="button" onClick={() => onSelectDay(date)}
-                    className={cn("flex size-5 items-center justify-center rounded-full text-[11px] font-semibold hover:bg-accent md:text-xs",
+                    className={cn("flex size-5 items-center justify-center rounded-full text-[0.6875rem] font-semibold hover:bg-accent md:text-xs",
                       !isSameMonth(date, monthStart) && "text-muted-foreground",
                       date === today && "bg-primary text-primary-foreground hover:bg-primary/90")}>
                     {parseIso(date).getUTCDate()}
                   </button>
-                  <div className="hidden gap-1 text-[9px] text-muted-foreground sm:flex md:text-[10px]">
+                  <div className="hidden gap-1 text-[0.5625rem] text-muted-foreground sm:flex md:text-[0.625rem]">
                     {arrivals > 0 && <span>{uiText("入")}{arrivals}</span>}
                     {departures > 0 && <span>{uiText("退")}{departures}</span>}
                   </div>
@@ -263,18 +265,18 @@ const uiLocale = useIntlLocale();
                   data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
                   onClick={() => onSelectBooking(booking)}
                   style={{ gridColumn: `${segment.start + 1} / ${segment.end + 1}`, gridRow: segment.lane + 2 }}
-                  className={cn("relative z-10 mx-0.5 flex min-w-0 items-center gap-0.5 overflow-hidden rounded-[3px] px-0.5 text-left text-[10px] leading-none font-medium focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:mx-1 md:px-1 md:text-[11px]",
+                  className={cn("relative z-10 mx-0.5 flex min-w-0 items-center gap-0.5 overflow-hidden rounded-[3px] px-0.5 text-left text-[0.625rem] leading-none font-medium focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:mx-1 md:px-1 md:text-[0.6875rem]",
                     booking.source_conflict ? "bg-slate-200 text-slate-800 hover:bg-slate-300" : PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
                     segment.continuesBefore && "ml-0 rounded-l-none border-l-0 sm:ml-0 md:ml-0",
                     segment.continuesAfter && "mr-0 rounded-r-none border-r-0 sm:mr-0 md:mr-0")}>
                   {segment.continuesBefore && <span aria-hidden="true">‹</span>}
                   <span className={cn("min-w-0 flex-1", !expanded && "truncate")}>
-                    <span className={cn("truncate leading-[12px]", expanded ? "block" : "inline")}>
+                    <span className={cn("truncate leading-[0.75rem]", expanded ? "block" : "inline")}>
                       <span className="font-semibold">{booking.source_conflict ? uiText("待核對") : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
                       <span className="ml-1 opacity-85">{booking.room_number}</span>
                       {nights > 1 && <span className="ml-1">{nights}{uiText("晚")}</span>}
                     </span>
-                    {guestName && <span className={cn("truncate pr-3 leading-[12px]", expanded ? "block" : "ml-1 inline")}>{guestName}</span>}
+                    {guestName && <span className={cn("truncate pr-3 leading-[0.75rem]", expanded ? "block" : "ml-1 inline")}>{guestName}</span>}
                     {expanded && <GuestRemarks booking={booking} compact limit={segment.end-segment.start>1?2:1} />}
                   </span>
                   <span className="absolute bottom-0.5 right-0.5"><PaymentBadge booking={booking} compact /></span>
@@ -285,7 +287,7 @@ const uiLocale = useIntlLocale();
                 style={{gridColumn: index + 1, gridRow: visibleLanes + 2}}
                 aria-expanded={false} aria-label={uiText("{0} 展開其餘訂單", [week[index]])}
                 onClick={() => setExpandedWeeks(current => current.includes(weekKey) ? current : [...current, weekKey])}
-                className="relative mx-0.5 min-w-0 truncate rounded px-0.5 text-left text-[9px] font-semibold text-muted-foreground hover:bg-accent sm:mx-1 md:text-[11px]">
+                className="relative mx-0.5 min-w-0 truncate rounded px-0.5 text-left text-[0.5625rem] font-semibold text-muted-foreground hover:bg-accent sm:mx-1 md:text-[0.6875rem]">
                 {uiText("還有")}{count} {uiText("筆")}</button>)}
             </div>
 
@@ -297,7 +299,7 @@ const uiLocale = useIntlLocale();
                     current.filter((value) => value !== weekKey),
                   )
                 }
-                className="flex w-full items-center justify-center gap-1 border-t bg-muted/20 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                className="flex w-full items-center justify-center gap-1 border-t bg-muted/20 py-1.5 text-[0.6875rem] font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground"
               >
                 <ChevronUp className="size-3" />
                 {uiText("收合這一列")}</button>
@@ -328,15 +330,22 @@ export function MonthScroller({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [viewportHeight, setViewportHeight] = useState(520);
+  const [fontScale, setFontScale] = useState(1);
   useLayoutEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
-    const measure = () => setViewportHeight(Math.max(320, Math.floor(window.innerHeight - container.getBoundingClientRect().top - (window.innerWidth >= 768 ? 24 : 12))));
+    const measure = () => {
+      setViewportHeight(Math.max(320, Math.floor(window.innerHeight - container.getBoundingClientRect().top - (window.innerWidth >= 768 ? 24 : 12))));
+      setFontScale(parseFloat(getComputedStyle(document.documentElement).fontSize) / 16 || 1);
+    };
     measure();
     const observer = new ResizeObserver(measure);
+    const fontObserver = new MutationObserver(measure);
     if (container.parentElement?.parentElement) observer.observe(container.parentElement.parentElement);
+    fontObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
     window.addEventListener("resize", measure);
-    return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
+    window.addEventListener("storage", measure);
+    return () => { observer.disconnect(); fontObserver.disconnect(); window.removeEventListener("resize", measure); window.removeEventListener("storage", measure); };
   }, []);
   // Month mode starts at the month header so no week is hidden above today.
   useMonthPosition(scrollRef, targetMonth, targetRevision ?? 0, onVisibleMonthChange);
@@ -352,6 +361,7 @@ export function MonthScroller({
           key={monthStart}
           monthStart={monthStart}
           viewportHeight={viewportHeight}
+          fontScale={fontScale}
           bookings={bookings}
           rooms={rooms}
           properties={properties}
@@ -512,7 +522,7 @@ export function DayView({
                     </p>
                     <p className="mt-1 text-lg font-semibold">{room.label}</p>
                   </div>
-                  <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-semibold">
+                  <span className="rounded-full bg-muted px-2 py-1 text-[0.625rem] font-semibold">
                     {current
                       ? arriving
                         ? uiText("今日入住")

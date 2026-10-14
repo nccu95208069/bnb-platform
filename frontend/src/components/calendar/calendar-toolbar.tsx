@@ -46,7 +46,7 @@ export function CalendarToolbar({ data, showUnsold, paymentReview, onPaymentRevi
         const label = property_id === "sweetfun" ? "Sweetfun" : property_id === "offland" ? "OFFLAND" : source.label;
         const text = incomplete ? "待確認" : issue ? "待核對" : ({ healthy: "正常", confirming: "確認中", waiting: "待同步", error: "同步失敗", stale: "已過期" })[status];
         return <details key={property_id} className="md:relative">
-          <summary className={cn("flex cursor-pointer list-none items-center gap-1 whitespace-nowrap rounded-full border px-2 py-1 text-[10px] [&::-webkit-details-marker]:hidden", healthy ? "border-border text-muted-foreground" : "border-amber-300 bg-amber-50 text-amber-950")}>
+          <summary className={cn("flex cursor-pointer list-none items-center gap-1 whitespace-nowrap rounded-full border px-2 py-1 text-[0.625rem] [&::-webkit-details-marker]:hidden", healthy ? "border-border text-muted-foreground" : "border-amber-300 bg-amber-50 text-amber-950")}>
             <span className={cn("size-1.5 rounded-full", healthy ? "bg-emerald-500" : "bg-amber-500")} />
             {label} · {t(text)}
           </summary>
