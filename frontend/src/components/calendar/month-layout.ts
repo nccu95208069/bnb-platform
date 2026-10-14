@@ -100,6 +100,38 @@ export function monthWeekHeightForDensity({
   );
 }
 
+export function monthWeekPresentation({
+  baseWeekHeight,
+  viewportHeight,
+  laneCount,
+  fontScale,
+  desktop,
+  automatic,
+  density,
+}: {
+  baseWeekHeight: number;
+  viewportHeight: number;
+  laneCount: number;
+  fontScale: number;
+  desktop: boolean;
+  automatic: boolean;
+  density: number;
+}): { height: number; visibleLanes: number; twoLine: boolean } {
+  const defaultTwoLine = monthBookingTwoLine(fontScale, desktop);
+  const height = monthWeekHeightForDensity({ baseWeekHeight, viewportHeight, laneCount, fontScale, twoLine: defaultTwoLine, automatic, density });
+  const visibleLanes = fitMonthWeekLanes(height, laneCount, fontScale, defaultTwoLine);
+  if (automatic || defaultTwoLine || laneCount === 0) return { height, visibleLanes, twoLine: defaultTwoLine };
+
+  const twoLineHeight = monthWeekHeightForDensity({ baseWeekHeight, viewportHeight, laneCount, fontScale, twoLine: true, automatic, density });
+  const twoLineLanes = fitMonthWeekLanes(twoLineHeight, laneCount, fontScale, true);
+  // A roomier setting may wrap text only when the same bookings remain visible.
+  // The loosest setting already promises every lane and may grow to honor that.
+  if ((density === 0 || twoLineHeight <= height) && twoLineLanes >= visibleLanes) {
+    return { height: twoLineHeight, visibleLanes: twoLineLanes, twoLine: true };
+  }
+  return { height, visibleLanes, twoLine: false };
+}
+
 // Allocate the entire visible stay at once, so it cannot jump vertically or
 // disappear halfway through a week when other rooms arrive or depart.
 export function layoutMonthWeek(bookings: CalendarBooking[], days: string[], weekEnd: string): MonthStaySegment[] {

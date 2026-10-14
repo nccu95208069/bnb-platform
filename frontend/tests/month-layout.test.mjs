@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fitMonthWeekLanes, layoutMonthWeek, manualMonthWeekMinHeight, monthBookingFontSize, monthBookingTwoLine, monthWeekHeightForDensity, normalizeMonthWeekDensity, restoredMonthWeekDensity, unsoldMonthRoomLimits } from '../src/components/calendar/month-layout.ts';
+import { fitMonthWeekLanes, layoutMonthWeek, manualMonthWeekMinHeight, monthBookingFontSize, monthBookingTwoLine, monthWeekHeightForDensity, monthWeekPresentation, normalizeMonthWeekDensity, restoredMonthWeekDensity, unsoldMonthRoomLimits } from '../src/components/calendar/month-layout.ts';
 const days = ['2026-11-09','2026-11-10','2026-11-11','2026-11-12','2026-11-13','2026-11-14','2026-11-15'];
 const stay = (id, room, start, end) => ({id, property_name:'Test', room_number:room, check_in:start, check_out:end});
 test('tall week cells use all available booking rows instead of stopping at two', () => {
@@ -74,6 +74,26 @@ test('manual slider runs from a one-to-two-week spacious view to a compact view'
 test('automatic week height retains the prior viewport-based layout', () => {
  const height = monthWeekHeightForDensity({baseWeekHeight:140, viewportHeight:520, laneCount:12, fontScale:1, twoLine:false, automatic:true, density:0});
  assert.equal(height,140);
+});
+test('spacious weeks wrap booking details without hiding previously visible bookings', () => {
+ const base = {baseWeekHeight:110, viewportHeight:520, fontScale:1, desktop:true, automatic:false};
+ const roomy = monthWeekPresentation({...base,laneCount:12,density:0});
+ assert.equal(roomy.twoLine,true);
+ assert.equal(roomy.visibleLanes,12);
+ assert.ok(roomy.height >= 520 * 0.62);
+ const uncrowded = monthWeekPresentation({...base,laneCount:2,density:1});
+ assert.equal(uncrowded.twoLine,true);
+ assert.equal(uncrowded.visibleLanes,2);
+ const crowded = monthWeekPresentation({...base,laneCount:12,density:1});
+ assert.equal(crowded.twoLine,false);
+ assert.equal(crowded.visibleLanes,fitMonthWeekLanes(crowded.height,12));
+ const compact = monthWeekPresentation({...base,laneCount:12,density:6});
+ assert.equal(compact.twoLine,false);
+});
+test('automatic wrapping keeps the existing large-text mobile behavior', () => {
+ const base = {baseWeekHeight:110,viewportHeight:520,laneCount:6,automatic:true,density:0};
+ assert.equal(monthWeekPresentation({...base,fontScale:1,desktop:true}).twoLine,false);
+ assert.equal(monthWeekPresentation({...base,fontScale:1.3,desktop:false}).twoLine,true);
 });
 test('stored density is bounded and previous spacing preferences migrate', () => {
  assert.equal(normalizeMonthWeekDensity(undefined),3);
