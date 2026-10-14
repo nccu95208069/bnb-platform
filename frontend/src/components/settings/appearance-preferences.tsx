@@ -2,8 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { Monitor, Moon, RotateCcw, Sun } from "lucide-react";
+import Link from "next/link";
 import { useTheme } from "next-themes";
 import { useT } from "@/components/i18n/language-provider";
+import { useCalendarPreferences } from "@/components/calendar/calendar-preferences";
+import { MAX_MONTH_WEEK_DENSITY } from "@/components/calendar/month-layout";
 import { cn } from "@/lib/utils";
 
 const STORAGE_KEY = "sweetfun-font-scale";
@@ -33,11 +36,18 @@ const MODES = [
   { id: "system", label: "跟隨系統", Icon: Monitor },
 ] as const;
 
+const WEEK_DENSITY_LABELS = ["最寬鬆", "寬鬆", "稍寬鬆", "適中", "稍緊密", "緊密", "最緊密"] as const;
+
 export function AppearancePreferences() {
   const t = useT();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [fontScale, setFontScale] = useState(100);
+  const monthWeekAuto = useCalendarPreferences((state) => state.monthWeekAuto);
+  const setMonthWeekAuto = useCalendarPreferences((state) => state.setMonthWeekAuto);
+  const monthWeekDensity = useCalendarPreferences((state) => state.monthWeekDensity);
+  const setMonthWeekDensity = useCalendarPreferences((state) => state.setMonthWeekDensity);
+  const weekDensityLabel = monthWeekAuto ? t("自動") : t(WEEK_DENSITY_LABELS[monthWeekDensity]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -117,6 +127,45 @@ export function AppearancePreferences() {
             {t("恢復預設")}
           </button>
         </div>
+      </div>
+
+      <div className="border-t border-border pt-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <label htmlFor="sweetfun-month-week-spacing" className="text-base font-semibold">{t("月曆每週間距")}</label>
+          <span className="text-sm font-semibold" aria-live="polite">{weekDensityLabel}</span>
+        </div>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          {t("向左調得更寬鬆，最寬鬆時一個畫面約顯示 1–2 週；向右則更緊密。")}
+        </p>
+        <label htmlFor="sweetfun-month-week-auto" className="mt-4 inline-flex cursor-pointer items-center gap-2 text-sm font-medium">
+          <input
+            id="sweetfun-month-week-auto"
+            type="checkbox"
+            checked={monthWeekAuto}
+            onChange={(event) => setMonthWeekAuto(event.target.checked)}
+            className="size-4 accent-primary"
+          />
+          {t("自動調整")}
+        </label>
+        <input
+          id="sweetfun-month-week-spacing"
+          type="range"
+          min={0}
+          max={MAX_MONTH_WEEK_DENSITY}
+          step={1}
+          value={monthWeekDensity}
+          onChange={(event) => setMonthWeekDensity(Number(event.target.value))}
+          disabled={monthWeekAuto}
+          aria-valuetext={t(WEEK_DENSITY_LABELS[monthWeekDensity])}
+          className="mt-4 w-full accent-primary disabled:cursor-not-allowed disabled:opacity-40"
+        />
+        <div className="mt-1 flex justify-between text-xs text-muted-foreground" aria-hidden="true">
+          <span>{t("寬鬆")}</span>
+          <span>{t("緊密")}</span>
+        </div>
+        <Link href="/calendar" className="mt-4 inline-block text-sm font-medium text-foreground underline-offset-4 hover:underline">
+          {t("前往日曆查看效果")}
+        </Link>
       </div>
     </div>
   );

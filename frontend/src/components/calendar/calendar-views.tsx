@@ -9,7 +9,7 @@ import { useMonthPosition } from "./use-month-position";
 import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
 import { GuestRemarks, remarksFor, BookingIdentity, bookingIdentityText, realGuestName } from "./booking-identity";
-import { fitMonthWeekLanes, layoutMonthWeek, monthBookingFontSize, monthBookingTwoLine } from "./month-layout";
+import { layoutMonthWeek, monthBookingFontSize, monthWeekPresentation } from "./month-layout";
 import { useCalendarPreferences } from "./calendar-preferences";
 import { cn } from "@/lib/utils";
 
@@ -171,7 +171,8 @@ const uiLocale = useIntlLocale();
   const weeks = chunkWeeks(dateRange(period.start, period.end));
   const expandedWeeks = useCalendarPreferences((s) => s.expandedWeeks);
   const setExpandedWeeks = useCalendarPreferences((s) => s.setExpandedWeeks);
-  const twoLine = monthBookingTwoLine(fontScale, desktop);
+  const monthWeekAuto = useCalendarPreferences((s) => s.monthWeekAuto);
+  const monthWeekDensity = useCalendarPreferences((s) => s.monthWeekDensity);
   const baseWeekHeight = Math.max(60 * fontScale, Math.floor((viewportHeight - 58 * fontScale) / weeks.length));
   const monthBookings = bookings.filter(
     (booking) =>
@@ -229,10 +230,7 @@ const uiLocale = useIntlLocale();
         const expanded = expandedWeeks.includes(weekKey);
         const segments = layoutMonthWeek(monthBookings, week, addDays(week[6], 1));
         const laneCount = Math.max(0, ...segments.map(s => s.lane + 1));
-        const weekHeight = twoLine
-          ? Math.max(baseWeekHeight, (laneCount > 2 ? 110 : laneCount === 2 ? 94 : 60) * fontScale)
-          : baseWeekHeight;
-        const defaultLimit = fitMonthWeekLanes(weekHeight, laneCount, fontScale, twoLine);
+        const { height: weekHeight, visibleLanes: defaultLimit, twoLine } = monthWeekPresentation({ baseWeekHeight, viewportHeight, laneCount, fontScale, desktop, automatic: monthWeekAuto, density: monthWeekDensity });
         const limit = expanded ? Number.POSITIVE_INFINITY : defaultLimit;
         const weekHasOverflow = laneCount > defaultLimit;
         const visibleLanes = Math.min(laneCount, limit);
@@ -290,7 +288,7 @@ const uiLocale = useIntlLocale();
                   {segment.continuesBefore && <span aria-hidden="true">‹</span>}
                   <span className={cn("min-w-0 flex-1", !expanded && !twoLine && "truncate")}>
                     <span className={cn("truncate", expanded || twoLine ? "block" : "inline")} style={{ lineHeight: `${12 * fontScale}px` }}>
-                      <span className="font-semibold">{booking.source_conflict ? uiText("待核對") : twoLine ? MONTH_COMPACT_PLATFORM_LABELS[booking.platform] ?? "其" : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
+                      <span className="font-semibold">{booking.source_conflict ? uiText("待核對") : twoLine && !desktop ? MONTH_COMPACT_PLATFORM_LABELS[booking.platform] ?? "其" : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
                       <span className={cn(twoLine ? "ml-0.5" : "ml-1", "opacity-85")}>{booking.room_number}</span>
                       {nights > 1 && !twoLine && <span className="ml-1">{nights}{uiText("晚")}</span>}
                     </span>

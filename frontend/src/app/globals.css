@@ -156,7 +156,7 @@ html.dark :is(.text-amber-700, .text-amber-800, .text-amber-900, .text-amber-950
 html.dark :is(.bg-red-50, .bg-red-100) {
   background-color: color-mix(in oklab, #7f1d1d 30%, var(--card));
 }
-html.dark :is(.text-red-600, .text-red-700, .text-red-800, .text-red-900) {
+html.dark :is(.text-red-600, .text-red-700, .text-red-800, .text-red-900, .text-red-950) {
   color: #fca5a5;
 }
 html.dark :is(.bg-teal-50, .bg-teal-100) {
@@ -174,7 +174,7 @@ html.dark :is(.text-emerald-800, .text-emerald-900, .text-emerald-950, .text-gre
 html.dark :is(.bg-blue-100, .bg-purple-100) {
   background-color: color-mix(in oklab, #1e3a8a 30%, var(--card));
 }
-html.dark :is(.text-blue-700, .text-blue-800, .text-blue-900, .text-purple-900) {
+html.dark :is(.text-blue-700, .text-blue-800, .text-blue-900, .text-blue-950, .text-purple-900) {
   color: #93c5fd;
 }
 html.dark :is(.bg-rose-50, .bg-rose-100) {
