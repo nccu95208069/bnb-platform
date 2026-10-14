@@ -9,7 +9,7 @@ import { useMonthPosition } from "./use-month-position";
 import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
 import { GuestRemarks, remarksFor, BookingIdentity, bookingIdentityText, realGuestName } from "./booking-identity";
-import { fitMonthWeekLanes, layoutMonthWeek } from "./month-layout";
+import { fitMonthWeekLanes, layoutMonthWeek, monthBookingFontSize } from "./month-layout";
 import { useCalendarPreferences } from "./calendar-preferences";
 import { cn } from "@/lib/utils";
 
@@ -151,11 +151,13 @@ function MonthPanel({
   sectionRef,
   viewportHeight,
   fontScale,
+  desktop,
 }: CalendarViewProps & {
   monthStart: string;
   sectionRef: (node: HTMLElement | null) => void;
   viewportHeight: number;
   fontScale: number;
+  desktop: boolean;
 }) {
 const uiLocale = useIntlLocale();
 
@@ -228,11 +230,20 @@ const uiLocale = useIntlLocale();
         const weekHasOverflow = laneCount > defaultLimit;
         const visibleLanes = Math.min(laneCount, limit);
         const hidden = week.map((_, index) => segments.filter(s => s.lane >= limit && s.start <= index && s.end > index).length);
+        const bookingRows = Array.from({ length: visibleLanes }, (_, lane) => {
+          const hasRemarks = expanded && segments.some(s => s.lane === lane && remarksFor(s.booking).length);
+          return `${(expanded ? (hasRemarks ? 48 : 32) : 18) * fontScale}px`;
+        });
+        const gridTemplateRows = [
+          `${20 * fontScale}px`,
+          ...bookingRows,
+          ...(hidden.some(Boolean) ? [`${14 * fontScale}px`] : []),
+        ].join(" ");
 
         return (
           <div key={weekKey} className="border-b last:border-b-0" data-week={weekKey}>
             <div className="relative grid grid-cols-7 py-0.5"
-              style={{ minHeight: expanded ? undefined : weekHeight, gridTemplateRows: `1.25rem ${Array.from({length:visibleLanes},(_,lane)=>expanded ? (segments.some(s=>s.lane===lane&&remarksFor(s.booking).length)?"3rem":"2rem") : "1.125rem").join(" ")}${hidden.some(Boolean) ? " 0.875rem" : ""}`, rowGap: "0.125rem" }}>
+              style={{ minHeight: expanded ? undefined : weekHeight, gridTemplateRows, rowGap: 2 * fontScale }}>
               <div className="pointer-events-none absolute inset-0 grid grid-cols-7" aria-hidden="true">
                 {week.map(date => <div key={date} className={cn("border-r last:border-r-0",
                   [0, 6].includes(parseIso(date).getUTCDay()) && "bg-muted/15",
@@ -264,19 +275,19 @@ const uiLocale = useIntlLocale();
                   data-stay-id={booking.id} data-stay-start={segment.start} data-stay-end={segment.end}
                   data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
                   onClick={() => onSelectBooking(booking)}
-                  style={{ gridColumn: `${segment.start + 1} / ${segment.end + 1}`, gridRow: segment.lane + 2 }}
-                  className={cn("relative z-10 mx-0.5 flex min-w-0 items-center gap-0.5 overflow-hidden rounded-[3px] px-0.5 text-left text-[0.625rem] leading-none font-medium focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:mx-1 md:px-1 md:text-[0.6875rem]",
+                  style={{ gridColumn: `${segment.start + 1} / ${segment.end + 1}`, gridRow: segment.lane + 2, fontSize: monthBookingFontSize(fontScale, desktop), WebkitTextSizeAdjust: "none", textSizeAdjust: "none" }}
+                  className={cn("relative z-10 mx-0.5 flex min-w-0 items-center gap-0.5 overflow-hidden rounded-[3px] px-0.5 text-left leading-none font-medium focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:mx-1 md:px-1",
                     booking.source_conflict ? "bg-slate-200 text-slate-800 hover:bg-slate-300" : PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
                     segment.continuesBefore && "ml-0 rounded-l-none border-l-0 sm:ml-0 md:ml-0",
                     segment.continuesAfter && "mr-0 rounded-r-none border-r-0 sm:mr-0 md:mr-0")}>
                   {segment.continuesBefore && <span aria-hidden="true">‹</span>}
                   <span className={cn("min-w-0 flex-1", !expanded && "truncate")}>
-                    <span className={cn("truncate leading-[0.75rem]", expanded ? "block" : "inline")}>
+                    <span className={cn("truncate", expanded ? "block" : "inline")} style={{ lineHeight: `${12 * fontScale}px` }}>
                       <span className="font-semibold">{booking.source_conflict ? uiText("待核對") : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
                       <span className="ml-1 opacity-85">{booking.room_number}</span>
                       {nights > 1 && <span className="ml-1">{nights}{uiText("晚")}</span>}
                     </span>
-                    {guestName && <span className={cn("truncate pr-3 leading-[0.75rem]", expanded ? "block" : "ml-1 inline")}>{guestName}</span>}
+                    {guestName && <span className={cn("truncate pr-3", expanded ? "block" : "ml-1 inline")} style={{ lineHeight: `${12 * fontScale}px` }}>{guestName}</span>}
                     {expanded && <GuestRemarks booking={booking} compact limit={segment.end-segment.start>1?2:1} />}
                   </span>
                   <span className="absolute bottom-0.5 right-0.5"><PaymentBadge booking={booking} compact /></span>
@@ -331,12 +342,14 @@ export function MonthScroller({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [viewportHeight, setViewportHeight] = useState(520);
   const [fontScale, setFontScale] = useState(1);
+  const [desktop, setDesktop] = useState(false);
   useLayoutEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
     const measure = () => {
       setViewportHeight(Math.max(320, Math.floor(window.innerHeight - container.getBoundingClientRect().top - (window.innerWidth >= 768 ? 24 : 12))));
       setFontScale(parseFloat(getComputedStyle(document.documentElement).fontSize) / 16 || 1);
+      setDesktop(window.innerWidth >= 768);
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -362,6 +375,7 @@ export function MonthScroller({
           monthStart={monthStart}
           viewportHeight={viewportHeight}
           fontScale={fontScale}
+          desktop={desktop}
           bookings={bookings}
           rooms={rooms}
           properties={properties}

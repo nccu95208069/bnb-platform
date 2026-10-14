@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fitMonthWeekLanes, layoutMonthWeek } from '../src/components/calendar/month-layout.ts';
+import { fitMonthWeekLanes, layoutMonthWeek, monthBookingFontSize } from '../src/components/calendar/month-layout.ts';
 const days = ['2026-11-09','2026-11-10','2026-11-11','2026-11-12','2026-11-13','2026-11-14','2026-11-15'];
 const stay = (id, room, start, end) => ({id, property_name:'Test', room_number:room, check_in:start, check_out:end});
 test('tall week cells use all available booking rows instead of stopping at two', () => {
@@ -31,6 +31,11 @@ test('larger calendar text reserves taller rows instead of clipping bookings', (
  assert.equal(fitMonthWeekLanes(124, 6, 1), 4);
  assert.equal(fitMonthWeekLanes(124, 6, 1.3), 2);
  assert.equal(fitMonthWeekLanes(161.2, 6, 1.3), 4);
+});
+test('booking labels have distinct pixel sizes at the minimum and maximum display settings', () => {
+ assert.equal(monthBookingFontSize(0.85), 8.5);
+ assert.equal(monthBookingFontSize(1.3), 13);
+ assert.equal(monthBookingFontSize(1.3, true), 14.3);
 });
 test('two-night stay is one segment across Saturday/Sunday', () => {
  const [s] = layoutMonthWeek([stay('a','villa',days[5],'2026-11-16')],days,'2026-11-16');
