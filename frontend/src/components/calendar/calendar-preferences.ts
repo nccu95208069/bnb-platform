@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { localTodayIso } from "./calendar-utils";
+import { normalizeMonthWeekSpacing } from "./month-layout";
 import type { Mission } from "@/lib/payment-workflow";
 import type { Channel, PricingPreview } from "@/lib/availability";
 import type { CalendarProperty, CalendarView } from "./calendar-types";
@@ -17,6 +18,8 @@ type CalendarNavigationRequest = {
 
 type CalendarPreferenceState = {
   expandedWeeks: string[];
+  monthWeekSpacing: number;
+  setMonthWeekSpacing: (value: number) => void;
   setExpandedWeeks: (
     value: string[] | ((current: string[]) => string[]),
   ) => void;
@@ -70,6 +73,8 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
   persist(
     (set) => ({
       expandedWeeks: [],
+      monthWeekSpacing: 0,
+      setMonthWeekSpacing: (value) => set({ monthWeekSpacing: normalizeMonthWeekSpacing(value) }),
       setExpandedWeeks: (value) =>
         set((s) => ({
           expandedWeeks:
@@ -161,11 +166,15 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
     {
       name: "sweetfun-os-calendar-preferences",
       // Older storage includes anchorDate. Ignore it while retaining filters.
-      merge: (persisted, current) => ({
-        ...current,
-        ...(persisted as Partial<CalendarPreferenceState>),
-        anchorDate: current.anchorDate,
-      }),
+      merge: (persisted, current) => {
+        const saved = persisted as Partial<CalendarPreferenceState> | undefined;
+        return {
+          ...current,
+          ...saved,
+          monthWeekSpacing: normalizeMonthWeekSpacing(saved?.monthWeekSpacing),
+          anchorDate: current.anchorDate,
+        };
+      },
       partialize: (state) => ({
         selectedPropertyIds: state.selectedPropertyIds,
         view: state.view,
@@ -173,6 +182,7 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
         availabilityCycle: state.availabilityCycle,
         availabilityChannel: state.availabilityChannel,
         availabilityRoom: state.availabilityRoom,
+        monthWeekSpacing: state.monthWeekSpacing,
       }),
     },
   ),

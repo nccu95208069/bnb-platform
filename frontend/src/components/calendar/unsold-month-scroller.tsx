@@ -11,6 +11,7 @@ import { availabilityFeatures } from "@/lib/availability-features";
 import { PricePair, roomNightStyle } from "./availability-presentation";
 import { useMonthPosition } from "./use-month-position";
 import { useCalendarPreferences } from "./calendar-preferences";
+import { unsoldMonthRoomLimits } from "./month-layout";
 import { addDays, addMonths, formatMonthLabel, localTodayIso, WEEKDAY_LABELS, monthStarts } from "./calendar-utils";
 
 const MONTHS = monthStarts("2025-01-01", 36);
@@ -28,6 +29,8 @@ const uiLocale = useIntlLocale();
  const [near,setNear]=useState(false),[data,setData]=useState<AvailabilityResult|null>(null),[error,setError]=useState(false),[retry,setRetry]=useState(0);
  const {property,room,channel,cycle,refresh,search,onlyAvailable}=props;
  const expandedWeeks=useCalendarPreferences(s=>s.expandedWeeks),setExpandedWeeks=useCalendarPreferences(s=>s.setExpandedWeeks);
+ const monthWeekSpacing=useCalendarPreferences(s=>s.monthWeekSpacing);
+ const {mobile:mobileLimit,desktop:desktopLimit}=unsoldMonthRoomLimits(monthWeekSpacing);
  const period=useMemo(()=>({start:month,end:addMonths(month,1)}),[month]);
  const monthDays=useMemo(()=>{
   const weekday=(new Date(month+"T12:00Z").getUTCDay()+6)%7;
@@ -115,7 +118,7 @@ const uiLocale = useIntlLocale();
                             )}
                           </button>
                           {shown
-                            .slice(0, expanded ? shown.length : 3)
+                            .slice(0, expanded ? shown.length : desktopLimit)
                             .map((c, i) => (
                               <button
                                 key={c.room}
@@ -125,7 +128,7 @@ const uiLocale = useIntlLocale();
                                 className={cn(
                                   "mb-1 w-full rounded-md border px-1 py-1 text-left sm:flex sm:items-center sm:justify-between",
                                   roomNightStyle(c),
-                                  !expanded && i === 2 && "hidden sm:flex",
+                                  !expanded && i >= mobileLimit && "hidden sm:flex",
                                 )}
                               >
                                 <span className="flex items-center gap-0.5 text-[0.625rem] font-medium sm:text-xs">
@@ -143,7 +146,7 @@ const uiLocale = useIntlLocale();
                                 />
                               </button>
                             ))}
-                          {!expanded && shown.length > 2 && (
+                          {!expanded && shown.length > mobileLimit && (
                             <button
                               className="w-full text-left text-[0.5625rem] text-muted-foreground sm:hidden"
                               aria-expanded={false}
@@ -152,9 +155,9 @@ const uiLocale = useIntlLocale();
                                 setExpandedWeeks((v) => [...v, weekKey])
                               }
                             >
-                              {uiText("另")}{shown.length - 2} {uiText("房")}</button>
+                              {uiText("另")}{shown.length - mobileLimit} {uiText("房")}</button>
                           )}
-                          {!expanded && shown.length > 3 && (
+                          {!expanded && shown.length > desktopLimit && (
                             <button
                               className="hidden w-full text-left text-[0.625rem] text-muted-foreground sm:block"
                               aria-expanded={false}
@@ -163,7 +166,7 @@ const uiLocale = useIntlLocale();
                                 setExpandedWeeks((v) => [...v, weekKey])
                               }
                             >
-                              {uiText("另")}{shown.length - 3} {uiText("房")}</button>
+                              {uiText("另")}{shown.length - desktopLimit} {uiText("房")}</button>
                           )}
                           {inMonth && shown.length === 0 && (
                             <p className="pt-2 text-[0.625rem] text-muted-foreground">

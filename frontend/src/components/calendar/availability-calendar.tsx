@@ -20,6 +20,7 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  SlidersHorizontal,
   Sparkles,
   X,
 } from "lucide-react";
@@ -348,6 +349,9 @@ const uiLocale = useIntlLocale();
     data?.query.demo_cycle === cycle &&
     JSON.stringify(data?.query.rooms) === JSON.stringify(query.rooms);
   const focusedError = actionError && !preview && !selectedCell;
+  const availableCount = !loading && data ? data.counts.available ?? 0 : null;
+  const heldCount = !loading && data ? (data.counts.held ?? 0) + (data.counts.blocked ?? 0) + (data.counts.maintenance ?? 0) : null;
+  const reviewCount = !loading && data ? (data.counts.unknown ?? 0) + (data.counts.conflict ?? 0) : null;
   return (
     <div className="space-y-2 px-2 pb-2 md:px-0">
       {searchOpen && (
@@ -370,140 +374,119 @@ const uiLocale = useIntlLocale();
         </div>
       )}
       <h1 className="sr-only">{uiText("未售房況")}</h1>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="hidden items-center gap-1 md:flex">
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={uiText("上一個未售區間")}
-            onClick={() => move(-1)}
-          >
-            <ChevronLeft className="size-4" />
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => { setAnchor(localTodayIso()); setMonthJump(v => v + 1); }}
-          >
-            {uiText("今天")}</Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            aria-label={uiText("下一個未售區間")}
-            onClick={() => move(1)}
-          >
-            <ChevronRight className="size-4" />
-          </Button>
-          <span className="ml-2 text-sm font-semibold">{uiText(period.label)}</span>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Select value={room} onValueChange={setRoom}>
-            <SelectTrigger className="w-28" aria-label={uiText("篩選房間")}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{uiText("全部房間")}</SelectItem>
-              {config.roomNames.map((r) => (
-                <SelectItem key={r} value={r}>
-                  {r}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select
-            value={channel}
-            onValueChange={(v) => setChannel(v as Channel)}
-          >
-            <SelectTrigger className="w-32" aria-label={uiText("售價通路")}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(channelLabels).filter(([value])=>config.channels.includes(value as Channel)).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {uiText(property === "offland" && value === "direct" ? "官網・6 人包棟" : label)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button variant="ghost" size="icon" className="size-8" aria-label={uiText("更新未售房況")} disabled={loading} onClick={() => setRefresh(v => v + 1)}><RefreshCw className={cn("size-4", loading && "animate-spin")} /></Button>
-          {!PAYMENT_SANDBOX && canPrice && ["owner","admin","god"].includes(role) && <Button variant="outline" size="sm" disabled={priceRefreshing} onClick={()=>void refreshPrices()}><RefreshCw className={cn("size-4",priceRefreshing && "animate-spin")} />{priceRefreshing ? "正在抓取價格…" : "更新 OwlNest 價格"}</Button>}
-        </div>
-      </div>
-      {priceRefreshMessage && <p role={priceRefreshError ? "alert" : "status"} className={cn("text-xs",priceRefreshError ? "text-destructive" : "text-muted-foreground")}>{priceRefreshMessage}<button type="button" aria-label={uiText("關閉")} className="ml-2 px-2" onClick={()=>setPriceRefreshMessage("")}>×</button></p>}
-      {!PAYMENT_SANDBOX && <p className="text-[0.6875rem] text-muted-foreground" aria-label={uiText("房價上次更新時間")}>{uiText("房價更新")}{data?.pricing_observed_at ? new Intl.DateTimeFormat("zh-TW", { timeZone:"Asia/Taipei", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" }).format(new Date(data.pricing_observed_at)) : uiText("讀取中")}</p>}
-      <div className="flex items-center gap-3 text-xs" aria-label={uiText("未售房況摘要")}>
-        <span>{uiText("未售")}<strong className="tabular-nums">{loading ? "—" : data?.counts.available ?? 0}</strong></span>
-        <span className="text-muted-foreground">{uiText("暫留／封房")}<strong className="tabular-nums">{loading ? "—" : (data?.counts.held ?? 0) + (data?.counts.blocked ?? 0) + (data?.counts.maintenance ?? 0)}</strong></span>
-        <span className="text-amber-700">{uiText("待確認")}<strong className="tabular-nums">{loading ? "—" : (data?.counts.unknown ?? 0) + (data?.counts.conflict ?? 0)}</strong></span>
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex gap-2">
-          <Button
-            size="sm"
-            variant={onlyAvailable ? "outline" : "secondary"}
-            onClick={() => setOnlyAvailable(false)}
-          >
-            {uiText("未售與待處理")}</Button>
-          <Button
-            size="sm"
-            variant={onlyAvailable ? "secondary" : "outline"}
-            onClick={() => setOnlyAvailable(true)}
-          >
-            {uiText("只看未售")}</Button>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="relative hidden sm:block">
-            <Search className="absolute left-2 top-2.5 size-4 text-muted-foreground" />
-            <Input
-              className="h-9 w-44 pl-8"
-              aria-label={uiText("搜尋房號或狀態")}
-              placeholder={uiText("房號或狀態")}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+      <div className="rounded-xl border bg-card p-2 shadow-sm sm:p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="hidden items-center gap-1 md:flex">
+            <Button variant="ghost" size="icon" aria-label={uiText("上一個未售區間")} onClick={() => move(-1)}>
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => { setAnchor(localTodayIso()); setMonthJump(v => v + 1); }}>
+              {uiText("今天")}
+            </Button>
+            <Button variant="ghost" size="icon" aria-label={uiText("下一個未售區間")} onClick={() => move(1)}>
+              <ChevronRight className="size-4" />
+            </Button>
+            <span className="ml-2 text-sm font-semibold">{uiText(period.label)}</span>
           </div>
-          {availabilityFeatures.pricingReview && canPrice && (
-            <Button
-              size="sm"
-              disabled={!periodReady || busy}
-              onClick={() => void action(() => previewRange())}
-            >
-              <Sparkles className="size-4" />
-              {uiText("預演此區間調價")}</Button>
-          )}
-        </div>
-      </div>
-      <div aria-label={uiText("銷售機率圖例")} className="flex flex-wrap gap-x-3 gap-y-1 text-[0.625rem] leading-4">
-        <span className="text-red-800">{uiText("● 高 ≥60%")}</span>
-        <span className="text-emerald-800" title={uiText("40% 至未滿 60%")}>{uiText("● 中 40–60%")}</span>
-        <span className="text-blue-800">{uiText("● 低 <40%")}</span>
-        <span className="text-slate-500">{uiText("● 未提供")}</span>
-      </div>
-      {availabilityFeatures.demoPriceCycles && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-card p-3">
-          <div className="mr-auto">
-            <p className="text-xs font-medium sm:text-sm">
-              {uiText("房價約每 3–5 天更新")}</p>
-            <p className="mt-1 hidden text-xs text-muted-foreground sm:block">
-              {uiText("約每 3–5 天調整未售房晚，涵蓋至少未來 90 天。每晚、每通路各有價格。")}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={room} onValueChange={setRoom}>
+              <SelectTrigger className="w-28" aria-label={uiText("篩選房間")}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{uiText("全部房間")}</SelectItem>
+                {config.roomNames.map((value) => <SelectItem key={value} value={value}>{value}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Select value={channel} onValueChange={(value) => setChannel(value as Channel)}>
+              <SelectTrigger className="w-32" aria-label={uiText("售價通路")}><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {Object.entries(channelLabels).filter(([value]) => config.channels.includes(value as Channel)).map(([value, label]) => (
+                  <SelectItem key={value} value={value}>
+                    {uiText(property === "offland" && value === "direct" ? "官網・6 人包棟" : label)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="ghost" size="icon" className="size-8" aria-label={uiText("更新未售房況")} disabled={loading} onClick={() => setRefresh(value => value + 1)}>
+              <RefreshCw className={cn("size-4", loading && "animate-spin")} />
+            </Button>
           </div>
-          <Select
-            value={String(cycle)}
-            onValueChange={(v) => {
-              setCycle(Number(v) as 1 | 2);
-              setQuote(null);
-              setPreview(null);
-            }}
-          >
-            <SelectTrigger className="w-44" aria-label={uiText("示範調價輪次")}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="1">{uiText("示範第 1 輪價格")}</SelectItem>
-              <SelectItem value="2">{uiText("模擬第 2 輪價格")}</SelectItem>
-            </SelectContent>
-          </Select>
         </div>
-      )}
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t pt-2">
+          <div className="flex gap-1" role="group" aria-label={uiText("未售房況範圍")}>
+            <Button size="sm" variant={onlyAvailable ? "ghost" : "secondary"} aria-pressed={!onlyAvailable} onClick={() => setOnlyAvailable(false)}>
+              {uiText("未售與待處理")}
+            </Button>
+            <Button size="sm" variant={onlyAvailable ? "secondary" : "ghost"} aria-pressed={onlyAvailable} onClick={() => setOnlyAvailable(true)}>
+              {uiText("只看未售")}
+            </Button>
+          </div>
+          <div className="flex items-center gap-3 text-xs" aria-label={uiText("未售房況摘要")}>
+            <span className="whitespace-nowrap font-medium">{uiText("未售")} <strong className="tabular-nums">{availableCount ?? "—"}</strong></span>
+            {reviewCount != null && reviewCount > 0 && <span className="whitespace-nowrap text-amber-700">{uiText("待確認")} <strong className="tabular-nums">{reviewCount}</strong></span>}
+          </div>
+        </div>
+      </div>
+      {priceRefreshMessage && <p role={priceRefreshError ? "alert" : "status"} className={cn("text-xs", priceRefreshError ? "text-destructive" : "text-muted-foreground")}>{priceRefreshMessage}<button type="button" aria-label={uiText("關閉")} className="ml-2 px-2" onClick={() => setPriceRefreshMessage("")}>×</button></p>}
+      <details className="group rounded-xl border bg-card">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2.5 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+          <SlidersHorizontal className="size-4 text-muted-foreground" aria-hidden="true" />
+          <span className="flex-1">{uiText("更多選項與說明")}</span>
+          {search.trim() && <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">{uiText("搜尋中")}</span>}
+          <span className="text-xs text-muted-foreground group-open:hidden">{uiText("展開")}</span>
+          <span className="hidden text-xs text-muted-foreground group-open:inline">{uiText("收起")}</span>
+        </summary>
+        <div className="grid gap-4 border-t p-3 sm:grid-cols-2">
+          <div className="space-y-3">
+            <div className="relative">
+              <Search className="absolute left-2 top-2.5 size-4 text-muted-foreground" aria-hidden="true" />
+              <Input className="h-9 pl-8" aria-label={uiText("搜尋房號或狀態")} placeholder={uiText("搜尋房號或狀態")} value={search} onChange={(event) => setSearch(event.target.value)} />
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {!PAYMENT_SANDBOX && canPrice && ["owner", "admin", "god"].includes(role) && (
+                <Button variant="outline" size="sm" disabled={priceRefreshing} onClick={() => void refreshPrices()}>
+                  <RefreshCw className={cn("size-4", priceRefreshing && "animate-spin")} />
+                  {priceRefreshing ? uiText("正在抓取價格…") : uiText("更新 OwlNest 價格")}
+                </Button>
+              )}
+              {availabilityFeatures.pricingReview && canPrice && (
+                <Button size="sm" disabled={!periodReady || busy} onClick={() => void action(() => previewRange())}>
+                  <Sparkles className="size-4" />{uiText("預演此區間調價")}
+                </Button>
+              )}
+            </div>
+            {!PAYMENT_SANDBOX && <p className="text-xs text-muted-foreground" aria-label={uiText("房價上次更新時間")}>
+              {uiText("房價更新：")}{data?.pricing_observed_at ? new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(data.pricing_observed_at)) : uiText("讀取中")}
+            </p>}
+            {availabilityFeatures.demoPriceCycles && (
+              <div className="space-y-2 rounded-lg border bg-muted/25 p-3">
+                <p className="text-xs text-muted-foreground">{uiText("示範資料：房價約每 3–5 天更新，涵蓋未來 90 天。")}</p>
+                <Select value={String(cycle)} onValueChange={(value) => { setCycle(Number(value) as 1 | 2); setQuote(null); setPreview(null); }}>
+                  <SelectTrigger className="w-44" aria-label={uiText("示範調價輪次")}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">{uiText("示範第 1 輪價格")}</SelectItem>
+                    <SelectItem value="2">{uiText("模擬第 2 輪價格")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+          <div className="space-y-3 text-xs">
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-muted-foreground">
+              <span>{uiText("暫留／封房")} <strong className="tabular-nums">{heldCount ?? "—"}</strong></span>
+              <span>{uiText("待確認")} <strong className="tabular-nums">{reviewCount ?? "—"}</strong></span>
+            </div>
+            <div aria-label={uiText("銷售機率圖例")}>
+              <p className="mb-1 font-medium text-foreground">{uiText("銷售機率")}</p>
+              <div className="flex flex-wrap gap-x-3 gap-y-1 leading-4">
+                <span className="text-red-800">{uiText("● 高 ≥60%")}</span>
+                <span className="text-emerald-800" title={uiText("40% 至未滿 60%")}>{uiText("● 中 40–60%")}</span>
+                <span className="text-blue-800">{uiText("● 低 <40%")}</span>
+                <span className="text-slate-500">{uiText("● 未提供")}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </details>
       {PAYMENT_SANDBOX && <p className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-950">
         {uiText("假資料預覽 ·")}{channelLabels[channel]}{" "}
         {uiText("示範售價，建議未發布。尚未接入正式房況與定價引擎。")}</p>}

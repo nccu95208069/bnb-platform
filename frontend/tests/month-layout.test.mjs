@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fitMonthWeekLanes, layoutMonthWeek, monthBookingFontSize, monthBookingTwoLine } from '../src/components/calendar/month-layout.ts';
+import { fitMonthWeekLanes, layoutMonthWeek, monthBookingFontSize, monthBookingTwoLine, monthWeekHeightForSpacing, normalizeMonthWeekSpacing, unsoldMonthRoomLimits } from '../src/components/calendar/month-layout.ts';
 const days = ['2026-11-09','2026-11-10','2026-11-11','2026-11-12','2026-11-13','2026-11-14','2026-11-15'];
 const stay = (id, room, start, end) => ({id, property_name:'Test', room_number:room, check_in:start, check_out:end});
 test('tall week cells use all available booking rows instead of stopping at two', () => {
@@ -53,6 +53,32 @@ test('two-line week capacity reserves space for a second text row and overflow',
   const used = (24 + shown * 34 + (shown < lanes ? 16 : 0)) * scale;
   assert.ok(used <= weekHeight, `${shown}/${lanes} two-line rows must fit`);
  }
+});
+test('week-spacing slider reveals additional bookings and its final stop removes overflow', () => {
+ for (const twoLine of [false, true]) {
+  const scale = twoLine ? 1.3 : 1;
+  const laneCount = 12;
+  const baseHeight = 110 * scale;
+  const visible = Array.from({length: 7}, (_, spacing) => {
+   const height = monthWeekHeightForSpacing(baseHeight, laneCount, scale, twoLine, spacing);
+   return fitMonthWeekLanes(height, laneCount, scale, twoLine);
+  });
+  for (let step = 1; step < 6; step++) {
+   assert.equal(visible[step], visible[0] + step, `step ${step} should reveal one more booking row`);
+  }
+  assert.equal(visible[6], laneCount, 'the final setting must show every booking');
+ }
+});
+test('stored week spacing is bounded before it affects layout', () => {
+ assert.equal(normalizeMonthWeekSpacing(undefined), 0);
+ assert.equal(normalizeMonthWeekSpacing('6'), 0);
+ assert.equal(normalizeMonthWeekSpacing(-8), 0);
+ assert.equal(normalizeMonthWeekSpacing(100), 6);
+});
+test('the same spacing control reveals unsold room cards on mobile and desktop', () => {
+ assert.deepEqual(unsoldMonthRoomLimits(0), {mobile:2,desktop:3});
+ assert.deepEqual(unsoldMonthRoomLimits(2), {mobile:4,desktop:5});
+ assert.deepEqual(unsoldMonthRoomLimits(6), {mobile:Infinity,desktop:Infinity});
 });
 test('two-night stay is one segment across Saturday/Sunday', () => {
  const [s] = layoutMonthWeek([stay('a','villa',days[5],'2026-11-16')],days,'2026-11-16');

@@ -9,7 +9,7 @@ import { useMonthPosition } from "./use-month-position";
 import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
 import { GuestRemarks, remarksFor, BookingIdentity, bookingIdentityText, realGuestName } from "./booking-identity";
-import { fitMonthWeekLanes, layoutMonthWeek, monthBookingFontSize, monthBookingTwoLine } from "./month-layout";
+import { fitMonthWeekLanes, layoutMonthWeek, monthBookingFontSize, monthBookingTwoLine, monthWeekHeightForSpacing } from "./month-layout";
 import { useCalendarPreferences } from "./calendar-preferences";
 import { cn } from "@/lib/utils";
 
@@ -171,6 +171,7 @@ const uiLocale = useIntlLocale();
   const weeks = chunkWeeks(dateRange(period.start, period.end));
   const expandedWeeks = useCalendarPreferences((s) => s.expandedWeeks);
   const setExpandedWeeks = useCalendarPreferences((s) => s.setExpandedWeeks);
+  const monthWeekSpacing = useCalendarPreferences((s) => s.monthWeekSpacing);
   const twoLine = monthBookingTwoLine(fontScale, desktop);
   const baseWeekHeight = Math.max(60 * fontScale, Math.floor((viewportHeight - 58 * fontScale) / weeks.length));
   const monthBookings = bookings.filter(
@@ -229,9 +230,7 @@ const uiLocale = useIntlLocale();
         const expanded = expandedWeeks.includes(weekKey);
         const segments = layoutMonthWeek(monthBookings, week, addDays(week[6], 1));
         const laneCount = Math.max(0, ...segments.map(s => s.lane + 1));
-        const weekHeight = twoLine
-          ? Math.max(baseWeekHeight, (laneCount > 2 ? 110 : laneCount === 2 ? 94 : 60) * fontScale)
-          : baseWeekHeight;
+        const weekHeight = monthWeekHeightForSpacing(baseWeekHeight, laneCount, fontScale, twoLine, monthWeekSpacing);
         const defaultLimit = fitMonthWeekLanes(weekHeight, laneCount, fontScale, twoLine);
         const limit = expanded ? Number.POSITIVE_INFINITY : defaultLimit;
         const weekHasOverflow = laneCount > defaultLimit;
