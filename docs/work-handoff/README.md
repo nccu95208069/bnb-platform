@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-14 settings candidate: [grouped Sweetfun OS settings, browser-persisted light/dark mode and font size, validation, and release boundary](SETTINGS_APPEARANCE_2026-10-14.md). This is a candidate based on the published OS beta branch; the live site is unchanged.
+
 2026-10-12 BETA self-service correction: [owner-led website admission without preregistered email, confirmed static-source inventory gate, connected-calendar gaps, and deployment order](BETA_SELF_SERVICE_OS_ADMISSION_2026-10-12.md). A pending Studio UUID site can be approved by a newly verified owner with sales off; a confirmed ICS, Sheet, CSV or Excel snapshot can share inventory only when its coverage contains the entire advertised period and the owner acknowledges manual updates.
 
 2026-10-12 BETA-02/03 pilots: [愉園 and 蘭城 Booking.com source options, physical-room questions, and separate calendar acceptance](BETA_PILOTS_YUYUAN_LANCHENG_2026-10-12.md). Public labels are not room inventory; both owner mappings and real source samples await verification. Sales remain disabled.

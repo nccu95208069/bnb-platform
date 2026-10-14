@@ -4,6 +4,14 @@
 
 @custom-variant dark (&:is(.dark *));
 
+html {
+  font-size: var(--sweetfun-root-size, 16px);
+}
+
+html.dark {
+  color-scheme: dark;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -123,6 +131,63 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* Older OS screens use fixed light Tailwind colors. Map their common surfaces
+   to the same dark tokens as the newer components until each screen is migrated. */
+html.dark :is(.bg-white, .bg-slate-50, .bg-slate-100, .bg-stone-50, .bg-stone-100) {
+  background-color: var(--card);
+}
+html.dark :is(.text-slate-900, .text-slate-800, .text-slate-700) {
+  color: var(--foreground);
+}
+html.dark :is(.text-slate-600, .text-slate-500, .text-slate-400) {
+  color: var(--muted-foreground);
+}
+html.dark :is(.border-slate-100, .border-slate-200, .border-slate-300, .border-stone-100, .border-stone-200) {
+  border-color: var(--border);
+}
+html.dark :is(.bg-amber-50, .bg-amber-100) {
+  background-color: color-mix(in oklab, #78350f 32%, var(--card));
+}
+html.dark :is(.text-amber-700, .text-amber-800, .text-amber-900, .text-amber-950) {
+  color: #fcd34d;
+}
+html.dark :is(.bg-red-50, .bg-red-100) {
+  background-color: color-mix(in oklab, #7f1d1d 30%, var(--card));
+}
+html.dark :is(.text-red-600, .text-red-700, .text-red-800, .text-red-900) {
+  color: #fca5a5;
+}
+html.dark :is(.bg-teal-50, .bg-teal-100) {
+  background-color: color-mix(in oklab, #134e4a 35%, var(--card));
+}
+html.dark :is(.text-teal-700, .text-teal-800, .text-teal-900, .text-teal-950) {
+  color: #5eead4;
+}
+html.dark :is(.bg-emerald-50, .bg-emerald-100, .bg-green-100) {
+  background-color: color-mix(in oklab, #064e3b 35%, var(--card));
+}
+html.dark :is(.text-emerald-800, .text-emerald-900, .text-emerald-950, .text-green-600, .text-green-700) {
+  color: #6ee7b7;
+}
+html.dark :is(.bg-blue-100, .bg-purple-100) {
+  background-color: color-mix(in oklab, #1e3a8a 30%, var(--card));
+}
+html.dark :is(.text-blue-700, .text-blue-800, .text-blue-900, .text-purple-900) {
+  color: #93c5fd;
+}
+html.dark :is(.bg-rose-50, .bg-rose-100) {
+  background-color: color-mix(in oklab, #881337 30%, var(--card));
+}
+html.dark :is(.text-rose-800, .text-rose-900) {
+  color: #fda4af;
+}
+html.dark :is(.bg-orange-100, .bg-yellow-100) {
+  background-color: color-mix(in oklab, #78350f 32%, var(--card));
+}
+html.dark :is(.text-orange-900, .text-yellow-900) {
+  color: #fcd34d;
 }
 
 /* Month headers use Monday–Sunday. Only Saturday and Sunday receive weekend emphasis. */
