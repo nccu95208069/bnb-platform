@@ -11,7 +11,7 @@ import { availabilityFeatures } from "@/lib/availability-features";
 import { PricePair, roomNightStyle } from "./availability-presentation";
 import { useMonthPosition } from "./use-month-position";
 import { useCalendarPreferences } from "./calendar-preferences";
-import { unsoldMonthRoomLimits } from "./month-layout";
+import { manualMonthWeekMinHeight, unsoldMonthRoomLimits } from "./month-layout";
 import { addDays, addMonths, formatMonthLabel, localTodayIso, WEEKDAY_LABELS, monthStarts } from "./calendar-utils";
 
 const MONTHS = monthStarts("2025-01-01", 36);
@@ -20,7 +20,7 @@ type Props = {
  search:string; onlyAvailable:boolean; onVisibleMonth:(month:string)=>void;
  onSelect:(cell:RoomNight)=>void; onSelectDay:(day:string)=>void;
 };
-function MonthPanel({month,root,props}: {month:string;root:RefObject<HTMLDivElement|null>;props:Props}) {
+function MonthPanel({month,root,props,viewportHeight}: {month:string;root:RefObject<HTMLDivElement|null>;props:Props;viewportHeight:number}) {
 const uiLocale = useIntlLocale();
 
   const uiText = useT();
@@ -29,8 +29,10 @@ const uiLocale = useIntlLocale();
  const [near,setNear]=useState(false),[data,setData]=useState<AvailabilityResult|null>(null),[error,setError]=useState(false),[retry,setRetry]=useState(0);
  const {property,room,channel,cycle,refresh,search,onlyAvailable}=props;
  const expandedWeeks=useCalendarPreferences(s=>s.expandedWeeks),setExpandedWeeks=useCalendarPreferences(s=>s.setExpandedWeeks);
- const monthWeekSpacing=useCalendarPreferences(s=>s.monthWeekSpacing);
- const {mobile:mobileLimit,desktop:desktopLimit}=unsoldMonthRoomLimits(monthWeekSpacing);
+ const monthWeekAuto=useCalendarPreferences(s=>s.monthWeekAuto);
+ const monthWeekDensity=useCalendarPreferences(s=>s.monthWeekDensity);
+ const {mobile:mobileLimit,desktop:desktopLimit}=unsoldMonthRoomLimits(monthWeekAuto,monthWeekDensity);
+ const manualWeekHeight=monthWeekAuto?undefined:Math.max(96,manualMonthWeekMinHeight(viewportHeight,monthWeekDensity));
  const period=useMemo(()=>({start:month,end:addMonths(month,1)}),[month]);
  const monthDays=useMemo(()=>{
   const weekday=(new Date(month+"T12:00Z").getUTCDay()+6)%7;
@@ -91,6 +93,7 @@ const uiLocale = useIntlLocale();
                         <div
                           data-unsold-date={day}
                           data-position-date={day}
+                          style={{ minHeight: manualWeekHeight }}
                           className={cn(
                             "min-h-44 border-b border-r p-1 sm:p-2",
                             !inMonth && "bg-muted/25",
@@ -207,13 +210,16 @@ export function UnsoldMonthScroller(props:Props) {
   const uiText = useT();
 
  const root=useRef<HTMLDivElement>(null);
+ const [viewportHeight,setViewportHeight]=useState(520);
  useLayoutEffect(()=>{
   const container=root.current;if(!container)return;
   let frame=0;
   const measure=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{
    const height=window.visualViewport?.height ?? window.innerHeight;
    const top=container.getBoundingClientRect().top;
-   container.style.height=`${Math.max(280,height-Math.max(0,top)-8)}px`;
+   const measuredHeight=Math.max(280,height-Math.max(0,top)-8);
+   container.style.height=`${measuredHeight}px`;
+   setViewportHeight(measuredHeight);
   });};
   measure();
   const observer=new ResizeObserver(measure);
@@ -224,6 +230,6 @@ export function UnsoldMonthScroller(props:Props) {
  const historyRevision=useCalendarPreferences(s=>s.historyRevision);
  useMonthPosition(root,props.anchor,props.jump+historyRevision,props.onVisibleMonth);
  return <div ref={root} style={{overflowAnchor:"none"}} role="region" aria-label={uiText("未售月曆，可上下捲動月份")} tabIndex={0} className="h-[calc(100dvh-280px)] min-h-[280px] overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm">
-  {MONTHS.map(month=><MonthPanel key={month} month={month} root={root} props={props}/>)}
+  {MONTHS.map(month=><MonthPanel key={month} month={month} root={root} props={props} viewportHeight={viewportHeight}/>)}
  </div>;
 }

@@ -17,19 +17,46 @@ export function monthBookingTwoLine(fontScale: number, desktop = false): boolean
   return !desktop && fontScale >= 1.15;
 }
 
-export const MAX_MONTH_WEEK_SPACING = 6;
+export const MAX_MONTH_WEEK_DENSITY = 6;
+export const DEFAULT_MONTH_WEEK_DENSITY = 3;
 
-export function normalizeMonthWeekSpacing(value: unknown): number {
+// Left is spacious, right is compact. The first stop occupies at least 62%
+// of the scroll viewport, so only about one or two weeks fit at a time.
+const WEEK_HEIGHT_FRACTIONS = [0.62, 0.53, 0.44, 0.36, 0.29, 0.22, 0.16] as const;
+
+export function normalizeMonthWeekDensity(value: unknown): number {
   return typeof value === "number" && Number.isInteger(value)
-    ? Math.min(MAX_MONTH_WEEK_SPACING, Math.max(0, value))
-    : 0;
+    ? Math.min(MAX_MONTH_WEEK_DENSITY, Math.max(0, value))
+    : DEFAULT_MONTH_WEEK_DENSITY;
 }
 
-export function unsoldMonthRoomLimits(spacing: number): { mobile: number; desktop: number } {
-  const level = normalizeMonthWeekSpacing(spacing);
-  return level === MAX_MONTH_WEEK_SPACING
-    ? { mobile: Number.POSITIVE_INFINITY, desktop: Number.POSITIVE_INFINITY }
-    : { mobile: 2 + level, desktop: 3 + level };
+export function restoredMonthWeekDensity(saved: {
+  monthWeekAuto?: unknown;
+  monthWeekDensity?: unknown;
+  monthWeekSpacing?: unknown;
+} | undefined): { automatic: boolean; density: number } {
+  // Before the separate Auto control, zero meant automatic and six meant all.
+  const legacySpacing = typeof saved?.monthWeekSpacing === "number" && Number.isInteger(saved.monthWeekSpacing)
+    ? Math.min(6, Math.max(0, saved.monthWeekSpacing))
+    : 0;
+  return {
+    automatic: typeof saved?.monthWeekAuto === "boolean" ? saved.monthWeekAuto : legacySpacing === 0,
+    density: saved?.monthWeekDensity === undefined
+      ? legacySpacing > 0 ? 6 - legacySpacing : DEFAULT_MONTH_WEEK_DENSITY
+      : normalizeMonthWeekDensity(saved.monthWeekDensity),
+  };
+}
+
+export function manualMonthWeekMinHeight(viewportHeight: number, density: number): number {
+  return Math.ceil(viewportHeight * WEEK_HEIGHT_FRACTIONS[normalizeMonthWeekDensity(density)]);
+}
+
+export function unsoldMonthRoomLimits(automatic: boolean, density: number): { mobile: number; desktop: number } {
+  if (automatic) return { mobile: 2, desktop: 3 };
+  const level = normalizeMonthWeekDensity(density);
+  const mobile = [Infinity, 8, 6, 4, 3, 2, 1];
+  const desktop = [Infinity, 9, 7, 5, 4, 3, 2];
+  return { mobile: mobile[level], desktop: desktop[level] };
 }
 
 // The date, booking, and overflow rows scale with the root font preference,
@@ -41,26 +68,36 @@ export function fitMonthWeekLanes(weekHeight: number, laneCount: number, fontSca
   return Math.max(1, Math.floor((weekHeight - 40 * fontScale) / laneHeight));
 }
 
-// Each step makes room for one more booking lane. The last step fits every
-// lane, so the overflow control disappears even on unusually busy weeks.
-export function monthWeekHeightForSpacing(
-  baseWeekHeight: number,
-  laneCount: number,
-  fontScale: number,
-  twoLine: boolean,
-  spacing: number,
-): number {
+export function monthWeekHeightForDensity({
+  baseWeekHeight,
+  viewportHeight,
+  laneCount,
+  fontScale,
+  twoLine,
+  automatic,
+  density,
+}: {
+  baseWeekHeight: number;
+  viewportHeight: number;
+  laneCount: number;
+  fontScale: number;
+  twoLine: boolean;
+  automatic: boolean;
+  density: number;
+}): number {
   const minimum = twoLine ? laneCount > 2 ? 110 : laneCount === 2 ? 94 : 60 : 60;
   const automaticHeight = Math.max(baseWeekHeight, minimum * fontScale);
-  const level = normalizeMonthWeekSpacing(spacing);
-  if (level === 0 || laneCount === 0) return automaticHeight;
-  const automaticLanes = fitMonthWeekLanes(automaticHeight, laneCount, fontScale, twoLine);
-  const wantedLanes = level === MAX_MONTH_WEEK_SPACING
-    ? laneCount
-    : Math.min(laneCount, automaticLanes + level);
+  if (automatic) return automaticHeight;
   const rowHeight = twoLine ? 34 : 20;
-  const neededHeight = Math.ceil((wantedLanes < laneCount ? 40 : 24) * fontScale + wantedLanes * rowHeight * fontScale) + 1;
-  return Math.max(automaticHeight, neededHeight);
+  const level = normalizeMonthWeekDensity(density);
+  const minimumVisibleHeight = Math.ceil((laneCount > 1 ? 40 + rowHeight : 24 + rowHeight) * fontScale) + 1;
+  const allLanesHeight = Math.ceil((24 + laneCount * rowHeight) * fontScale) + 1;
+  return Math.max(
+    60 * fontScale,
+    manualMonthWeekMinHeight(viewportHeight, level),
+    laneCount > 0 ? minimumVisibleHeight : 0,
+    level === 0 ? allLanesHeight : 0,
+  );
 }
 
 // Allocate the entire visible stay at once, so it cannot jump vertically or

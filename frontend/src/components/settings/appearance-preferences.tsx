@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useTheme } from "next-themes";
 import { useT } from "@/components/i18n/language-provider";
 import { useCalendarPreferences } from "@/components/calendar/calendar-preferences";
-import { MAX_MONTH_WEEK_SPACING } from "@/components/calendar/month-layout";
+import { MAX_MONTH_WEEK_DENSITY } from "@/components/calendar/month-layout";
 import { cn } from "@/lib/utils";
 
 const STORAGE_KEY = "sweetfun-font-scale";
@@ -36,18 +36,18 @@ const MODES = [
   { id: "system", label: "跟隨系統", Icon: Monitor },
 ] as const;
 
+const WEEK_DENSITY_LABELS = ["最寬鬆", "寬鬆", "稍寬鬆", "適中", "稍緊密", "緊密", "最緊密"] as const;
+
 export function AppearancePreferences() {
   const t = useT();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [fontScale, setFontScale] = useState(100);
-  const monthWeekSpacing = useCalendarPreferences((state) => state.monthWeekSpacing);
-  const setMonthWeekSpacing = useCalendarPreferences((state) => state.setMonthWeekSpacing);
-  const weekSpacingLabel = monthWeekSpacing === 0
-    ? t("自動")
-    : monthWeekSpacing === MAX_MONTH_WEEK_SPACING
-      ? t("全部顯示")
-      : t("增加 {0} 列", [monthWeekSpacing]);
+  const monthWeekAuto = useCalendarPreferences((state) => state.monthWeekAuto);
+  const setMonthWeekAuto = useCalendarPreferences((state) => state.setMonthWeekAuto);
+  const monthWeekDensity = useCalendarPreferences((state) => state.monthWeekDensity);
+  const setMonthWeekDensity = useCalendarPreferences((state) => state.setMonthWeekDensity);
+  const weekDensityLabel = monthWeekAuto ? t("自動") : t(WEEK_DENSITY_LABELS[monthWeekDensity]);
 
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
@@ -132,40 +132,40 @@ export function AppearancePreferences() {
       <div className="border-t border-border pt-6">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <label htmlFor="sweetfun-month-week-spacing" className="text-base font-semibold">{t("月曆每週間距")}</label>
-          <span className="text-sm font-semibold" aria-live="polite">{weekSpacingLabel}</span>
+          <span className="text-sm font-semibold" aria-live="polite">{weekDensityLabel}</span>
         </div>
         <p className="mt-1 text-sm leading-6 text-muted-foreground">
-          {t("拉高每週可顯示更多訂單與未售房間；最右端會顯示全部。月曆會隨之變長。")}
+          {t("向左調得更寬鬆，最寬鬆時一個畫面約顯示 1–2 週；向右則更緊密。")}
         </p>
+        <label htmlFor="sweetfun-month-week-auto" className="mt-4 inline-flex cursor-pointer items-center gap-2 text-sm font-medium">
+          <input
+            id="sweetfun-month-week-auto"
+            type="checkbox"
+            checked={monthWeekAuto}
+            onChange={(event) => setMonthWeekAuto(event.target.checked)}
+            className="size-4 accent-primary"
+          />
+          {t("自動調整")}
+        </label>
         <input
           id="sweetfun-month-week-spacing"
           type="range"
           min={0}
-          max={MAX_MONTH_WEEK_SPACING}
+          max={MAX_MONTH_WEEK_DENSITY}
           step={1}
-          value={monthWeekSpacing}
-          onChange={(event) => setMonthWeekSpacing(Number(event.target.value))}
-          aria-valuetext={weekSpacingLabel}
-          className="mt-5 w-full accent-primary"
+          value={monthWeekDensity}
+          onChange={(event) => setMonthWeekDensity(Number(event.target.value))}
+          disabled={monthWeekAuto}
+          aria-valuetext={t(WEEK_DENSITY_LABELS[monthWeekDensity])}
+          className="mt-4 w-full accent-primary disabled:cursor-not-allowed disabled:opacity-40"
         />
         <div className="mt-1 flex justify-between text-xs text-muted-foreground" aria-hidden="true">
-          <span>{t("自動")}</span>
-          <span>{t("全部顯示")}</span>
+          <span>{t("寬鬆")}</span>
+          <span>{t("緊密")}</span>
         </div>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-background px-4 py-3">
-          <Link href="/calendar" className="text-sm font-medium text-foreground underline-offset-4 hover:underline">
-            {t("前往日曆查看效果")}
-          </Link>
-          <button
-            type="button"
-            onClick={() => setMonthWeekSpacing(0)}
-            disabled={monthWeekSpacing === 0}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground underline-offset-4 hover:underline disabled:cursor-default disabled:opacity-45"
-          >
-            <RotateCcw className="size-3.5" aria-hidden="true" />
-            {t("恢復自動")}
-          </button>
-        </div>
+        <Link href="/calendar" className="mt-4 inline-block text-sm font-medium text-foreground underline-offset-4 hover:underline">
+          {t("前往日曆查看效果")}
+        </Link>
       </div>
     </div>
   );

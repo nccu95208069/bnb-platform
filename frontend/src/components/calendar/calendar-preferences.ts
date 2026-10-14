@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { localTodayIso } from "./calendar-utils";
-import { normalizeMonthWeekSpacing } from "./month-layout";
+import { DEFAULT_MONTH_WEEK_DENSITY, normalizeMonthWeekDensity, restoredMonthWeekDensity } from "./month-layout";
 import type { Mission } from "@/lib/payment-workflow";
 import type { Channel, PricingPreview } from "@/lib/availability";
 import type { CalendarProperty, CalendarView } from "./calendar-types";
@@ -18,8 +18,10 @@ type CalendarNavigationRequest = {
 
 type CalendarPreferenceState = {
   expandedWeeks: string[];
-  monthWeekSpacing: number;
-  setMonthWeekSpacing: (value: number) => void;
+  monthWeekAuto: boolean;
+  setMonthWeekAuto: (value: boolean) => void;
+  monthWeekDensity: number;
+  setMonthWeekDensity: (value: number) => void;
   setExpandedWeeks: (
     value: string[] | ((current: string[]) => string[]),
   ) => void;
@@ -73,8 +75,10 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
   persist(
     (set) => ({
       expandedWeeks: [],
-      monthWeekSpacing: 0,
-      setMonthWeekSpacing: (value) => set({ monthWeekSpacing: normalizeMonthWeekSpacing(value) }),
+      monthWeekAuto: true,
+      setMonthWeekAuto: (value) => set({ monthWeekAuto: value }),
+      monthWeekDensity: DEFAULT_MONTH_WEEK_DENSITY,
+      setMonthWeekDensity: (value) => set({ monthWeekDensity: normalizeMonthWeekDensity(value) }),
       setExpandedWeeks: (value) =>
         set((s) => ({
           expandedWeeks:
@@ -167,11 +171,13 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
       name: "sweetfun-os-calendar-preferences",
       // Older storage includes anchorDate. Ignore it while retaining filters.
       merge: (persisted, current) => {
-        const saved = persisted as Partial<CalendarPreferenceState> | undefined;
+        const saved = persisted as (Partial<CalendarPreferenceState> & { monthWeekSpacing?: unknown }) | undefined;
+        const weekDensity = restoredMonthWeekDensity(saved);
         return {
           ...current,
           ...saved,
-          monthWeekSpacing: normalizeMonthWeekSpacing(saved?.monthWeekSpacing),
+          monthWeekAuto: weekDensity.automatic,
+          monthWeekDensity: weekDensity.density,
           anchorDate: current.anchorDate,
         };
       },
@@ -182,7 +188,8 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
         availabilityCycle: state.availabilityCycle,
         availabilityChannel: state.availabilityChannel,
         availabilityRoom: state.availabilityRoom,
-        monthWeekSpacing: state.monthWeekSpacing,
+        monthWeekAuto: state.monthWeekAuto,
+        monthWeekDensity: state.monthWeekDensity,
       }),
     },
   ),

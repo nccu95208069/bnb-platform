@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fitMonthWeekLanes, layoutMonthWeek, monthBookingFontSize, monthBookingTwoLine, monthWeekHeightForSpacing, normalizeMonthWeekSpacing, unsoldMonthRoomLimits } from '../src/components/calendar/month-layout.ts';
+import { fitMonthWeekLanes, layoutMonthWeek, manualMonthWeekMinHeight, monthBookingFontSize, monthBookingTwoLine, monthWeekHeightForDensity, normalizeMonthWeekDensity, restoredMonthWeekDensity, unsoldMonthRoomLimits } from '../src/components/calendar/month-layout.ts';
 const days = ['2026-11-09','2026-11-10','2026-11-11','2026-11-12','2026-11-13','2026-11-14','2026-11-15'];
 const stay = (id, room, start, end) => ({id, property_name:'Test', room_number:room, check_in:start, check_out:end});
 test('tall week cells use all available booking rows instead of stopping at two', () => {
@@ -54,31 +54,45 @@ test('two-line week capacity reserves space for a second text row and overflow',
   assert.ok(used <= weekHeight, `${shown}/${lanes} two-line rows must fit`);
  }
 });
-test('week-spacing slider reveals additional bookings and its final stop removes overflow', () => {
+test('manual slider runs from a one-to-two-week spacious view to a compact view', () => {
  for (const twoLine of [false, true]) {
   const scale = twoLine ? 1.3 : 1;
   const laneCount = 12;
   const baseHeight = 110 * scale;
-  const visible = Array.from({length: 7}, (_, spacing) => {
-   const height = monthWeekHeightForSpacing(baseHeight, laneCount, scale, twoLine, spacing);
-   return fitMonthWeekLanes(height, laneCount, scale, twoLine);
-  });
-  for (let step = 1; step < 6; step++) {
-   assert.equal(visible[step], visible[0] + step, `step ${step} should reveal one more booking row`);
+  const heights = Array.from({length: 7}, (_, density) => monthWeekHeightForDensity({
+   baseWeekHeight:baseHeight, viewportHeight:520, laneCount, fontScale:scale, twoLine, automatic:false, density,
+  }));
+  assert.ok(heights[0] >= 520 * 0.62, 'the loosest week should fill most of the viewport');
+  assert.equal(fitMonthWeekLanes(heights[0], laneCount, scale, twoLine), laneCount);
+  for (let step = 1; step < heights.length; step++) {
+   assert.ok(heights[step] <= heights[step-1], `moving right to step ${step} must not grow the week`);
   }
-  assert.equal(visible[6], laneCount, 'the final setting must show every booking');
+  assert.ok(heights[6] < heights[0]);
+  assert.ok(fitMonthWeekLanes(heights[6], laneCount, scale, twoLine) < laneCount);
  }
 });
-test('stored week spacing is bounded before it affects layout', () => {
- assert.equal(normalizeMonthWeekSpacing(undefined), 0);
- assert.equal(normalizeMonthWeekSpacing('6'), 0);
- assert.equal(normalizeMonthWeekSpacing(-8), 0);
- assert.equal(normalizeMonthWeekSpacing(100), 6);
+test('automatic week height retains the prior viewport-based layout', () => {
+ const height = monthWeekHeightForDensity({baseWeekHeight:140, viewportHeight:520, laneCount:12, fontScale:1, twoLine:false, automatic:true, density:0});
+ assert.equal(height,140);
 });
-test('the same spacing control reveals unsold room cards on mobile and desktop', () => {
- assert.deepEqual(unsoldMonthRoomLimits(0), {mobile:2,desktop:3});
- assert.deepEqual(unsoldMonthRoomLimits(2), {mobile:4,desktop:5});
- assert.deepEqual(unsoldMonthRoomLimits(6), {mobile:Infinity,desktop:Infinity});
+test('stored density is bounded and previous spacing preferences migrate', () => {
+ assert.equal(normalizeMonthWeekDensity(undefined),3);
+ assert.equal(normalizeMonthWeekDensity('6'),3);
+ assert.equal(normalizeMonthWeekDensity(-8),0);
+ assert.equal(normalizeMonthWeekDensity(100),6);
+ assert.deepEqual(restoredMonthWeekDensity(undefined),{automatic:true,density:3});
+ assert.deepEqual(restoredMonthWeekDensity({monthWeekSpacing:0}),{automatic:true,density:3});
+ assert.deepEqual(restoredMonthWeekDensity({monthWeekSpacing:6}),{automatic:false,density:0});
+ assert.deepEqual(restoredMonthWeekDensity({monthWeekSpacing:1}),{automatic:false,density:5});
+ assert.deepEqual(restoredMonthWeekDensity({monthWeekAuto:true,monthWeekDensity:6}),{automatic:true,density:6});
+});
+test('manual density changes unsold room capacity and minimum week height', () => {
+ assert.deepEqual(unsoldMonthRoomLimits(true,0), {mobile:2,desktop:3});
+ assert.deepEqual(unsoldMonthRoomLimits(false,0), {mobile:Infinity,desktop:Infinity});
+ assert.deepEqual(unsoldMonthRoomLimits(false,3), {mobile:4,desktop:5});
+ assert.deepEqual(unsoldMonthRoomLimits(false,6), {mobile:1,desktop:2});
+ assert.equal(manualMonthWeekMinHeight(520,0),323);
+ assert.equal(manualMonthWeekMinHeight(520,6),84);
 });
 test('two-night stay is one segment across Saturday/Sunday', () => {
  const [s] = layoutMonthWeek([stay('a','villa',days[5],'2026-11-16')],days,'2026-11-16');
