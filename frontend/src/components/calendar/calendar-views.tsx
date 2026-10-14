@@ -9,7 +9,7 @@ import { useMonthPosition } from "./use-month-position";
 import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
 import { GuestRemarks, remarksFor, BookingIdentity, bookingIdentityText, realGuestName } from "./booking-identity";
-import { fitMonthWeekLanes, layoutMonthWeek, monthBookingFontSize } from "./month-layout";
+import { fitMonthWeekLanes, layoutMonthWeek, monthBookingFontSize, monthBookingTwoLine } from "./month-layout";
 import { useCalendarPreferences } from "./calendar-preferences";
 import { cn } from "@/lib/utils";
 
@@ -134,6 +134,9 @@ function BookingChip({
 const MONTH_PLATFORM_LABELS: Record<string, string> = {
   direct: "直訂", booking: "Bkg", agoda: "Ago", airbnb: "Air", ctrip: "Trip", owljourney: "Owl", other: "其他",
 };
+const MONTH_COMPACT_PLATFORM_LABELS: Record<string, string> = {
+  direct: "直", booking: "Bk", agoda: "Ag", airbnb: "Air", ctrip: "Tr", owljourney: "Owl", other: "其",
+};
 
 function chunkWeeks(days: string[]) {
   const weeks: string[][] = [];
@@ -168,7 +171,8 @@ const uiLocale = useIntlLocale();
   const weeks = chunkWeeks(dateRange(period.start, period.end));
   const expandedWeeks = useCalendarPreferences((s) => s.expandedWeeks);
   const setExpandedWeeks = useCalendarPreferences((s) => s.setExpandedWeeks);
-  const weekHeight = Math.max(60 * fontScale, Math.floor((viewportHeight - 58 * fontScale) / weeks.length));
+  const twoLine = monthBookingTwoLine(fontScale, desktop);
+  const baseWeekHeight = Math.max(60 * fontScale, Math.floor((viewportHeight - 58 * fontScale) / weeks.length));
   const monthBookings = bookings.filter(
     (booking) =>
       booking.check_in < period.end && booking.check_out >= period.start,
@@ -225,14 +229,17 @@ const uiLocale = useIntlLocale();
         const expanded = expandedWeeks.includes(weekKey);
         const segments = layoutMonthWeek(monthBookings, week, addDays(week[6], 1));
         const laneCount = Math.max(0, ...segments.map(s => s.lane + 1));
-        const defaultLimit = fitMonthWeekLanes(weekHeight, laneCount, fontScale);
+        const weekHeight = twoLine
+          ? Math.max(baseWeekHeight, (laneCount > 2 ? 110 : laneCount === 2 ? 94 : 60) * fontScale)
+          : baseWeekHeight;
+        const defaultLimit = fitMonthWeekLanes(weekHeight, laneCount, fontScale, twoLine);
         const limit = expanded ? Number.POSITIVE_INFINITY : defaultLimit;
         const weekHasOverflow = laneCount > defaultLimit;
         const visibleLanes = Math.min(laneCount, limit);
         const hidden = week.map((_, index) => segments.filter(s => s.lane >= limit && s.start <= index && s.end > index).length);
         const bookingRows = Array.from({ length: visibleLanes }, (_, lane) => {
           const hasRemarks = expanded && segments.some(s => s.lane === lane && remarksFor(s.booking).length);
-          return `${(expanded ? (hasRemarks ? 48 : 32) : 18) * fontScale}px`;
+          return `${(expanded ? (hasRemarks ? 48 : 32) : twoLine ? 32 : 18) * fontScale}px`;
         });
         const gridTemplateRows = [
           `${20 * fontScale}px`,
@@ -281,13 +288,16 @@ const uiLocale = useIntlLocale();
                     segment.continuesBefore && "ml-0 rounded-l-none border-l-0 sm:ml-0 md:ml-0",
                     segment.continuesAfter && "mr-0 rounded-r-none border-r-0 sm:mr-0 md:mr-0")}>
                   {segment.continuesBefore && <span aria-hidden="true">‹</span>}
-                  <span className={cn("min-w-0 flex-1", !expanded && "truncate")}>
-                    <span className={cn("truncate", expanded ? "block" : "inline")} style={{ lineHeight: `${12 * fontScale}px` }}>
-                      <span className="font-semibold">{booking.source_conflict ? uiText("待核對") : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
-                      <span className="ml-1 opacity-85">{booking.room_number}</span>
-                      {nights > 1 && <span className="ml-1">{nights}{uiText("晚")}</span>}
+                  <span className={cn("min-w-0 flex-1", !expanded && !twoLine && "truncate")}>
+                    <span className={cn("truncate", expanded || twoLine ? "block" : "inline")} style={{ lineHeight: `${12 * fontScale}px` }}>
+                      <span className="font-semibold">{booking.source_conflict ? uiText("待核對") : twoLine ? MONTH_COMPACT_PLATFORM_LABELS[booking.platform] ?? "其" : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
+                      <span className={cn(twoLine ? "ml-0.5" : "ml-1", "opacity-85")}>{booking.room_number}</span>
+                      {nights > 1 && !twoLine && <span className="ml-1">{nights}{uiText("晚")}</span>}
                     </span>
-                    {guestName && <span className={cn("truncate pr-3", expanded ? "block" : "ml-1 inline")} style={{ lineHeight: `${12 * fontScale}px` }}>{guestName}</span>}
+                    {(guestName || twoLine) && <span className={cn("month-booking-guest truncate", expanded || twoLine ? "block" : "ml-1 inline")} style={{ lineHeight: `${12 * fontScale}px` }}>
+                      {twoLine && nights > 1 && segment.end - segment.start > 1 && <span className="mr-1">{nights}{uiText("晚")}</span>}
+                      {guestName || (twoLine ? booking.property_name : null)}
+                    </span>}
                     {expanded && <GuestRemarks booking={booking} compact limit={segment.end-segment.start>1?2:1} />}
                   </span>
                   <span className="absolute bottom-0.5 right-0.5"><PaymentBadge booking={booking} compact /></span>

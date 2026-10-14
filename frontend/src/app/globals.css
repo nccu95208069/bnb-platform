@@ -233,6 +233,7 @@ html.dark :is(.text-orange-900, .text-yellow-900) {
 .payment-badge, .payment-review-legend { display: none; }
 .payment-review .payment-badge { display: inline-flex; }
 .payment-review .payment-review-legend { display: flex; }
+.payment-review .month-booking-guest { padding-right: 0.75rem; }
 .payment-review [data-payment-state="paid"] {
   background: #e5e7eb !important;
   color: #4b5563 !important;

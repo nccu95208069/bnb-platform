@@ -13,12 +13,17 @@ export function monthBookingFontSize(fontScale: number, desktop = false): number
   return (desktop ? 11 : 10) * fontScale;
 }
 
+export function monthBookingTwoLine(fontScale: number, desktop = false): boolean {
+  return !desktop && fontScale >= 1.15;
+}
+
 // The date, booking, and overflow rows scale with the root font preference,
 // so lane capacity must use the same multiplier as their explicit pixel sizes.
-export function fitMonthWeekLanes(weekHeight: number, laneCount: number, fontScale = 1): number {
-  const withoutOverflow = Math.max(0, Math.floor((weekHeight - 24 * fontScale) / (20 * fontScale)));
+export function fitMonthWeekLanes(weekHeight: number, laneCount: number, fontScale = 1, twoLine = false): number {
+  const laneHeight = (twoLine ? 34 : 20) * fontScale;
+  const withoutOverflow = Math.max(0, Math.floor((weekHeight - 24 * fontScale) / laneHeight));
   if (laneCount <= withoutOverflow) return laneCount;
-  return Math.max(1, Math.floor((weekHeight - 40 * fontScale) / (20 * fontScale)));
+  return Math.max(1, Math.floor((weekHeight - 40 * fontScale) / laneHeight));
 }
 
 // Allocate the entire visible stay at once, so it cannot jump vertically or

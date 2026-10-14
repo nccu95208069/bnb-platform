@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { fitMonthWeekLanes, layoutMonthWeek, monthBookingFontSize } from '../src/components/calendar/month-layout.ts';
+import { fitMonthWeekLanes, layoutMonthWeek, monthBookingFontSize, monthBookingTwoLine } from '../src/components/calendar/month-layout.ts';
 const days = ['2026-11-09','2026-11-10','2026-11-11','2026-11-12','2026-11-13','2026-11-14','2026-11-15'];
 const stay = (id, room, start, end) => ({id, property_name:'Test', room_number:room, check_in:start, check_out:end});
 test('tall week cells use all available booking rows instead of stopping at two', () => {
@@ -36,6 +36,23 @@ test('booking labels have distinct pixel sizes at the minimum and maximum displa
  assert.equal(monthBookingFontSize(0.85), 8.5);
  assert.equal(monthBookingFontSize(1.3), 13);
  assert.equal(monthBookingFontSize(1.3, true), 14.3);
+});
+test('mobile booking labels switch to two lines at 115% while desktop stays compact', () => {
+ assert.equal(monthBookingTwoLine(1.1), false);
+ assert.equal(monthBookingTwoLine(1.15), true);
+ assert.equal(monthBookingTwoLine(1.3), true);
+ assert.equal(monthBookingTwoLine(1.3, true), false);
+});
+test('two-line week capacity reserves space for a second text row and overflow', () => {
+ const scale = 1.3;
+ const weekHeight = 110 * scale;
+ assert.equal(fitMonthWeekLanes(weekHeight, 2, scale, true), 2);
+ assert.equal(fitMonthWeekLanes(weekHeight, 5, scale, true), 2);
+ for (let lanes = 1; lanes <= 12; lanes++) {
+  const shown = fitMonthWeekLanes(weekHeight, lanes, scale, true);
+  const used = (24 + shown * 34 + (shown < lanes ? 16 : 0)) * scale;
+  assert.ok(used <= weekHeight, `${shown}/${lanes} two-line rows must fit`);
+ }
 });
 test('two-night stay is one segment across Saturday/Sunday', () => {
  const [s] = layoutMonthWeek([stay('a','villa',days[5],'2026-11-16')],days,'2026-11-16');
