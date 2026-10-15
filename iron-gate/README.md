@@ -27,6 +27,6 @@ npm run build
 
 `api/index.mjs` 是獨立 Vercel 專案的 Node.js 入口；`vercel.json` 只把 `/v1/` 路徑導向它。建置先產生 `dist/`，公開靜態目錄 `public/` 保持空白。入口需要伺服器端的 `IRON_GATE_DATABASE_URL` 與 `IRON_GATE_OS_PROOF_SECRET`，少任一項就只回 `503 SERVICE_UNAVAILABLE`。資料庫 URL 必須使用驗證主機名稱的 TLS，連線角色必須是受限的 `iron_gate_runtime` 成員；正式連線字串及 proof secret 不可提交到 Git 或放在瀏覽器環境變數。資料庫建立、管理帳號、遷移和發證都不由 Vercel 函式執行。
 
-新 Vercel `sweetfuns-projects/iron-gate` 專案目前只有空殼，尚未配置資料庫或正式部署。連線到 Supabase 專用 PostgreSQL 時，短生命週期函式應使用 transaction pooler；程式每次讀寫都以明確 transaction 設定逐館 RLS。正式啟用前要在部署預覽中核對重寫後的原始路徑與查詢字串，因為 OS proof 會對完整請求路徑簽章。部署及資料庫準備狀態詳見 [部署清單](DEPLOYMENT_VERCEL_SUPABASE.md)。
+新 Vercel `sweetfuns-projects/iron-gate` 專案目前只有空殼，尚未配置資料庫，沒有運作中的部署。連線到 Supabase 專用 PostgreSQL 時，短生命週期函式應使用 transaction pooler；程式每次讀寫都以明確 transaction 設定逐館 RLS。正式啟用前要在部署預覽中核對重寫後的原始路徑與查詢字串，因為 OS proof 會對完整請求路徑簽章。部署及資料庫準備狀態詳見 [部署清單](DEPLOYMENT_VERCEL_SUPABASE.md)。
 
 影子盤點工具 `npm run shadow:report -- report /absolute/private/os-workspace.json` 只輸出去個資報告；輸入檔仍含客資，必須保存在受控私密位置。它不會讀取或修改 OS，也不會啟用切換。現有 OS [只讀橋接](../docs/work-handoff/IRON_GATE_OS_PROOF_2026-10-13.md)預設關閉。
