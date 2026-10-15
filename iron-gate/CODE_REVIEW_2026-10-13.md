@@ -32,6 +32,7 @@
 | P1 | 共用 OS 機器憑證下，不同成員若取得同一請求鍵，可讀回或重播別人的寫入收據；金額權限撤銷後付款收據仍可能顯示淨收。 | 收據與防重判斷加入經驗證的 `subjectId`，讀回付款結果重新檢查 `money` 權限；付款寫入本身也要求該權限。 |
 | P1 | Vercel 的命名萬用路由在建置後自動把擷取路徑加成 `?path=...`，使 OS 對原始 path/query 的短效簽章失效。 | 改用無命名擷取的 `/v1/(.*)` 規則；檢查實際 `.vercel/output/config.json` 的目的地不再帶額外 query。正式預覽仍須做 OS 端到端驗證。 |
 | P2 | 共用 PostgreSQL handler 首次遇到暫時性資料庫斷線後，會把失敗的安全檢查永久快取到同一個暖實例，資料庫恢復仍持續回 503。 | 暫時性查詢失敗時清除快取，下一個請求重新檢查；不安全角色或 schema 仍維持關閉。測試斷線後恢復。 |
+| P1 | Vercel 函式若只有 `sslmode=verify-full` 卻未提供 Supabase CA，實際連線會因無法驗證憑證而失敗；改用不驗證模式則失去主機身分保護。 | 從專案 SSL 設定取得公開 CA，函式固定加入 `sslrootcert`，拒絕外部覆寫；以東京交易連線池及受限角色實測 TLS、角色及 RLS，並核對 CA 確實打包進 Vercel 函式。 |
 
 PostgreSQL 執行角色只能透過高熵 token 摘要查單筆憑證，不能列舉憑證表；發證與撤銷須另用管理連線。權威資料、占房唯一鍵、fence、收據與 outbox 在同一館別交易提交。
 
@@ -40,19 +41,20 @@ PostgreSQL 執行角色只能透過高熵 token 摘要查單筆憑證，不能�
 - **OS 影子路由尚未正式配置與舊 writer 封寫**。只讀路由已在獨立分支實作逐請求 OS 會員重讀及短效證明，預設關閉、未部署、沒有真實機器憑證。未注入 verifier 時 Iron Gate 拒絕 OS 憑證。不能將影子路由視為新訂房正本。
 - **現有 OS 欄位和保留／付款語意尚未無損對齊**。逐項差異與封寫範圍見 [OS 接線差異](OS_INTEGRATION_MATRIX.md)；不能直接把舊訂單重建成簡化的 Iron Gate 訂單。
 - **沒有真實 OwlNest connector、網站一次性報價、LINE 預覽確認、財務憑據核實與人工解鎖流程**。通路執行器只有注入式模擬測試，正式 OwlNest 寫入 API 規格、逐館 lease 和測試授權仍未取得；相應危險路徑保持拒絕或停售。
-- **沒有正式環境的私有部署、TLS、備份還原、監控、outbox 消費者與逐館遷移演練**。SQLite 僅供單機驗證；PostgreSQL 測試與一次性資料庫備份還原只在隔離的 localhost 完成。
+- **沒有正式環境的私有部署、備份還原、監控、outbox 消費者與逐館遷移演練**。SQLite 僅供單機驗證；PostgreSQL 資料庫角色及 TLS 已在專用 Supabase 專案驗證，但交易整合測試與一次性資料庫備份還原仍只在隔離的 localhost 完成。
 
 這些是上線阻擋項，尚無真實接線程式可完成整合審查；不能解讀為整個產品已通過 P1 審查。
 
 ## 驗證
 
-- `npm test`：54 個合成測試通過；3 個 PostgreSQL 測試在預設執行時跳過。
+- `npm test`：55 個合成測試通過；3 個 PostgreSQL 測試在預設執行時跳過。
 - `npm run check`：TypeScript 嚴格型別檢查通過。
 - `npm run build`：編出可直接載入的 JavaScript，產物中不含 `.ts` 匯入；缺少設定的正式入口拒絕啟動。
 - `npm run test:pg`：隔離 localhost `iron_gate_test` 的 3 個交易／RLS／憑證與共用 handler 測試通過。
 - `npm run test:restore`：在同一隔離 PostgreSQL 實例建立並清除兩個一次性資料庫；5 張資料表、outbox 序列與受限執行角色在備份／還原前後核對通過。這不是正式館別的還原驗收。
 - `npm run test:server`：127.0.0.1 上的 1 個實際 HTTP 請求流程通過。
 - `npm run start:private`：缺少資料庫設定時會拒絕啟動；隔離 localhost PostgreSQL 實測受限角色可啟動後立即關閉，管理角色被拒絕；尚未在正式環境啟動。
-- Vercel：新 `sweetfuns-projects/iron-gate` 空專案已建立，本機 `vercel build` 通過並包含 Node.js 22 函式、`dist` 與 PostgreSQL 驅動；入口缺少私密設定或遇到不安全連線只回 503。尚未部署或接上 Supabase。
+- Vercel：新 `sweetfuns-projects/iron-gate` 專案已建立，受限資料庫連線及 OS 證明密鑰只存於加密的 Preview 設定。`vercel build` 通過並包含 Node.js 22 函式、`dist`、PostgreSQL 驅動與 Supabase CA；打包後的函式可定位 CA。入口缺少私密設定或遇到不安全連線只回 503。目前無運作中的部署。
+- Supabase：專用東京 Micro 專案已健康、schema 已套用。透過 IPv4 交易連線池以受限角色及 `verify-full`/CA 連線成功；服務的實際角色與 RLS 檢查通過。`anon`、`authenticated`、`service_role` 對 `iron_gate` schema 都沒有 `USAGE` 或訂單表 `SELECT` 權限。
 - `openapi.yaml`：17 個路徑；讀回 schema 使用觀測庫存與鎖房資料，YAML 與 91 個本地 `$ref` 均解析通過。
 - OS 分支：會員證明及只讀轉發 4 個合成測試、TypeScript、lint（零錯誤）及 Webpack 正式建置通過；另以合成請求驗證 OS 簽發與 Iron Gate 驗證器互通。路由預設關閉，尚無正式憑證或真實會員請求。

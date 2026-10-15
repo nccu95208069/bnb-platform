@@ -1,4 +1,6 @@
 import { Pool } from "pg";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { createPostgresIronGateHandler } from "../dist/node-server.mjs";
 import { createOsMemberProofVerifier } from "../dist/os-member-proof.mjs";
 import { validateDatabaseTransport } from "../dist/runtime-safety.mjs";
@@ -14,6 +16,21 @@ function unavailable() {
   });
 }
 
+/** Bind remote connections to the bundled Supabase CA and hostname. */
+export function databaseUrlForVercel(rawUrl) {
+  validateDatabaseTransport(rawUrl);
+  const url = new URL(rawUrl);
+  if (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) return rawUrl;
+  if (["sslrootcert", "sslcert", "sslkey"].some((name) => url.searchParams.has(name)))
+    throw Error("UNSAFE_DATABASE_TRANSPORT");
+  const caPath = fileURLToPath(new URL("../certs/prod-ca-2021.crt", import.meta.url));
+  const ca = readFileSync(caPath, "utf8");
+  if (!ca.startsWith("-----BEGIN CERTIFICATE-----") ||
+    !ca.includes("-----END CERTIFICATE-----")) throw Error("INVALID_DATABASE_CA");
+  url.searchParams.set("sslrootcert", caPath);
+  return url.toString();
+}
+
 /** One warm invocation reuses a small pool; a failed setup stays closed. */
 export function createVercelFetch(env = process.env) {
   let ready;
@@ -22,12 +39,12 @@ export function createVercelFetch(env = process.env) {
       ready ??= (async () => {
         if (!env.IRON_GATE_DATABASE_URL || !env.IRON_GATE_OS_PROOF_SECRET)
           throw Error("MISSING_CONFIGURATION");
-        validateDatabaseTransport(env.IRON_GATE_DATABASE_URL);
+        const databaseUrl = databaseUrlForVercel(env.IRON_GATE_DATABASE_URL);
         const verifyOsMember = createOsMemberProofVerifier(env.IRON_GATE_OS_PROOF_SECRET);
-        const pool = new Pool({ connectionString: env.IRON_GATE_DATABASE_URL,
+        const pool = new Pool({ connectionString: databaseUrl,
           max: 2, connectionTimeoutMillis: 5000, idleTimeoutMillis: 10000 });
         return createPostgresIronGateHandler(pool, verifyOsMember,
-          env.IRON_GATE_DATABASE_URL);
+          databaseUrl);
       })();
       return (await ready)(request);
     } catch {

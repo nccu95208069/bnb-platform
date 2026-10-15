@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createVercelFetch } from "../api/index.mjs";
+import { createVercelFetch, databaseUrlForVercel } from "../api/index.mjs";
 
 test("Vercel entry refuses requests without both private settings", async () => {
   const handle = createVercelFetch({});
@@ -17,4 +17,13 @@ test("Vercel entry refuses an unverified remote database transport", async () =>
   });
   const response = await handle(new Request("https://iron-gate.example/v1/properties"));
   assert.equal(response.status, 503);
+});
+
+test("Vercel remote URL pins the bundled CA without weakening hostname verification", () => {
+  const raw = "postgresql://runtime:secret@pooler.example:6543/postgres?sslmode=verify-full";
+  const secured = new URL(databaseUrlForVercel(raw));
+  assert.equal(secured.searchParams.get("sslmode"), "verify-full");
+  assert.match(secured.searchParams.get("sslrootcert"), /certs\/prod-ca-2021\.crt$/);
+  assert.throws(() => databaseUrlForVercel(`${raw}&sslrootcert=/tmp/other.crt`),
+    /UNSAFE_DATABASE_TRANSPORT/);
 });
