@@ -141,4 +141,4 @@ The owner requested the complete main-Sheet notes in the legacy sold-calendar de
 - [Studio ordinary-email signup and automatic new-property notifications](STUDIO_EMAIL_ONBOARDING_2026-10-15.md) — implementation verified; production acceptance status is recorded in the report.
 # Latest: email cross-device sign-in
 
-See [EMAIL_CROSS_DEVICE_2026-10-16.md](EMAIL_CROSS_DEVICE_2026-10-16.md) for the owner-requested cross-device verification, original-device continuation, and email-input copy changes. This supersedes the same-browser restriction for newly issued links; release acceptance is tracked in that note.
+See [EMAIL_CROSS_DEVICE_2026-10-16.md](EMAIL_CROSS_DEVICE_2026-10-16.md) for the released cross-device verification, original-device continuation, and email-input copy changes. OS, Guest v21 and Studio v66 are live. A real Gmail plus-address link was verified in Safari and the original Chrome page automatically resumed into the same account. This supersedes the same-browser restriction for newly issued links. PR #42 remains draft and unmerged; physical-phone and other-provider inbox acceptance are not claimed.

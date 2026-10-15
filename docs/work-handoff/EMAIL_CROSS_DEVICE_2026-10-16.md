@@ -21,4 +21,15 @@ The cross-device integration exercises actual login form scripts, two independen
 
 ## Release and live acceptance
 
-Pending deployment and real inbox/browser acceptance.
+Released on 2026-10-16 (Asia/Taipei). OS implementation commit `7ffba42f26d8a95a93c3bd404da24f704d39a21d` is deployed as Vercel `dpl_GQtWjSQ1Ux2ZBUUcWeJDeqpKBF5B` and promoted to `https://sweetfun-os.vercel.app`. Guest v21 (`appgdep_6ad105d0a32c8191b09bf5d3c13fd244`) and Studio v66 (`appgdep_6ad106a686c0819185f25c472a7dcdb2`) both completed successfully. Their existing public audience and environment revisions were preserved. PR #42 remains draft and unmerged.
+
+Real production acceptance completed at approximately 01:08:
+
+- A fresh Gmail plus-address requested a login link from the production Studio login form in Chrome. The real inbox received the new message, including the cross-device instructions.
+- The link opened in Safari, with independent cookies. It displayed the correct account and offered both-device confirmation or current-device-only login.
+- Entering the six-digit code from the original Chrome page and confirming signed Safari into the new account. The original Chrome page automatically resumed to `/studio/` with the same account, without opening the email link in Chrome.
+- Both sessions showed an empty new-owner workspace; no website, customer order or AI request was created during this acceptance.
+- Invalid `name@gmail.com+test` input shows the correction hint; the valid plus-address round trip preserved the complete address. The public login page has the neutral example and revised footer.
+- The two temporary test sessions were signed out after verification.
+
+This verifies a real delivered Gmail link and two independent desktop browsers. Physical-phone and other-provider inbox delivery were not exercised in this acceptance; non-Gmail addresses and phone-only behavior are covered by the automated checks above. Local screenshots are in the enclosing project workspace's `verification/cross-device-20261016/` directory and are intentionally excluded from this repository because they include the test email address.
