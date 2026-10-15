@@ -11,7 +11,7 @@
 ## 建立專用資料庫前
 
 1. 取得指定 Supabase 組織建立專案的**實際費用**，向使用者逐字呈報並確認。Supabase `get_cost` 目前不可用；在費用確認工具恢復前不得建立專案。
-2. 決定資料庫區域。現有同組織的 `bnb-reply-copilot` 位於 `ap-northeast-1`，可作為候選；建立前確認位置及資料保存要求。
+2. 使用者已指定資料庫區域為東京 `ap-northeast-1`，與同組織的 `bnb-reply-copilot` 一致。
 3. 建立 `iron-gate` 專用專案，不共用 OS 或其他產品資料庫。資料庫 schema 僅用私有 `iron_gate`，不把它加入 Data API 的公開 schema 清單。
 4. 使用管理連線套用 [`sql/001_property_store.sql`](sql/001_property_store.sql)；另外建立獨立的 `LOGIN` 角色，只授予 `iron_gate_runtime`。以受限角色重跑 RLS、最後一間房與憑證撤銷整合測試。管理連線不得放入 Vercel。
 5. 配置獨立備份及還原位置；在非正式資料庫先演練跨環境還原和回滾，留存館別快照與核對結果。
