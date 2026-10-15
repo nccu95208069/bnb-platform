@@ -79,8 +79,10 @@ export function failure(error: unknown) {
     ],
     LOGIN_BROWSER_REQUIRED: [
       400,
-      "請使用剛才申請登入連結的同一個瀏覽器；若已更換瀏覽器，請重新申請登入連結。",
+      "登入驗證尚未準備完成，請重新開啟信件連結。",
     ],
+    LOGIN_PAIRING_REQUIRED: [400, "請輸入原裝置顯示的 6 位確認碼，或選擇只登入這台裝置。"],
+    LOGIN_PAIRING_INVALID: [400, "確認碼不正確，請核對原裝置的 6 位數字。"],
     GOOGLE_SIGNIN_FAILED: [
       400,
       "Google 登入未完成或身分驗證失敗，請重新嘗試。",

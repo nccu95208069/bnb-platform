@@ -331,3 +331,21 @@ test("uncertain login mail freezes the email and reuses the same request key aft
   assert.deepEqual(requests[1], requests[0]);
   assert.match(document.body.textContent, /same mail confirmed/);
 });
+
+test('cross-device verification shows the intended email, requires a pairing code for both devices and permits phone-only login', async t => {
+ const m=await mount(t),sent=[],token='v2.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.'+'a'.repeat(43);
+ t.mock.method(globalThis,'fetch',async(_url,options)=>{
+  const input=JSON.parse(options.body);sent.push(input);
+  if(input.action==='prepare')return Response.json({ok:true});
+  if(input.action==='inspect')return Response.json({email:'member+test@example.test',sameDevice:false});
+  if(input.action==='consume')return Response.json({url:'/workspaces'});
+  throw Error('Unexpected '+input.action);
+ });
+ window.history.pushState({},'',`/signin#${token}`);await m.render(EmailSignIn);
+ assert.equal(window.location.hash,'');assert.match(document.body.textContent,/member\+test@example.test/);
+ await m.click(m.button('確認兩台裝置登入'));assert.equal(sent.filter(x=>x.action==='consume').length,0);
+ await m.fill(document.querySelector('input[inputmode="numeric"]'),'123456');
+ await m.click(m.button('確認兩台裝置登入'));assert.equal(sent.at(-1).mode,'both');assert.equal(sent.at(-1).pairingCode,'123456');
+ await m.render(EmailSignIn,{key:'second'});window.history.pushState({},'',`/signin#${token}`);
+ await m.render(EmailSignIn,{key:'third'});await m.click(m.button('只登入這台裝置'));assert.equal(sent.at(-1).mode,'current');
+});
