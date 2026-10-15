@@ -17,6 +17,7 @@ const Pairing=await import('../src/app/api/integration/website-booking/v1/line-b
 const Actions=await import('../src/app/api/integration/website-booking/v1/owner-actions/route.ts');
 const Discovery=await import('../src/app/api/integration/website-booking/v1/bindings/route.ts');
 const Operations=await import('../src/app/api/customer-workspaces/[slug]/operations/route.ts');
+const Management=await import('../src/app/api/customer-workspaces/[slug]/website/route.ts');
 const { runWebsiteEmailDelivery }=await import('../src/lib/website-booking/delivery.ts');
 const origin='https://os.example.invalid';
 function request(path,body,{token,cookie,headers={}}={}) {return new NextRequest(origin+path,{method:'POST',headers:{origin,'content-type':'application/json',...(token?{authorization:'Bearer '+token}:{}),...(cookie?{cookie}:{}),...headers},body:typeof body==='string'?body:JSON.stringify(body)});}
@@ -27,6 +28,13 @@ async function setup(t){
  const approval=await Owner.POST(request('/api/website-booking/owner',f.approval,{cookie}));assert.equal(approval.status,200,await approval.clone().text());
  const status=await Connections.POST(request('/api/integration/website-booking/v1/connections',{schemaVersion:1,action:'status',siteId:f.prepare.siteId,connectionId:f.connection.connectionId},{token:editorToken}));assert.equal(status.status,200);
  const binding=await status.json();
+ const approved=(await store.read('website:binding:'+binding.bindingId)).value;
+ assert.equal(binding.salesEnabled,false);
+ const activation=await Management.POST(request('/api/customer-workspaces/'+approved.slug+'/website',{
+   action:'sales',bindingId:approved.id,revision:approved.revision,enabled:true,
+   confirmedEmptyCalendar:true,confirmedStaticSource:true,requestKey:randomUUID(),
+ },{cookie}),{params:Promise.resolve({slug:approved.slug})});
+ assert.equal(activation.status,200,await activation.clone().text());
  const call=async(action,body={},headers={})=> Guest.POST(request('/api/integration/website-booking/v1/bindings/'+binding.bindingId+'/'+action,{schemaVersion:1,source:'Official Website',configurationHash:f.prepare.configurationHash,...body},{token:binding.bindingToken,headers}),{params:Promise.resolve({bindingId:binding.bindingId,action})});
  const stay={checkIn:f.config.opensOn,checkOut:new Date(Date.parse(f.config.opensOn)+86400000).toISOString().slice(0,10),roomTypeId:'double',quantity:1,adults:2,children:0};
  const quote=async()=>{const a=await call('availability',stay);assert.equal(a.status,200);const q=await call('quotes',{...stay,availabilityToken:(await a.json()).availabilityToken});assert.equal(q.status,200);return q.json();};
