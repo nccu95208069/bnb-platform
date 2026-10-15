@@ -12,16 +12,26 @@ New UUID admission is restricted to existing authenticated Studio clients. The o
 
 - 155 backend checks pass, including HTTP routes with a dedicated local Redis instance, authorization, tenant isolation, double-booking races, idempotency, sales rejection/no-write, and order/payment readback.
 - 26 DOM checks pass for owner approval, website opening, holds and import controls.
-- The full calendar/import/login DOM group also passes all 40 checks. Its first CI run exposed a pre-existing harness omission: the passwordless test provided `window` and `document` but not global `location`, although the shipped component reads `location.search` for its return path. Supplying the real JSDOM location restores the intended lost-response test; it now additionally asserts two requests for the same email. No production login code changed for this correction. The initial CI Backend and Frontend jobs passed; the complete CI suite is rerun for the harness follow-up.
+- The full calendar/import/login DOM group also passes all 40 checks. Its first CI run exposed a pre-existing harness omission: the passwordless test provided `window` and `document` but not global `location`, although the shipped component reads `location.search` for its return path. Supplying the real JSDOM location restores the intended lost-response test; it now additionally asserts two requests for the same email. No production login code changed for this correction. CI run `38663159927` passed Backend, Frontend and Customer workspace isolation for the harness follow-up.
 - 19 Studio/guest/OS integration scenarios pass using the real Workers and Next route handlers with isolated synthetic stores. The guided builder covers all three layouts, saving a design, publishing its exact revision, owner approval, explicit sales opening, quoting, booking and authoritative order readback.
 - A real local browser successfully submitted a synthetic booking and reloaded/queried the same order. No payment or external notification was sent.
 - TypeScript passes. ESLint has zero errors and five existing warnings. The local production build passes; deployment build verification is recorded below when available.
 
 ## Release and acceptance boundary
 
-Engineering and isolated acceptance are complete. The owner-requested repair is now deployed; authenticated live acceptance remains pending as described below. No production customer record has been created during this repair.
+Engineering, isolated acceptance and authenticated live browser acceptance are complete. The owner-requested repair is deployed. The owner explicitly authorized the test identity and independent synthetic property/order, then completed the normal email sign-in in the same browser. One clearly marked non-operating test property and one synthetic unpaid reservation were created through the production interfaces; existing customer properties and orders were not changed.
 
-The production customer login is not yet authorized for a specific Google account. Automatic approval review rejected the Google sign-in click for that reason; the user was asked to identify/authorize an account or sign in themselves. Until that is supplied, the authenticated live create/publish/approve/book/readback acceptance remains pending. Do not describe isolated tests as a completed live booking or as provider-email delivery verification.
+Live acceptance on 2026-10-15 (Asia/Taipei):
+
+1. Created and saved the synthetic property in Studio, checked the three design previews, selected the light layout, and published saved revision 3 to the stable public guest URL. The guest page displayed the synthetic property without requiring the Studio login.
+2. Submitted the booking connection from Studio. The verified owner reviewed the matching site identity, one physical room, two-person capacity, initial nightly price of TWD 1,800.50, availability dates and synthetic non-binding terms. Approval created an independent OS calendar, with sales initially closed.
+3. Confirmed empty-calendar inventory in OS and explicitly opened sales. OS returned the successful ready state. Refreshed Studio, opened its separate sales switch, and verified that the public guest page became bookable. The formerly failing activation step completed without a 503.
+4. Booked one room for two adults for 2026-10-20 through 2026-10-21. The guest page showed one held reservation at TWD 1,800.50, a 24-hour hold deadline and zero recorded payments. Reloading and querying recovered the same reservation. OS listed exactly one held order and its matching dates, room, amount and synthetic contact details.
+5. A separate guest tab queried the same room and dates while the hold was active and was rejected for insufficient inventory.
+6. Released that hold from the OS order detail. The authoritative readback showed the reservation released/cancelled and no payment entries. The original guest page then showed the same reservation ended; the separate guest tab could quote the same dates again at TWD 1,800.50. No second reservation was submitted.
+7. Paused sales in both Studio and OS. The public guest page returned to paused booking, and OS showed zero active holds. The synthetic cancelled order remains as audit evidence; no production record was deleted.
+
+Screenshots are retained as local project evidence only, outside the Git checkout. No owner email, guest lookup code, session information or screenshot was committed. This verifies booking/hold, readback, inventory exclusion, cancellation and release on the deployed services. It does not claim real payment settlement, delivery of booking notifications to a real mailbox, LINE delivery or OTA synchronization; the guest contact was deliberately synthetic and the notification UI remained pending.
 
 Rollback baseline: primary deployment `dpl_HBSeHvEVGsqo83x2A3RPZFzmmQ3c`, runtime `aadb24da920a418f2bef267e78a9854c94e634f2`.
 
