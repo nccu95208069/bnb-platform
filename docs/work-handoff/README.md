@@ -139,3 +139,6 @@ The owner requested the complete main-Sheet notes in the legacy sold-calendar de
 - [Calendar change intake and daily observation](CALENDAR_CHANGE_ENDPOINT_2026-10-07.md): receiver and daily observation live 2026-10-07 after owner approval; booking-assistant hooks deferred.
 
 - [Studio ordinary-email signup and automatic new-property notifications](STUDIO_EMAIL_ONBOARDING_2026-10-15.md) — implementation verified; production acceptance status is recorded in the report.
+# Latest: email cross-device sign-in
+
+See [EMAIL_CROSS_DEVICE_2026-10-16.md](EMAIL_CROSS_DEVICE_2026-10-16.md) for the owner-requested cross-device verification, original-device continuation, and email-input copy changes. This supersedes the same-browser restriction for newly issued links; release acceptance is tracked in that note.

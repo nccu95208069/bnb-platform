@@ -3,6 +3,7 @@ import { customerReturnPath } from "@/lib/customer-workspaces/return-path";
 import { useRef, useState } from "react";
 import { api, button, field, secondary } from "./client";
 import { useCommand } from "./use-command";
+import { EmailLoginWaiting, type EmailLoginChallenge } from "./email-login-waiting";
 export function PasswordlessLogin({
   destination = "start",
   initialEmail = "",
@@ -15,6 +16,7 @@ export function PasswordlessLogin({
   googleConfigured?: boolean;
 }) {
   const [email, setEmail] = useState(initialEmail),
+    [challenge, setChallenge] = useState<EmailLoginChallenge | null>(null),
     [notice, setNotice] = useState(""),
     [error, setError] = useState(""),
     [preparing, setPreparing] = useState(false);
@@ -29,13 +31,16 @@ export function PasswordlessLogin({
     setError("");
     try {
       await api("/api/customer-login", "POST", { action: "prepare" });
-      const result = await request.execute<{ detail: string }>({
+      const result = await request.execute<{ detail: string } & EmailLoginChallenge>({
         action: "request",
         email,
         destination,
         ...(destination === "start" ? { returnPath: customerReturnPath(new URLSearchParams(location.search).get("next")) ?? undefined } : {}),
       });
-      if (result) setNotice(result.data.detail);
+      if (result) {
+        setNotice(result.data.detail);
+        setChallenge(result.data.pairingCode ? result.data : null);
+      }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -66,12 +71,12 @@ export function PasswordlessLogin({
       <h2 className="text-lg font-semibold">
         {destination === "calendar"
           ? "確認信箱，接著保存這份預覽"
-          : "免密碼登入"}
+          : "用信箱登入"}
       </h2>
       <p className="text-sm leading-6 text-slate-600">
         {destination === "calendar"
-          ? "預覽會在伺服器暫存一小時，並綁定目前的瀏覽器。開啟登入連結後，仍需由你確認保存；不需要重新上傳或設定密碼。"
-          : "使用登入連結回到自己的旅宿工作區，不需要另設密碼。"}
+          ? "預覽會暫存一小時。可在手機驗證信箱，再回到這台裝置確認保存。"
+          : "輸入可收信的電子信箱，開啟登入連結後即可繼續。"}
       </p>
       {destination === "start" && googleConfigured && (
         <button
@@ -98,6 +103,7 @@ export function PasswordlessLogin({
             onChange={(e) => {
               setEmail(e.target.value);
               setNotice("");
+              setChallenge(null);
             }}
           />
         </label>
@@ -110,8 +116,9 @@ export function PasswordlessLogin({
         </button>
       </form>
       <p className="text-xs leading-6 text-slate-500">
-        連結有效 15 分鐘，請在剛才操作的同一個瀏覽器開啟。
+        連結有效 15 分鐘，可使用電腦或手機開啟。
       </p>
+      {challenge && <EmailLoginWaiting key={challenge.requestKey} challenge={challenge} />}
       {notice && (
         <p
           role="status"
