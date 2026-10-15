@@ -20,4 +20,10 @@ The existing self-service test fixture was updated to read the current multimoda
 
 ## Production acceptance
 
-Pending release and a real, independent email owner's first-order and inbox readback. Do not treat local mail stubs or provider acceptance as inbox receipt. No real payment settlement is part of this test.
+Released on 2026-10-15: OS deployment `dpl_HxK4RR7zsDAVGUhQW69V5y8Sf9yJ` (source `a0d8a2f`) was promoted after the production build and an unauthenticated Studio-auth request returned the expected 401. Guest Sites version 20 and Studio Sites version 65 were published successfully. The rollout enables the existing `stayform-studio-v1` client with a start timestamp; no individual new-site binding was added to environment configuration.
+
+Real inbox and browser checks succeeded for an independent, previously unused Gmail plus-address: the Studio login message reached the inbox, same-browser verification created an empty Studio workspace, and the owner created a new property draft from blank data. The same address also received and consumed an OS login link; the new account has no earlier properties. No ChatGPT sign-in was needed for either application identity.
+
+The synthetic property has one double room, one room available on 2026-10-20, an initial nightly price of NT$1,800.50, and explicit non-operational/no-payment wording. It contains only newly authored test text and no photos. Its configuration is saved as an unsubmitted browser draft. Automated approval review rejected checking the material-rights/publication attestation without the owner's explicit authorization. The owner has been asked to approve that exact statement; the site remains unpublished and no connection or order has been created. Resume at this confirmation, then approve the new property in OS, activate its sales, create one synthetic guest hold, verify both actual notification inboxes, cancel the hold, and pause sales.
+
+First-order and booking-notification inbox acceptance therefore remain pending. Do not treat local mail stubs or provider acceptance as inbox receipt. No real payment settlement is part of this test.
