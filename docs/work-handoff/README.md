@@ -137,3 +137,5 @@ payment calendar. No live T-39 reads/writes or prediction claims are involved.
 The owner requested the complete main-Sheet notes in the legacy sold-calendar detail and explicitly authorized publication. See [implementation and verification](BOOKING_SOURCE_NOTES_2026-10-06.md).
 
 - [Calendar change intake and daily observation](CALENDAR_CHANGE_ENDPOINT_2026-10-07.md): receiver and daily observation live 2026-10-07 after owner approval; booking-assistant hooks deferred.
+
+- [Studio ordinary-email signup and automatic new-property notifications](STUDIO_EMAIL_ONBOARDING_2026-10-15.md) — implementation verified; production acceptance status is recorded in the report.
