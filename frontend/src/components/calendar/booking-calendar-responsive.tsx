@@ -72,6 +72,7 @@ import {
   startOfMonth,
 } from "@/components/calendar/calendar-utils";
 import { WeekCarousel } from "@/components/calendar/week-carousel";
+import { visualCalendarStays } from "@/components/calendar/visual-stays";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiClient } from "@/lib/api-client";
@@ -422,6 +423,9 @@ const uiLocale = useIntlLocale();
     );
   }, [propertyBookings, query]);
 
+  // Presentation links never enter metrics, order selection, payment, or finance.
+  const displayBookings = useMemo(() => visualCalendarStays(filteredBookings), [filteredBookings]);
+
   const visibleRooms = useMemo(
     () =>
       (data?.rooms ?? []).filter(
@@ -443,6 +447,16 @@ const uiLocale = useIntlLocale();
       (booking) => booking.order_id === selectedBooking.order_id,
     );
   }, [editedBookings, selectedBooking]);
+  const selectedVisualNights = useMemo(() => {
+    if (!selectedBooking) return [];
+    const span = displayBookings.find((booking) => booking.visual_source_ids?.includes(selectedBooking.id));
+    if (!span?.visual_source_ids) return [];
+    const byId = new Map(editedBookings.map((booking) => [booking.id, booking]));
+    return span.visual_source_ids.flatMap((id) => {
+      const booking = byId.get(id);
+      return booking ? [booking] : [];
+    });
+  }, [displayBookings, editedBookings, selectedBooking]);
 
   const metrics = useMemo(() => {
     const relevant = filteredBookings.filter(
@@ -913,7 +927,7 @@ const uiLocale = useIntlLocale();
                 targetMonth={monthTarget}
                 targetDate={anchorDate}
                 targetRevision={todayRequest + historyRevision}
-                bookings={filteredBookings}
+                bookings={displayBookings}
                 rooms={visibleRooms}
                 properties={selectedProperties}
                 onVisibleMonthChange={handleVisibleMonthChange}
@@ -926,7 +940,7 @@ const uiLocale = useIntlLocale();
             <div className="-mx-2 md:mx-0">
               <WeekCarousel
                 anchorDate={anchorDate}
-                bookings={filteredBookings}
+                bookings={displayBookings}
                 rooms={visibleRooms}
                 properties={selectedProperties}
                 onNavigateWeek={(offset) =>
@@ -941,7 +955,7 @@ const uiLocale = useIntlLocale();
             <div className="-mx-2 p-2 md:mx-0 md:p-0">
               <DayView
                 date={anchorDate}
-                bookings={filteredBookings}
+                bookings={displayBookings}
                 rooms={visibleRooms}
                 properties={selectedProperties}
                 onSelectBooking={(booking) => setSelectedId(booking.id)}
@@ -965,6 +979,8 @@ const uiLocale = useIntlLocale();
       <BookingDetailsPanel
         booking={selectedBooking}
         orderSegments={selectedOrderSegments}
+        visualNights={selectedVisualNights}
+        onSelectVisualNight={(booking) => setSelectedId(booking.id)}
         rooms={data?.rooms ?? []}
         permissions={
           (data?.source?.read_only || selectedBooking?.snapshot_only)

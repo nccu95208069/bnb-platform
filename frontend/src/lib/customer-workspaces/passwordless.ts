@@ -25,6 +25,7 @@ type LoginLink = {
   draftHash?: string;
   websiteConnectionId?: string;
   returnPath?: string;
+  studioClientId?: string;
   accountId: string | null;
   binding: string | null;
   // The request creates an account only for an active calendar preview. Generic
@@ -54,12 +55,17 @@ export async function requestEmailLogin(
     draftHash?: string;
     websiteConnectionId?: string;
     returnPath?: string;
+    studio?: { clientId: string; origin: string };
   },
   send: CustomerMail,
   preview = false,
 ) {
   const email = normalizedEmail(input.email);
   const returnPath = customerReturnPath(input.returnPath ?? null) ?? undefined;
+  if (input.studio && (input.draftHash || input.websiteConnectionId || input.returnPath ||
+      !/^[A-Za-z0-9_-]{1,100}$/.test(input.studio.clientId) ||
+      new URL(input.studio.origin).protocol !== "https:" || new URL(input.studio.origin).origin !== input.studio.origin))
+    throw new Error("INVALID_INPUT");
   if (input.returnPath !== undefined && (!returnPath || input.draftHash || input.websiteConnectionId)) throw new Error("INVALID_INPUT");
   if (
     !validEmail(email) ||
@@ -80,6 +86,7 @@ export async function requestEmailLogin(
       old.value.proof !== digest(input.proof) ||
       old.value.draftHash !== input.draftHash ||
       old.value.websiteConnectionId !== input.websiteConnectionId ||
+      old.value.studioClientId !== input.studio?.clientId ||
       old.value.returnPath !== returnPath)
   )
     throw new Error("IDEMPOTENCY_CONFLICT");
@@ -91,11 +98,12 @@ export async function requestEmailLogin(
     ...(input.draftHash ? { draftHash: input.draftHash } : {}),
     ...(input.websiteConnectionId ? { websiteConnectionId: input.websiteConnectionId } : {}),
     ...(returnPath ? { returnPath } : {}),
+    ...(input.studio ? { studioClientId: input.studio.clientId } : {}),
     accountId: current.value?.id ?? null,
     binding: current.value
       ? customerCredentialBinding(current.value.credential)
       : null,
-    allowCreate: Boolean(input.draftHash || input.websiteConnectionId),
+    allowCreate: Boolean(input.draftHash || input.websiteConnectionId || input.studio),
   };
   if (link.expiresAt <= Date.now()) throw new Error("LINK_INVALID");
   if (!old.value)
@@ -109,8 +117,8 @@ export async function requestEmailLogin(
     store,
     `magic-delivery:${link.id}`,
     email,
-    "旅宿工作區｜你的登入連結",
-    `請在剛才操作的同一個瀏覽器，於 15 分鐘內開啟下方連結：\n${customerOrigin()}/signin#${loginLinkToken(link)}\n\n不需要設定密碼。${link.draftHash ? "日曆預覽會保留，登入後仍需由你確認保存。" : "登入後可繼續使用自己的旅宿工作區。"}\n\n如果不是你要求登入，請忽略本信；不要把連結轉交他人。`,
+    input.studio ? "Stayform｜你的建站登入連結" : "旅宿工作區｜你的登入連結",
+    `請在剛才操作的同一個瀏覽器，於 15 分鐘內開啟下方連結：\n${input.studio ? input.studio.origin + "/auth/verify" : customerOrigin() + "/signin"}#${loginLinkToken(link)}\n\n不需要設定密碼。${link.draftHash ? "日曆預覽會保留，登入後仍需由你確認保存。" : input.studio ? "驗證信箱後即可建立與管理自己的民宿網站。" : "登入後可繼續使用自己的旅宿工作區。"}\n\n如果不是你要求登入，請忽略本信；不要把連結轉交他人。`,
     send,
     preview,
   );
@@ -123,6 +131,7 @@ export async function consumeEmailLogin(
   draftHash?: string,
   requestId?: string,
   websiteConnectionId?: string,
+  studioClientId?: string,
 ) {
   if (
     typeof token !== "string" ||
@@ -141,6 +150,7 @@ export async function consumeEmailLogin(
     !link ||
     link.expiresAt <= Date.now() ||
     link.proof !== digest(proof) ||
+    (link.studioClientId ?? null) !== (studioClientId ?? null) ||
     (link.websiteConnectionId && link.websiteConnectionId !== websiteConnectionId) ||
     (link.draftHash &&
       (link.draftHash !== draftHash || link.id !== requestId)) ||
