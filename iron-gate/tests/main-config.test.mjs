@@ -56,6 +56,31 @@ test("shared HTTP handler refuses an unsafe database role before reading credent
   assert.equal(checks, 1);
 });
 
+test("shared HTTP handler retries the role check after a transient database outage", async () => {
+  let checks = 0;
+  const connectionString = "postgresql://user@127.0.0.1:55432/iron_gate_test";
+  const pool = {
+    options: { connectionString },
+    async query() {
+      checks++;
+      if (checks === 1) throw Object.assign(Error("temporary database outage"),
+        { code: "ECONNREFUSED" });
+      return { rows: [{ rolsuper: false, rolbypassrls: false,
+        runtime_member: true, schema_ready: true, property_rls: true,
+        occupancy_rls: true, outbox_rls: true, can_change_schema: false,
+        can_change_credentials: false, can_read_or_change_audit: false,
+        can_change_events: false }] };
+    },
+    async connect() { throw Error("CREDENTIAL_LOOKUP_MUST_NOT_RUN"); },
+  };
+  const handle = createPostgresIronGateHandler(pool, null, connectionString);
+  const request = new Request("http://iron-gate.internal/v1/properties/" +
+    crypto.randomUUID() + "/events");
+  assert.equal((await handle(request)).status, 503);
+  assert.equal((await handle(request)).status, 401);
+  assert.equal(checks, 2);
+});
+
 test("restore drill refuses any nonlocal or non-test database", async () => {
   for (const url of [
     "postgresql://postgres@db.example.test/iron_gate_test",

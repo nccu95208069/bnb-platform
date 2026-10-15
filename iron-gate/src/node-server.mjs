@@ -62,7 +62,12 @@ export function createPostgresIronGateHandler(runtimePool, verifyOsMember = null
   // database role and RLS check before it can authenticate or serve a request.
   let ready;
   return async (request) => {
-    ready ??= assertRuntimeDatabase(runtimePool);
+    ready ??= assertRuntimeDatabase(runtimePool).catch((error) => {
+      // A database outage can recover without a new serverless cold start.
+      // A privileged role or unsafe schema stays closed for this instance.
+      if (error?.message !== "UNSAFE_DATABASE_ROLE_OR_SCHEMA") ready = undefined;
+      throw error;
+    });
     try { await ready; }
     catch {
       return new Response('{"error":{"code":"SERVICE_UNAVAILABLE"}}', { status: 503,

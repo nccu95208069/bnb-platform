@@ -31,6 +31,7 @@
 | P1 | 共用 PostgreSQL handler 若被另一種部署方式直接引用，可能略過私有入口的 TLS 與資料庫執行角色檢查。 | 建立 handler 時必須提供與連線池相同的安全 URL，拒絕額外主機／SSL 覆蓋；首個請求前核對受限角色、RLS 與 schema，失敗只回固定 503，且不查憑證。 |
 | P1 | 共用 OS 機器憑證下，不同成員若取得同一請求鍵，可讀回或重播別人的寫入收據；金額權限撤銷後付款收據仍可能顯示淨收。 | 收據與防重判斷加入經驗證的 `subjectId`，讀回付款結果重新檢查 `money` 權限；付款寫入本身也要求該權限。 |
 | P1 | Vercel 的命名萬用路由在建置後自動把擷取路徑加成 `?path=...`，使 OS 對原始 path/query 的短效簽章失效。 | 改用無命名擷取的 `/v1/(.*)` 規則；檢查實際 `.vercel/output/config.json` 的目的地不再帶額外 query。正式預覽仍須做 OS 端到端驗證。 |
+| P2 | 共用 PostgreSQL handler 首次遇到暫時性資料庫斷線後，會把失敗的安全檢查永久快取到同一個暖實例，資料庫恢復仍持續回 503。 | 暫時性查詢失敗時清除快取，下一個請求重新檢查；不安全角色或 schema 仍維持關閉。測試斷線後恢復。 |
 
 PostgreSQL 執行角色只能透過高熵 token 摘要查單筆憑證，不能列舉憑證表；發證與撤銷須另用管理連線。權威資料、占房唯一鍵、fence、收據與 outbox 在同一館別交易提交。
 
@@ -45,7 +46,7 @@ PostgreSQL 執行角色只能透過高熵 token 摘要查單筆憑證，不能�
 
 ## 驗證
 
-- `npm test`：53 個合成測試通過；3 個 PostgreSQL 測試在預設執行時跳過。
+- `npm test`：54 個合成測試通過；3 個 PostgreSQL 測試在預設執行時跳過。
 - `npm run check`：TypeScript 嚴格型別檢查通過。
 - `npm run build`：編出可直接載入的 JavaScript，產物中不含 `.ts` 匯入；缺少設定的正式入口拒絕啟動。
 - `npm run test:pg`：隔離 localhost `iron_gate_test` 的 3 個交易／RLS／憑證與共用 handler 測試通過。
