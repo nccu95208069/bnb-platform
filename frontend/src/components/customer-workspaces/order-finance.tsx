@@ -37,6 +37,7 @@ export function OrderFinance({
   externalLocked?: boolean;
 }) {
   const summary = financeSummary(booking),
+    cancelled = booking.status === "cancelled",
     canWrite =
       ["owner", "admin", "housekeeper"].includes(data.role) &&
       booking.status === "confirmed",
@@ -143,26 +144,31 @@ export function OrderFinance({
     <section className="mt-5 border-t pt-5">
       <div className="grid gap-3 sm:grid-cols-3">
         <p>
-          整筆應收
+          {cancelled ? "原房費" : "整筆應收"}
           <strong className="mt-1 block">{formatMoney(booking.total)}</strong>
         </p>
         <p>
-          累計房費實收
+          房費實收（扣除已退）
           <strong className="mt-1 block">
             {formatMoney(summary.received)}
           </strong>
         </p>
         <p>
-          尚待收款
+          {cancelled ? "原房費差額" : "尚待收款"}
           <strong className="mt-1 block">
             {formatMoney(summary.remaining)}
           </strong>
         </p>
       </div>
       <p className="mt-3 text-sm">
-        狀態：{financeLabels[summary.status]}
+        狀態：{summary.received === 0 && summary.refunds > 0 ? "已記錄退款，目前房費實收為零" : financeLabels[summary.status]}
         {summary.credit ? ` · 溢收 ${formatMoney(summary.credit)}` : ""}
       </p>
+      {cancelled && (
+        <p className="mt-2 text-sm text-slate-600">
+          訂單已取消，原房費差額不代表應補款；退款以收退款明細為準。
+        </p>
+      )}
       {booking.expectedDeposit != null && (
         <p className="mt-2 text-sm">
           約定訂金 {formatMoney(booking.expectedDeposit)} · 已登記為訂金{" "}
