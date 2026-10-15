@@ -59,3 +59,27 @@ On 2026-10-15 the owner explicitly requested real success/cancellation email acc
 These are four independently verified received messages, not merely provider-accepted send attempts. The post-delivery searches showed two messages per mailbox and no duplicate for either event. This run covers hold creation and cancellation by release, not a paid reservation confirmation. Local evidence includes the two filtered inbox lists, owner message detail, and paused test-site state; recipient addresses, message IDs, lookup codes and screenshots are intentionally excluded from this repository.
 
 Notification-config rollback baseline: `dpl_DsyaqZuR4n27mzaY6YxWd9tkZ7rB`. The new binding allowlist is scoped to this paused test property; enabling notification delivery for another property still requires its appropriate configured scope.
+
+## Deposit conversion, refund and cancellation acceptance
+
+The owner then requested the complete deposit-to-formal-order-to-refund/cancellation workflow using test data. Reopened only the same non-operating test property, reusing the two explicitly selected test mailboxes. No bank transfer, card charge or actual refund was performed.
+
+- Created one new one-room reservation for 2026-10-20 through 2026-10-21 at TWD 1,800.50. Both inboxes received its hold-created notification at 10:18 Asia/Taipei. The earlier cancelled order remained unchanged.
+- Recorded one simulated TWD 900.25 deposit and converted that same hold into a formal order. Both the owner order detail and the guest's authoritative lookup showed TWD 900.25 net received and TWD 900.25 remaining. Both inboxes received the matching formal-confirmation message at 10:21.
+- Attempted cancellation before refund. The UI rejected it with the settlement-required message and preserved the confirmed order and deposit.
+- Recorded one simulated TWD 900.25 refund with an explicit no-real-money note. Readback on both surfaces showed zero net received and the recorded refund. Cancelled the same order after settlement; the two payment entries remained as history and payment controls closed.
+- Both inboxes received the matching order-cancelled message at 10:23. The new reservation produced three received messages per mailbox: hold creation, formal confirmation and cancellation. The guest lookup reported the ended reservation and latest notification sent.
+- A separate guest tab successfully quoted the released room for the same dates at TWD 1,800.50. No second reservation was submitted. Paused both Studio and OS sales after the run; OS showed zero active holds. The cancelled order and its simulated ledger remain as audit evidence.
+
+The run exposed misleading balance labels after cancellation/refund. OS now calls the cancelled order's unchanged historical total and difference `原房費` / `原房費差額`, explicitly says that difference is not a payment request, and distinguishes a zero balance after recorded refunds from no receipts. The guest page calls a zero net receipt `目前無實收餘額`, so a refunded order no longer incorrectly says no receipt was ever recorded. These are presentation changes; ledger calculations, writes, authorization and notification settings are unchanged.
+
+Verification and release:
+
+- Fifteen existing order-amendment, payment and hold DOM regressions pass. ESLint has zero errors and five existing warnings. TypeScript and both local/cloud OS production builds pass.
+- OS runtime `15dc8b6` is deployed through `dpl_8X3yaaPHaniWUP4fwGTgVvAdX8xX` at `https://sweetfun-5hlerjkyu-sweetfuns-projects.vercel.app`; its staged entry returned 200 before promotion. Reloading the authenticated primary-domain order displayed the corrected labels, cancelled status, original total and both TWD 900.25 ledger entries.
+- Guest Site v14, source `1bd986da7084d65a175b59363bd58a6e608bf8fe`, passed its Worker build and published through `appgdep_6ad03ab4d9ec81919d8160aab47d5c7f`. Reloading and querying the existing reservation on the public guest URL displayed the corrected zero-balance text, TWD 900.25 recorded refund and unchanged cancellation/reference details.
+- Local screenshots retain the rejected cancellation, delivered owner messages, released-room quote and final corrected order/guest summaries. No mailbox addresses, message IDs, lookup codes or screenshots were committed.
+
+The six received emails verify delivery and matching order state, reference, dates, room count and original room total. Current confirmation/cancellation templates do not itemize deposit/refund transactions, and a standalone refund entry does not send a separate email. Refund amounts were verified in the guest page and owner ledger; this run does not claim a separate refund receipt email or real financial settlement.
+
+OS presentation rollback baseline: `dpl_2proEdn5rHAPkbrSyKsuaPTWyENT`. Guest presentation rollback baseline: Site v13.
