@@ -13,7 +13,7 @@
 | 價格寫入 | `pricing-runtime-recovery/scripts/owlnest_prices.py` 記錄登入後 `PUT /booking/v2/admin/hotels/{hotel}/calendars/price`，絕對價格、讀前與延遲讀回；該 recovery checkout 的真實寫入已被凍結。 | 這是價格，不能據此推定房量／販售狀態的寫入路徑或 payload；Iron Gate 不呼叫此寫入器。 |
 | 開關房 | `gmail-check-order/src/line_agent/owlnest/automation.py` 的 PlaywrightDriver 登入後台，於日期面板同時設定庫存 0/1 與販售關／開，再從月曆格和重開面板兩段讀回；`executor.py` 有前置異常分類、有限重試、紀錄與告警。 | 既有服務是**網頁 UI 操作**，不是直接呼叫房量後台請求的程式。UI 的實作與測試不能充當 Iron Gate 的實際 HTTP 往返證據。 |
 
-2026-10-16 另從 OwlNest 自己的[公開 PlanView 程式](https://www.owlting.com/booking/admin/js/PlanView.4d7b8c.min.js)定位到日曆畫面的候選寫入：`PUT /booking/v2/admin/hotels/{hotel}/calendars/stock`，畫面建構 `stock_items`，單格包含 `room_ids`、`week_days`、同一天起訖、`exclude_holiday`，勾選庫存時含 `count`／`safe_stock_check`，勾選販售狀態時含 `is_lock`。目前 UI 可同時勾選兩項；關房候選值為 `count=0,is_lock=1`，開房為 `count=1,is_lock=0`。`src/owlnest-stock-command.mjs` 僅依這份靜態程式建構單房晚候選命令，**不持有憑證，也沒有 HTTP 寫入功能**。該畫面的傳輸封裝、真實權限、回應與非同步效果仍未經登入帳號實測，不可把靜態程式碼當成功寫入證據。
+2026-10-16 另從 OwlNest 自己的[公開 PlanView 程式](https://www.owlting.com/booking/admin/js/PlanView.4d7b8c.min.js)定位到日曆畫面的候選寫入：`PUT /booking/v2/admin/hotels/{hotel}/calendars/stock`，畫面建構 `stock_items`，單格包含 `room_ids`、`week_days`、同一天起訖、`exclude_holiday`，勾選庫存時含 `count`／`safe_stock_check`，勾選販售狀態時含 `is_lock`。目前 UI 可同時勾選兩項；關房候選值為 `count=0,is_lock=1`，開房為 `count=1,is_lock=0`。頁面請求 wrapper 另加 `lang`，此路徑未設 `isJson`，與價格寫入的 JSON 路徑不同；實際表單編碼仍要看登入後的網路紀錄。`src/owlnest-stock-command.mjs` 僅依這份靜態程式建構送進頁面 wrapper 的單房晚資料，**不持有憑證、沒有序列化器或 HTTP 寫入功能**。真實權限、回應與非同步效果仍未經登入帳號實測，不可把靜態程式碼當成功寫入證據。
 
 ## Iron Gate 的接線方向
 

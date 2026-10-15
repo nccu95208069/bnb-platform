@@ -12,14 +12,14 @@ test("stock command matches the current web editor's single-night absolute field
   assert.equal(closed.method, "PUT");
   assert.equal(closed.url,
     "https://www.owlting.com/booking/v2/admin/hotels/6188/calendars/stock");
-  assert.deepEqual(closed.payload, { stock_items: [{
+  assert.deepEqual(closed.uiData, { stock_items: [{
     room_ids: [101], week_days: [1, 2, 3, 4, 5, 6, 0],
     during_start_date: "2026-11-10", during_end_date: "2026-11-10",
     exclude_holiday: 0, count: 0, safe_stock_check: 1, is_lock: 1,
   }] });
   const open = buildOwlNestStockCommand({ ...base, desired: "open" });
-  assert.equal(open.payload.stock_items[0].count, 1);
-  assert.equal(open.payload.stock_items[0].is_lock, 0);
+  assert.equal(open.uiData.stock_items[0].count, 1);
+  assert.equal(open.uiData.stock_items[0].is_lock, 0);
 });
 
 test("stock command cannot target an unconfigured property or room", () => {
