@@ -41,14 +41,14 @@ PostgreSQL 執行角色只能透過高熵 token 摘要查單筆憑證，不能�
 
 - **OS 影子路由尚未正式配置與舊 writer 封寫**。只讀路由已在獨立分支實作逐請求 OS 會員重讀及短效證明，預設關閉、未部署、沒有真實機器憑證。未注入 verifier 時 Iron Gate 拒絕 OS 憑證。不能將影子路由視為新訂房正本。
 - **現有 OS 欄位和保留／付款語意尚未無損對齊**。逐項差異與封寫範圍見 [OS 接線差異](OS_INTEGRATION_MATRIX.md)；不能直接把舊訂單重建成簡化的 Iron Gate 訂單。
-- **沒有真實 OwlNest connector、網站一次性報價、LINE 預覽確認、財務憑據核實與人工解鎖流程**。通路執行器只有注入式模擬測試。使用者指定登入網站後直接呼叫後台；現有程式已使用房況 GET 與價格 PUT，但房量後台寫入請求仍未辨認／實測，逐館 lease 與隔離測試仍缺；相應危險路徑保持拒絕或停售。
+- **沒有真實 OwlNest 寫入 connector、網站一次性報價、LINE 預覽確認、財務憑據核實與人工解鎖流程**。通路執行器只有注入式模擬測試；登入後台日曆 GET 的 Iron Gate 唯讀 adapter 只有合成測試。使用者指定登入網站後直接呼叫後台；現有程式已使用房況 GET 與價格 PUT，但房量後台寫入請求仍未辨認／實測，逐館 lease 與隔離測試仍缺；相應危險路徑保持拒絕或停售。
 - **尚未完成正式環境備份還原、監控、outbox 消費者與逐館遷移演練**。已有受保護的私有 Preview 與固定 503 的 Production 空殼；SQLite 僅供單機驗證。PostgreSQL 資料庫角色及 TLS 已在專用 Supabase 專案驗證，但交易整合測試與一次性資料庫備份還原仍只在隔離的 localhost 完成。
 
 這些是上線阻擋項，尚無真實接線程式可完成整合審查；不能解讀為整個產品已通過 P1 審查。
 
 ## 驗證
 
-- `npm test`：58 個合成測試通過；3 個 PostgreSQL 測試在預設執行時跳過。
+- `npm test`：62 個合成測試通過；3 個 PostgreSQL 測試在預設執行時跳過。新增唯讀 OwlNest 後台日曆 adapter 的完整格、缺格、重複、失效登入和跨館拒絕測試；未呼叫真實 OwlNest。
 - `npm run check`：TypeScript 嚴格型別檢查通過。
 - `npm run build`：編出可直接載入的 JavaScript，產物中不含 `.ts` 匯入；缺少設定的正式入口拒絕啟動。
 - `npm run test:pg`：隔離 localhost `iron_gate_test` 的 3 個交易／RLS／憑證與共用 handler 測試通過。

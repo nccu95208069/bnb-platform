@@ -2,7 +2,7 @@
 
 Iron Gate 是獨立的訂單與房晚權威服務。此目錄目前提供可執行的合成 API、PostgreSQL 儲存、館別隔離、憑證與唯讀 OS 影子比對。**已有受保護的 Preview 與固定 503 的 Production 空殼；尚未接管任何真實訂單。** 產品和 API 契約分別見 [Iron Gate v1](IRON_GATE_V1.md)、[API v1](API_V1.md) 與 [OpenAPI](openapi.yaml)。
 
-`src/channel-runner.mjs` 提供注入式通路操作模擬，不含真實 OwlNest 寫入連線。使用者指定沿用網站登入後的後台請求；目前只驗證了房況讀取與價格寫入路徑，房量寫入請求仍須從受控測試工作階段辨認、實測並逐晚讀回，詳見 [OwlNest 接線調查](OWLNEST_API_STATUS.md)。
+`src/channel-runner.mjs` 提供注入式通路操作模擬，不含真實 OwlNest 寫入連線。`src/owlnest-web-readback.mjs` 將現有登入後的日曆 GET 做成唯讀、注入憑證的合成測試 adapter，未接真實帳號。使用者指定沿用網站登入後的後台請求；價格寫入路徑已知，房量寫入請求仍須從受控測試工作階段辨認、實測並逐晚讀回，詳見 [OwlNest 接線調查](OWLNEST_API_STATUS.md)。
 
 ## 本機驗證
 

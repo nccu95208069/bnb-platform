@@ -74,7 +74,7 @@ HTTP 路由與輸入上限（src/http.ts）
         ↓
 SQLite 單機或 PostgreSQL 可序列化儲存 + 同交易 outbox 〔合成資料已驗證〕
         ↓
-OwlNest／來源 connector 真實讀回 〔尚未實作〕
+OwlNest／來源 connector 真實讀回 〔登入後台日曆 GET 的唯讀 adapter 已有合成測試；真實帳號讀回及來源 connector 尚未實作〕
 ```
 
 `MemoryPropertyRepository` 只用來驗證領域規則。`SqlitePropertyRepository` 已驗證單機重啟與交易回滾；`PostgresPropertyRepository` 已在隔離的本機 PostgreSQL 驗證最後一間、同交易 outbox 與 RLS 跨館隔離。正式部署仍需真實身分接線、備份、監控、容量與故障恢復驗證。至少需要下列唯一性與持久性條件：
