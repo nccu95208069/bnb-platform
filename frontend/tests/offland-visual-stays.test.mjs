@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {visualCalendarStays} from '../src/components/calendar/visual-stays.ts';
+import {OFFLAND_VISUAL_STAYS, visualCalendarStays} from '../src/components/calendar/visual-stays.ts';
 import {layoutMonthWeek} from '../src/components/calendar/month-layout.ts';
 
 const groups = [
-  {platform: 'owljourney', nights: [
+  {platform: 'other', nights: [
     ['sheet-2eafc35d9fcb6a2e0244', '2026-10-09'],
     ['sheet-31d4c161464248c37014', '2026-10-10'],
   ]},
@@ -33,8 +33,8 @@ const rows = groups.flatMap((group, groupIndex) => group.nights.map(([id, check_
   source_read_only: true, source_order_linked: false, source_identity_kind: 'row',
   booked_at: `2026-09-${String(groupIndex + 1).padStart(2, '0')}`, guest_name_kind: 'real', guest_name: `Sample Guest ${groupIndex}`,
   check_in, check_out: new Date(Date.parse(check_in + 'T00:00:00Z') + 86400000).toISOString().slice(0, 10),
-  room_rate: 100 + nightIndex, payment_status: 'paid',
-  nightly_amounts: [{date: check_in, amount: 100 + nightIndex}],
+  room_rate: 100 + Math.min(nightIndex, 1), payment_status: 'paid',
+  nightly_amounts: [{date: check_in, amount: 100 + Math.min(nightIndex, 1)}],
 })));
 
 test('eleven verified OFFLAND rows display as five stays without changing underlying orders', () => {
@@ -70,4 +70,36 @@ test('changed source identity, dates, or explicit parent links fail closed', () 
     assert.equal(display.length, 7);
     assert.equal(display.find(row => row.id === rows[2].id).visual_source_ids, undefined);
   }
+});
+
+test('all audited matching rows link for display while source orders remain separate', () => {
+  assert.equal(OFFLAND_VISUAL_STAYS.length, 39);
+  const source = OFFLAND_VISUAL_STAYS.flatMap((group, groupIndex) => group.nights.map(([id, check_in], nightIndex) => ({
+    ...rows[0], id, sheet_row_id: id, order_id: `order-${groupIndex}-${nightIndex}`,
+    platform: group.platform, booked_at: `2026-01-${String(groupIndex % 28 + 1).padStart(2, '0')}`,
+    guest_name: `Guest ${groupIndex}`, check_in,
+    check_out: new Date(Date.parse(check_in + 'T00:00:00Z') + 86400000).toISOString().slice(0, 10),
+    room_rate: 100 + Math.min(nightIndex, 1),
+  })));
+  const original = structuredClone(source);
+  const display = visualCalendarStays(source);
+  assert.equal(display.length, 39);
+  assert.deepEqual(display.map(stay => stay.visual_source_ids?.length), OFFLAND_VISUAL_STAYS.map(group => group.nights.length));
+  assert.deepEqual(source, original);
+});
+
+test('rate difference above one dollar fails closed except for the confirmed October exception', () => {
+  const changed = rows.map(row => ({...row}));
+  changed[4].room_rate += 2;
+  const display = visualCalendarStays(changed);
+  assert.equal(display.find(row => row.id === rows[2].id).visual_source_ids, undefined);
+  assert.deepEqual(display.find(row => row.id === rows[0].id).visual_source_ids, [rows[0].id, rows[1].id]);
+});
+
+test('matching fields alone do not link unreviewed source rows', () => {
+  const twoNights = rows.slice(0, 2).map((row, index) => ({
+    ...row, id: `unreviewed-${index}`, sheet_row_id: `unreviewed-${index}`,
+    room_rate: 100, booked_at: '2026-10-01', guest_name: 'Same Guest',
+  }));
+  assert.deepEqual(visualCalendarStays(twoNights), twoNights);
 });
