@@ -30,6 +30,7 @@
 | P1 | 通路讀回若只回送期望的 `open/closed`，可把尚未真正關房的庫存標為已驗證。 | 改為要求每個房晚的實際 `count` 與 `isLock`；完整但仍可售的讀回維持 `review_required` 和 fence。真實 connector 仍需驗證證據來源。 |
 | P1 | 共用 PostgreSQL handler 若被另一種部署方式直接引用，可能略過私有入口的 TLS 與資料庫執行角色檢查。 | 建立 handler 時必須提供與連線池相同的安全 URL，拒絕額外主機／SSL 覆蓋；首個請求前核對受限角色、RLS 與 schema，失敗只回固定 503，且不查憑證。 |
 | P1 | 共用 OS 機器憑證下，不同成員若取得同一請求鍵，可讀回或重播別人的寫入收據；金額權限撤銷後付款收據仍可能顯示淨收。 | 收據與防重判斷加入經驗證的 `subjectId`，讀回付款結果重新檢查 `money` 權限；付款寫入本身也要求該權限。 |
+| P1 | Vercel 的命名萬用路由在建置後自動把擷取路徑加成 `?path=...`，使 OS 對原始 path/query 的短效簽章失效。 | 改用無命名擷取的 `/v1/(.*)` 規則；檢查實際 `.vercel/output/config.json` 的目的地不再帶額外 query。正式預覽仍須做 OS 端到端驗證。 |
 
 PostgreSQL 執行角色只能透過高熵 token 摘要查單筆憑證，不能列舉憑證表；發證與撤銷須另用管理連線。權威資料、占房唯一鍵、fence、收據與 outbox 在同一館別交易提交。
 
@@ -44,12 +45,13 @@ PostgreSQL 執行角色只能透過高熵 token 摘要查單筆憑證，不能�
 
 ## 驗證
 
-- `npm test`：51 個合成測試通過；3 個 PostgreSQL 測試在預設執行時跳過。
+- `npm test`：53 個合成測試通過；3 個 PostgreSQL 測試在預設執行時跳過。
 - `npm run check`：TypeScript 嚴格型別檢查通過。
 - `npm run build`：編出可直接載入的 JavaScript，產物中不含 `.ts` 匯入；缺少設定的正式入口拒絕啟動。
 - `npm run test:pg`：隔離 localhost `iron_gate_test` 的 3 個交易／RLS／憑證與共用 handler 測試通過。
 - `npm run test:restore`：在同一隔離 PostgreSQL 實例建立並清除兩個一次性資料庫；5 張資料表、outbox 序列與受限執行角色在備份／還原前後核對通過。這不是正式館別的還原驗收。
 - `npm run test:server`：127.0.0.1 上的 1 個實際 HTTP 請求流程通過。
 - `npm run start:private`：缺少資料庫設定時會拒絕啟動；隔離 localhost PostgreSQL 實測受限角色可啟動後立即關閉，管理角色被拒絕；尚未在正式環境啟動。
+- Vercel：新 `sweetfuns-projects/iron-gate` 空專案已建立，本機 `vercel build` 通過並包含 Node.js 22 函式、`dist` 與 PostgreSQL 驅動；入口缺少私密設定或遇到不安全連線只回 503。尚未部署或接上 Supabase。
 - `openapi.yaml`：17 個路徑；讀回 schema 使用觀測庫存與鎖房資料，YAML 與 91 個本地 `$ref` 均解析通過。
 - OS 分支：會員證明及只讀轉發 4 個合成測試、TypeScript、lint（零錯誤）及 Webpack 正式建置通過；另以合成請求驗證 OS 簽發與 Iron Gate 驗證器互通。路由預設關閉，尚無正式憑證或真實會員請求。
