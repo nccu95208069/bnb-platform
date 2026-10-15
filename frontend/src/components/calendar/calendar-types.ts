@@ -89,6 +89,8 @@ export type CalendarBooking = {
   source_identity_kind?: "parent_order" | "row";
   nightly_amounts?: { date: string; amount: number }[];
   source_segment_ids?: string[];
+  // Calendar-only span; the underlying rows keep independent order/payment IDs.
+  visual_source_ids?: string[];
   stay_nights?: number;
   price_hidden?: boolean;
 };
