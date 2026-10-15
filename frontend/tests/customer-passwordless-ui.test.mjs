@@ -34,6 +34,7 @@ async function mount(t) {
   for (const k of [
     "window",
     "document",
+    "location",
     "sessionStorage",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
@@ -41,6 +42,7 @@ async function mount(t) {
   Object.assign(globalThis, {
     window: dom.window,
     document: dom.window.document,
+    location: dom.window.location,
     sessionStorage: dom.window.sessionStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
@@ -324,6 +326,8 @@ test("uncertain login mail freezes the email and reuses the same request key aft
   await m.click(m.button("寄送登入連結"));
   assert.equal(document.querySelector('input[type="email"]').disabled, true);
   await m.click(m.button("確認同一封登入信"));
+  assert.equal(requests.length, 2);
+  assert.equal(requests[0].email, "owner@example.test");
   assert.deepEqual(requests[1], requests[0]);
   assert.match(document.body.textContent, /same mail confirmed/);
 });
