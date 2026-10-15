@@ -69,26 +69,50 @@ export default async function Page({
     </main>;
 
     const calendarKind =
-      property.setup?.calendarKind ??
-      (initialProperty ? workspace.onboarding?.calendarKind : undefined) ??
-      (isCalendarKind(search.source) ? search.source : undefined);
+      search.source === "sheet"
+        ? undefined
+        : isCalendarKind(search.source)
+          ? search.source
+          : property.setup?.calendarKind ??
+            (initialProperty ? workspace.onboarding?.calendarKind : undefined);
+    const selectedSource = calendarKind ?? "sheet";
+    const sourceLinks = (
+      <nav aria-label="切換匯入來源" className="mx-auto flex max-w-4xl flex-wrap gap-2 px-6 pt-6">
+        {([[
+          "sheet",
+          "Google Sheet／Excel／CSV",
+        ], ["google_calendar", "Google 日曆"], ["ios_calendar", "iPhone／iPad 日曆"], ["android_calendar", "Android 日曆"]] as const).map(([source, label]) => (
+          <a
+            key={source}
+            href={`?${new URLSearchParams({ property: property.id, source })}`}
+            aria-current={selectedSource === source ? "page" : undefined}
+            className={`rounded-lg border px-3 py-2 text-sm ${selectedSource === source ? "border-teal-700 bg-teal-50 text-teal-900" : "bg-white text-slate-700 hover:border-teal-700"}`}
+          >
+            {label}
+          </a>
+        ))}
+      </nav>
+    );
     if (calendarKind)
       return (
-        <CalendarImport
-          slug={slug}
-          property={property}
-          initialKind={calendarKind}
-          initialStatus={await calendarStatus(
-            store,
-            account.id,
-            slug,
-            property.id,
-          )}
-          configured={calendarGoogleReady()}
-          syncReady={calendarSyncReady()}
-          connected={search.calendar === "connected"}
-          googleFailed={search.calendar === "failed"}
-        />
+        <>
+          {sourceLinks}
+          <CalendarImport
+            slug={slug}
+            property={property}
+            initialKind={calendarKind}
+            initialStatus={await calendarStatus(
+              store,
+              account.id,
+              slug,
+              property.id,
+            )}
+            configured={calendarGoogleReady()}
+            syncReady={calendarSyncReady()}
+            connected={search.calendar === "connected"}
+            googleFailed={search.calendar === "failed"}
+          />
+        </>
       );
     const journey =
       initialProperty && workspace.onboarding
@@ -99,22 +123,25 @@ export default async function Page({
           ).value
         : null;
     return (
-      <SheetImport
-        slug={slug}
-        property={property}
-        configured={Boolean(sharedSheetEmail()) || googleReady()}
-        connected={search.google === "connected"}
-        sharedUrl={
-          property.setup?.sheetUrl ??
-          (initialProperty ? workspace.onboarding?.sheetUrl : undefined)
-        }
-        shareEmail={sharedSheetEmail() ?? undefined}
-        helpMessage={journey?.message}
-        initialVersion={workspace.version}
-        initialBatches={(workspace.importBatches ?? []).filter(
-          (b) => b.propertyId === property.id,
-        )}
-      />
+      <>
+        {sourceLinks}
+        <SheetImport
+          slug={slug}
+          property={property}
+          configured={Boolean(sharedSheetEmail()) || googleReady()}
+          connected={search.google === "connected"}
+          sharedUrl={
+            property.setup?.sheetUrl ??
+            (initialProperty ? workspace.onboarding?.sheetUrl : undefined)
+          }
+          shareEmail={sharedSheetEmail() ?? undefined}
+          helpMessage={journey?.message}
+          initialVersion={workspace.version}
+          initialBatches={(workspace.importBatches ?? []).filter(
+            (b) => b.propertyId === property.id,
+          )}
+        />
+      </>
     );
   } catch {
     return (

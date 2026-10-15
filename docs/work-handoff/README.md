@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-15 website flow repair: [503 root cause, current Studio booking dependencies, isolated end-to-end verification, deployment evidence and pending authenticated live acceptance](WEBSITE_BOOKING_FLOW_2026-10-15.md).
+
 2026-10-14 settings and calendar follow-up: [grouped Sweetfun OS settings, browser-persisted appearance, Auto and loose-to-compact month-week sizing, two-line booking cards when space allows, compact unsold availability controls, dark-mode contrast correction, validation, and production release evidence](SETTINGS_APPEARANCE_2026-10-14.md). The latest unsold contrast revision is live on the primary domain as `dpl_HBSeHvEVGsqo83x2A3RPZFzmmQ3c`, based on the existing production source without the separate OS beta integration branch.
 2026-10-11 OS-04: owner-approved OS and LINE rollout is complete. Sweetfun and OFFLAND reminders are enabled for Taipei 09:00, with separately labeled unconfirmed room-night summaries. The new scheduler returned HTTP 200; one authorized synthetic LINE message has a persisted provider receipt and was visibly received in LINE desktop. First automatic arrival-note dispatch is due October 12 and has not yet been observed; physical-phone and external-customer acceptance remain open. See [release evidence](OS_READINESS_2026-10-10.md#正式-line-啟用--2026-10-11).
 

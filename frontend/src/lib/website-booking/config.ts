@@ -86,21 +86,29 @@ export function bindingToken(binding: WebsiteBinding) {
 }
 export function sameSecret(left: string, right: string) { return timingSafeEqual(Buffer.from(digest(left)), Buffer.from(digest(right))); }
 export function serviceClient(token: string | null): WebsiteClient {
-  let rows: WebsiteClient[];
+  let rows: WebsiteClient[], legacyCount: number, selfServiceOrigins: string[];
   try {
     const existing = JSON.parse(process.env.WEBSITE_BOOKING_CLIENTS || "[]");
     const studio = JSON.parse(process.env.WEBSITE_BOOKING_STUDIO_CLIENTS || "[]");
     if (!Array.isArray(existing) || !Array.isArray(studio)) throw Error();
+    legacyCount = existing.length;
     rows = [...existing, ...studio];
+    selfServiceOrigins = JSON.parse(process.env.WEBSITE_BOOKING_STUDIO_SELF_SERVICE_ORIGINS || "[]");
+    if (!Array.isArray(selfServiceOrigins) || selfServiceOrigins.length > 50 ||
+      new Set(selfServiceOrigins).size !== selfServiceOrigins.length || selfServiceOrigins.some(origin =>
+        typeof origin !== "string" || new URL(origin).protocol !== "https:" || new URL(origin).origin !== origin ||
+        !studio.some(client => client?.editor_origin === origin))) throw Error();
   } catch { throw Error("WEBSITE_BOOKING_UNAVAILABLE"); }
   if (!Array.isArray(rows) || rows.length > 50) throw Error("WEBSITE_BOOKING_UNAVAILABLE");
   const ids = new Set<string>(), hashes = new Set<string>();
-  for (const c of rows) {
+  for (const [index, c] of rows.entries()) {
     try {
-      const row = record(c); fields(row, ["id", "token_sha256", "site_ids", "editor_origin"]);
+      const row = record(c); fields(row, ["id", "token_sha256", "site_ids", "editor_origin", "allow_new_sites"]);
       id(c.id);
+      if (c.allow_new_sites !== undefined && (c.allow_new_sites !== true || index < legacyCount)) throw Error();
       if (ids.has(c.id) || typeof c.token_sha256 !== "string" || !/^[a-f0-9]{64}$/.test(c.token_sha256) || hashes.has(c.token_sha256) ||
-        !Array.isArray(c.site_ids) || c.site_ids.length < 1 || c.site_ids.length > 100 || new Set(c.site_ids).size !== c.site_ids.length || c.site_ids.some(s => id(s) !== s)) throw Error();
+        !Array.isArray(c.site_ids) || (c.site_ids.length < 1 && !c.allow_new_sites) || c.site_ids.length > 100 ||
+        new Set(c.site_ids).size !== c.site_ids.length || c.site_ids.some(s => id(s) !== s)) throw Error();
       const origin = new URL(c.editor_origin);
       if (origin.protocol !== "https:" || origin.origin !== c.editor_origin) throw Error();
       ids.add(c.id); hashes.add(c.token_sha256);
@@ -110,11 +118,17 @@ export function serviceClient(token: string | null): WebsiteClient {
   if (!found || !Array.isArray(found.site_ids) || found.site_ids.some(s => typeof s !== "string")) throw Error("UNAUTHORIZED");
   id(found.id);
   try { const origin = new URL(found.editor_origin); if (origin.protocol !== "https:" || origin.origin !== found.editor_origin) throw Error(); } catch { throw Error("WEBSITE_BOOKING_UNAVAILABLE"); }
-  return found;
+  // Existing secret registries remain intact. This explicit origin opt-in only
+  // extends an already authenticated Studio client to pending UUID requests.
+  // The intended owner must still verify and approve each site; sales stay off.
+  return rows.indexOf(found) >= legacyCount && selfServiceOrigins.includes(found.editor_origin)
+    ? { ...found, allow_new_sites: true } : found;
 }
 export function permittedSite(client: WebsiteClient, siteId: unknown) {
   const site = id(siteId);
-  if (!client.site_ids.includes(site)) throw Error("FORBIDDEN");
+  if (!client.site_ids.includes(site)) {
+    if (!client.allow_new_sites || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(site)) throw Error("FORBIDDEN");
+  }
   return site;
 }
 export function stayInput(input: Record<string, unknown>, binding: WebsiteBinding, now = new Date()): Stay {

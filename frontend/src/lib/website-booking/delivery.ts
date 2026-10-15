@@ -4,6 +4,7 @@ import type { Change, CustomerStore, Snapshot } from "../customer-workspaces/sto
 import { sendCustomerLifecycleMail } from "../workspace-auth/mail.ts";
 import { uuid } from "./config.ts";
 import { authorizeWorkerBinding, notificationDispatchPlan, notificationOperation, workerSiteScopes, type NotificationWorker, type WorkerSiteScope } from "./notifications.ts";
+import { approvedStudioBindingIds, studioEmailClientIds } from "./studio-sites.ts";
 
 const workerId = "internal:website-email:v1";
 const sendingLifetime = 10 * 60_000;
@@ -49,7 +50,8 @@ export function emailDeliverySiteScopes() {
 }
 
 function internalWorker(bindingIds: string[], siteScopes: WorkerSiteScope[]): NotificationWorker {
-  return { id: workerId, token_sha256: "", binding_ids: bindingIds, site_scopes: siteScopes, actions: ["notifications"], channels: ["guestEmail", "ownerEmail"] };
+  return { id: workerId, token_sha256: "", binding_ids: bindingIds, site_scopes: siteScopes,
+    studio_client_ids: studioEmailClientIds(), actions: ["notifications"], channels: ["guestEmail", "ownerEmail"] };
 }
 async function resolvedBindings(store: CustomerStore, worker: NotificationWorker) {
   const found = [...worker.binding_ids];
@@ -59,6 +61,10 @@ async function resolvedBindings(store: CustomerStore, worker: NotificationWorker
     if (!site) continue; // The owner has not approved a binding for this site yet.
     const bindingId = uuid(site.bindingId);
     await authorizeWorkerBinding(store, worker, bindingId, { requireOwner: false });
+    if (!found.includes(bindingId)) found.push(bindingId);
+  }
+  for (const bindingId of await approvedStudioBindingIds(store, worker.studio_client_ids ?? [])) {
+    await authorizeWorkerBinding(store, worker, bindingId);
     if (!found.includes(bindingId)) found.push(bindingId);
   }
   return found;

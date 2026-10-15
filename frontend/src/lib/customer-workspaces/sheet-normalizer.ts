@@ -42,6 +42,10 @@ export type Mapping = {
   receivedMeaning: "source" | "property" | "guest" | "none";
   currency: "TWD";
   from: string;
+  // Exclusive upper bound, only when the owner confirms the source is complete
+  // for every physical room and existing booking/block in this interval.
+  coverageTo?: string;
+  coverageConfirmed?: true;
   grid?: {
     dateColumns: number[];
     cellMeaning: "order-id" | "guest-name";
@@ -162,7 +166,13 @@ export function validateMapping(mapping: Mapping) {
     Array.isArray(mapping.roomMap)
   )
     throw new Error("INVALID_INPUT");
-  dateValue(mapping.from);
+  const from = dateValue(mapping.from);
+  if (mapping.coverageConfirmed === true && mapping.coverageTo === undefined) throw new Error("SOURCE_COVERAGE");
+  if (mapping.coverageTo !== undefined) {
+    const to = dateValue(mapping.coverageTo);
+    if (mapping.coverageConfirmed !== true || to <= from ||
+      Date.parse(to) - Date.parse(from) > 731 * 86400000) throw new Error("SOURCE_COVERAGE");
+  }
   const required =
     mapping.granularity === "grid"
       ? ["rooms"]
