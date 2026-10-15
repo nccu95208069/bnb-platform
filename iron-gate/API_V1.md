@@ -1,7 +1,7 @@
 # Iron Gate API v1：介面與程式落地規劃
 
 日期：2026-10-13（Asia/Taipei）
-狀態：**可執行的合成驗證版本；未部署、未接真實訂單或 OwlNest**。產品權威與遷移決策仍以 [Iron Gate v1](IRON_GATE_V1.md) 為準；機器可讀路徑及請求格式見 [OpenAPI](openapi.yaml)。
+狀態：**可執行的合成驗證版本；已有受保護的 Preview 與固定 503 的 Production 空殼，未接真實訂單或 OwlNest 寫入**。產品權威與遷移決策仍以 [Iron Gate v1](IRON_GATE_V1.md) 為準；機器可讀路徑及請求格式見 [OpenAPI](openapi.yaml)。
 
 ## 1. 第一個可執行切片
 
@@ -16,7 +16,7 @@
 | `POST /v1/properties/{propertyId}/bookings/{bookingId}/cancel` | 保留訂單、版本檢查；有 OwlNest 時維持 fence 直到開房讀回 | 實際付款／退款審核、外部取消責任分界 |
 | `GET /v1/properties/{propertyId}/requests/{requestKey}` | 同服務／grant 查持久原收據及目前訂單版本，撤銷憑證即時拒絕 | 正式保留期與營運清理流程 |
 | `POST /v1/source-events` | 來源帳號、前一來源版本、上次套用訂單版本、取消 tombstone、衝突停售 | 真實 provider 證據與排序規則、正式來源 grant 配置 |
-| `GET /v1/inventory-operations/{operationKey}`、`POST .../readback` | 精確房晚集合、短時間讀回、逐晚庫存數與鎖房狀態、部分成功保留 fence、持久操作 journal；provider-neutral 的單次執行器已能模擬未知寫入結果 | OwlNest 正式寫入 API、登入、房型映射、逐晚真實讀回、持久單館 lease 與修復工作 |
+| `GET /v1/inventory-operations/{operationKey}`、`POST .../readback` | 精確房晚集合、短時間讀回、逐晚庫存數與鎖房狀態、部分成功保留 fence、持久操作 journal；provider-neutral 的單次執行器已能模擬未知寫入結果 | 登入後台的房量寫入請求辨認與實測、房型映射、逐晚真實讀回、持久單館 lease 與修復工作 |
 
 這些路徑已在 `src/http.ts` 由可注入的驗證函式接到 `src/service.ts`；`src/node-server.mjs` 提供 Node HTTP 與 PostgreSQL 組裝入口，已用 127.0.0.1 合成請求驗證，**沒有啟動公開伺服器**。`npm run start:private` 的入口只綁 loopback，要求受限 PostgreSQL 執行角色、已套用 schema 與 OS 證明密鑰；共用 PostgreSQL handler 也在服務請求前核對資料庫角色與 RLS。建立共用 handler 必須提供與連線池相同的 URL，遠端資料庫須設 `sslmode=verify-full`，不接受額外主機或 SSL 覆蓋。本機隔離資料庫已驗證正常執行角色可啟動、管理角色會被拒絕。現在另有 SQLite 單機持久儲存、PostgreSQL 可序列化館別交易、同交易 outbox 與僅能追加的稽核紀錄、可撤銷的不透明憑證。已實作 5 秒 OS 會員請求證明的簽發／驗證函式，OS 獨立分支有預設關閉的只讀影子路由；沒有正式部署或真實發證。
 
@@ -43,7 +43,7 @@
 - OwlNest 館本地建單與 fence 在同一交易持久化後回 `202 sync_pending`。connector 需回報每個房晚實際觀測的 `count` 與 `isLock`：關房須庫存為零或鎖定，開房須庫存大於零且未鎖定。逐晚資料齊全並相符才變 `sync_verified`；未知、部分成功或相矛盾時回 `review_required` 並停售。內部 `confirmed` 不等於通路已關房，也不是旅客通知已送達。
 - 取消只改訂單狀態並保留稽核；已有未沖銷收款的原生訂單和保留單會拒絕直接取消或釋出。OwlNest 館的房晚在開房逐晚讀回前仍受 fence 保護。若原關房操作尚未確認，取消進人工核對，避免舊操作晚到後重新關房。
 - 原生保留的 24 小時期限由服務端設定；期限過後仍占房，只有業主明確延長或釋出才改變狀態。釋出後晚到款項只追加財務紀錄及人工處理標記，不重新占房。
-- `GET availability` 的 `unsold` 只代表本地未占用。此切片刻意不讓官網在 OwlNest 館由此判定可售。OwlNest 官方公開資料目前只有產品／後台操作介紹，未找到可供實作的正式開關房寫入契約；真實 connector 仍關閉，詳見 [OwlNest API 查核](OWLNEST_API_STATUS.md)。
+- `GET availability` 的 `unsold` 只代表本地未占用。此切片刻意不讓官網在 OwlNest 館由此判定可售。使用者指定登入網站後直接呼叫後台；現有房況 GET、價格 PUT 和開關房 UI 操作的差異見 [OwlNest 接線調查](OWLNEST_API_STATUS.md)。房量寫入的後台請求尚未實測，真實 connector 仍關閉。
 - 分析／定價使用 `occupancy:aggregate`，清掃使用 `housekeeping:read`，兩者分開發證。逐日摘要中的 `fenced` 是額外的風險計數，可與已占用房晚重疊；`confirmed + held + blocked + unsold` 才等於房間總數。清掃資料只提供確認訂單的最後連續住宿夜後退房日期，沒有客資。
 - 財務使用 `finance:ledger` 加 `money` 欄位權限逐筆查詢收退款事實；回覆含訂單 ID、金額、時間與憑據參照，不含旅客姓名與聯絡方式。這個列表只代表已進 Iron Gate 的追加式事件，不代替舊 OS 的期初／匯入款項。
 - 回應一律 `private, no-store`，錯誤只含固定代碼。旅客憑據只能讀綁定的單一訂單；PII 由驗證後的欄位 grant 決定是否出現在投影中。每次接受的寫入另記操作者、服務、grant、請求鍵、訂單與版本；一般事件訂閱不含這些稽核欄位。
@@ -79,7 +79,7 @@ OwlNest／來源 connector 真實讀回 〔尚未實作〕
 
 `MemoryPropertyRepository` 只用來驗證領域規則。`SqlitePropertyRepository` 已驗證單機重啟與交易回滾；`PostgresPropertyRepository` 已在隔離的本機 PostgreSQL 驗證最後一間、同交易 outbox 與 RLS 跨館隔離。正式部署仍需真實身分接線、備份、監控、容量與故障恢復驗證。至少需要下列唯一性與持久性條件：
 
-`src/channel-runner.mjs` 是不含 OwlNest 憑證或網路呼叫的模擬執行器：呼叫端必須提供持久的逐館 lease、絕對且可重入的逐晚設定操作與完整的 provider 觀測。寫入回覆本身不算成功；若結果未知，執行器停止後續寫入，讀回現況並交給 Iron Gate 保留待核對狀態。沒有官方寫入 API 契約與測試授權前，不能把模擬 adapter 改作正式 OwlNest 控房。
+`src/channel-runner.mjs` 是不含 OwlNest 憑證或網路呼叫的模擬執行器：呼叫端必須提供持久的逐館 lease、絕對且可重入的逐晚設定操作與完整的 provider 觀測。寫入回覆本身不算成功；若結果未知，執行器停止後續寫入，讀回現況並交給 Iron Gate 保留待核對狀態。登入後台的房量請求、館別權限及受控測試尚未核實前，不能把模擬 adapter 改作真實 OwlNest 控房。
 
 | 紀錄 | 必須持久的鍵或限制 |
 | --- | --- |

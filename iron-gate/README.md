@@ -1,8 +1,8 @@
 # Iron Gate
 
-Iron Gate 是獨立的訂單與房晚權威服務。此目錄目前提供可執行的合成 API、PostgreSQL 儲存、館別隔離、憑證與唯讀 OS 影子比對。**尚未部署，也尚未接管任何真實訂單。** 產品和 API 契約分別見 [Iron Gate v1](IRON_GATE_V1.md)、[API v1](API_V1.md) 與 [OpenAPI](openapi.yaml)。
+Iron Gate 是獨立的訂單與房晚權威服務。此目錄目前提供可執行的合成 API、PostgreSQL 儲存、館別隔離、憑證與唯讀 OS 影子比對。**已有受保護的 Preview 與固定 503 的 Production 空殼；尚未接管任何真實訂單。** 產品和 API 契約分別見 [Iron Gate v1](IRON_GATE_V1.md)、[API v1](API_V1.md) 與 [OpenAPI](openapi.yaml)。
 
-`src/channel-runner.mjs` 提供注入式通路操作模擬，不含正式 OwlNest 寫入連線；只有取得官方寫入 API 契約、測試授權及持久逐館 lease 後，才可接到真實控房程序。
+`src/channel-runner.mjs` 提供注入式通路操作模擬，不含真實 OwlNest 寫入連線。使用者指定沿用網站登入後的後台請求；目前只驗證了房況讀取與價格寫入路徑，房量寫入請求仍須從受控測試工作階段辨認、實測並逐晚讀回，詳見 [OwlNest 接線調查](OWLNEST_API_STATUS.md)。
 
 ## 本機驗證
 
@@ -27,6 +27,6 @@ npm run build
 
 `api/index.mjs` 是獨立 Vercel 專案的 Node.js 入口；`vercel.json` 只把 `/v1/` 路徑導向它。建置先產生 `dist/`，公開靜態目錄 `public/` 保持空白。入口需要 Vercel 明確標記 `VERCEL_ENV=preview`、Preview 專用 `IRON_GATE_PREVIEW_ENABLED=true`、伺服器端的 `IRON_GATE_DATABASE_URL` 與 `IRON_GATE_OS_PROOF_SECRET`；其他目標一律回 `503 SERVICE_UNAVAILABLE`。資料庫 URL 必須使用驗證主機名稱的 TLS，連線角色必須是受限的 `iron_gate_runtime` 成員；連線字串及 proof secret 不可提交到 Git 或放在瀏覽器環境變數。資料庫建立、管理帳號、遷移和發證都不由 Vercel 函式執行。
 
-新 Vercel `sweetfuns-projects/iron-gate` 專案已配置三項 Preview 專用變數，尚無運作中的部署；專用 Supabase PostgreSQL 已建立。短生命週期函式使用 transaction pooler；程式每次讀寫都以明確 transaction 設定逐館 RLS。正式啟用前要在部署預覽中核對重寫後的原始路徑與查詢字串，因為 OS proof 會對完整請求路徑簽章。部署及資料庫準備狀態詳見 [部署清單](DEPLOYMENT_VERCEL_SUPABASE.md)。
+新 Vercel `sweetfuns-projects/iron-gate` 專案已配置三項 Preview 專用變數。Production 空殼固定回 503；受 Vercel 登入保護的 Preview 在完成受限資料庫檢查後，對未授權訂單請求回 401。專用 Supabase PostgreSQL 已建立。短生命週期函式使用 transaction pooler；程式每次讀寫都以明確 transaction 設定逐館 RLS。正式啟用前要在部署預覽中核對 OS 簽章的完整請求路徑與查詢字串。部署及資料庫準備狀態詳見 [部署清單](DEPLOYMENT_VERCEL_SUPABASE.md)。
 
 影子盤點工具 `npm run shadow:report -- report /absolute/private/os-workspace.json` 只輸出去個資報告；輸入檔仍含客資，必須保存在受控私密位置。它不會讀取或修改 OS，也不會啟用切換。現有 OS [只讀橋接](../docs/work-handoff/IRON_GATE_OS_PROOF_2026-10-13.md)預設關閉。
