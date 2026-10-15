@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { digest } from "../customer-workspaces/auth.ts";
-import { bookingsOverlap, businessDate, cents } from "../customer-workspaces/domain.ts";
+import { bookingsOverlap, businessDate, cents, financeSummary } from "../customer-workspaces/domain.ts";
 import { holdPhase, holdsEnabled, occupiesInventory } from "../customer-workspaces/hold-state.ts";
 import type { CustomerStore, Snapshot } from "../customer-workspaces/store.ts";
 import type { Property, Workspace } from "../customer-workspaces/types.ts";
 import { addDays, bindingToken, email, enabled, fields, plain, record, sameSecret, stayInput, uuid } from "./config.ts";
-import { bindingKey, nativeProperty } from "./connections.ts";
+import { bindingCoverage, bindingKey, nativeProperty } from "./connections.ts";
 import { notificationPlan, notificationStates } from "./notifications.ts";
 import type { RoomOffer, Stay, WebsiteBinding, WebsiteBooking, WebsiteObservation, WebsiteQuote, WebsiteReceipt } from "./types.ts";
 
@@ -20,6 +20,13 @@ export async function bindingWorkspace(store: CustomerStore, binding: WebsiteBin
   const property = w?.properties.find(p => p.id === binding.propertyId);
   if (!w || !property || w.slug !== binding.slug || !w.members.some(m => m.accountId === binding.ownerAccountId && m.active && m.role === "owner" && (m.allProperties || m.propertyIds.includes(binding.propertyId)))) throw Error("BINDING_UNAVAILABLE");
   nativeProperty(w, property);
+  if (binding.admission === "owner_approval" && property.setup?.mode === "empty" &&
+      (!binding.emptyCalendarCoverage || binding.emptyCalendarCoverage.from > binding.config.opensOn ||
+       binding.emptyCalendarCoverage.to < addDays(binding.config.closesOn, 1) ||
+       !Number.isFinite(Date.parse(binding.emptyCalendarCoverage.confirmedAt)))) throw Error("SOURCE_COVERAGE");
+  if (binding.admission === "owner_approval" && !["empty", "sheet", "calendar"].includes(property.setup?.mode ?? ""))
+    throw Error("SOURCE_COVERAGE");
+  bindingCoverage(property, binding.config);
   if (binding.offers.some(o => o.roomIds.some(id => !property.rooms.some(r => r.id === id)))) throw Error("BINDING_UNAVAILABLE");
   return { raw: saved.raw, workspace: w, property };
 }
@@ -72,12 +79,16 @@ async function resultFor(store: CustomerStore, binding: WebsiteBinding, receipt:
   const originalOffer = binding.offers.find(o => o.id === booking.website.roomTypeId && coversRooms(o) &&
     (!o.wholeHouse || o.roomIds.length === booking.roomIds.length));
   const offer = originalOffer ?? binding.offers.find(o => !o.wholeHouse && coversRooms(o));
-  return { status, orderId: booking.id, reference: receipt.reference,
+  const finance = financeSummary(booking);
+  return { status, orderId: booking.id, orderVersion: booking.version, reference: receipt.reference,
     stay: { checkIn: booking.checkIn, checkOut: booking.checkOut,
       roomTypeName: offer?.name ?? "房間預訂", quantity: offer?.wholeHouse ? 1 : booking.roomIds.length,
       adults: booking.website.adults, children: booking.website.children,
       totalCents: booking.total === null ? null : cents(booking.total), currency: "TWD" as const },
     acceptedTerms: booking.website.acceptedTerms ?? null,
+    payment: { status: finance.status, receivedCents: finance.received === null ? null : cents(finance.received),
+      remainingCents: finance.remaining === null ? null : cents(finance.remaining),
+      refundedCents: cents(finance.refunds), refundReviewRequired: booking.hold?.latePaymentReview === true },
     ...(["hold_active", "hold_expired_waiting_owner"].includes(status) ? { holdUntil: booking.hold!.expiresAt } : {}),
     notifications: await notificationStates(store, booking) };
 }
@@ -100,7 +111,11 @@ export async function guestAction(store: CustomerStore, bindingId: string, token
   if (action === "bootstrap") {
     fields(input, common);
     let ready = true;
-    try { requireReady(binding, input.configurationHash); await bindingWorkspace(store, binding); } catch { ready = false; }
+    try {
+      requireReady(binding, input.configurationHash);
+      const { property } = await bindingWorkspace(store, binding);
+      if (!property.pricing?.enabled) throw Error("PRICING_NOT_ENABLED");
+    } catch { ready = false; }
     return { schemaVersion: 1, state: ready ? "ready" : "unavailable", inventoryMode: binding.inventoryMode, configurationHash: binding.configurationHash };
   }
   if (!["availability", "quotes"].includes(action)) throw Error("NOT_FOUND");

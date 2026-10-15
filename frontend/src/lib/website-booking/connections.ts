@@ -5,8 +5,9 @@ import { customerOrigin } from "../customer-workspaces/site-url.ts";
 import { loadWorkspace, validSlug } from "../customer-workspaces/service.ts";
 import type { Change, CustomerStore } from "../customer-workspaces/store.ts";
 import type { Account, Property, Workspace } from "../customer-workspaces/types.ts";
-import { amount, bindingToken, email, fields, integer, permittedSite, plain, record, requireEnabled, uuid, validateConfiguration } from "./config.ts";
-import type { RoomOffer, WebsiteBinding, WebsiteClient, WebsiteConnection } from "./types.ts";
+import { addDays, amount, bindingToken, email, fields, integer, permittedSite, plain, record, requireEnabled, uuid, validateConfiguration } from "./config.ts";
+import type { RoomOffer, WebsiteBinding, WebsiteClient, WebsiteConfig, WebsiteConnection } from "./types.ts";
+import { studioSiteIds, studioSitesKey } from "./studio-sites.ts";
 
 export const connectionKey = (id: string) => `website:connection:${id}`;
 export const workspaceBindingsKey = (id: string) => `website:workspace-bindings:${id}`;
@@ -30,7 +31,8 @@ export async function connectionStatus(store: CustomerStore, client: WebsiteClie
     if (!b || b.clientId !== client.id || b.siteId !== site) throw Error("WRITE_UNCONFIRMED");
     if (b.connectionId !== c.id) return { schemaVersion: 1, state: "superseded", connectionId: c.id, configurationHash: b.configurationHash };
     return { schemaVersion: 1, state: "connected", connectionId: c.id, bindingId: b.id,
-      bindingToken: bindingToken(b), configurationHash: b.configurationHash, inventoryMode: b.inventoryMode, calendarUrl: calendarUrl(b) };
+      bindingToken: bindingToken(b), configurationHash: b.configurationHash, inventoryMode: b.inventoryMode,
+      salesEnabled: b.enabled, calendarUrl: calendarUrl(b) };
   }
   const currentSite = (await store.read<Site>(siteKey(c.clientId, c.siteId))).value;
   const currentBinding = currentSite ? (await store.read<WebsiteBinding>(bindingKey(currentSite.bindingId))).value : null;
@@ -57,6 +59,7 @@ export async function prepareConnection(store: CustomerStore, client: WebsiteCli
   if (site.value && !currentBinding) throw Error("BINDING_UNAVAILABLE");
   await store.limit(`website-prepare:${client.id}`, 30);
   const value: WebsiteConnection = { id: requestId, clientId: client.id, siteId, siteName, ownerEmail, hash, ...config,
+    editorOrigin: client.editor_origin, admission: client.site_ids.includes(siteId) ? "exact" : "owner_approval",
     createdAt: now.toISOString(), expiresAt: new Date(now.getTime() + 3600000).toISOString(), state: "awaiting_owner", bindingRevision: currentBinding?.revision ?? 0 };
   try { await store.commit([{ key, before: null, after: value, ttlSeconds: 3600 }]); }
   catch (error) {
@@ -68,10 +71,36 @@ export async function prepareConnection(store: CustomerStore, client: WebsiteCli
 }
 
 export function nativeProperty(workspace: Workspace, property: Property) {
-  if (property.sourceMode !== "native" || (property.setup && property.setup.mode !== "empty") ||
-    workspace.calendarSources?.some(s => s.propertyId === property.id) ||
-    !propertyReadiness(workspace, property).complete ||
+  if (property.sourceMode !== "native" || !propertyReadiness(workspace, property).complete ||
+    workspace.reviewRecords?.some(r => r.propertyId === property.id)) throw Error("LEGACY_INTEGRATION_REQUIRED");
+  const sources = workspace.calendarSources?.filter(s => s.propertyId === property.id) ?? [];
+  if (property.setup?.mode === "calendar") {
+    const from = property.setup.coverageFrom, to = property.setup.coverageTo;
+    if (!sources.length || !from || !to ||
+      sources.some(s => s.mode !== "migration" || s.transport !== "file" || !s.coverageConfirmed || s.pendingCount || s.issueCount ||
+        s.from > from || s.to < to) ||
+      workspace.bookings.some(b => b.propertyId === property.id && b.status !== "cancelled" && b.entry === "sheet"))
+      throw Error("LEGACY_INTEGRATION_REQUIRED");
+    return;
+  }
+  if (property.setup?.mode === "sheet") {
+    if (!property.setup.coverageFrom || !property.setup.coverageTo || sources.length ||
+      !workspace.importBatches?.some(b => b.propertyId === property.id) ||
+      workspace.bookings.some(b => b.propertyId === property.id && b.status !== "cancelled" && b.entry === "calendar"))
+      throw Error("LEGACY_INTEGRATION_REQUIRED");
+    return;
+  }
+  // An empty native property is still available for a new owner's calendar.
+  // Imported records without a confirmed source interval cannot be sold.
+  if ((property.setup && property.setup.mode !== "empty") || sources.length ||
     workspace.bookings.some(b => b.propertyId === property.id && b.entry !== "os")) throw Error("LEGACY_INTEGRATION_REQUIRED");
+}
+
+export function bindingCoverage(property: Property, config: WebsiteConfig) {
+  if (property.setup?.mode !== "calendar" && property.setup?.mode !== "sheet") return;
+  const from = property.setup.coverageFrom, to = property.setup.coverageTo;
+  if (!from || !to || config.opensOn < from || addDays(config.closesOn, 1) > to)
+    throw Error("SOURCE_COVERAGE");
 }
 
 export async function ownerConnection(store: CustomerStore, account: Account, id: unknown, now = new Date()) {
@@ -84,7 +113,7 @@ export async function ownerConnection(store: CustomerStore, account: Account, id
     const member = ws.members.find(m => m.accountId === account.id && m.active && m.role === "owner")!;
     const properties = ws.properties.filter(p => {
       if (!member.allProperties && !member.propertyIds.includes(p.id)) return false;
-      try { nativeProperty(ws, p); return true; } catch { return false; }
+      try { nativeProperty(ws, p); bindingCoverage(p, c.config); return true; } catch { return false; }
     }).map(p => ({ id: p.id, name: p.name, kind: p.kind, rooms: p.rooms }));
     workspaces.push({ slug: ws.slug, name: ws.name, version: ws.version, properties });
   }
@@ -94,7 +123,8 @@ export async function ownerConnection(store: CustomerStore, account: Account, id
   if (c.state === "awaiting_owner" && (binding?.revision ?? 0) !== c.bindingRevision) throw Error("CONNECTION_SUPERSEDED");
   if (c.state === "connected" && binding?.connectionId !== c.id) throw Error("CONNECTION_SUPERSEDED");
   return { authenticated: true, email: account.email, connection: {
-    id: c.id, siteName: c.siteName, state: c.state, configurationHash: c.configurationHash,
+    id: c.id, siteName: c.siteName, siteId: c.siteId, editorOrigin: c.editorOrigin,
+    requiresSiteApproval: c.admission === "owner_approval", state: c.state, configurationHash: c.configurationHash,
     expiresAt: c.expiresAt, config: c.config, roomRecords: c.roomRecords,
     ...(binding ? { calendarUrl: calendarUrl(binding), binding: {
       slug: binding.slug, propertyId: binding.propertyId,
@@ -158,7 +188,7 @@ export async function approveConnection(store: CustomerStore, account: Account, 
     workspace = loaded.workspace; workspaceRaw = loaded.raw;
     const p = workspace.properties.find(p => p.id === input.propertyId);
     if (!p || (!loaded.member.allProperties && !loaded.member.propertyIds.includes(p.id))) throw Error("NOT_FOUND");
-    property = p; nativeProperty(workspace, property);
+    property = p; nativeProperty(workspace, property); bindingCoverage(property, c.config);
     if (oldBinding.value && (oldBinding.value.workspaceId !== workspace.id || oldBinding.value.propertyId !== property.id)) throw Error("WEBSITE_OWNER_MISMATCH");
     if (!Array.isArray(input.roomMappings) || input.roomMappings.length !== activeTypes.length) throw Error("INVALID_INPUT");
     const seen = new Set<string>();
@@ -195,9 +225,13 @@ export async function approveConnection(store: CustomerStore, account: Account, 
   if (c.config.sellingMode !== "rooms" && base.villa == null) base.villa = amount(c.config.wholeHouseNightly) / 100;
   property = { ...property, pricing: { currency: "TWD", enabled: property.pricing?.enabled ?? true, base, overrides: property.pricing?.overrides ?? [] } };
   const b: WebsiteBinding = { id: oldBinding.value?.id ?? randomUUID(), clientId: c.clientId, siteId: c.siteId, siteName: c.siteName,
+    admission: oldBinding.value?.admission ?? c.admission,
+    ...(property.setup?.mode === "empty" ? { emptyCalendarCoverage: {
+      from: c.config.opensOn, to: addDays(c.config.closesOn, 1), confirmedAt: now.toISOString(),
+    } } : {}),
     ownerAccountId: account.id, ownerEmail: account.email, workspaceId: workspace.id, slug, propertyId: property.id,
     configurationHash: c.configurationHash, config: c.config, roomRecords: c.roomRecords, offers, physicalMappings,
-    inventoryMode: "platform_only", enabled: oldBinding.value?.enabled ?? true, credentialGeneration: oldBinding.value?.credentialGeneration ?? randomUUID(),
+    inventoryMode: "platform_only", enabled: oldBinding.value?.enabled ?? false, credentialGeneration: oldBinding.value?.credentialGeneration ?? randomUUID(),
     connectionId: c.id, revision: (oldBinding.value?.revision ?? 0) + 1, approvedAt: now.toISOString(),
     ...(oldBinding.value?.ownerLine ? { ownerLine: oldBinding.value.ownerLine } : {}) };
   // Verify key readiness before any mutation so failed credential setup creates no binding.
@@ -211,6 +245,14 @@ export async function approveConnection(store: CustomerStore, account: Account, 
     { key: connectionKey(c.id), before: saved.raw, after: { ...c, state: "connected", bindingId: b.id, approvedBy: account.id, approvalKey, approvalHash } });
   const bindingIndex = await store.read<string[]>(workspaceBindingsKey(workspace.id));
   changes.push({ key: workspaceBindingsKey(workspace.id), before: bindingIndex.raw, after: [...new Set([...(bindingIndex.value ?? []), b.id])] });
+  if (c.admission === "owner_approval") {
+    const registry = await store.read<string[]>(studioSitesKey(c.clientId));
+    const sites = studioSiteIds(registry.value);
+    if (!sites.includes(c.siteId)) {
+      if (sites.length >= 100) throw Error("LIMIT_REACHED");
+      changes.push({ key: studioSitesKey(c.clientId), before: registry.raw, after: [...sites, uuid(c.siteId)] });
+    }
+  }
   await store.commit(changes);
   const readback = await store.read<WebsiteConnection>(connectionKey(c.id));
   const stored = (await store.read<WebsiteBinding>(bindingKey(b.id))).value;

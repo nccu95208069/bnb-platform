@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { websiteFixture, editorToken, client, testEnvironment } from './helpers/website-booking-fixture.mjs';
+import { websiteFixture, memoryStore, editorToken, client, testEnvironment } from './helpers/website-booking-fixture.mjs';
 import { accountKey, digest } from '../src/lib/customer-workspaces/auth.ts';
 import { createHold, view } from '../src/lib/customer-workspaces/service.ts';
 import { holdOperation } from '../src/lib/customer-workspaces/holds.ts';
@@ -25,6 +25,24 @@ test('prepare creates no property; only verified intended owner can atomically a
  assert.equal([...f.store.values.keys()].filter(k=>k.startsWith('workspace:')).length,1);
  await assert.rejects(approveConnection(f.store,f.account,{...f.approval,slug:'changed'},f.now),/IDEMPOTENCY_CONFLICT/);
 });
+test('a new Studio UUID site stays pending until the intended owner verifies its identity and mapping',async()=>{
+ const f=await websiteFixture({approve:false});
+ const studio={...f.client,id:'trusted-studio',site_ids:[],allow_new_sites:true};
+ const siteId=randomUUID(),request={...f.prepare,requestId:randomUUID(),siteId};
+ const pending=await prepareConnection(f.store,studio,request,f.now);
+ assert.equal((await f.store.read('website:site:'+digest(JSON.stringify([studio.id,siteId])))).value,null);
+ const review=await ownerConnection(f.store,f.account,pending.connectionId,f.now);
+ assert.equal(review.connection.siteId,siteId);
+ assert.equal(review.connection.editorOrigin,studio.editor_origin);
+ assert.equal(review.connection.requiresSiteApproval,true);
+ await assert.rejects(approveConnection(f.store,{...f.account,email:'other@example.invalid'},{...f.approval,connectionId:pending.connectionId},f.now),/WEBSITE_OWNER_MISMATCH/);
+ await assert.rejects(connectionStatus(f.store,{...studio,id:'other-studio'},{schemaVersion:1,action:'status',siteId,connectionId:pending.connectionId},f.now),/NOT_FOUND/);
+ const approved=await approveConnection(f.store,f.account,{...f.approval,connectionId:pending.connectionId},f.now);
+ assert.equal(approved.state,'connected');
+ const status=await connectionStatus(f.store,studio,{schemaVersion:1,action:'status',siteId,connectionId:pending.connectionId},f.now);
+ assert.equal(status.salesEnabled,false);
+ await assert.rejects(prepareConnection(f.store,studio,{...request,requestId:randomUUID(),ownerEmail:'other@example.invalid'},f.now),/WEBSITE_OWNER_MISMATCH/);
+});
 test('service and binding credentials are separate; invalid site and caller authority are rejected',async()=>{
  const f=await websiteFixture();assert.equal(serviceClient(editorToken).id,client.id);
  assert.throws(()=>serviceClient(f.status.bindingToken),/UNAUTHORIZED/);
@@ -32,6 +50,17 @@ test('service and binding credentials are separate; invalid site and caller auth
  await assert.rejects(prepareConnection(f.store,{...client,site_ids:[]},f.prepare,f.now),/FORBIDDEN/);
  for(const field of ['tenantId','workspaceId','actor','totalCents','roomIds'])await assert.rejects(f.call('availability',{...f.stay,[field]:'forged'}),/INVALID_INPUT/);
  await assert.rejects(guestAction(f.store,f.binding.id,f.status.bindingToken,'bootstrap',{...f.envelope,source:'LINE'}),/INVALID_INPUT/);
+});
+test('two tenants share a store without sharing bindings, order lookups or room inventory',async()=>{
+ const store=memoryStore();
+ const a=await websiteFixture({store,siteId:'synthetic:tenant-a',ownerEmail:'owner-a@example.invalid'});
+ const b=await websiteFixture({store,siteId:'synthetic:tenant-b',ownerEmail:'owner-b@example.invalid'});
+ assert.notEqual(a.binding.workspaceId,b.binding.workspaceId);
+ assert.notEqual(a.binding.propertyId,b.binding.propertyId);
+ const reserved=await a.reserve();
+ await assert.rejects(guestAction(store,a.binding.id,b.status.bindingToken,'requests',{...a.envelope,idempotencyKey:reserved.input.idempotencyKey}),/UNAUTHORIZED/);
+ assert.equal((await b.call('requests',{idempotencyKey:reserved.input.idempotencyKey})).status,'not_found');
+ assert.equal((await b.call('availability',b.stay)).options[0].availableUnits,1);
 });
 test('native calendar, server prices, room allocation and persistent outbox form one booking',async()=>{
  const f=await websiteFixture({units:2});const q=await f.quote({quantity:2,adults:4});assert.equal(q.totalCents,800000);
@@ -53,6 +82,19 @@ test('last-room website versus manual OS hold cannot both win; whole-house share
  const outcomes=await Promise.allSettled([f.call('reservations',input),createHold(f.store,f.account.id,w.slug,{requestKey:randomUUID(),version:w.version,propertyId:p.id,roomIds:p.rooms.map(r=>r.id),checkIn:f.stay.checkIn,checkOut:f.stay.checkOut,total:4000,confirmPlatformOnly:true})]);
  assert.equal(outcomes.filter(r=>r.status==='fulfilled').length,1);assert.equal((await f.workspace()).bookings.length,1);
  await assert.rejects(f.quote({roomTypeId:'whole-house'}),/ROOM_CONFLICT/);
+});
+test('an OTA booking arriving after a website quote blocks the stale reservation at the legacy-source gate',async()=>{
+ const f=await websiteFixture(),quote=await f.quote(),w=await f.workspace(),roomId=w.properties[0].rooms[0].id;
+ w.bookings.push({
+  id:randomUUID(),version:1,propertyId:w.properties[0].id,guestName:'Synthetic OTA guest',
+  checkIn:f.stay.checkIn,checkOut:f.stay.checkOut,roomIds:[roomId],total:null,payments:[],
+  contact:null,notes:null,status:'confirmed',guestNotified:false,createdAt:f.now.toISOString(),
+  actor:'synthetic-ota',entry:'sheet',platform:'OTA',requestKey:'ota-source-1',requestHash:'ota-source-1',
+ });
+ w.version++;
+ f.store.values.set('workspace:'+w.id,JSON.stringify(w));
+ await assert.rejects(f.reserve(quote),/LEGACY_INTEGRATION_REQUIRED/);
+ assert.equal((await f.workspace()).bookings.length,1);
 });
 test('lost reservation response recovers identical order and jobs; altered or reused quote cannot duplicate',async()=>{
  const f=await websiteFixture(),q=await f.quote();const input={quoteId:q.quoteId,guest:{name:'Synthetic',email:'guest@example.invalid',phone:'+00000000',note:''},acceptedPolicy:true,idempotencyKey:randomUUID()};

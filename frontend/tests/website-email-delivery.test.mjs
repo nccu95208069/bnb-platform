@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { runWebsiteEmailDelivery, emailDeliveryBindings, emailDeliverySiteScopes } from '../src/lib/website-booking/delivery.ts';
 import { notificationPlan, notificationStates } from '../src/lib/website-booking/notifications.ts';
+import { digest } from '../src/lib/customer-workspaces/auth.ts';
+import { studioSitesKey } from '../src/lib/website-booking/studio-sites.ts';
 import { emailFixture, memoryEmailStore, fixtureNow, storedRecords } from './helpers/website-email-fixture.mjs';
 
 const fixedNow = () => fixtureNow;
@@ -193,4 +196,28 @@ test('configured exact site scopes discover approved bindings without per-bindin
   assert.deepEqual(emailDeliveryBindings(), [f.bindingId]); assert.deepEqual(emailDeliverySiteScopes(), [scope]);
   process.env.WEBSITE_BOOKING_EMAIL_SITE_SCOPES = JSON.stringify([{ client_id: '*', site_id: f.binding.siteId }]);
   assert.throws(emailDeliverySiteScopes, /EMAIL_DELIVERY_UNAVAILABLE/);
+});
+
+test('approved UUID sites join internal email delivery by Studio client without per-site settings', async t => {
+  const keys = ['WEBSITE_BOOKING_STUDIO_CLIENTS', 'WEBSITE_BOOKING_STUDIO_EMAIL_CLIENT_IDS'];
+  const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+  t.after(() => { for (const key of keys) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; } });
+  const clientId = 'approved-studio-email', siteId = randomUUID();
+  const f = await emailFixture({ siteId });
+  f.mutate(`website:binding:${f.bindingId}`, binding => { binding.clientId = clientId; });
+  f.store.values.delete(f.siteKey);
+  const siteKey = `website:site:${digest(JSON.stringify([clientId, siteId]))}`;
+  f.store.values.set(siteKey, JSON.stringify({ bindingId: f.bindingId, ownerAccountId: f.binding.ownerAccountId, ownerEmail: f.binding.ownerEmail }));
+  f.store.values.set(studioSitesKey(clientId), JSON.stringify([siteId]));
+  process.env.WEBSITE_BOOKING_STUDIO_CLIENTS = JSON.stringify([{ id: clientId, token_sha256: digest('synthetic-studio-secret'), site_ids: [], editor_origin: 'https://studio.example.invalid', allow_new_sites: true }]);
+  process.env.WEBSITE_BOOKING_STUDIO_EMAIL_CLIENT_IDS = JSON.stringify([clientId]);
+  const other = await emailFixture({ bindingId: randomUUID(), siteId: randomUUID(), store: f.store });
+  let calls = 0;
+  const delivered = await runWebsiteEmailDelivery(f.store, [], { now: fixedNow, send: async () => `provider:dynamic-${++calls}` });
+  assert.equal(delivered.sent, 2);
+  assert.equal(calls, 2);
+  assert.equal((await notificationStates(f.store, other.bookings[0])).guestEmail, 'queued');
+  assert.equal((await runWebsiteEmailDelivery(f.store, [], { now: fixedNow, send: async () => { throw Error('duplicate send'); } })).sent, 0);
+  f.store.values.delete(studioSitesKey(clientId));
+  assert.equal((await runWebsiteEmailDelivery(f.store, [], { now: fixedNow, send: async () => { throw Error('revoked send'); } })).sent, 0);
 });
