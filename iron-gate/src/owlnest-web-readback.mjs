@@ -4,7 +4,7 @@ const MAX_BODY_BYTES = 8 * 1024 * 1024;
 const DAY = 86_400_000;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-function dayNumber(value) {
+export function owlNestDayNumber(value) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))
     throw Error("OWLNEST_INVALID_DAY");
   const parsed = Date.parse(value + "T00:00:00.000Z");
@@ -13,7 +13,7 @@ function dayNumber(value) {
   return parsed / DAY;
 }
 
-function checkedConfig(propertyId, config) {
+export function checkedOwlNestConfig(propertyId, config) {
   if (!UUID.test(propertyId) || !config || !Number.isSafeInteger(config.hotelId) ||
     config.hotelId <= 0 || !config.roomIds || typeof config.roomIds !== "object" ||
     Array.isArray(config.roomIds)) throw Error("OWLNEST_NOT_CONFIGURED");
@@ -63,14 +63,14 @@ export function createOwlNestWebReadback({ propertyConfigs, getAuthorization,
     throw Error("OWLNEST_NOT_CONFIGURED");
   return {
     async observe(propertyId, requested) {
-      const config = checkedConfig(propertyId, propertyConfigs[propertyId]);
+      const config = checkedOwlNestConfig(propertyId, propertyConfigs[propertyId]);
       if (!Array.isArray(requested) || !requested.length || requested.length > 4096)
         throw Error("OWLNEST_INVALID_CELLS");
       const knownRooms = new Set(Object.keys(config.roomIds));
       const seen = new Set(), days = [];
       for (const cell of requested) {
         if (!cell || !knownRooms.has(cell.roomId)) throw Error("OWLNEST_INVALID_CELLS");
-        const day = dayNumber(cell.date), key = `${cell.roomId}|${cell.date}`;
+        const day = owlNestDayNumber(cell.date), key = `${cell.roomId}|${cell.date}`;
         if (seen.has(key)) throw Error("OWLNEST_INVALID_CELLS");
         seen.add(key); days.push(day);
       }

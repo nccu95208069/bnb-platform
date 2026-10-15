@@ -16,7 +16,7 @@
 | `POST /v1/properties/{propertyId}/bookings/{bookingId}/cancel` | 保留訂單、版本檢查；有 OwlNest 時維持 fence 直到開房讀回 | 實際付款／退款審核、外部取消責任分界 |
 | `GET /v1/properties/{propertyId}/requests/{requestKey}` | 同服務／grant 查持久原收據及目前訂單版本，撤銷憑證即時拒絕 | 正式保留期與營運清理流程 |
 | `POST /v1/source-events` | 來源帳號、前一來源版本、上次套用訂單版本、取消 tombstone、衝突停售 | 真實 provider 證據與排序規則、正式來源 grant 配置 |
-| `GET /v1/inventory-operations/{operationKey}`、`POST .../readback` | 精確房晚集合、短時間讀回、逐晚庫存數與鎖房狀態、部分成功保留 fence、持久操作 journal；provider-neutral 的單次執行器已能模擬未知寫入結果 | 登入後台的房量寫入請求辨認與實測、房型映射、逐晚真實讀回、持久單館 lease 與修復工作 |
+| `GET /v1/inventory-operations/{operationKey}`、`POST .../readback` | 精確房晚集合、短時間讀回、逐晚庫存數與鎖房狀態、部分成功保留 fence、持久操作 journal；provider-neutral 的單次執行器已能模擬未知寫入結果；OwlNest 公開網頁程式的候選單房晚命令已有純資料建構器 | 登入後台的房量寫入請求實際編碼、授權與效果驗證、房型映射、逐晚真實讀回、持久單館 lease 與修復工作 |
 
 這些路徑已在 `src/http.ts` 由可注入的驗證函式接到 `src/service.ts`；`src/node-server.mjs` 提供 Node HTTP 與 PostgreSQL 組裝入口，已用 127.0.0.1 合成請求驗證，**沒有啟動公開伺服器**。`npm run start:private` 的入口只綁 loopback，要求受限 PostgreSQL 執行角色、已套用 schema 與 OS 證明密鑰；共用 PostgreSQL handler 也在服務請求前核對資料庫角色與 RLS。建立共用 handler 必須提供與連線池相同的 URL，遠端資料庫須設 `sslmode=verify-full`，不接受額外主機或 SSL 覆蓋。本機隔離資料庫已驗證正常執行角色可啟動、管理角色會被拒絕。現在另有 SQLite 單機持久儲存、PostgreSQL 可序列化館別交易、同交易 outbox 與僅能追加的稽核紀錄、可撤銷的不透明憑證。已實作 5 秒 OS 會員請求證明的簽發／驗證函式，OS 獨立分支有預設關閉的只讀影子路由；沒有正式部署或真實發證。
 
@@ -79,7 +79,7 @@ OwlNest／來源 connector 真實讀回 〔登入後台日曆 GET 的唯讀 adap
 
 `MemoryPropertyRepository` 只用來驗證領域規則。`SqlitePropertyRepository` 已驗證單機重啟與交易回滾；`PostgresPropertyRepository` 已在隔離的本機 PostgreSQL 驗證最後一間、同交易 outbox 與 RLS 跨館隔離。正式部署仍需真實身分接線、備份、監控、容量與故障恢復驗證。至少需要下列唯一性與持久性條件：
 
-`src/channel-runner.mjs` 是不含 OwlNest 憑證或網路呼叫的模擬執行器：呼叫端必須提供持久的逐館 lease、絕對且可重入的逐晚設定操作與完整的 provider 觀測。寫入回覆本身不算成功；若結果未知，執行器停止後續寫入，讀回現況並交給 Iron Gate 保留待核對狀態。登入後台的房量請求、館別權限及受控測試尚未核實前，不能把模擬 adapter 改作真實 OwlNest 控房。
+`src/channel-runner.mjs` 是不含 OwlNest 憑證或網路呼叫的模擬執行器：呼叫端必須提供持久的逐館 lease、絕對且可重入的逐晚設定操作與完整的 provider 觀測。寫入回覆本身不算成功；若結果未知，執行器停止後續寫入，讀回現況並交給 Iron Gate 保留待核對狀態。`src/owlnest-stock-command.mjs` 只依目前網頁程式建構候選 payload，不會發送 PUT。登入後台房量請求的實際傳輸、館別權限及受控測試尚未核實前，不能把模擬 adapter 改作真實 OwlNest 控房。
 
 | 紀錄 | 必須持久的鍵或限制 |
 | --- | --- |
