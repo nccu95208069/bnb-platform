@@ -1,5 +1,5 @@
 -- Standalone PostgreSQL schema for an independent Iron Gate service.
--- Prepared and tested locally; this file has not been applied to any live DB.
+-- Initial schema. Applied to the dedicated Iron Gate Supabase project on 2026-10-16.
 CREATE SCHEMA IF NOT EXISTS iron_gate;
 REVOKE ALL ON SCHEMA iron_gate FROM PUBLIC;
 

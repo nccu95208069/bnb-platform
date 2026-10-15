@@ -35,6 +35,10 @@ export function databaseUrlForVercel(rawUrl) {
 export function createVercelFetch(env = process.env) {
   let ready;
   return async (request) => {
+    // A first deployment can be misclassified as Production. Only a Preview
+    // environment with an explicit flag may initialize the private database.
+    if (env.VERCEL_ENV !== "preview" || env.IRON_GATE_PREVIEW_ENABLED !== "true")
+      return unavailable();
     try {
       ready ??= (async () => {
         if (!env.IRON_GATE_DATABASE_URL || !env.IRON_GATE_OS_PROOF_SECRET)

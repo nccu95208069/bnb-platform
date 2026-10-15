@@ -33,6 +33,7 @@
 | P1 | Vercel 的命名萬用路由在建置後自動把擷取路徑加成 `?path=...`，使 OS 對原始 path/query 的短效簽章失效。 | 改用無命名擷取的 `/v1/(.*)` 規則；檢查實際 `.vercel/output/config.json` 的目的地不再帶額外 query。正式預覽仍須做 OS 端到端驗證。 |
 | P2 | 共用 PostgreSQL handler 首次遇到暫時性資料庫斷線後，會把失敗的安全檢查永久快取到同一個暖實例，資料庫恢復仍持續回 503。 | 暫時性查詢失敗時清除快取，下一個請求重新檢查；不安全角色或 schema 仍維持關閉。測試斷線後恢復。 |
 | P1 | Vercel 函式若只有 `sslmode=verify-full` 卻未提供 Supabase CA，實際連線會因無法驗證憑證而失敗；改用不驗證模式則失去主機身分保護。 | 從專案 SSL 設定取得公開 CA，函式固定加入 `sslrootcert`，拒絕外部覆寫；以東京交易連線池及受限角色實測 TLS、角色及 RLS，並核對 CA 確實打包進 Vercel 函式。 |
+| P1 | 新 Vercel 專案將明確的 Preview 請求誤標成 Production；若 Preview 憑證或函式在該目標啟動，會在公開別名暴露尚未驗收的服務。 | 函式只在 `VERCEL_ENV=preview` 且 Preview 專用 `IRON_GATE_PREVIEW_ENABLED=true` 時初始化資料庫；Production 或未標記的請求在讀取憑證前回固定 503。三個相關變數僅存在 Preview；仍須取得對暫時 Production 空殼部署的明確決定。 |
 
 PostgreSQL 執行角色只能透過高熵 token 摘要查單筆憑證，不能列舉憑證表；發證與撤銷須另用管理連線。權威資料、占房唯一鍵、fence、收據與 outbox 在同一館別交易提交。
 
@@ -47,14 +48,14 @@ PostgreSQL 執行角色只能透過高熵 token 摘要查單筆憑證，不能�
 
 ## 驗證
 
-- `npm test`：55 個合成測試通過；3 個 PostgreSQL 測試在預設執行時跳過。
+- `npm test`：58 個合成測試通過；3 個 PostgreSQL 測試在預設執行時跳過。
 - `npm run check`：TypeScript 嚴格型別檢查通過。
 - `npm run build`：編出可直接載入的 JavaScript，產物中不含 `.ts` 匯入；缺少設定的正式入口拒絕啟動。
 - `npm run test:pg`：隔離 localhost `iron_gate_test` 的 3 個交易／RLS／憑證與共用 handler 測試通過。
 - `npm run test:restore`：在同一隔離 PostgreSQL 實例建立並清除兩個一次性資料庫；5 張資料表、outbox 序列與受限執行角色在備份／還原前後核對通過。這不是正式館別的還原驗收。
 - `npm run test:server`：127.0.0.1 上的 1 個實際 HTTP 請求流程通過。
 - `npm run start:private`：缺少資料庫設定時會拒絕啟動；隔離 localhost PostgreSQL 實測受限角色可啟動後立即關閉，管理角色被拒絕；尚未在正式環境啟動。
-- Vercel：新 `sweetfuns-projects/iron-gate` 專案已建立，受限資料庫連線及 OS 證明密鑰只存於加密的 Preview 設定。`vercel build` 通過並包含 Node.js 22 函式、`dist`、PostgreSQL 驅動與 Supabase CA；打包後的函式可定位 CA。入口缺少私密設定或遇到不安全連線只回 503。目前無運作中的部署。
-- Supabase：專用東京 Micro 專案已健康、schema 已套用。透過 IPv4 交易連線池以受限角色及 `verify-full`/CA 連線成功；服務的實際角色與 RLS 檢查通過。`anon`、`authenticated`、`service_role` 對 `iron_gate` schema 都沒有 `USAGE` 或訂單表 `SELECT` 權限。
+- Vercel：新 `sweetfuns-projects/iron-gate` 專案已建立，受限資料庫連線、OS 證明密鑰及啟用旗標只存於加密的 Preview 設定。`vercel build` 通過並包含 Node.js 22 函式、`dist`、PostgreSQL 驅動與 Supabase CA；打包後的函式可定位 CA。Production／未標記目標、缺少私密設定或不安全連線只回 503。目前無運作中的部署。
+- Supabase：專用東京 Micro 專案已健康、兩版 schema migration 已套用。透過 IPv4 交易連線池以受限角色及 `verify-full`/CA 連線成功；服務的實際角色與 RLS 檢查通過。Data API 已停用；`anon`、`authenticated`、`service_role` 對 `iron_gate` schema 都沒有 `USAGE` 或訂單表 `SELECT` 權限。安全顧問無警示；效能顧問的可用索引與 RLS 計畫問題已修正，剩餘新建表未使用的索引提示及不相關的 Auth 連線配置提示。
 - `openapi.yaml`：17 個路徑；讀回 schema 使用觀測庫存與鎖房資料，YAML 與 91 個本地 `$ref` 均解析通過。
 - OS 分支：會員證明及只讀轉發 4 個合成測試、TypeScript、lint（零錯誤）及 Webpack 正式建置通過；另以合成請求驗證 OS 簽發與 Iron Gate 驗證器互通。路由預設關閉，尚無正式憑證或真實會員請求。

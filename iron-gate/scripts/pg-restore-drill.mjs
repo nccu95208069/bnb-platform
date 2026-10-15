@@ -67,8 +67,9 @@ export async function restoreDrill(env = process.env) {
     const sourceAdmin = new Pool({ connectionString: databaseUrl(adminUrl, source), max: 1 });
     const sourceRuntime = new Pool({ connectionString: databaseUrl(adminUrl, source, runtimeUser), max: 2 });
     try {
-      const sqlPath = join(dirname(fileURLToPath(import.meta.url)), "../sql/001_property_store.sql");
-      await sourceAdmin.query(await readFile(sqlPath, "utf8"));
+      const sqlDirectory = join(dirname(fileURLToPath(import.meta.url)), "../sql");
+      for (const filename of ["001_property_store.sql", "002_policy_plan_and_credential_index.sql"])
+        await sourceAdmin.query(await readFile(join(sqlDirectory, filename), "utf8"));
       await assertRuntimeDatabase(sourceRuntime);
       const workspaceId = randomUUID(), propertyId = randomUUID(), roomId = randomUUID();
       const repository = new PostgresPropertyRepository(sourceRuntime);
