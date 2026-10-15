@@ -806,6 +806,8 @@ function RequirementSummary({ booking }: { booking: CalendarBooking }) {
 export function BookingDetailsPanel({
   booking,
   orderSegments,
+  visualNights,
+  onSelectVisualNight,
   rooms,
   permissions,
   onClose,
@@ -816,6 +818,8 @@ export function BookingDetailsPanel({
 }: {
   booking: CalendarBooking | null;
   orderSegments: CalendarBooking[];
+  visualNights: CalendarBooking[];
+  onSelectVisualNight: (booking: CalendarBooking) => void;
   rooms: CalendarRoom[];
   permissions: RolePermissions;
   onClose: () => void;
@@ -864,6 +868,21 @@ const uiLocale = useIntlLocale();
 
           {booking && (
             <div className="space-y-5 px-5 py-5">
+              {visualNights.length > 1 && (
+                <section className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950" aria-label={uiText("連住房晚") }>
+                  <p className="font-semibold">{uiText("日曆顯示為連住 {0} 晚", [visualNights.length])}</p>
+                  <p className="mt-1 text-xs">{uiText("來源各晚沒有共同訂單編號；以下逐晚保留各自的訂單與付款紀錄。")}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {visualNights.map((night) => (
+                      <Button key={night.id} type="button" size="sm" variant={booking.id === night.id ? "default" : "outline"}
+                        aria-current={booking.id === night.id ? "true" : undefined}
+                        onClick={() => onSelectVisualNight(night)}>
+                        {formatDate(night.check_in, uiLocale)}
+                      </Button>
+                    ))}
+                  </div>
+                </section>
+              )}
               <BookingSourceNotes booking={booking} orderSegments={orderSegments} viewPrices={permissions.viewPrices} />
               {(booking.guest_name_kind === "real" || !!booking.guest_name_sources?.length) && <section className="rounded-xl border p-3" aria-label={uiText("重點備註與來源原文")}>
                 <h3 className="font-semibold">{uiText("重點備註")}</h3>
