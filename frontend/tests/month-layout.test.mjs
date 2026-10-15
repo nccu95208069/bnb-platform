@@ -95,6 +95,17 @@ test('automatic wrapping keeps the existing large-text mobile behavior', () => {
  assert.equal(monthWeekPresentation({...base,fontScale:1,desktop:true}).twoLine,false);
  assert.equal(monthWeekPresentation({...base,fontScale:1.3,desktop:false}).twoLine,true);
 });
+test('roomy mobile weeks show two-line cards without hiding bookings', () => {
+ const base = {viewportHeight:900,fontScale:1,desktop:false,automatic:true,density:3};
+ const roomy = monthWeekPresentation({...base,baseWeekHeight:180,laneCount:1});
+ assert.deepEqual(roomy,{height:180,visibleLanes:1,twoLine:true});
+ const dense = monthWeekPresentation({...base,baseWeekHeight:60,laneCount:6});
+ assert.equal(dense.height,60);
+ assert.equal(dense.visibleLanes,1);
+ assert.equal(dense.twoLine,false);
+ const desktop = monthWeekPresentation({...base,baseWeekHeight:180,laneCount:1,desktop:true});
+ assert.equal(desktop.twoLine,false);
+});
 test('stored density is bounded and previous spacing preferences migrate', () => {
  assert.equal(normalizeMonthWeekDensity(undefined),3);
  assert.equal(normalizeMonthWeekDensity('6'),3);

@@ -120,7 +120,15 @@ export function monthWeekPresentation({
   const defaultTwoLine = monthBookingTwoLine(fontScale, desktop);
   const height = monthWeekHeightForDensity({ baseWeekHeight, viewportHeight, laneCount, fontScale, twoLine: defaultTwoLine, automatic, density });
   const visibleLanes = fitMonthWeekLanes(height, laneCount, fontScale, defaultTwoLine);
-  if (automatic || defaultTwoLine || laneCount === 0) return { height, visibleLanes, twoLine: defaultTwoLine };
+  if (automatic) {
+    // Use the empty vertical space in mobile month cells for guest details,
+    // without reducing the number of visible bookings or changing week height.
+    const needed = (24 + visibleLanes * 34 + (laneCount > visibleLanes ? 16 : 0)) * fontScale;
+    const twoLine = defaultTwoLine || (!desktop && laneCount > 0 && height >= needed &&
+      fitMonthWeekLanes(height, laneCount, fontScale, true) >= visibleLanes);
+    return { height, visibleLanes, twoLine };
+  }
+  if (defaultTwoLine || laneCount === 0) return { height, visibleLanes, twoLine: defaultTwoLine };
 
   const twoLineHeight = monthWeekHeightForDensity({ baseWeekHeight, viewportHeight, laneCount, fontScale, twoLine: true, automatic, density });
   const twoLineLanes = fitMonthWeekLanes(twoLineHeight, laneCount, fontScale, true);
