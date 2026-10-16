@@ -139,3 +139,52 @@ test('real OS route supports cross-browser owner approval links with secure cook
  const desktop=await Login.POST(req({action:'poll',requestKey},proof));assert.equal(desktop.status,200);assert.deepEqual(await desktop.json(),{url:'/website-booking?connection='+f.connection.connectionId});
  assert.equal((await Login.POST(req({action:'poll',requestKey},newLoginProof()))).status,400);
 });
+
+const codeOf=mail=>mail.at(-1)[2].match(/登入碼：(\d{6})/)[1];
+test('v3 keeps six digits in email only and original browser can submit them without opening a link',async()=>{
+ const f=fixture();f.input.codeInEmail=true;const c=await signup(f),code=codeOf(f.mail);
+ assert.equal(c.codeRequired,true);assert.equal(c.pairingCode,undefined);assert.match(c.token,/^v3\./);
+ const {consumeDeviceEmailCode}=await import('../src/lib/customer-workspaces/email-device-login.ts');
+ await assert.rejects(consume(f.store,c.token,f.input.proof,'current',undefined,f.input.studio.clientId),/LOGIN_CODE_REQUIRED/);
+ await assert.rejects(consumeDeviceEmailCode(f.store,c.requestKey,newLoginProof(),code,f.input.studio.clientId),/LINK_INVALID/);
+ const signed=await consumeDeviceEmailCode(f.store,c.requestKey,f.input.proof,code,f.input.studio.clientId);
+ assert.equal(signed.account.email,f.input.email);assert.equal(signed.originalDevice,true);
+});
+test('v3 remote login requires the email code; both devices require explicit approval',async()=>{
+ for(const mode of ['current','both']){
+  const f=fixture();f.input.codeInEmail=true;const c=await signup(f),phone=newLoginProof(),code=codeOf(f.mail);
+  assert.equal((await inspect(f.store,c.token,phone,f.input.studio.clientId)).codeRequired,true);
+  await assert.rejects(consume(f.store,c.token,phone,mode,undefined,f.input.studio.clientId),/LOGIN_CODE_REQUIRED/);
+  await assert.rejects(consume(f.store,c.token,phone,mode,code==='000000'?'999999':'000000',f.input.studio.clientId),/LOGIN_CODE_INVALID/);
+  await consume(f.store,c.token,phone,mode,code,f.input.studio.clientId);
+  assert.equal((await poll(f.store,c.requestKey,f.input.proof,f.input.studio.clientId)).status,mode==='both'?'approved':'other_device');
+  await assert.rejects(consume(f.store,c.token,newLoginProof(),mode,code,f.input.studio.clientId),/LINK_INVALID/);
+ }
+});
+test('v3 retry reuses one email and code; resend invalidates the earlier request',async()=>{
+ const f=fixture();f.input.codeInEmail=true;const first=await signup(f),code=codeOf(f.mail),old=(await f.store.read('customer-device-login:'+first.requestKey)).value;
+ await requestLogin(f.store,f.input,f.send);assert.equal(f.mail.length,1);assert.equal(codeOf(f.mail),code);
+ const next=await requestLogin(f.store,{...f.input,requestKey:randomUUID()},f.send);assert.equal(f.mail.length,2);
+ assert.notEqual((await f.store.read('customer-device-login:'+next.requestKey)).value.codeSeed,old.codeSeed);
+ await assert.rejects(consume(f.store,first.token,f.input.proof,'current',code,f.input.studio.clientId),/LINK_INVALID/);
+ await assert.rejects(poll(f.store,first.requestKey,f.input.proof,f.input.studio.clientId),/LINK_INVALID/);
+ const token=new URL(f.mail.at(-1)[2].match(/https:\/\/\S+/)[0]).hash.slice(1);
+ await consume(f.store,token,f.input.proof,'current',codeOf(f.mail),f.input.studio.clientId);
+});
+test('v3 attempt limit, expiry and concurrent resend prevent account creation',async()=>{
+ const f=fixture();f.input.codeInEmail=true;const counts=new Map();f.store.limit=async(k,max)=>{const n=(counts.get(k)||0)+1;counts.set(k,n);if(n>max)throw Error('RATE_LIMITED')};
+ const c=await signup(f),code=codeOf(f.mail),wrong=code==='000000'?'999999':'000000';
+ for(let i=0;i<5;i++)await assert.rejects(consume(f.store,c.token,f.input.proof,'current',wrong,f.input.studio.clientId),/LOGIN_CODE_INVALID/);
+ await assert.rejects(consume(f.store,c.token,f.input.proof,'current',code,f.input.studio.clientId),/RATE_LIMITED/);
+ const g=fixture();g.input.codeInEmail=true;const d=await signup(g),originalNow=Date.now;
+ try{Date.now=()=>d.expiresAt+1;await assert.rejects(consume(g.store,d.token,g.input.proof,'current',codeOf(g.mail),g.input.studio.clientId),/LINK_INVALID/)}finally{Date.now=originalNow}
+ await assert.rejects(consume(g.store,d.token,g.input.proof,'current',codeOf(g.mail),g.input.studio.clientId,async()=>{await requestLogin(g.store,{...g.input,requestKey:randomUUID()},g.send)}),/WRITE_UNCONFIRMED|VERSION_CONFLICT/);
+ assert.equal((await g.store.read(accountKey(g.input.email))).value,null);
+});
+test('real OS code-only endpoint verifies proof and returns owner approval route',async t=>{
+ const f=await websiteFixture({approve:false});process.env.CUSTOMER_DEPLOYMENT_ORIGIN='https://os.example.invalid';
+ for(const name of ['read','commit','limit'])t.mock.method(routeStore,name,f.store[name].bind(f.store));
+ const mail=[],proof=newLoginProof(),requestKey=randomUUID();await requestLogin(f.store,{email:f.account.email,requestKey,proof,codeInEmail:true,websiteConnectionId:f.connection.connectionId},async(...args)=>{mail.push(args);return 'provider:code'});
+ assert.equal((await Login.POST(req({action:'consume-code',requestKey},proof))).status,400);
+ const signed=await Login.POST(req({action:'consume-code',requestKey,loginCode:codeOf(mail)},proof));assert.equal(signed.status,200,await signed.clone().text());assert.match(signed.headers.get('set-cookie'),/HttpOnly/);assert.deepEqual(await signed.json(),{url:'/website-booking?connection='+f.connection.connectionId});
+});

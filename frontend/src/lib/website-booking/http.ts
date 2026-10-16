@@ -46,6 +46,8 @@ export function failure(error: unknown) {
     RATE_LIMITED: [429, "操作較頻繁，請稍後再試。"],
     WRITE_UNCONFIRMED: [503, "結果尚未確認，請保留原查詢碼核對，勿重複建立。"],
     LOGIN_BROWSER_REQUIRED: [400, "登入驗證尚未準備完成，請重新開啟信件連結。"],
+    LOGIN_CODE_REQUIRED: [400, "請輸入信件中的 6 位登入碼。"],
+    LOGIN_CODE_INVALID: [400, "登入碼不正確，請核對信件中的 6 位數字。"],
     LOGIN_PAIRING_REQUIRED: [400, "請輸入原裝置顯示的 6 位確認碼，或選擇只登入這台裝置。"],
     LOGIN_PAIRING_INVALID: [400, "確認碼不正確，請核對原裝置的 6 位數字。"],
     LOGIN_DELIVERY_UNCONFIRMED: [503, "登入信寄送結果尚未確認，請先查看信箱；重試只核對原寄信請求。"],

@@ -1,13 +1,14 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { api, button, field, secondary } from "./client";
+import { api, button, secondary } from "./client";
 import { useCommand } from "./use-command";
+import { EmailCodeInput } from "./email-code-input";
 export function EmailSignIn() {
   const router = useRouter(), token = useRef(""), loaded = useRef(false),
     command = useCommand("/api/customer-login");
   const { setError } = command;
-  const [info, setInfo] = useState<{ email: string; sameDevice: boolean } | null>(null);
+  const [info, setInfo] = useState<{ email: string; sameDevice: boolean; codeRequired?: boolean } | null>(null);
   const [ready, setReady] = useState(false), [pairingCode, setPairingCode] = useState("");
   useEffect(() => {
     if (!loaded.current) {
@@ -17,14 +18,14 @@ export function EmailSignIn() {
     }
     let active = true;
     async function inspect() {
-      if (!/^(?:v2\.)?[\w-]{36}\.[\w-]{43}$/.test(token.current)) {
+      if (!/^(?:v[23]\.)?[\w-]{36}\.[\w-]{43}$/.test(token.current)) {
         setError("沒有可用的登入連結。請重新開啟信件中的完整連結，或回登入頁申請新連結。");
         return;
       }
-      if (!token.current.startsWith("v2.")) { if (active) setReady(true); return; }
+      if (!/^v[23]\./.test(token.current)) { if (active) setReady(true); return; }
       try {
         await api("/api/customer-login", "POST", { action: "prepare" });
-        const result = await api<{ email: string; sameDevice: boolean }>("/api/customer-login", "POST", { action: "inspect", token: token.current });
+        const result = await api<{ email: string; sameDevice: boolean; codeRequired?: boolean }>("/api/customer-login", "POST", { action: "inspect", token: token.current });
         if (active) { setInfo(result); setReady(true); }
       } catch (error) { if (active) setError((error as Error).message); }
     }
@@ -33,12 +34,12 @@ export function EmailSignIn() {
   }, [setError]);
   async function signIn(mode: "current" | "both") {
     if (!ready || !token.current) return;
-    if (mode === "both" && !/^\d{6}$/.test(pairingCode.trim())) {
-      command.setError("請輸入原裝置顯示的 6 位確認碼，或選擇只登入這台裝置。");
+    if ((info?.codeRequired || mode === "both") && !/^\d{6}$/.test(pairingCode.trim())) {
+      command.setError("請輸入信件中的 6 位登入碼。");
       return;
     }
     const result = await command.execute<{ url: string }>({
-      action: "consume", token: token.current, mode, pairingCode: pairingCode.trim(),
+      action: "consume", token: token.current, mode, pairingCode: pairingCode.trim(), loginCode: pairingCode.trim(),
     });
     if (result) router.replace(result.data.url);
   }
@@ -48,18 +49,18 @@ export function EmailSignIn() {
         <h1 className="text-2xl font-semibold">確認登入旅宿工作區</h1>
         <p className="leading-7 text-slate-600">確認以下信箱後，即可繼續。若有日曆預覽，請回原裝置確認保存。</p>
         {info && <strong className="block break-words">{info.email}</strong>}
-        {info && !info.sameDevice && <label className="block space-y-2">
-          <span>原裝置顯示的 6 位確認碼</span>
-          <input className={field} inputMode="numeric" autoComplete="off" maxLength={6} pattern="[0-9]{6}" placeholder="000000"
-            value={pairingCode} disabled={command.busy || command.uncertain} onChange={event => setPairingCode(event.target.value)} />
-          <span className="block text-sm leading-6 text-slate-600">輸入後，這台裝置與原本申請的裝置都會登入。原裝置請保留登入頁。</span>
-        </label>}
+        {info && (info.codeRequired || !info.sameDevice) && <div className="space-y-3">
+          <p>{info.codeRequired ? "信件中的 6 位登入碼" : "原裝置顯示的 6 位確認碼"}</p>
+          <EmailCodeInput value={pairingCode} onChange={setPairingCode} disabled={command.busy || command.uncertain} />
+          <p className="text-sm leading-6 text-slate-600">登入碼有效 15 分鐘。</p>
+        </div>}
         <button className={button} disabled={!ready || command.busy}
-          onClick={() => void signIn(info && !info.sameDevice ? "both" : "current")}>
-          {command.busy ? "正在驗證…" : command.uncertain ? "重試並確認登入結果" : info && !info.sameDevice ? "確認兩台裝置登入" : "確認登入並繼續"}
+          onClick={() => void signIn("current")}>
+          {command.busy ? "正在驗證…" : command.uncertain ? "重試並確認登入結果" : "登入這台裝置"}
         </button>
         {info && !info.sameDevice && !command.uncertain && <button className={secondary} disabled={!ready || command.busy}
-          onClick={() => void signIn("current")}>只登入這台裝置</button>}
+          onClick={() => void signIn("both")}>登入兩台裝置</button>}
+        {info && !info.sameDevice && <p className="text-sm leading-6 text-slate-600">只有你本人剛才在另一台裝置申請登入時，才選擇「登入兩台裝置」。原頁面會自動接續；若已關閉，可在有效期限內用原瀏覽器重新開啟。</p>}
         {command.error && <p role="alert" className="rounded-xl bg-red-50 p-4 text-red-800">{command.error}</p>}
         <a className="block text-sm text-teal-800 underline" href="/start">回登入頁</a>
       </section>
