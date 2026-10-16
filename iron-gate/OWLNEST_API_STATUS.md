@@ -13,13 +13,17 @@
 | 價格寫入 | `pricing-runtime-recovery/scripts/owlnest_prices.py` 記錄登入後 `PUT /booking/v2/admin/hotels/{hotel}/calendars/price`，絕對價格、讀前與延遲讀回；該 recovery checkout 的真實寫入已被凍結。 | 這是價格，不能據此推定房量／販售狀態的寫入路徑或 payload；Iron Gate 不呼叫此寫入器。 |
 | 開關房 | `gmail-check-order/src/line_agent/owlnest/automation.py` 的 PlaywrightDriver 登入後台，於日期面板同時設定庫存 0/1 與販售關／開，再從月曆格和重開面板兩段讀回；`executor.py` 有前置異常分類、有限重試、紀錄與告警。 | 既有服務是**網頁 UI 操作**，不是直接呼叫房量後台請求的程式。UI 的實作與測試不能充當 Iron Gate 的實際 HTTP 往返證據。 |
 
-2026-10-16 另從 OwlNest 自己的[公開 PlanView 程式](https://www.owlting.com/booking/admin/js/PlanView.4d7b8c.min.js)定位到日曆畫面的候選寫入：`PUT /booking/v2/admin/hotels/{hotel}/calendars/stock`，畫面建構 `stock_items`，單格包含 `room_ids`、`week_days`、同一天起訖、`exclude_holiday`，勾選庫存時含 `count`／`safe_stock_check`，勾選販售狀態時含 `is_lock`。目前 UI 可同時勾選兩項；關房候選值為 `count=0,is_lock=1`，開房為 `count=1,is_lock=0`。頁面請求 wrapper 另加 `lang`，此路徑未設 `isJson`，與價格寫入的 JSON 路徑不同；實際表單編碼仍要看登入後的網路紀錄。`src/owlnest-stock-command.mjs` 僅依這份靜態程式建構送進頁面 wrapper 的單房晚資料，**不持有憑證、沒有序列化器或 HTTP 寫入功能**。真實權限、回應與非同步效果仍未經登入帳號實測，不可把靜態程式碼當成功寫入證據。
+2026-10-16 另從 OwlNest 自己的[公開 PlanView 程式](https://www.owlting.com/booking/admin/js/PlanView.4d7b8c.min.js)定位到日曆畫面的候選寫入：`PUT /booking/v2/admin/hotels/{hotel}/calendars/stock`，畫面建構 `stock_items`，單格包含 `room_ids`、`week_days`、同一天起訖、`exclude_holiday`，勾選庫存時含 `count`／`safe_stock_check`，勾選販售狀態時含 `is_lock`。目前 UI 可同時勾選兩項；關房候選值為 `count=0,is_lock=1`，開房為 `count=1,is_lock=0`。[公開請求 wrapper](https://www.owlting.com/booking/admin/js/utility.min.js?v=ow_2610070502)會補 `lang` 並交給 jQuery；stock 路徑未設 `isJson`，因此與價格寫入的 JSON 路徑不同。實際傳輸編碼仍須看登入後的網路紀錄。`src/owlnest-stock-command.mjs` 僅依這份靜態程式建構送進頁面 wrapper 的單房晚資料，**不持有憑證、沒有序列化器或 HTTP 寫入功能**。真實權限、回應與非同步效果仍未經登入帳號實測，不可把靜態程式碼當成功寫入證據。
+
+### 登入後唯讀驗證（2026-10-16）
+
+依使用者指定的唯讀範圍，沿用既有登入命令與本機受限帳密取得短效憑證，再對已知館別的一個房型、一個日期送出 `GET /booking/v2/admin/hotels/{hotel}/calendars?during_start_date=2026-10-17&during_end_date=2026-10-17`。HTTP 回 `200`，回應頂層為 `status: 0` 與 `data`；指定房型的 `stocks[]` 有 `date`、數字 `count`、布林 `is_lock`，另有 `day_of_week`、`is_allow_update`、`max_stock_count`。Iron Gate 的 `createOwlNestWebReadback()` 使用同一憑證與這個 GET，成功解析一個房晚；檢查只輸出欄位型別，沒有保存或顯示真實房量、價格、旅客資料或憑證。這驗證了**目前的唯讀日曆路徑**，並不驗證 stock PUT 的編碼或寫入效果。沒有送出任何 PUT，也沒有變更房況或價格。
 
 ## Iron Gate 的接線方向
 
 1. 在登入後的受控測試工作階段，從瀏覽器網路紀錄核對上述候選請求的實際 URL、編碼、館別／房型／日期欄位、回應與延遲生效方式。先只讀觀察；不要把價格 PUT 當作房量 PUT，也不能只因 UI 顯示成功就認定房晚已同步。不得儲存或輸出 Bearer、cookie、帳密或旅客資料。
 2. 建立館別專用的後台操作 adapter。每筆 Iron Gate 操作先持久化房晚 fence 與操作鍵，再用絕對值逐晚設定；結果未知時不盲目重送。沿用既有前置分類、館別雙重核對、逾時、受控重試及告警經驗。
-3. 操作後以已知日曆 GET 逐晚讀回 `count/is_lock`，再核對 Iron Gate 最新訂單／fence；觀測不完整、相矛盾或過期時維持停售與人工核對。`src/owlnest-web-readback.mjs` 已把這個唯讀路徑做成注入憑證的 adapter，含固定主機、館別／房型映射、回應大小限制、登入失效與缺格拒絕的合成測試；尚未使用真實 OwlNest 帳號驗證。開房尤其要確認沒有別的訂單或人工鎖。要用不影響真實銷售的隔離測試館／日期驗證登入、單筆關房、開房、部分失敗與還原。
+3. 操作後以已知日曆 GET 逐晚讀回 `count/is_lock`，再核對 Iron Gate 最新訂單／fence；觀測不完整、相矛盾或過期時維持停售與人工核對。`src/owlnest-web-readback.mjs` 已把這個唯讀路徑做成注入憑證的 adapter，含固定主機、館別／房型映射、回應大小限制、登入失效與缺格拒絕的合成測試；目前只用真實帳號驗證過一個房晚的**讀取**。開房尤其要確認沒有別的訂單或人工鎖。要用不影響真實銷售的隔離測試館／日期驗證單筆關房、開房、部分失敗與還原；使用者目前只授權唯讀觀測。
 4. 只有上述房量請求與讀回在受控環境被實測，且逐館 lease、房型映射、憑證保管與修復流程完成後，才將寫入 adapter 接到 `src/channel-runner.mjs`。目前它仍是合成模擬，OwlNest 館 `saleReady=false`。
 
-此調查讀取本機程式、文件及 OwlNest 公開靜態程式檔；未登入 OwlNest、讀取真實房況或更改房況。
+此調查已登入 OwlNest，並唯讀驗證一個房晚的日曆回應結構；未更改房況或價格。
