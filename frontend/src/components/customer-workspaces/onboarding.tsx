@@ -174,11 +174,14 @@ export function Onboarding({
                           ? "new-password"
                           : "current-password"
                       }
-                      minLength={12}
+                      minLength={8}
                       maxLength={128}
                       required
                     />
                   </label>
+                )}
+                {mode === "register" && (
+                  <p className="text-sm text-slate-600">新密碼需 8～128 字元，包含英文字母、數字和特殊符號。</p>
                 )}
                 {mode === "register" && (
                   <label className="block">
@@ -188,7 +191,7 @@ export function Onboarding({
                       name="confirmPassword"
                       type="password"
                       autoComplete="new-password"
-                      minLength={12}
+                      minLength={8}
                       required
                     />
                   </label>
@@ -311,7 +314,8 @@ export function Onboarding({
                 </label>
                 <p className="text-sm text-slate-500">
                   每行一間，也可以用逗號分隔。
-                  {kind !== "rooms" && "包棟會占用上面全部房間。"}
+                  {kind === "mixed" && "只填實體房間，包棟不是額外一間房；包棟會占用上面全部房間。"}
+                  {kind === "villa" && "包棟會占用上面全部房間。"}
                 </p>
                 <div className="flex gap-3">
                   <button className={secondary} onClick={() => setStep(1)}>

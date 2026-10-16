@@ -80,7 +80,7 @@ export function InvitationSetup() {
                   ? "這個帳號使用免密碼登入。請先在另一個分頁登入，再回這裡重新確認。"
                   : info.existingAccount
                     ? "使用原帳號密碼確認加入，原本的旅宿與密碼會保留。"
-                    : "請設定 12～128 字元密碼。之後用本信箱登入即可查看有權限的旅宿。"}
+                    : "請設定 8～128 字元密碼，包含英文字母、數字和特殊符號。之後用本信箱登入即可查看有權限的旅宿。"}
             </p>
             {!info.signedIn && !info.passwordless && (
               <label className="block">
@@ -92,7 +92,7 @@ export function InvitationSetup() {
                   autoComplete={
                     info.existingAccount ? "current-password" : "new-password"
                   }
-                  minLength={info.existingAccount ? undefined : 12}
+                  minLength={info.existingAccount ? undefined : 8}
                   maxLength={128}
                   required
                   disabled={busy}
@@ -107,7 +107,7 @@ export function InvitationSetup() {
                   name="confirmPassword"
                   type="password"
                   autoComplete="new-password"
-                  minLength={12}
+                  minLength={8}
                   maxLength={128}
                   required
                   disabled={busy}

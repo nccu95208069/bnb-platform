@@ -8,7 +8,7 @@ import {
   randomUUID,
   timingSafeEqual,
 } from "node:crypto";
-import { createPasswordCredential } from "../owner-password.ts";
+import { createCustomerPasswordCredential } from "../owner-password.ts";
 import { normalizedEmail, validEmail } from "../workspace-auth/types.ts";
 import type { Account } from "./types.ts";
 import type { CustomerStore } from "./store.ts";
@@ -91,7 +91,7 @@ export async function login(
     const value: Account = {
       id: randomUUID(),
       email,
-      credential: await createPasswordCredential(input.password),
+      credential: await createCustomerPasswordCredential(input.password),
       workspaces: [],
     };
     await store.commit([{ key, before: null, after: value }]);
