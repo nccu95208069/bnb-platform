@@ -12,9 +12,9 @@ export function EmailCodeInput({ value, onChange, disabled = false }: { value: s
     onChange(next.join("").trimEnd());
     inputs.current[Math.min(5, start + digits.length)]?.focus();
   }
-  return <div role="group" aria-label="信件中的 6 位登入碼" className="flex gap-2">
+  return <div role="group" aria-label="信件中的 6 位登入碼" className="grid w-full max-w-xs grid-cols-6 gap-1.5 sm:gap-2">
     {Array.from({ length: 6 }, (_, index) => <input key={index} ref={node => { inputs.current[index] = node; }}
-      className="h-12 w-10 min-w-0 rounded-lg border border-slate-300 text-center text-xl tabular-nums focus:border-teal-700 focus:outline-2 focus:outline-teal-700 sm:w-12"
+      className="h-12 w-full min-w-0 rounded-lg border border-slate-300 text-center text-xl tabular-nums focus:border-teal-700 focus:outline-2 focus:outline-teal-700"
       aria-label={`登入碼第 ${index + 1} 位`} inputMode="numeric" autoComplete={index === 0 ? "one-time-code" : "off"}
       value={(value[index] || "").trim()} disabled={disabled}
       onFocus={event => event.currentTarget.select()}
