@@ -8,6 +8,7 @@ import { digest } from "./auth.ts";
 import { importAccess } from "./sheet-import.ts";
 import type { SheetSource } from "./sheet-import.ts";
 import type { CustomerStore } from "./store.ts";
+import { IMPORT_MAX_GOOGLE_BYTES, importRowsTooLarge } from "./import-limits.ts";
 export const GOOGLE_STATE_COOKIE = "bnb_customer_google_state";
 const scope = "https://www.googleapis.com/auth/spreadsheets.readonly";
 type OAuthState = {
@@ -239,7 +240,7 @@ async function googleRead(
     const { done, value } = await reader.read();
     if (done) break;
     bytes += value.byteLength;
-    if (bytes > 1000000) {
+    if (bytes > IMPORT_MAX_GOOGLE_BYTES) {
       await reader.cancel();
       throw new Error("IMPORT_SIZE");
     }
@@ -275,8 +276,13 @@ export async function sheetTabs(
     );
   const tabs = (data.sheets ?? []).map(
     (s: {
-      properties: { sheetId: number; title: string; gridProperties?: unknown };
-    }) => ({ id: s.properties.sheetId, title: s.properties.title }),
+      properties: { sheetId: number; title: string; gridProperties?: { rowCount?: number; columnCount?: number } };
+    }) => ({
+      id: s.properties.sheetId,
+      title: s.properties.title,
+      rows: s.properties.gridProperties?.rowCount ?? 0,
+      columns: s.properties.gridProperties?.columnCount ?? 0,
+    }),
   );
   return {
     spreadsheetId: id,
@@ -304,7 +310,9 @@ export async function readSheet(
   const meta = await sheetTabs(store, accountId, slug, propertyId, id),
     tab = meta.tabs.find((t: { id: number }) => t.id === sheetId);
   if (!tab) throw new Error("NOT_FOUND");
-  const range = `'${String(tab.title).replaceAll("'", "''")}'!A:BA`;
+  if (tab.rows > 50000 || tab.columns > 1000) throw new Error("IMPORT_SIZE");
+  // Request the entire tab. A fixed A:BA slice could silently omit columns.
+  const range = `'${String(tab.title).replaceAll("'", "''")}'`;
   const data = await googleRead(
     store,
     accountId,
@@ -315,13 +323,7 @@ export async function readSheet(
   const rows: string[][] = (data.values ?? []).map((r: unknown[]) =>
     r.map((c) => String(c ?? "")),
   );
-  if (
-    rows.length > 501 ||
-    rows.some((r) => r.length > 52) ||
-    JSON.stringify(rows).length > 250000 ||
-    rows.some((r) => r.some((c) => c.length > 2000))
-  )
-    throw new Error("IMPORT_SIZE");
+  if (importRowsTooLarge(rows)) throw new Error("IMPORT_SIZE");
   const { workspace } = await importAccess(store, accountId, slug, propertyId);
   const snapshot: SourceSnapshot = {
     id: randomUUID(),

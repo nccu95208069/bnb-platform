@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Property, Workspace } from "@/lib/customer-workspaces/types";
 import type {
   ImportPreview,
@@ -10,6 +10,8 @@ import {
   suggestFormat,
   type FormatSuggestion,
 } from "@/lib/customer-workspaces/format-assistant";
+const PREVIEW_PAGE_SIZE = 100;
+const GRID_PAGE_SIZE = 100;
 type Batch = NonNullable<Workspace["importBatches"]>[number];
 const columnLabels = {
   checkIn: "入住日期",
@@ -89,7 +91,9 @@ export function SheetImport({
   const [coverageConfirmed, setCoverageConfirmed] = useState(false);
   const [confirmed, setConfirmed] = useState(false),
     [preview, setPreview] = useState<ImportPreview | null>(null),
-    [selection, setSelection] = useState<number[]>([]);
+    [selection, setSelection] = useState<number[]>([]),
+    [previewPage, setPreviewPage] = useState(0),
+    [gridPage, setGridPage] = useState(0);
   const [batches, setBatches] = useState(initialBatches),
     [version, setVersion] = useState(initialVersion),
     [busy, setBusy] = useState(false),
@@ -117,6 +121,8 @@ export function SheetImport({
     setMapping(next);
     setPreview(null);
     setSelection([]);
+    setPreviewPage(0);
+    setGridPage(0);
     setConfirmed(false);
     setConfirmedEmpty(false);
     setCoverageConfirmed(false);
@@ -183,7 +189,10 @@ export function SheetImport({
     id: i,
     label: `第 ${i + 1} 欄 · ${source?.rows[mapping.headerRow - 1]?.[i] || "未命名"}`,
   }));
-  const gridCells =
+  const selectedRows = useMemo(() => new Set(selection), [selection]);
+  const previewPages = preview ? Math.ceil(preview.rows.length / PREVIEW_PAGE_SIZE) : 0;
+  const visiblePreviewRows = preview?.rows.slice(previewPage * PREVIEW_PAGE_SIZE, (previewPage + 1) * PREVIEW_PAGE_SIZE) ?? [];
+  const gridCells = useMemo(() =>
     isGrid && source
       ? source.rows.slice(mapping.headerRow).flatMap((row, i) =>
           (mapping.grid?.dateColumns ?? []).flatMap((column) =>
@@ -201,7 +210,22 @@ export function SheetImport({
               : [],
           ),
         )
-      : [];
+      : [], [isGrid, source, mapping.headerRow, mapping.columns.rooms, mapping.grid?.dateColumns]);
+  const gridPages = Math.ceil(gridCells.length / GRID_PAGE_SIZE);
+  const visibleGridCells = gridCells.slice(gridPage * GRID_PAGE_SIZE, (gridPage + 1) * GRID_PAGE_SIZE);
+  const helpCard = (boundUrl || shareEmail) ? (
+    <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+      <h3 className="font-medium">對欄位或預覽結果有疑問？</h3>
+      <p className="mt-1">先不要確認匯入。請說明哪個欄位或來源列需要核對，專人會收到你的說明；原表不會被修改。</p>
+      <label className="mt-3 block">需要協助的內容
+        <textarea className={field} maxLength={1000} value={help} onChange={(e) => setHelp(e.target.value)} placeholder="例如：第 25 列的包棟訂單應該對應哪些房間？" />
+      </label>
+      <button className={`${secondary} mt-3`} disabled={busy || !help.trim()} onClick={() => run(async () => {
+        const r = await send<{ notification: string }>({ action: "help", message: help });
+        setNotice(r.notification === "accepted" ? "協助需求已保存，通知已交由寄信服務送出。" : "協助需求已保存；通知尚待確認，你也可以使用服務信箱聯絡我們。");
+      })}>請專人協助核對</button>
+    </div>
+  ) : null;
   return (
     <main className="min-h-dvh bg-stone-50 p-4 text-slate-800 sm:p-8">
       <div className="mx-auto max-w-5xl">
@@ -230,44 +254,6 @@ export function SheetImport({
             待核對事項：{helpMessage}
           </p>
         )}
-        {(boundUrl || shareEmail) && (
-          <details className="my-4 rounded-xl border bg-white p-4">
-            <summary className="cursor-pointer">
-              表格格式不同、逐晚拆列或需要協助？
-            </summary>
-            <p className="my-3 text-sm">
-              不必猜欄位或先改原表。請說明你不確定的部分，服務人員會收到通知協助核對。
-            </p>
-            <label className="text-sm">
-              需要協助的內容
-              <textarea
-                className={field}
-                maxLength={1000}
-                value={help}
-                onChange={(e) => setHelp(e.target.value)}
-              />
-            </label>
-            <button
-              className={`${secondary} mt-3`}
-              disabled={busy || !help.trim()}
-              onClick={() =>
-                run(async () => {
-                  const r = await send<{ notification: string }>({
-                    action: "help",
-                    message: help,
-                  });
-                  setNotice(
-                    r.notification === "accepted"
-                      ? "協助需求已保存，通知已交由寄信服務送出。"
-                      : "協助需求已保存；通知尚待確認，你也可以使用服務信箱聯絡我們。",
-                  );
-                })
-              }
-            >
-              請專人協助核對
-            </button>
-          </details>
-        )}
         {uncertain && (
           <p role="alert" className="my-4 rounded-xl bg-amber-50 p-4">
             寫入結果尚未確認。請按「重試相同匯入」核對；已送出的選擇暫時鎖定。
@@ -285,6 +271,11 @@ export function SheetImport({
                 ? `先將 Sheet 的檢視權限分享給 ${shareEmail}，再貼上連結。不要求建立者與登入帳號相同，也不需公開檔案。`
                 : "Google 唯讀授權約一小時有效。不需公開分享檔案。"}
           </p>
+          {shareEmail && (
+            <a href="/guides/share-google-sheet" target="_blank" rel="noopener noreferrer" className="mb-4 inline-block text-sm font-medium text-teal-800 underline underline-offset-4">
+              看圖文教學：如何分享 Google Sheet（另開分頁）
+            </a>
+          )}
           {!configured && (
             <p className="mb-3 text-amber-800">
               此測試環境尚未設定 Google 授權，設定完成後即可使用。
@@ -512,7 +503,7 @@ export function SheetImport({
               </section>
             )}
             <p className="text-sm">
-              {source.title} · {source.rows.length} 列。最多 501 列、前 52
+              {source.title} · {source.rows.length} 列。最多 3,001 列（含標題與前置列）、52
               欄。日期需包含西元年，例如 2026/10/2。金額以新臺幣計。
             </p>
             <label className="mt-3 block">
@@ -747,8 +738,15 @@ export function SheetImport({
                   </select>
                 </label>
                 {mapping.grid?.cellMeaning === "guest-name" && (
-                  <div className="max-h-96 overflow-auto">
-                    {gridCells.map((cell) => (
+                  <div>
+                    <p className="mb-2 text-sm">共 {gridCells.length} 個有內容的格子。每頁顯示 {GRID_PAGE_SIZE} 個，翻頁會保留已填的訂單編號。</p>
+                    {gridPages > 1 && <div className="mb-3 flex items-center gap-3 text-sm">
+                      <button type="button" className={secondary} disabled={gridPage === 0} onClick={() => setGridPage((page) => page - 1)}>上一頁</button>
+                      <span>第 {gridPage + 1}／{gridPages} 頁</span>
+                      <button type="button" className={secondary} disabled={gridPage + 1 >= gridPages} onClick={() => setGridPage((page) => page + 1)}>下一頁</button>
+                    </div>}
+                    <div className="max-h-96 overflow-auto">
+                    {visibleGridCells.map((cell) => (
                       <label key={cell.key} className="mb-3 block text-sm">
                         第 {cell.row} 列、第 {cell.column} 欄 · {cell.room} ·{" "}
                         {cell.date} · {cell.content}
@@ -772,6 +770,7 @@ export function SheetImport({
                         />
                       </label>
                     ))}
+                    </div>
                   </div>
                 )}
               </section>
@@ -869,6 +868,7 @@ export function SheetImport({
                     mapping: { ...mapping, ...(coverageConfirmed ? { coverageConfirmed: true as const } : {}) },
                   });
                   setPreview(result);
+                  setPreviewPage(0);
                   setSelection(
                     result.rows
                       .filter((r) => !r.issues.length)
@@ -881,12 +881,23 @@ export function SheetImport({
             </button>
           </fieldset>
         )}
+        {source && !preview && helpCard}
         {preview && (
           <section className="mt-5 rounded-2xl border bg-white p-5">
             <h2 className="font-semibold">3. 選擇要匯入的訂單</h2>
             <p className="my-3 text-sm">
               每一列預覽代表合併後的一張訂單。可先匯入無問題的整組資料；有問題的訂單不會只匯入其中幾晚。預覽保留一小時。
             </p>
+            <p className="mb-3 text-sm" role="status">
+              共 {preview.rows.length} 筆預覽，已選 {selection.length} 筆。每頁顯示 {PREVIEW_PAGE_SIZE} 筆，翻頁不會清除選擇。
+            </p>
+            {previewPages > 1 && (
+              <div className="mb-3 flex items-center gap-3 text-sm">
+                <button type="button" className={secondary} disabled={previewPage === 0} onClick={() => setPreviewPage((page) => page - 1)}>上一頁</button>
+                <span>第 {previewPage + 1}／{previewPages} 頁</span>
+                <button type="button" className={secondary} disabled={previewPage + 1 >= previewPages} onClick={() => setPreviewPage((page) => page + 1)}>下一頁</button>
+              </div>
+            )}
             <div className="overflow-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -907,14 +918,14 @@ export function SheetImport({
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.rows.map((r) => (
+                  {visiblePreviewRows.map((r) => (
                     <tr key={r.row}>
                       <td className="border p-2">
                         <input
                           aria-label={`匯入第 ${r.row} 列`}
                           type="checkbox"
                           disabled={busy || uncertain || !!r.issues.length}
-                          checked={selection.includes(r.row)}
+                          checked={selectedRows.has(r.row)}
                           onChange={(e) =>
                             setSelection((old) =>
                               e.target.checked
@@ -986,6 +997,7 @@ export function SheetImport({
                 </tbody>
               </table>
             </div>
+            {helpCard}
             {preview.rows.every((row) =>
               row.issues.includes("已在選定範圍之前退房"),
             ) && (

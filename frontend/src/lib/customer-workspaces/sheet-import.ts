@@ -14,6 +14,7 @@ import type {
   SheetSource,
   NormalizedOrder,
 } from "./sheet-normalizer.ts";
+import { IMPORT_MAX_ROWS } from "./import-limits.ts";
 export type { Mapping, SheetSource } from "./sheet-normalizer.ts";
 export type PreviewRow = NormalizedOrder;
 export type ImportPreview = {
@@ -173,7 +174,7 @@ export async function commitImport(
     typeof previewId !== "string" ||
     !/^[\w-]{36}$/.test(previewId) ||
     !Array.isArray(selected) ||
-    selected.length > 500 ||
+    selected.length > IMPORT_MAX_ROWS - 1 ||
     selected.some((n) => !Number.isInteger(n))
   )
     throw new Error("INVALID_INPUT");

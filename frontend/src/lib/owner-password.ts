@@ -34,10 +34,23 @@ export function passwordProblem(password: unknown): string | null {
   if (!password.trim() || /^(.)\1+$/.test(password) || ["password1234", "123456789012"].includes(password.toLowerCase())) return "請使用較不容易猜到的密碼或長句。";
   return null;
 }
-export async function createPasswordCredential(password: string): Promise<OwnerCredential> {
-  if (passwordProblem(password)) throw new Error("PASSWORD_INVALID");
+export function customerPasswordProblem(password: unknown): string | null {
+  if (typeof password !== "string" || password.length < 8 || password.length > 128) return "請使用 8～128 字元的密碼，包含英文字母、數字和特殊符號。";
+  if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password) || !/[\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E]/.test(password))
+    return "請使用 8～128 字元的密碼，包含英文字母、數字和特殊符號。";
+  return null;
+}
+async function hashPasswordCredential(password: string): Promise<OwnerCredential> {
   const salt = randomBytes(16).toString("hex");
   return { schema: 1, kind: "password", salt, hash: (await derive(password, salt)).toString("hex"), revision: randomBytes(32).toString("hex") };
+}
+export async function createPasswordCredential(password: string): Promise<OwnerCredential> {
+  if (passwordProblem(password)) throw new Error("PASSWORD_INVALID");
+  return hashPasswordCredential(password);
+}
+export async function createCustomerPasswordCredential(password: string): Promise<OwnerCredential> {
+  if (customerPasswordProblem(password)) throw new Error("PASSWORD_INVALID");
+  return hashPasswordCredential(password);
 }
 export async function changeOwnerPassword(store: OwnerCredentialStore, cookie: string | undefined, input: { currentPassword?: unknown; password?: unknown; confirmPassword?: unknown }) {
   const previous = await store.read();
