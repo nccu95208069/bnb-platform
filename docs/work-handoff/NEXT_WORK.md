@@ -1,5 +1,6 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
+2026-10-16 標準帳本 v5：依業主決定增加訂單「最後更新時間」，保留原訂房日期；舊 v4 帳本守護式升級及缺失歷史時間留白詳見 [實作與發布邊界](STANDARD_SHEET_V5_UPDATED_AT_2026-10-16.md)。程式尚未部署。
 2026-10-11 OS-04: owner-approved OS and LINE rollout is complete. Sweetfun and OFFLAND reminders are enabled for Taipei 09:00, with separately labeled unconfirmed room-night summaries. The new scheduler returned HTTP 200; one authorized synthetic LINE message has a persisted provider receipt and was visibly received in LINE desktop. First automatic arrival-note dispatch is due October 12 and has not yet been observed; physical-phone and external-customer acceptance remain open. See [release evidence](OS_READINESS_2026-10-10.md#正式-line-啟用--2026-10-11).
 
 2026-10-10 release: [OS readiness production acceptance](OS_READINESS_2026-10-10.md) is live at runtime `5e80ee3`. Workspace entry and both legacy arrival-source views are verified using normal owner login; partial notes remain visible and explicitly unconfirmed. This October 10 checkpoint is superseded by the October 11 reminder activation above; broader INT-03 mapping remains open.

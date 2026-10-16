@@ -490,7 +490,7 @@ test("intact v1 workbook upgrades atomically with two new provenance/block tabs,
   await sync(f);
   assert.equal(
     f.get().tables.meta.find((r) => r[0] === "schema_version")[1],
-    4,
+    5,
   );
   assert.ok(f.get().tables.calendarSources.length);
   assert.ok(f.get().tables.blocks.length);
@@ -522,9 +522,9 @@ test("intact v2 workbook appends order metadata and receipt allocation/account c
   await sync(f);
   assert.equal(
     f.get().tables.meta.find((r) => r[0] === "schema_version")[1],
-    4,
+    5,
   );
-  assert.equal(f.get().tables.orders[0].length, 28);
+  assert.equal(f.get().tables.orders[0].length, 29);
   assert.equal(f.get().tables.payments[0].length, 13);
 });
 
@@ -537,6 +537,40 @@ test("v3 upgrades to hold columns only when workbook contents still match; edite
     if (edited) old.tables.orders.push(["external edit"]);
     f.set(old);
     if (edited) { await assert.rejects(bind(f), /STANDARD_EXTERNAL_CHANGE/); assert.equal(f.gateway.writes.length, 0); }
-    else { await bind(f); await sync(f); assert.equal(f.get().tables.orders[0].length, 28); assert.equal(f.get().tables.meta.find(r => r[0] === "schema_version")[1], 4); }
+    else { await bind(f); await sync(f); assert.equal(f.get().tables.orders[0].length, 29); assert.equal(f.get().tables.meta.find(r => r[0] === "schema_version")[1], 5); }
   }
+});
+
+test("v4 upgrades to last-update column only when workbook contents still match", async () => {
+  for (const edited of [false, true]) {
+    const f = fixture(), old = f.get();
+    old.tables.orders = old.tables.orders.map(row => row.slice(0, 28));
+    old.tables.meta.find(row => row[0] === "schema_version")[1] = 4;
+    old.tables.meta.find(row => row[0] === "content_hash")[1] = standardContentHash(old.tables);
+    if (edited) old.tables.orders.push(["External edit"]);
+    f.set(old);
+    if (edited) {
+      await assert.rejects(bind(f), /STANDARD_EXTERNAL_CHANGE/);
+      assert.equal(f.gateway.writes.length, 0);
+    } else {
+      await bind(f);
+      await sync(f);
+      assert.equal(f.get().tables.orders[0].length, 29);
+      assert.equal(f.get().tables.meta.find(row => row[0] === "schema_version")[1], 5);
+    }
+  }
+});
+
+test("last update is distinct from the original booking date and unknown history stays blank", () => {
+  const f = fixture(), booking = f.workspace.bookings[0];
+  booking.bookedAt = "2026-09-20";
+  booking.createdAt = "2026-10-01T00:00:00.000Z";
+  booking.version = 2;
+  let order = buildStandardWorkbook(f.workspace).tables.orders[1];
+  assert.equal(order[19], "2026-09-20");
+  assert.equal(order[28], null);
+  booking.updatedAt = "2026-10-12T04:05:06.000Z";
+  order = buildStandardWorkbook(f.workspace).tables.orders[1];
+  assert.equal(order[19], "2026-09-20");
+  assert.equal(order[28], "2026-10-12T04:05:06.000Z");
 });

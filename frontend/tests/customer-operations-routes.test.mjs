@@ -17,7 +17,7 @@ const origin = "https://operations.test",
   slug = "http-operations",
   context = { params: Promise.resolve({ slug }) },
   base = `/api/customer-workspaces/${slug}`;
-const password = "Synthetic HTTP operations password!";
+const password = "Synthetic HTTP operations password 1!";
 function request(path, cookie, input, requestOrigin = origin) {
   return new NextRequest(origin + path, {
     method: input === undefined ? "GET" : "POST",

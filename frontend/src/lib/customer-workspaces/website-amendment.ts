@@ -52,7 +52,7 @@ export async function amendWebsiteBooking(
   const total = money(input.total);
   if (typeof input.total !== "number" || total === null || total <= 0 ||
       (booking.expectedDeposit != null && cents(booking.expectedDeposit) > cents(total))) throw Error("INVALID_INPUT");
-  let next: Booking = { ...booking, ...stay, total, version: booking.version + 1 };
+  let next: Booking = { ...booking, ...stay, total, version: booking.version + 1, updatedAt: now.toISOString() };
   // A single amended stay replaces the old single stay and original quote's
   // nightly amounts. Do not present stale source rates as the new agreement.
   delete next.stays;

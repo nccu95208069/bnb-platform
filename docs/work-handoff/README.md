@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-16 onboarding and standard-workbook release: [3,000-row import, customer password and sharing-guide improvements](ONBOARDING_CLARITY_2026-10-16.md#production-release--2026-10-16) and [v5 booking last-updated time](STANDARD_SHEET_V5_UPDATED_AT_2026-10-16.md#發布與資料邊界) are live on `https://sweetfun-os.vercel.app` from `c4ac224` / Vercel `dpl_4EEqMUY4hPNm3oXN1yzU5zt6Ha6d`.
+
 2026-10-15 website flow repair: [503 root cause, current Studio booking dependencies, isolated end-to-end verification, deployment evidence and pending authenticated live acceptance](WEBSITE_BOOKING_FLOW_2026-10-15.md).
 
 2026-10-14 settings and calendar follow-up: [grouped Sweetfun OS settings, browser-persisted appearance, Auto and loose-to-compact month-week sizing, two-line booking cards when space allows, compact unsold availability controls, dark-mode contrast correction, validation, and production release evidence](SETTINGS_APPEARANCE_2026-10-14.md). The latest unsold contrast revision is live on the primary domain as `dpl_HBSeHvEVGsqo83x2A3RPZFzmmQ3c`, based on the existing production source without the separate OS beta integration branch.

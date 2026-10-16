@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { dateValue, textValue } from "./service.ts";
 import type { Booking, Property, StaySegment } from "./types.ts";
+import { importRowsTooLarge } from "./import-limits.ts";
 
 export const NORMALIZATION_VERSION = 1;
 
@@ -306,15 +307,8 @@ export function normalizeSheet(
 ): NormalizedOrder[] {
   validateMapping(mapping);
   if (
-    !Array.isArray(source.rows) ||
-    source.rows.length > 501 ||
-    source.rows.length < mapping.headerRow ||
-    source.rows.some(
-      (r) =>
-        !Array.isArray(r) ||
-        r.length > 52 ||
-        r.some((v) => typeof v !== "string" || v.length > 2000),
-    )
+    importRowsTooLarge(source.rows) ||
+    source.rows.length < mapping.headerRow
   )
     throw new Error("IMPORT_SIZE");
   const groups = new Map<string, Group>();

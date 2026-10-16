@@ -529,6 +529,7 @@ async function createBookingRecord(
     } } : {}),
     guestNotified: false,
     createdAt: startedAt,
+    updatedAt: startedAt,
     actor: accountId,
     entry: "os",
     requestKey: key,

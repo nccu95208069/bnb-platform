@@ -183,7 +183,7 @@ async function reserve(store: CustomerStore, snapshot: Snapshot<WebsiteBinding> 
     }), payments: [], contact: `${normalized.phone} / ${normalized.email}`, notes: normalized.note || null,
     status: "held", hold: { schema: 1, scope: "platform_only", startedAt: at, expiresAt: new Date(now.getTime() + 86400000).toISOString(), state: "active" },
     platform: "Official Website", bookedAt: businessDate(at), bookedAtSource: "manual", bookedAtTimeZone: "Asia/Taipei",
-    guestNotified: false, createdAt: at, actor: `website:${binding.id}`, entry: "os", requestKey: key, requestHash,
+    guestNotified: false, createdAt: at, updatedAt: at, actor: `website:${binding.id}`, entry: "os", requestKey: key, requestHash,
     website: { bindingId: binding.id, quoteId, requestId: key, reference, email: normalized.email, phone: normalized.phone,
       adults: quote.stay.adults, children: quote.stay.children, roomTypeId: offer.id,
       acceptedTerms: { transferInstructions: binding.config.transferInstructions, cancellationPolicy: binding.config.cancellationPolicy },

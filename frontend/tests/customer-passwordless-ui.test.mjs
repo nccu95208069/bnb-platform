@@ -36,6 +36,7 @@ async function mount(t) {
     "document",
     "location",
     "sessionStorage",
+    "localStorage",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
     original[k] = globalThis[k];
@@ -44,6 +45,7 @@ async function mount(t) {
     document: dom.window.document,
     location: dom.window.location,
     sessionStorage: dom.window.sessionStorage,
+    localStorage: dom.window.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   dom.window.HTMLElement.prototype.scrollIntoView = function () {};
@@ -278,13 +280,13 @@ test("public upload previews without login; email return restores the exact prev
     document.querySelector('input[type="email"]'),
     "owner@example.test",
   );
-  await m.click(m.button("寄送登入連結"));
+  await m.click(m.button("寄送登入碼"));
   assert.ok(token);
   window.history.pushState({}, "", `/signin#${token}`);
   await m.render(EmailSignIn);
   assert.equal(window.location.hash, "");
   assert.equal(consumeCount, 0);
-  await m.click(m.button("確認登入並繼續"));
+  await m.click(m.button("登入這台裝置"));
   assert.equal(consumeCount, 1);
   assert.equal(window.location.pathname, "/join/calendar");
   await m.render(CalendarImport, await props());
@@ -323,7 +325,7 @@ test("uncertain login mail freezes the email and reuses the same request key aft
     document.querySelector('input[type="email"]'),
     "owner@example.test",
   );
-  await m.click(m.button("寄送登入連結"));
+  await m.click(m.button("寄送登入碼"));
   assert.equal(document.querySelector('input[type="email"]').disabled, true);
   await m.click(m.button("確認同一封登入信"));
   assert.equal(requests.length, 2);
@@ -343,9 +345,25 @@ test('cross-device verification shows the intended email, requires a pairing cod
  });
  window.history.pushState({},'',`/signin#${token}`);await m.render(EmailSignIn);
  assert.equal(window.location.hash,'');assert.match(document.body.textContent,/member\+test@example.test/);
- await m.click(m.button('確認兩台裝置登入'));assert.equal(sent.filter(x=>x.action==='consume').length,0);
+ await m.click(m.button('登入兩台裝置'));assert.equal(sent.filter(x=>x.action==='consume').length,0);
  await m.fill(document.querySelector('input[inputmode="numeric"]'),'123456');
- await m.click(m.button('確認兩台裝置登入'));assert.equal(sent.at(-1).mode,'both');assert.equal(sent.at(-1).pairingCode,'123456');
+ await m.click(m.button('登入兩台裝置'));assert.equal(sent.at(-1).mode,'both');assert.equal(sent.at(-1).pairingCode,'123456');
  await m.render(EmailSignIn,{key:'second'});window.history.pushState({},'',`/signin#${token}`);
- await m.render(EmailSignIn,{key:'third'});await m.click(m.button('只登入這台裝置'));assert.equal(sent.at(-1).mode,'current');
+ await m.render(EmailSignIn,{key:'third'});await m.click(m.button('登入這台裝置'));assert.equal(sent.at(-1).mode,'current');
+});
+
+test('email-code form has six boxes, submits the original request and resumes after remount without storing digits',async t=>{
+ const m=await mount(t),sent=[],id='aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+ t.mock.method(globalThis,'fetch',async(_url,options)=>{const input=JSON.parse(options.body);sent.push(input);if(input.action==='prepare')return Response.json({ok:true});if(input.action==='request')return Response.json({detail:'登入碼已寄出',requestKey:id,codeRequired:true,expiresAt:Date.now()+900000});if(input.action==='poll')return Response.json({status:'pending'});if(input.action==='consume-code')return Response.json({detail:'測試拒絕',code:'LOGIN_CODE_INVALID'},{status:400});throw Error(input.action)});
+ await m.render(PasswordlessLogin);await m.fill(document.querySelector('input[type="email"]'),'six@example.test');await m.click(m.button('寄送登入碼'));
+ assert.equal(sent.find(x=>x.action==='request').protocol,'code-v3');assert.equal(document.querySelectorAll('input[inputmode="numeric"]').length,6);
+ await m.fill(document.querySelector('input[inputmode="numeric"]'),'123456');assert.equal([...document.querySelectorAll('input[inputmode="numeric"]')].map(i=>i.value).join(''),'123456');await m.click(m.button('登入並繼續'));
+ assert.deepEqual(sent.at(-1),{action:'consume-code',requestKey:id,loginCode:'123456'});assert(!localStorage.getItem('customer-email-code:passwordless:start').includes('123456'));
+ await m.render(PasswordlessLogin,{key:'reopened'});assert.equal(document.querySelectorAll('input[inputmode="numeric"]').length,6);assert.equal(document.querySelector('input[type="email"]').value,'six@example.test');assert.equal(sent.at(-1).action,'poll');assert.equal(sent.filter(x=>x.action==='request').length,1);
+});
+test('email-link v3 requires six digits for either device choice and defaults to current device',async t=>{
+ const m=await mount(t),sent=[],token='v3.aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.'+'a'.repeat(43);
+ t.mock.method(globalThis,'fetch',async(_url,options)=>{const input=JSON.parse(options.body);sent.push(input);if(input.action==='prepare')return Response.json({ok:true});if(input.action==='inspect')return Response.json({email:'six@example.test',sameDevice:false,codeRequired:true});if(input.action==='consume')return Response.json({url:'/workspaces'});throw Error(input.action)});
+ window.history.pushState({},'',`/signin#${token}`);await m.render(EmailSignIn);await m.click(m.button('登入這台裝置'));assert(!sent.some(x=>x.action==='consume'));
+ await m.fill(document.querySelector('input[inputmode="numeric"]'),'234567');await m.click(m.button('登入這台裝置'));assert.equal(sent.at(-1).mode,'current');assert.equal(sent.at(-1).loginCode,'234567');
 });

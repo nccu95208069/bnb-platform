@@ -2,6 +2,7 @@ import { createSign, randomUUID } from "node:crypto";
 import { spreadsheetId, type SourceSnapshot } from "./customer-google.ts";
 import { importAccess } from "./sheet-import.ts";
 import type { CustomerStore } from "./store.ts";
+import { IMPORT_MAX_GOOGLE_BYTES, importRowsTooLarge } from "./import-limits.ts";
 
 type ReaderCredential = { client_email: string; private_key: string };
 type Tab = { id: number; title: string; rows: number; columns: number };
@@ -71,7 +72,7 @@ async function get(url: string, access: string) {
   if (!r.ok && ![403, 404].includes(r.status))
     throw new Error("SHEET_READ_FAILED");
   const length = Number(r.headers.get("content-length") || 0);
-  if (length > 1000000 || !r.body) throw new Error("IMPORT_SIZE");
+  if (length > IMPORT_MAX_GOOGLE_BYTES || !r.body) throw new Error("IMPORT_SIZE");
   const reader = r.body.getReader(),
     chunks: Uint8Array[] = [];
   let size = 0;
@@ -79,7 +80,7 @@ async function get(url: string, access: string) {
     const { done, value } = await reader.read();
     if (done) break;
     size += value.byteLength;
-    if (size > 1000000) {
+    if (size > IMPORT_MAX_GOOGLE_BYTES) {
       await reader.cancel();
       throw new Error("IMPORT_SIZE");
     }
@@ -170,12 +171,7 @@ export async function sharedSource(
   const rows: string[][] = (data.values ?? []).map((r: unknown[]) =>
     r.map((c) => String(c ?? "")),
   );
-  if (
-    rows.length > 501 ||
-    rows.some((r) => r.length > 52 || r.some((c) => c.length > 2000)) ||
-    JSON.stringify(rows).length > 250000
-  )
-    throw new Error("IMPORT_SIZE");
+  if (importRowsTooLarge(rows)) throw new Error("IMPORT_SIZE");
   const snapshot: SourceSnapshot = {
     id: randomUUID(),
     accountId,
