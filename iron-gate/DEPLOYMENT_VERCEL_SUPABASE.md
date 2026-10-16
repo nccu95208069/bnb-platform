@@ -14,6 +14,7 @@
 - Vercel 的首次 Preview 判定問題使先前兩次 smoke 部署意外標成 Production，當時已刪除。使用者於 2026-10-16 明確同意暫時的 Production 固定 503 空殼；建立 [Production 部署](https://vercel.com/sweetfuns-projects/iron-gate/533sCKvAkcLDt41xFqaLGPVY7G52) 後檢查目標確為 production，公開別名 `https://iron-gate-green.vercel.app/v1/bookings` 實測 `503 SERVICE_UNAVAILABLE`、`private, no-store`。Production 沒有資料庫或簽章密鑰。
 - 接著建立 [Preview 部署](https://vercel.com/sweetfuns-projects/iron-gate/CB1q8cjMq5JoMX8csAUYfkKrFXKp)，檢查目標確為 preview，且 Vercel Authentication 仍保護預覽網址。使用登入的 `vercel curl` 經保護層測試 `/v1/properties/00000000-0000-4000-8000-000000000001/bookings`，Iron Gate 回 `401 UNAUTHORIZED`、`private, no-store`；Production 在 Preview 建立後再次回 `503`。測試沒有送出建立或修改訂單的請求，也沒有匯入真實客資。
 - 在專用資料庫短暫建立兩個全新合成館別及可撤銷短效測試憑證，經受保護 Preview 驗證同館事件讀取 `200`、跨館 `403`、憑證撤銷後 `401`。測試沒有建立訂單或接觸真實館別；兩個合成館別及兩筆測試憑證已刪除，逐表核對其占房、outbox、稽核均為零。
+- 另以 OS 只讀簽章程式及全新合成會員／館別測試 `GET /v1/properties/{propertyId}/bookings?limit=1`：經受保護 Preview 回 `200`，證明原始查詢字串在實際路由可通過短效證明驗證。這是合成會員，尚未接正式 OS 登入。短效憑證已撤銷並刪除；使用者批准後透過控制台刪除唯一合成館別列，重新查詢確認館別、憑證、占房、outbox、稽核均為零。
 - 合成 API、PostgreSQL 隔離、憑證撤銷、唯讀 OS proof 和本機備份還原演練已驗證。此結果不代表真實館別已切換。
 
 ## 專用資料庫初始化
@@ -26,7 +27,7 @@
 ## Vercel 預覽與正式啟用前
 
 1. 僅在服務端設定受限 PostgreSQL pooler URL（`sslmode=verify-full`）、32 bytes 以上的 `IRON_GATE_OS_PROOF_SECRET` 及 Preview 專用的 `IRON_GATE_PREVIEW_ENABLED=true`；OS 端使用同一 secret 的獨立安全設定。函式從 [`certs/prod-ca-2021.crt`](certs/prod-ca-2021.crt) 載入 Supabase 公開 CA。避免在命令輸出、程式碼、日誌或瀏覽器洩漏私人連線憑證。
-2. 預覽環境驗證 `/v1/` 的原始 path/query 沒有被 Vercel 重寫改動；用 OS 實際產生的短時 proof 做唯讀端到端測試。未授權請求及合成機器憑證的同館、跨館、撤銷已在部署環境核對；**OS 真實會員**與簽章的查詢字串仍待端到端核對，回應不得快取。
+2. 合成 OS 會員的短時 proof 已在 Preview 對帶 `?limit=1` 的真實路由返回 `200`，可核對 `/v1/` 原始 path/query；未授權請求及合成機器憑證的同館、跨館、撤銷也已核對。**OS 真實會員、已部署 OS 影子路由及真實館別**仍待端到端核對，回應不得快取。
 3. 設定限流、錯誤率及資料庫連線監控；驗證資料庫停機時固定回 `503`，不洩漏內部資訊。
 4. 維持 OS 影子橋接預設關閉；網站報價、LINE owner action、OwlNest 登入後台的房量寫入請求與財務證據尚未完成，不得將 Iron Gate 指為真實訂單的唯一 writer。每館切換須先備份、影子比對、關閉舊 writer、核對並準備回滾。
 

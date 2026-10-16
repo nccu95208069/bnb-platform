@@ -13,3 +13,5 @@
 `GET /api/customer-workspaces/{slug}/iron-gate-shadow/{propertyId}/bookings/{bookingId}` 先驗 OS cookie，再從伺服器端設定選定館別機器憑證，重新讀取會員、簽發單次證明，對 Iron Gate 發出三秒上限的 GET。它僅顯示 Iron Gate 已有的那筆影子資料，不改 OS 的訂單或庫存；預設關閉，未配置時回 503。回覆會核對工作區／館別／訂單 ID、頂層與住宿／保留／付款摘要的欄位白名單，以及會員欄位授權；無金額權限時，保留欄位中的晚到款項標記與轉正時間也不得透出。通路錯誤不洩露 token 或原始錯誤內容。啟用需由伺服器端設定 `IRON_GATE_SHADOW_ENABLED=true`、`IRON_GATE_BASE_URL`（HTTPS，或本機 127.0.0.1 HTTP）、`IRON_GATE_OS_PROOF_SECRET`（至少 32 bytes）及 `IRON_GATE_OS_READ_GRANTS` JSON 陣列；每個元素是 `credentialId`、`clientId`、`workspaceId`、`propertyId`、`origin:"os"`、`token`。同館只允許一個 grant，這些值不可暴露到瀏覽器或日誌。
 
 合成測試驗證簽章、期限、body 綁定、跨館拒絕、撤銷會員拒絕、只讀轉發與回覆欄位限制；另與 Iron Gate 的驗證元件做本機互通測試。前端型別檢查與 lint 通過。尚待：正式機器憑證配置、OS 與 Iron Gate 的私有網路及 TLS、正式資料唯讀比對、舊 writer 封寫及逐館資料遷移。未通過這些條件前，影子路由不得被當作正式訂單來源。
+
+2026-10-16：以此檔的 OS 簽章程式、一次性合成會員及短效機器憑證，在受 Vercel Authentication 保護的 Iron Gate Preview 唯讀請求 `GET /v1/properties/{propertyId}/bookings?limit=1`，回 `200`。因此已實測簽章綁定的 path/query 穿過實際 Vercel 路由；此測試沒有部署 OS 路由，也沒有使用真實 OS 會員或建立訂單。合成憑證與館別列均已刪除，相關表重新查詢為零。真實會員、實際 OS 影子路由與正式館別仍須逐一驗證。
