@@ -34,6 +34,7 @@
 | P2 | 共用 PostgreSQL handler 首次遇到暫時性資料庫斷線後，會把失敗的安全檢查永久快取到同一個暖實例，資料庫恢復仍持續回 503。 | 暫時性查詢失敗時清除快取，下一個請求重新檢查；不安全角色或 schema 仍維持關閉。測試斷線後恢復。 |
 | P1 | Vercel 函式若只有 `sslmode=verify-full` 卻未提供 Supabase CA，實際連線會因無法驗證憑證而失敗；改用不驗證模式則失去主機身分保護。 | 從專案 SSL 設定取得公開 CA，函式固定加入 `sslrootcert`，拒絕外部覆寫；以東京交易連線池及受限角色實測 TLS、角色及 RLS，並核對 CA 確實打包進 Vercel 函式。 |
 | P1 | 新 Vercel 專案將明確的 Preview 請求誤標成 Production；若 Preview 憑證或函式在該目標啟動，會在公開別名暴露尚未驗收的服務。 | 函式只在 `VERCEL_ENV=preview` 且 Preview 專用 `IRON_GATE_PREVIEW_ENABLED=true` 時初始化資料庫；Production 或未標記的請求在讀取憑證前回固定 503。三個相關變數僅存在 Preview；使用者同意後建立 Production 空殼，實測 503，再建立受保護 Preview 並核對目標與未授權 401。 |
+| P1 | 逐館切換或備份還原後，JSON 訂單與 PostgreSQL 占房索引若漂移，最後一間房可能被錯誤售出；待同步通路操作若失去 fence 也可能重開銷售。 | 新增一致快照的唯讀逐館檢查，核對有效訂單房晚、占房索引、重複占房及待同步操作的 fence；僅輸出固定錯誤碼，任何異常阻擋切換。本機 PostgreSQL 與還原演練已驗證。 |
 
 PostgreSQL 執行角色只能透過高熵 token 摘要查單筆憑證，不能列舉憑證表；發證與撤銷須另用管理連線。權威資料、占房唯一鍵、fence、收據與 outbox 在同一館別交易提交。
 
@@ -48,11 +49,11 @@ PostgreSQL 執行角色只能透過高熵 token 摘要查單筆憑證，不能�
 
 ## 驗證
 
-- `npm test`：64 個合成測試通過；3 個 PostgreSQL 測試在預設執行時跳過。新增唯讀 OwlNest 後台日曆 adapter 與不發送網路請求的候選房量命令測試；未呼叫真實 OwlNest。
+- `npm test`：68 個合成測試通過；3 個 PostgreSQL 測試在預設執行時跳過。逐館完整性檢查有一致、漂移、撞房、缺 fence 及異常資料測試；沒有讀取真實館別。
 - `npm run check`：TypeScript 嚴格型別檢查通過。
 - `npm run build`：編出可直接載入的 JavaScript，產物中不含 `.ts` 匯入；缺少設定的正式入口拒絕啟動。
 - `npm run test:pg`：隔離 localhost `iron_gate_test` 的 3 個交易／RLS／憑證與共用 handler 測試通過。
-- `npm run test:restore`：在同一隔離 PostgreSQL 實例建立並清除兩個一次性資料庫；5 張資料表、outbox 序列與受限執行角色在備份／還原前後核對通過。這不是正式館別的還原驗收。
+- `npm run test:restore`：在同一隔離 PostgreSQL 實例建立並清除兩個一次性資料庫；5 張資料表、outbox 序列、受限執行角色與逐館完整性檢查在備份／還原前後核對通過。這不是正式館別的還原驗收。
 - `npm run test:server`：127.0.0.1 上的 1 個實際 HTTP 請求流程通過。
 - `npm run start:private`：缺少資料庫設定時會拒絕啟動；隔離 localhost PostgreSQL 實測受限角色可啟動後立即關閉，管理角色被拒絕；尚未在正式環境啟動。
 - Vercel：新 `sweetfuns-projects/iron-gate` 專案已建立，受限資料庫連線、OS 證明密鑰及啟用旗標只存於加密的 Preview 設定。`vercel build` 通過並包含 Node.js 22 函式、`dist`、PostgreSQL 驅動與 Supabase CA；打包後的函式可定位 CA。Production／未標記目標、缺少私密設定或不安全連線只回 503。Production 空殼實測 503，受保護 Preview 的未授權訂單請求經 `vercel curl` 實測 401；尚無真實接單。

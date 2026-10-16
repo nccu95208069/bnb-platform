@@ -21,6 +21,8 @@ npm run build
 
 `npm run test:restore` 要求 `IRON_GATE_PG_ADMIN_URL` 指向本機 `iron_gate_test`，以及可選的 `IRON_GATE_PG_BIN`（`pg_dump`／`pg_restore` 所在目錄）。它建立兩個一次性資料庫，產生合成訂單、房晚、事件、稽核與憑證，備份後還原並核對資料及受限執行角色，最後刪除一次性資料庫。這只驗證本機還原鏈路；正式館別仍需另做有紀錄的備份、還原與回滾演練。
 
+`IRON_GATE_DATABASE_URL=... npm run check:property -- <property-uuid>` 對單一館別做**唯讀**完整性檢查：在同一個可重複讀取快照中核對有效訂單房晚、占房索引、待同步操作與 fence。它要求受限執行角色，僅輸出固定錯誤碼和計數，不列出訂單或客資；非零結束狀態會阻擋逐館切換。資料庫中的稽核與真實來源涵蓋仍須另行核對。
+
 `npm run start:private` 只綁定 `127.0.0.1`。它要求 `IRON_GATE_DATABASE_URL`、`IRON_GATE_OS_PROOF_SECRET`，並在啟動時驗證資料庫角色、RLS 與遠端 TLS。資料庫管理憑證與發證功能不在服務程序中。正式部署還需要專用資料庫、備份還原演練、身分配置、監控，以及逐館 writer 封寫與遷移核對。
 
 ## Vercel 專案

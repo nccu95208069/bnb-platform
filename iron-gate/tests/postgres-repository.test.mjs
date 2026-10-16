@@ -5,6 +5,7 @@ import { PostgresPropertyRepository } from "../src/postgres-repository.mjs";
 import { PostgresCredentialDirectory } from "../src/postgres-auth.mjs";
 import { IronGateService } from "../src/service.ts";
 import { createPostgresIronGateHandler } from "../src/node-server.mjs";
+import { inspectProperty } from "../scripts/check-property-integrity.mjs";
 
 const connectionString = process.env.IRON_GATE_PG_TEST_URL;
 const adminConnectionString = process.env.IRON_GATE_PG_ADMIN_URL;
@@ -49,6 +50,9 @@ test("Postgres commits one last-room winner and outbox, with RLS property isolat
       assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
       assert.equal((await repository.read(propertyId)).bookings.length, 1);
       assert.equal((await repository.events(propertyId, 0, 10)).length, 1);
+      const integrity = await inspectProperty(pool, propertyId);
+      assert.equal(integrity.ok, true);
+      assert.equal(integrity.counts.expectedRoomNights, 1);
       await assert.rejects(pool.query("SELECT audit_id FROM iron_gate.audit_log"),
         (error) => error.code === "42501");
       if (adminAllowed) {

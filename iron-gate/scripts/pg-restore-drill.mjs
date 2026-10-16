@@ -11,6 +11,7 @@ import { IronGateService } from "../src/service.ts";
 import { PostgresPropertyRepository } from "../src/postgres-repository.mjs";
 import { PostgresCredentialDirectory } from "../src/postgres-auth.mjs";
 import { assertRuntimeDatabase } from "../src/runtime-safety.mjs";
+import { inspectProperty } from "./check-property-integrity.mjs";
 
 const run = promisify(execFile);
 const tables = ["property_state", "occupied_room_nights", "outbox", "audit_log", "credentials"];
@@ -91,6 +92,7 @@ export async function restoreDrill(env = process.env) {
         clientId: "restore-drill", subjectId: "synthetic-service", origin: "service",
         actions: ["event:read"], fields: [] }, new Date(Date.now() + 60_000).toISOString());
       const before = await snapshot(sourceAdmin);
+      assert.equal((await inspectProperty(sourceRuntime, propertyId)).ok, true);
       assert.equal(before.property_state.length, 1);
       assert.equal(before.occupied_room_nights.length, 1);
       assert.equal(before.outbox.length, 1);
@@ -108,6 +110,7 @@ export async function restoreDrill(env = process.env) {
         const restored = await new PostgresPropertyRepository(targetRuntime).read(propertyId);
         assert.equal(restored.bookings.length, 1);
         assert.equal(restored.receipts[0].subjectId, "synthetic-member");
+        assert.equal((await inspectProperty(targetRuntime, propertyId)).ok, true);
       } finally { await targetRuntime.end(); await targetAdmin.end(); }
     } finally { await sourceRuntime.end(); await sourceAdmin.end(); }
     return { tablesChecked: tables.length, runtimeRoleChecked: true };
