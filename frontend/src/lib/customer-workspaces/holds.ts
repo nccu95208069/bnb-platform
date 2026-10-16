@@ -76,7 +76,7 @@ export async function holdOperation(
   if (booking.version !== input.bookingVersion) throw new Error("VERSION_CONFLICT");
   if (input.confirmPlatformOnly !== true) throw new Error("HOLD_SCOPE_CONFIRMATION_REQUIRED");
   const at = now.toISOString();
-  let next: Booking = { ...booking, version: booking.version + 1, hold: { ...booking.hold } };
+  let next: Booking = { ...booking, version: booking.version + 1, updatedAt: at, hold: { ...booking.hold } };
   if (action === "hold-late-payment") {
     if (booking.status !== "cancelled" || booking.hold.state !== "released") throw new Error("HOLD_STATE_CONFLICT");
     next.payments = [...booking.payments, receipt(input, booking, property, accountId, false)];

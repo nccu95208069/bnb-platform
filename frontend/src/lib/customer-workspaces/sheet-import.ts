@@ -232,6 +232,7 @@ export async function commitImport(
       status: "confirmed",
       guestNotified: false,
       createdAt: at,
+      updatedAt: at,
       actor: accountId,
       entry: "sheet",
       requestKey: `${previewId}:${r!.row}`,
@@ -391,6 +392,7 @@ export async function undoImport(
   if (!batch.bookingIds.length) throw new Error("INVALID_INPUT");
   if (batch.undo) return batch.undo;
   if (workspace.version !== version) throw new Error("VERSION_CONFLICT");
+  const at = new Date().toISOString();
   const undo = { cancelled: [] as string[], skipped: [] as string[] };
   const bookings = workspace.bookings.map((b) => {
     if (!batch.bookingIds.includes(b.id)) return b;
@@ -419,7 +421,7 @@ export async function undoImport(
       return b;
     }
     undo.cancelled.push(b.id);
-    return { ...b, status: "cancelled" as const, version: b.version + 1 };
+    return { ...b, status: "cancelled" as const, version: b.version + 1, updatedAt: at };
   });
   await store.commit([
     {
@@ -457,7 +459,7 @@ export async function undoImport(
         audit: [
           ...workspace.audit,
           {
-            at: new Date().toISOString(),
+            at,
             actor: accountId,
             action: "sheet.undo",
             targetId: batch.id,

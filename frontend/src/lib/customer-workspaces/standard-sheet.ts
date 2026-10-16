@@ -131,6 +131,7 @@ export function buildStandardWorkbook(
       booking.hold ? "僅 OS 占房；外部通路未串接" : null,
       holdPhase(booking, new Date(options.generatedAt ?? Date.now())),
       booking.hold?.latePaymentReview ? "待處理" : null,
+      booking.updatedAt ?? (booking.version === 1 ? booking.createdAt ?? null : null),
     ]);
     if (sourcePaid !== null)
       tables.payments.push([

@@ -74,7 +74,7 @@ export async function orderMutation(
   if (action.startsWith("order-")) {
     if (booking!.version !== input.bookingVersion)
       throw new Error("VERSION_CONFLICT");
-    const updated = { ...booking!, version: booking!.version + 1 };
+    const updated = { ...booking!, version: booking!.version + 1, updatedAt: new Date().toISOString() };
     if (action === "order-details") {
       if (input.notes !== undefined)
         updated.notes = textValue(input.notes, 2000);
