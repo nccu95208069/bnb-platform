@@ -19,3 +19,11 @@ The owner completed a Sweetfun test application and found five points to repair:
 Twenty-one relevant synthetic tests passed, including a 3,000-order preview, commit, and exact retry, and CSV row-boundary checks. TypeScript, full frontend lint (zero errors, five existing warnings), and the production Webpack build passed. The guide was visually checked at desktop and 390-pixel mobile width. No real Sheet was imported, no account password was changed, and no production deployment was performed on this branch.
 
 The supported source size is bounded by both row and byte ceilings. Very wide or unusually text-heavy 3,000-row sources can still be rejected with a clear size error; do not advertise an unlimited import. The real Sweetfun source copy has 1,743 rows and 18 populated columns in the current snapshot, below these ceilings, but the actual authenticated production flow still needs owner acceptance after a release.
+
+## Production release — 2026-10-16
+
+The owner authorized merge and deployment. PR #45 merged into `codex/email-code-and-builder-fixes-20261016`; PR #44 then merged the standard-workbook v5 update on the same branch. Their resulting source commit is `c4ac224c96abada5e7738a941a395831bcb30544`. Vercel production deployment `dpl_4EEqMUY4hPNm3oXN1yzU5zt6Ha6d` was built from that checkout, tested at its deployment URL, and promoted to `https://sweetfun-os.vercel.app`.
+
+Combined verification passed 98 relevant service tests, seven customer route tests, 20 customer UI tests, TypeScript, frontend lint (zero errors, five existing warnings), local Webpack build, and hosted Turbopack build. Unchanged backend tests passed 166 with 45 skips; backend app lint and format passed. Whole-backend lint still reports seven existing `F811` fixture redefinitions in `tests/test_availability.py`. The promoted deployment returned HTTP 200 for `/join` and `/guides/share-google-sheet`; an unauthenticated workspace read returned 401. The guide rendered its four steps on the primary domain, and the new deployment had zero error-level runtime log entries at verification.
+
+No real customer Sheet was imported as part of this release, and no customer password was changed. The owner can now run the authenticated import flow and review its mapping, preview, and conflicts before confirmation.
