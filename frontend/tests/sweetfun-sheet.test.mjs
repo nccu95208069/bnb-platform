@@ -5,6 +5,11 @@ import { adaptSweetfunSheet } from "../src/lib/booking-sources/sweetfun-sheet.ts
 const headers = ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "備註", "訂單編號", "AI 登記"];
 const row = (patch = {}) => Object.assign(["301", "PRIVATE GUEST", "Agoda", "2026/9/15", "2026/9/16", "2026/8/1", "2500", "done", "OK", "PRIVATE-ROW", "PRIVATE NOTES", "PRIVATE-ORDER", ""], patch);
 const adapt = rows => adaptSweetfunSheet([headers, ...rows], "test-source", "2026-09-06T00:00:00Z");
+test("source tags come from the Sheet tag column without exposing private cells", () => {
+  const tagged = adaptSweetfunSheet([[...headers, "標籤"], [...row(), "國旅，寵物,國旅"]], "test-source", "2026-09-06T00:00:00Z");
+  assert.deepEqual(tagged.bookings[0].source_tags, ["國旅", "寵物"]);
+  assert.equal(JSON.stringify(tagged).includes("PRIVATE GUEST"), false);
+});
 test("done means guest paid in full but never synthesizes an OTA or property receipt", () => {
   const result = adapt([row()]);
   assert.equal(JSON.stringify(result).includes("PRIVATE"), false);

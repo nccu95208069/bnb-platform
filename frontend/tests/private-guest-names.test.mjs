@@ -11,7 +11,7 @@ test("missing, moved, deleted or duplicated identities never attach an unrelated
 test("OFFLAND name/header aliases remain isolated from Sweetfun", () => { const headers = [...HEADERS]; headers[0]="房間"; headers[1]="用戶名稱"; headers[11]="刷卡狀態"; const values = [headers, row({0:"OFFLAND",1:"測試旅客乙"})]; const base = snapshot(values, OFFLAND_SOURCE); assert.equal(attachPrivateGuestNames(base, values, OFFLAND_SOURCE)[0].guest_name, "測試旅客乙"); const sweetfun = snapshot([HEADERS,row()]); assert.equal(attachPrivateGuestNames(sweetfun, values, OFFLAND_SOURCE)[0].guest_name_kind, "anonymous"); });
 test('remarks accompany authorized name without truncating its source', () => { const name='測試旅客 加床 +1人 國旅 國旅補 收據 嬰兒床 '+ '完整原文'.repeat(70);const values=[HEADERS,row({1:name})];const source=snapshot(values);const result=attachPrivateGuestNames(source,values,SWEETFUN_SOURCE)[0];assert.equal(result.guest_name,name);assert.equal(result.guest_remarks.length,6);assert.equal(source[0].guest_remarks,undefined); });
 
-test('private OTA and OwlNest IDs stay distinct, mismatched rows do not disclose IDs',()=>{const values=[[...HEADERS,'OTA訂單編號'],[...row(),'OTA-TEST-123']];const base=snapshot(values);const result=attachPrivateGuestNames(base,values,SWEETFUN_SOURCE)[0];assert.equal(result.external_order_no,'OTA-TEST-123');assert.equal(result.owlnest_order_no,'test-order');assert.equal(base[0].external_order_no,null);values[1][11]='changed-parent';assert.equal(attachPrivateGuestNames(base,values,SWEETFUN_SOURCE)[0].external_order_no,null);});
+test('private OTA and OwlNest IDs stay distinct, mismatched rows do not disclose IDs',()=>{const values=[[...HEADERS,'OTA訂單編號'],[...row(),'','OTA-TEST-123']];const base=snapshot(values);const result=attachPrivateGuestNames(base,values,SWEETFUN_SOURCE)[0];assert.equal(result.external_order_no,'OTA-TEST-123');assert.equal(result.owlnest_order_no,'test-order');assert.equal(base[0].external_order_no,null);values[1][11]='changed-parent';assert.equal(attachPrivateGuestNames(base,values,SWEETFUN_SOURCE)[0].external_order_no,null);});
 test('authorized main Sheet notes retain their source and do not duplicate the extracted tag',()=>{const values=[HEADERS,row({1:'Test 國旅補',10:'國旅補助800; confidential unrelated text'})];const base=snapshot(values);const named=attachPrivateGuestNames(base,values,SWEETFUN_SOURCE)[0];assert.equal(named.guest_remarks.filter(r=>r.kind==='travel_subsidy').length,1);assert.equal(named.source_notes[0].text,'國旅補助800; confidential unrelated text');assert.equal(JSON.stringify(base).includes('confidential unrelated text'),false);values[1][1]='Test';assert.equal(attachPrivateGuestNames(base,values,SWEETFUN_SOURCE)[0].guest_remarks[0].kind,'travel_subsidy');values[1][0]='302';assert.equal(attachPrivateGuestNames(base,values,SWEETFUN_SOURCE)[0].guest_remarks.length,0);});
 
 test('full multiline note survives only an exact current row match, including unnamed guests',()=>{
@@ -39,9 +39,12 @@ test('source notes are removed for hidden-price accounts and excluded across pro
  const {projectBookings}=await import('../src/lib/workspace-auth/projection.ts');
  const values=[HEADERS,row({10:'已收款 12345'}),row({0:'302',9:'second-room'})];
  const rows=attachPrivateGuestNames(snapshot(values),values,SWEETFUN_SOURCE);
+ rows[0].source_tags=['已付訂金'];
  const viewer={viewPrices:false,allProperties:false,propertyIds:['sweetfun']};
  assert.equal(JSON.stringify(projectBookings(rows,viewer)).includes('12345'),false);
  assert.equal(projectBookings(rows,viewer)[0].source_notes,undefined);
+ assert.equal(projectBookings(rows,viewer)[0].source_tags,undefined);
  assert.deepEqual(projectBookings(rows,{...viewer,viewPrices:true,propertyIds:['offland']}),[]);
  assert.equal(projectBookings(rows,{...viewer,viewPrices:true})[0].source_notes[0].text,'已收款 12345');
+ assert.deepEqual(projectBookings(rows,{...viewer,viewPrices:true})[0].source_tags,['已付訂金']);
 });

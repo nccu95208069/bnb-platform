@@ -18,9 +18,10 @@ export type BookingSourceSnapshot = {
 };
 
 const REQUIRED = ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "訂單編號"];
-const ADAPTER_VERSION = "sweetfun-sheet-v3";
+const ADAPTER_VERSION = "sweetfun-sheet-v4";
 const PLATFORM: Record<string, string> = { booking: "booking", "booking.com": "booking", agoda: "agoda", airbnb: "airbnb", line: "direct", ctrip: "ctrip", owljourney: "owljourney" };
 const opaque = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 20);
+const sourceTags = (value: string) => [...new Set(value.split(/[，,]/).map(tag => tag.trim()).filter(Boolean))].slice(0, 30);
 function iso(value: string): string | null {
   const m = /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/.exec(value);
   if (!m) return null;
@@ -94,6 +95,7 @@ export function adaptSheetBookings(values: unknown[][], sourceId: string, observ
     booking.platform = PLATFORM[r.get("預定平台").toLowerCase()] ?? "other";
     booking.booked_at = iso(r.get("預訂日期"));
     booking.room_rate = r.amount;
+    booking.source_tags = sourceTags(r.get("標籤"));
     const guestCount = Number(r.get("入住人數"));
     if (Number.isInteger(guestCount) && guestCount > 0) booking.source_guest_count = guestCount;
     booking.source_payment_flag = r.get("全額支付狀態") === "done" ? "done" : ["not_yet", "not yet"].includes(r.get("全額支付狀態")) ? "not_yet" : "unknown";

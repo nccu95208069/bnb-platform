@@ -4,7 +4,7 @@ import { adaptSheetBookings, type BookingSourceSnapshot } from "../booking-sourc
 
 // Private connector state: retain only booking fields required to reconcile, never names,
 // notes, contacts or LINE IDs. J/L remain private source keys, never returned by a route.
-export const HEADERS = ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "備註", "訂單編號", "入住人數"];
+export const HEADERS = ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "備註", "訂單編號", "入住人數", "標籤"];
 export const SOURCE_ID = SWEETFUN_SOURCE.sourceId;
 export type SourceRow = { cells: string[]; sourceRow: number };
 export type MonitorState = {
@@ -37,7 +37,7 @@ function date(value: string): string {
 }
 export function normalizeRows(values: unknown[][], source: SheetSourceDefinition = SWEETFUN_SOURCE): SourceRow[] {
   const headers = (values[0] ?? []).map(v => { const h = String(v).trim(); return source.headerAliases?.[h] ?? h; });
-  for (const h of HEADERS.filter(h => h !== "備註" && h !== "入住人數" && !(h === "訂單編號" && source.parentOrderOptional))) {
+  for (const h of HEADERS.filter(h => h !== "備註" && h !== "入住人數" && !(h === "標籤" && source.key !== "sweetfun") && !(h === "訂單編號" && source.parentOrderOptional))) {
     if (headers.filter(v => v === h).length !== 1) throw new Error("SHEET_SCHEMA_MISMATCH");
   }
   return values.slice(1).flatMap((row, i) => {

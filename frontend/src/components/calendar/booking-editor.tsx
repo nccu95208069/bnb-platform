@@ -3,7 +3,7 @@ import {GuestNotificationButton} from "./guest-notification";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 
-import { GuestRemarks } from "./booking-identity";
+import { GuestRemarks, SourceTags } from "./booking-identity";
 import { BookingSourceNotes } from "./booking-source-notes";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
@@ -971,6 +971,7 @@ const uiLocale = useIntlLocale();
                     value={booking.order_id}
                   />
                   <DetailRow label={booking.source_read_only ? uiText("資料說明") : uiText("原始備註")} value={booking.source_read_only ? uiText(booking.notes ?? "—") : booking.notes ?? "—"} />
+                  {!!booking.source_tags?.length && <div className="py-3 text-sm"><dt className="mb-1 text-muted-foreground">標籤</dt><dd><SourceTags booking={booking} /></dd></div>}
                   {booking.source_payment_label && <DetailRow label={uiText("付款標記")} value={uiText(booking.source_payment_label)} />}
                   {booking.source_read_only && <DetailRow label={uiText("入住人數")} value={booking.source_guest_count ? uiText("{0} 人", [booking.source_guest_count]) : uiText("來源未提供")} />}
                   {booking.source_read_only && <DetailRow label={uiText("入住需求")} value={uiText("來源未提供結構化資料，尚未確認")} /> }
