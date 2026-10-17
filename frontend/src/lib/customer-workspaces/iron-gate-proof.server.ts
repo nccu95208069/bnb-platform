@@ -3,7 +3,7 @@ import { loadWorkspace } from "./service.ts";
 import type { CustomerStore } from "./store.ts";
 import type { Role } from "./types.ts";
 
-type Action = "booking:read" | "event:read";
+type Action = "booking:read" | "event:read" | "tag:read";
 type Field = "guest_name" | "contact" | "notes" | "money";
 type MachineGrant = {
   credentialId: string;
@@ -19,7 +19,7 @@ const MAX_LIFETIME_MS = 5000;
 function permissions(role: Role): { actions: Action[]; fields: Field[] } {
   if (!["owner", "admin", "housekeeper", "viewer", "viewer_no_price"].includes(role))
     throw new Error("FORBIDDEN");
-  const actions: Action[] = ["booking:read", "event:read"];
+  const actions: Action[] = ["booking:read", "event:read", "tag:read"];
   const fields: Field[] = ["guest_name"];
   if (role !== "viewer_no_price") fields.push("contact", "notes", "money");
   return { actions, fields };

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { ironGateReadConfig, readIronGateBooking } from
+import { ironGateReadConfig, readIronGateBooking, readIronGateTags } from
   "../src/lib/customer-workspaces/iron-gate-read.server.ts";
 
 const secret = "synthetic-iron-gate-proof-secret-32-bytes";
@@ -81,4 +81,34 @@ test("revoked membership, wrong IDs, and unsafe configuration fail closed", asyn
     IRON_GATE_BASE_URL: "https://gate.invalid",
     IRON_GATE_OS_PROOF_SECRET: secret,
     IRON_GATE_OS_READ_GRANTS: JSON.stringify([input.grant, input.grant]) }), /IRON_GATE_READ_CONFIG_INVALID/);
+});
+
+test("tag shadow read uses current property membership and rejects extra upstream fields", async () => {
+  const input = fixture("housekeeper");
+  const projection = { bookingId: input.bookingId, workspaceId: input.workspace.id,
+    propertyId: input.propertyId, bookingVersion: 2,
+    inventoryVersion: 1, tagCatalogVersion: 3, tagIds: ["pet"],
+    tags: [{ id: "pet", name: "寵物" }] };
+  const send = async (url, options) => {
+    assert.match(url, new RegExp(input.bookingId + "/tags$"));
+    assert.equal(options.headers.authorization, `Bearer ${input.grant.token}`);
+    const claims = JSON.parse(Buffer.from(options.headers["x-iron-gate-os-proof"].split(".")[0],
+      "base64url").toString("utf8"));
+    assert.ok(claims.actions.includes("tag:read"));
+    assert.equal(claims.propertyId, input.propertyId);
+    return Response.json(projection);
+  };
+  assert.deepEqual(await readIronGateTags(input.store, input.accountId, input.slug,
+    input.propertyId, input.bookingId, input.config, send), projection);
+  for (const bad of [
+    { ...projection, guestName: "Synthetic Guest" },
+    { ...projection, propertyId: randomUUID() },
+    { ...projection, tags: [{ id: "wrong", name: "寵物" }] },
+    { ...projection, tagIds: ["pet", "pet"], tags: [projection.tags[0], projection.tags[0]] },
+  ]) await assert.rejects(readIronGateTags(input.store, input.accountId, input.slug,
+    input.propertyId, input.bookingId, input.config, async () => Response.json(bad)),
+  /IRON_GATE_READ_FAILED/);
+  input.workspace.members[0].active = false;
+  await assert.rejects(readIronGateTags(input.store, input.accountId, input.slug,
+    input.propertyId, input.bookingId, input.config, send), /NOT_FOUND/);
 });

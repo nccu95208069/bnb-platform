@@ -34,7 +34,7 @@ test("fresh OS membership signs one bounded read-only Iron Gate request", async 
   assert.equal(claims.aud, "iron-gate-v1");
   assert.equal(claims.subjectId, input.accountId);
   assert.equal(claims.propertyId, input.propertyId);
-  assert.deepEqual(claims.actions, ["booking:read", "event:read"]);
+  assert.deepEqual(claims.actions, ["booking:read", "event:read", "tag:read"]);
   assert.deepEqual(claims.fields, ["guest_name"]);
   assert.equal(claims.expiresAtMs - claims.issuedAtMs, 5000);
   assert.equal(claims.pathAndQuery, new URL(input.request.url).pathname + "?limit=10");

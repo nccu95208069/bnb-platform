@@ -174,3 +174,70 @@ export async function readIronGateBooking(
     throw new Error("IRON_GATE_READ_FAILED");
   return booking;
 }
+
+/** Read-only shadow tag projection. No tag writer or catalog writer is exposed by OS. */
+export async function readIronGateTags(
+  store: CustomerStore, accountId: string, slug: string,
+  propertyId: string, bookingId: string, config: IronGateReadConfig,
+  send: typeof fetch = fetch,
+): Promise<Record<string, unknown>> {
+  if (!UUID.test(propertyId) || !UUID.test(bookingId)) throw new Error("INVALID_INPUT");
+  const baseUrl = configuredBaseUrl(config.baseUrl);
+  const grant = config.grants.find((item) => item.propertyId === propertyId);
+  if (!grant) throw new Error("NOT_FOUND");
+  const url = `${baseUrl}/v1/properties/${propertyId}/bookings/${bookingId}/tags`;
+  const proof = await signCurrentIronGateMembership(store, accountId, slug,
+    new Request(url, { method: "GET" }), grant, config.proofSecret);
+  let response: Response;
+  try {
+    response = await send(url, { method: "GET", headers: {
+      authorization: `Bearer ${grant.token}`, "x-iron-gate-os-proof": proof,
+    }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(3000) });
+  } catch { throw new Error("IRON_GATE_READ_FAILED"); }
+  if (response.status === 404) throw new Error("NOT_FOUND");
+  if (!response.ok) throw new Error("IRON_GATE_READ_FAILED");
+  const declared = Number(response.headers.get("content-length") ?? "0");
+  if (!Number.isSafeInteger(declared) || declared < 0 || declared > 64 * 1024)
+    throw new Error("IRON_GATE_READ_FAILED");
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("IRON_GATE_READ_FAILED");
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 64 * 1024) {
+        await reader.cancel();
+        throw new Error("IRON_GATE_READ_FAILED");
+      }
+      chunks.push(value);
+    }
+  } catch { throw new Error("IRON_GATE_READ_FAILED"); }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  let raw: unknown;
+  try { raw = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
+  catch { throw new Error("IRON_GATE_READ_FAILED"); }
+  if (!object(raw) || Object.keys(raw).some((field) =>
+    !["bookingId", "workspaceId", "propertyId", "bookingVersion", "inventoryVersion", "tagCatalogVersion", "tagIds", "tags"].includes(field)) ||
+    raw.bookingId !== bookingId || raw.workspaceId !== grant.workspaceId ||
+    raw.propertyId !== propertyId ||
+    !Number.isSafeInteger(raw.bookingVersion) || Number(raw.bookingVersion) < 1 ||
+    !Number.isSafeInteger(raw.inventoryVersion) || Number(raw.inventoryVersion) < 0 ||
+    !Number.isSafeInteger(raw.tagCatalogVersion) || Number(raw.tagCatalogVersion) < 0 ||
+    !Array.isArray(raw.tagIds) || raw.tagIds.length > 30 ||
+    !Array.isArray(raw.tags) || raw.tags.length !== raw.tagIds.length)
+    throw new Error("IRON_GATE_READ_FAILED");
+  const tagIds = raw.tagIds as unknown[];
+  if (tagIds.some((id) => typeof id !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(id)) ||
+    new Set(tagIds).size !== tagIds.length ||
+    (raw.tags as unknown[]).some((tag, index) => !object(tag) ||
+      Object.keys(tag).sort().join(",") !== "id,name" ||
+      tag.id !== tagIds[index] || typeof tag.name !== "string" ||
+      !tag.name || tag.name.length > 30 || /[,，\r\n\u0000-\u001f\u007f]/u.test(tag.name)))
+    throw new Error("IRON_GATE_READ_FAILED");
+  return raw;
+}
