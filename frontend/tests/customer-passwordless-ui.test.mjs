@@ -34,6 +34,7 @@ async function mount(t) {
   for (const k of [
     "window",
     "document",
+    "location",
     "sessionStorage",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
@@ -41,6 +42,7 @@ async function mount(t) {
   Object.assign(globalThis, {
     window: dom.window,
     document: dom.window.document,
+    location: dom.window.location,
     sessionStorage: dom.window.sessionStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   });

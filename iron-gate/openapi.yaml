@@ -1,0 +1,723 @@
+openapi: 3.1.0
+info:
+  title: Iron Gate internal booking API
+  version: 0.3.0
+  description: >-
+    Executable contract for synthetic validation. SQLite and PostgreSQL
+    transactional adapters are tested. No production OS member verifier,
+    OwlNest connector, live tenant, or deployment is connected.
+security:
+  - serviceBearer: []
+components:
+  securitySchemes:
+    serviceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: Opaque, short-lived, service-scoped
+  parameters:
+    PropertyId:
+      name: propertyId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    BookingId:
+      name: bookingId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    OperationKey:
+      name: operationKey
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RequestKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+      description: Stable key for one intent; retry the same key and body.
+  schemas:
+    Stay:
+      type: object
+      additionalProperties: false
+      required: [checkIn, checkOut, roomIds]
+      properties:
+        checkIn: { type: string, format: date }
+        checkOut: { type: string, format: date, description: Exclusive }
+        roomIds:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string, format: uuid }
+    CreateBooking:
+      type: object
+      additionalProperties: false
+      required: [expectedInventoryVersion, stays, guestName, contact, notes, totalCents, bookedAt, source]
+      properties:
+        expectedInventoryVersion: { type: integer, minimum: 0 }
+        stays:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items: { $ref: '#/components/schemas/Stay' }
+        guestName: { type: [string, 'null'], maxLength: 200 }
+        contact: { type: [string, 'null'], maxLength: 256 }
+        notes: { type: [string, 'null'], maxLength: 2048 }
+        totalCents: { type: [integer, 'null'], minimum: 0 }
+        bookedAt: { type: [string, 'null'], format: date }
+        source: { type: string, enum: [os, line, website] }
+    BookingReceipt:
+      type: object
+      additionalProperties: false
+      required: [bookingId, bookingVersion, inventoryVersion, operationState, operationKey, refundReviewRequired]
+      properties:
+        bookingId: { type: string, format: uuid }
+        bookingVersion: { type: integer, minimum: 1 }
+        inventoryVersion: { type: integer, minimum: 0 }
+        operationState: { type: string, enum: [local_only, sync_pending, sync_verified, review_required] }
+        operationKey: { type: [string, 'null'], format: uuid }
+        refundReviewRequired: { type: boolean }
+    CreateHold:
+      type: object
+      additionalProperties: false
+      required: [expectedInventoryVersion, stays, guestName, contact, notes, totalCents, bookedAt]
+      properties:
+        expectedInventoryVersion: { type: integer, minimum: 0 }
+        stays:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items: { $ref: '#/components/schemas/Stay' }
+        guestName: { type: [string, 'null'], maxLength: 200 }
+        contact: { type: [string, 'null'], maxLength: 256 }
+        notes: { type: [string, 'null'], maxLength: 2048 }
+        totalCents: { type: integer, minimum: 1 }
+        bookedAt: { type: [string, 'null'], format: date }
+    HoldAction:
+      type: object
+      additionalProperties: false
+      required: [expectedBookingVersion]
+      properties:
+        expectedBookingVersion: { type: integer, minimum: 1 }
+    ExtendHold:
+      type: object
+      additionalProperties: false
+      required: [expectedBookingVersion, newExpiresAt]
+      properties:
+        expectedBookingVersion: { type: integer, minimum: 1 }
+        newExpiresAt: { type: string, format: date-time }
+    ReleaseHold:
+      type: object
+      additionalProperties: false
+      required: [expectedBookingVersion, expectedInventoryVersion]
+      properties:
+        expectedBookingVersion: { type: integer, minimum: 1 }
+        expectedInventoryVersion: { type: integer, minimum: 0 }
+    AmendBooking:
+      type: object
+      additionalProperties: false
+      required: [expectedBookingVersion, expectedInventoryVersion, changes]
+      properties:
+        expectedBookingVersion: { type: integer, minimum: 1 }
+        expectedInventoryVersion: { type: integer, minimum: 0 }
+        changes:
+          type: object
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            stays:
+              type: array
+              minItems: 1
+              maxItems: 32
+              items: { $ref: '#/components/schemas/Stay' }
+            guestName: { type: [string, 'null'], maxLength: 200 }
+            contact: { type: [string, 'null'], maxLength: 256 }
+            notes: { type: [string, 'null'], maxLength: 2048 }
+            totalCents: { type: [integer, 'null'], minimum: 0 }
+    PaymentEvent:
+      type: object
+      additionalProperties: false
+      required: [expectedBookingVersion, eventId, kind, amountCents, currency, evidenceRef, occurredAt]
+      properties:
+        expectedBookingVersion: { type: integer, minimum: 1 }
+        eventId: { type: string, format: uuid }
+        kind: { type: string, enum: [received, refunded] }
+        amountCents: { type: integer, minimum: 1 }
+        currency: { type: string, enum: [TWD] }
+        evidenceRef: { type: string, minLength: 1, maxLength: 256 }
+        occurredAt: { type: string, format: date-time }
+    PaymentReceipt:
+      type: object
+      additionalProperties: false
+      required: [bookingId, bookingVersion, inventoryVersion, paymentEventId, netReceivedCents, refundReviewRequired]
+      properties:
+        bookingId: { type: string, format: uuid }
+        bookingVersion: { type: integer, minimum: 1 }
+        inventoryVersion: { type: integer, minimum: 0 }
+        paymentEventId: { type: string, format: uuid }
+        netReceivedCents: { type: integer, minimum: 0 }
+        refundReviewRequired: { type: boolean }
+    FinanceLedger:
+      type: object
+      additionalProperties: false
+      required: [propertyId, events, nextCursor]
+      properties:
+        propertyId: { type: string, format: uuid }
+        nextCursor: { type: [string, 'null'] }
+        events:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [bookingId, eventId, kind, amountCents, currency, evidenceRef, occurredAt, recordedAt]
+            properties:
+              bookingId: { type: string, format: uuid }
+              eventId: { type: string, format: uuid }
+              kind: { type: string, enum: [received, refunded] }
+              amountCents: { type: integer, minimum: 1 }
+              currency: { type: string, enum: [TWD] }
+              evidenceRef: { type: string }
+              occurredAt: { type: string, format: date-time }
+              recordedAt: { type: string, format: date-time }
+    BookingProjection:
+      type: object
+      additionalProperties: false
+      required: [id, workspaceId, propertyId, version, status, channelSyncState, stays, createdAt, source]
+      properties:
+        id: { type: string, format: uuid }
+        workspaceId: { type: string, format: uuid }
+        propertyId: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+        status: { type: string, enum: [held, confirmed, cancelled] }
+        channelSyncState: { type: string, enum: [not_required, pending, verified, review_required] }
+        stays:
+          type: array
+          items: { $ref: '#/components/schemas/Stay' }
+        createdAt: { type: string, format: date-time }
+        source: { type: string, enum: [os, line, website, external] }
+        guestName: { type: [string, 'null'] }
+        contact: { type: [string, 'null'] }
+        notes: { type: [string, 'null'] }
+        totalCents: { type: [integer, 'null'] }
+        currency: { type: string, enum: [TWD] }
+        hold:
+          type: object
+          required: [schema, scope, startedAt, expiresAt, state]
+          properties:
+            schema: { type: integer, enum: [1] }
+            scope: { type: string, enum: [platform_only] }
+            startedAt: { type: string, format: date-time }
+            expiresAt: { type: string, format: date-time }
+            state: { type: string, enum: [active, awaiting_owner, converted, released] }
+            convertedAt: { type: string, format: date-time }
+            releasedAt: { type: string, format: date-time }
+            latePaymentReview: { type: boolean }
+        paymentSummary:
+          type: object
+          required: [receivedCents, refundedCents, netReceivedCents]
+          properties:
+            receivedCents: { type: integer, minimum: 0 }
+            refundedCents: { type: integer, minimum: 0 }
+            netReceivedCents: { type: integer, minimum: 0 }
+    BookingPage:
+      type: object
+      additionalProperties: false
+      required: [propertyId, bookings, nextCursor]
+      properties:
+        propertyId: { type: string, format: uuid }
+        bookings:
+          type: array
+          items: { $ref: '#/components/schemas/BookingProjection' }
+        nextCursor: { type: [string, 'null'] }
+    OccupancySummary:
+      type: object
+      additionalProperties: false
+      required: [propertyId, inventoryVersion, totalRooms, days, saleReady]
+      properties:
+        propertyId: { type: string, format: uuid }
+        inventoryVersion: { type: integer, minimum: 0 }
+        totalRooms: { type: integer, minimum: 0 }
+        saleReady: { type: boolean, enum: [false] }
+        days:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [date, confirmed, held, blocked, unsold, fenced]
+            properties:
+              date: { type: string, format: date }
+              confirmed: { type: integer, minimum: 0 }
+              held: { type: integer, minimum: 0 }
+              blocked: { type: integer, minimum: 0 }
+              unsold: { type: integer, minimum: 0 }
+              fenced: { type: integer, minimum: 0 }
+    HousekeepingTurnovers:
+      type: object
+      additionalProperties: false
+      required: [propertyId, inventoryVersion, turnovers]
+      properties:
+        propertyId: { type: string, format: uuid }
+        inventoryVersion: { type: integer, minimum: 0 }
+        turnovers:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required: [bookingId, roomId, checkoutDate, channelSyncState]
+            properties:
+              bookingId: { type: string, format: uuid }
+              roomId: { type: string, format: uuid }
+              checkoutDate: { type: string, format: date }
+              channelSyncState: { type: string, enum: [not_required, pending, verified, review_required] }
+    BookingEvent:
+      type: object
+      additionalProperties: false
+      required: [cursor, eventId, at, type, propertyId, bookingId, bookingVersion, inventoryVersion]
+      properties:
+        cursor: { type: integer, minimum: 1 }
+        eventId: { type: string, format: uuid }
+        at: { type: string, format: date-time }
+        type: { type: string }
+        propertyId: { type: string, format: uuid }
+        bookingId: { type: [string, 'null'], format: uuid }
+        bookingVersion: { type: [integer, 'null'] }
+        inventoryVersion: { type: integer, minimum: 0 }
+    EventPage:
+      type: object
+      additionalProperties: false
+      required: [propertyId, events, nextCursor, hasMore]
+      properties:
+        propertyId: { type: string, format: uuid }
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/BookingEvent' }
+        nextCursor: { type: integer, minimum: 0 }
+        hasMore: { type: boolean }
+    CancelBooking:
+      type: object
+      additionalProperties: false
+      required: [expectedBookingVersion, expectedInventoryVersion]
+      properties:
+        expectedBookingVersion: { type: integer, minimum: 1 }
+        expectedInventoryVersion: { type: integer, minimum: 0 }
+    SourceEvent:
+      type: object
+      additionalProperties: false
+      required: [propertyId, sourceSystem, sourceAccount, externalOrderId, sourceVersion, previousSourceVersion, kind, expectedInventoryVersion, stays, guestName, bookedAt]
+      properties:
+        propertyId: { type: string, format: uuid }
+        sourceSystem: { type: string, minLength: 1, maxLength: 64 }
+        sourceAccount: { type: string, minLength: 1, maxLength: 128 }
+        externalOrderId: { type: string, minLength: 1, maxLength: 256 }
+        sourceVersion: { type: string, minLength: 1, maxLength: 128 }
+        previousSourceVersion: { type: [string, 'null'], maxLength: 128 }
+        kind: { type: string, enum: [upsert, cancel] }
+        expectedInventoryVersion: { type: integer, minimum: 0 }
+        stays:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/Stay' }
+        guestName: { type: [string, 'null'], maxLength: 200 }
+        bookedAt: { type: [string, 'null'], format: date, description: Original source booking date or unknown }
+    DesiredCell:
+      type: object
+      additionalProperties: false
+      required: [roomId, date, desired]
+      properties:
+        roomId: { type: string, format: uuid }
+        date: { type: string, format: date }
+        desired: { type: string, enum: [open, closed] }
+    ObservedCell:
+      type: object
+      additionalProperties: false
+      required: [roomId, date, count, isLock]
+      properties:
+        roomId: { type: string, format: uuid }
+        date: { type: string, format: date }
+        count: { type: integer, minimum: 0, maximum: 100 }
+        isLock: { type: boolean }
+    Readback:
+      type: object
+      additionalProperties: false
+      required: [propertyId, providerVersion, observedAt, cells]
+      properties:
+        propertyId: { type: string, format: uuid }
+        providerVersion: { type: string, minLength: 1, maxLength: 128 }
+        observedAt: { type: string, format: date-time }
+        cells:
+          type: array
+          items: { $ref: '#/components/schemas/ObservedCell' }
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: object
+          additionalProperties: false
+          required: [code]
+          properties:
+            code: { type: string }
+  responses:
+    BadRequest:
+      description: Invalid or missing input
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid service identity
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: No current workspace, property, action, or field scope
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Version, room, source, or idempotency conflict; may be durably quarantined
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+paths:
+  /v1/properties/{propertyId}/bookings:
+    get:
+      operationId: listBookings
+      summary: Seek-page through authorized OS booking projections
+      description: Each page is current at read time; this is not a cross-page snapshot.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [held, confirmed, cancelled] } }
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date }, description: Exclusive; requires from }
+      responses:
+        '200':
+          description: Scoped projections and next seek cursor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingPage' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      operationId: createBooking
+      summary: Create one local booking intent
+      description: >-
+        An OwlNest property returns sync_pending after atomic local write and fence;
+        this does not claim provider closure. Every website create requires the
+        future one-use quote flow; generic LINE creates require owner-action preview.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { $ref: '#/components/parameters/RequestKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateBooking' }
+      responses:
+        '201':
+          description: Local booking accepted without external channel work
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingReceipt' }
+        '202':
+          description: Local booking accepted; external sync pending
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingReceipt' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/bookings/{bookingId}:
+    get:
+      operationId: getBooking
+      summary: Read a scoped booking projection
+      description: Guest and website order reads require an order-bound credential.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { $ref: '#/components/parameters/BookingId' }
+      responses:
+        '200':
+          description: Authorized projection
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingProjection' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    patch:
+      operationId: amendBooking
+      summary: Amend allowlisted fields under booking and inventory versions
+      description: Room-night changes on an OwlNest property remain closed.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { $ref: '#/components/parameters/BookingId' }
+        - { $ref: '#/components/parameters/RequestKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AmendBooking' }
+      responses:
+        '200':
+          description: Local amendment committed and read back
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingReceipt' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/bookings/{bookingId}/payment-events:
+    post:
+      operationId: recordPaymentEvent
+      summary: Append one receipt or refund fact
+      description: Requires an OS or finance principal with payment-write scope. The caller must verify the evidence reference against its finance source before submission.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { $ref: '#/components/parameters/BookingId' }
+        - { $ref: '#/components/parameters/RequestKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentEvent' }
+      responses:
+        '201':
+          description: Append-only payment fact committed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentReceipt' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/holds:
+    post:
+      operationId: createHold
+      summary: Hold room nights locally for 24 hours; expiry does not release them
+      description: The server sets the initial deadline. OwlNest properties remain closed until hold-channel semantics are verified.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { $ref: '#/components/parameters/RequestKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateHold' }
+      responses:
+        '201':
+          description: Hold committed with the same ID used on conversion
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingReceipt' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/holds/{bookingId}/convert:
+    post:
+      operationId: convertHold
+      summary: Convert an unexpired hold after a recorded payment fact
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { $ref: '#/components/parameters/BookingId' }
+        - { $ref: '#/components/parameters/RequestKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HoldAction' }
+      responses:
+        '200':
+          description: Confirmed booking retains the hold ID
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingReceipt' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/holds/{bookingId}/extend:
+    post:
+      operationId: extendHold
+      summary: Extend a native hold deadline without releasing inventory
+      description: The new deadline must be later than the current deadline and at most 366 days ahead.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { $ref: '#/components/parameters/BookingId' }
+        - { $ref: '#/components/parameters/RequestKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExtendHold' }
+      responses:
+        '200':
+          description: Hold deadline extended; room nights remain held
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingReceipt' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/holds/{bookingId}/release:
+    post:
+      operationId: releaseHold
+      summary: Explicitly release a hold while retaining history and payments
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { $ref: '#/components/parameters/BookingId' }
+        - { $ref: '#/components/parameters/RequestKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReleaseHold' }
+      responses:
+        '200':
+          description: Hold cancelled and room nights released locally
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingReceipt' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/bookings/{bookingId}/cancel:
+    post:
+      operationId: cancelBooking
+      summary: Cancel without deleting the audit trail
+      description: OS native confirmed orders only. Holds use release; external orders require source coordination; unsettled receipts block cancellation.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { $ref: '#/components/parameters/BookingId' }
+        - { $ref: '#/components/parameters/RequestKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelBooking' }
+      responses:
+        '200':
+          description: Local cancellation accepted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingReceipt' }
+        '202':
+          description: Local cancellation accepted; provider opening pending
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingReceipt' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/availability:
+    get:
+      operationId: getAvailability
+      summary: Read local room-night state; unsold is not external sale permission
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date }, description: Exclusive }
+      responses:
+        '200': { description: Property-scoped cells and inventory version }
+  /v1/properties/{propertyId}/occupancy-summary:
+    get:
+      operationId: getOccupancySummary
+      summary: Read PII-free daily totals for analytics or pricing services
+      description: Unsold is local-only and saleReady is always false in this slice.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date }, description: Exclusive }
+      responses:
+        '200':
+          description: Property-scoped daily room counts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OccupancySummary' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/properties/{propertyId}/housekeeping-turnovers:
+    get:
+      operationId: getHousekeepingTurnovers
+      summary: Read PII-free checkout tasks for a housekeeping service
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date }, description: Exclusive }
+      responses:
+        '200':
+          description: Property-scoped checkout room tasks
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HousekeepingTurnovers' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/properties/{propertyId}/events:
+    get:
+      operationId: listBookingEvents
+      summary: Replay minimal, PII-free booking change events
+      description: Consumers persist nextCursor and reauthorize on each poll.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { name: after, in: query, schema: { type: integer, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200':
+          description: Ordered property-scoped events
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EventPage' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/properties/{propertyId}/finance/ledger:
+    get:
+      operationId: getFinanceLedger
+      summary: Seek-page through property-scoped payment facts without guest PII
+      description: Requires finance:ledger action and money field grant; only new Iron Gate payment events are represented.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: Payment facts and next seek cursor
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FinanceLedger' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/properties/{propertyId}/requests/{requestKey}:
+    get:
+      operationId: getRequestResult
+      summary: Recover a prior request by the same authenticated service
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { name: requestKey, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Original receipt plus current booking version and sync state }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/source-events:
+    post:
+      operationId: applySourceEvent
+      summary: Apply a versioned, verified external booking fact
+      description: >-
+        A current source version never overrides an order changed since the last
+        applied source event. Review conflicts keep all affected nights stopped.
+        OwlNest external cancellations remain under review until provider evidence.
+      parameters:
+        - { $ref: '#/components/parameters/RequestKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SourceEvent' }
+      responses:
+        '200': { description: Source fact applied or cancellation tombstone recorded }
+        '409': { description: Conflict; review_required result can be durably recorded }
+  /v1/inventory-operations/{operationKey}:
+    get:
+      operationId: getChannelOperation
+      summary: Read one provider sync operation
+      parameters:
+        - { $ref: '#/components/parameters/OperationKey' }
+        - { name: propertyId, in: query, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Scoped operation status }
+  /v1/inventory-operations/{operationKey}/readback:
+    post:
+      operationId: recordChannelReadback
+      summary: Accept exact authenticated connector readback
+      description: >-
+        Connector must verify every provider cell after the operation was created.
+        This endpoint does not itself contact OwlNest. Incomplete or early evidence
+        leaves the fence.
+      parameters:
+        - { $ref: '#/components/parameters/OperationKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Readback' }
+      responses:
+        '200': { description: All cells verified; fence finalized }
+        '409': { description: Review required; fence retained }
