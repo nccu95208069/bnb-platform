@@ -9,7 +9,16 @@ export function realGuestName(booking: CalendarBooking): string {
 }
 
 export function bookingIdentityText(booking: CalendarBooking): string {
-  return [booking.source_conflict ? "待核對" : PLATFORM_LABELS[booking.platform] ?? "其他", realGuestName(booking), booking.room_number].filter(Boolean).join(" · ");
+  return [booking.source_conflict ? "待核對" : PLATFORM_LABELS[booking.platform] ?? "其他", realGuestName(booking), booking.room_number, ...(booking.source_tags ?? [])].filter(Boolean).join(" · ");
+}
+
+export function SourceTags({ booking, compact = false }: { booking: CalendarBooking; compact?: boolean }) {
+  const tags = booking.source_tags ?? [];
+  if (!tags.length) return null;
+  return <span aria-label={`標籤：${tags.join("、")}`} className={compact ? "inline-flex gap-0.5 align-middle" : "mt-1 flex flex-wrap gap-1 text-xs"}>
+    {tags.slice(0, compact ? 2 : 30).map(tag => <span key={tag} title={tag} className="rounded-sm border border-indigo-400 bg-indigo-50 px-0.5 font-semibold text-indigo-900">{compact ? tag.slice(0, 1) : tag}</span>)}
+    {compact && tags.length > 2 && <span>+{tags.length - 2}</span>}
+  </span>;
 }
 
 // Use the same ordering in week/day cards; aliases must never stand in for names.
@@ -25,6 +34,7 @@ export function BookingIdentity({ booking }: { booking: CalendarBooking }) {
       <span className="ml-1.5 opacity-80">{booking.room_number}</span>
       </span>
       <GuestRemarks booking={booking} />
+      <SourceTags booking={booking} />
     </span>
   );
 }

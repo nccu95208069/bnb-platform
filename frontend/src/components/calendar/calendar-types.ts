@@ -59,6 +59,7 @@ export type CalendarBooking = {
   // Private main-Sheet text, attached only after matching the live source row.
   source_notes?: { room_number: string; check_in: string; check_out: string; text: string }[];
   source_notes_unconfirmed?: boolean;
+  source_tags?: string[];
   // Only a server-authorized projection may mark a supplied source name as real.
   guest_name_kind?: "real" | "anonymous" | "missing";
   platform: string;

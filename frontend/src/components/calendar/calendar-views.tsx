@@ -8,7 +8,7 @@ import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useMonthPosition } from "./use-month-position";
 import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
-import { GuestRemarks, remarksFor, BookingIdentity, bookingIdentityText, realGuestName } from "./booking-identity";
+import { GuestRemarks, SourceTags, remarksFor, BookingIdentity, bookingIdentityText, realGuestName } from "./booking-identity";
 import { layoutMonthWeek, monthBookingFontSize, monthWeekPresentation } from "./month-layout";
 import { useCalendarPreferences } from "./calendar-preferences";
 import { cn } from "@/lib/utils";
@@ -297,6 +297,7 @@ const uiLocale = useIntlLocale();
                       {guestName || (twoLine ? booking.property_name : null)}
                     </span>}
                     {expanded && <GuestRemarks booking={booking} compact limit={segment.end-segment.start>1?2:1} />}
+                    <SourceTags booking={booking} compact />
                   </span>
                   <span className="absolute bottom-0.5 right-0.5"><PaymentBadge booking={booking} compact /></span>
                   {segment.continuesAfter && <span aria-hidden="true">›</span>}
