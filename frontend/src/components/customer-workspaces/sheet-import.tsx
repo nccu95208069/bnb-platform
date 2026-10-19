@@ -33,6 +33,7 @@ const columnLabels = {
   platform: "預訂平台（選填）",
   bookedAt: "實際訂房日期（選填）",
   notes: "訂單備註／需求（選填）",
+  sourceRowId: "來源列唯一ID（缺訂單編號時使用）",
 };
 function mappingReady(mapping: Mapping) {
   const isGrid = mapping.granularity === "grid";
@@ -64,7 +65,9 @@ function suggestedMapping(current: Mapping, suggestion: FormatSuggestion, mode: 
   return { ...current, headerRow: suggestion.headerRow, columns,
     roomMap: suggestion.roomMap, granularity,
     amountBasis: granularity === "grid" ? "none" : suggestion.amountBasis,
-    receivedMeaning: columns.received < 0 ? "none" : "source", grid };
+    receivedMeaning: columns.received < 0 ? "none" : "source", grid,
+    missingOrderId: ["stay", "night"].includes(granularity)
+      ? suggestion.missingOrderId ?? "review" : "review" };
 }
 export function SheetImport({
   slug,
@@ -132,7 +135,8 @@ export function SheetImport({
     amountBasis: "none",
     receivedMeaning: "none",
     currency: "TWD",
-    from: today(),
+    from: "2000-01-01",
+    coverageFrom: today(),
   });
   const [confirmedEmpty, setConfirmedEmpty] = useState(false);
   const [coverageConfirmed, setCoverageConfirmed] = useState(false);
@@ -900,7 +904,7 @@ export function SheetImport({
               </fieldset>
             ))}
             <label className="mt-4 block">
-              匯入此日期以後仍在住／尚未入住的訂單
+              匯入起始日期（預設 2000 年，包含目前可讀到的歷史資料）
               <input
                 className={field}
                 type="date"
@@ -912,12 +916,28 @@ export function SheetImport({
                 }
               />
             </label>
+            {["stay", "night"].includes(mapping.granularity) && (
+              <label className="mt-4 flex items-start gap-3 text-sm">
+                <input type="checkbox" className="mt-1"
+                  checked={mapping.missingOrderId === "source-row"}
+                  disabled={(mapping.columns.sourceRowId ?? -1) < 0}
+                  onChange={(event) => changeMapping({ ...mapping,
+                    missingOrderId: event.target.checked ? "source-row" : "review" })} />
+                <span>缺訂單編號時，依來源列唯一ID逐列建立獨立訂單；唯一ID 空白或重複仍待核對。若同一訂單跨多列但沒有訂單編號，房費會保留各列金額。</span>
+              </label>
+            )}
+            <label className="mt-4 block">
+              可售房況已核對的起始日（與歷史匯入起始日分開）
+              <input className={field} type="date" min="2000-01-01" max="2100-12-31"
+                value={mapping.coverageFrom ?? mapping.from}
+                onChange={(event) => changeMapping({ ...mapping, coverageFrom: event.target.value || undefined })} />
+            </label>
             <label className="mt-4 block">
               來源完整涵蓋到哪一天（不含；留空時不作為官網可售房況）
               <input
                 className={field}
                 type="date"
-                min={mapping.from}
+                min={mapping.coverageFrom ?? mapping.from}
                 max="2100-12-31"
                 value={mapping.coverageTo ?? ""}
                 onChange={(e) =>
@@ -981,7 +1001,8 @@ export function SheetImport({
             <h2 className="font-semibold">3. 選擇要匯入的訂單</h2>
             <p className="mt-2 text-sm text-slate-600">
               {recordModeLabels[mapping.granularity]} · {amountBasisLabels[mapping.amountBasis]} ·
-              只匯入 {mapping.from} 起仍在住或尚未入住的訂單
+              {mapping.from === "2000-01-01" ? "檢視整張來源表的歷史與未來訂單" : `檢視 ${mapping.from} 起仍在住或尚未入住的訂單`}
+              {mapping.missingOrderId === "source-row" && " · 缺訂單編號以來源列唯一ID逐列建單"}
             </p>
             <button type="button" className={`${secondary} mt-3`} disabled={busy || uncertain}
               onClick={() => { setPreview(null); setShowAdvanced(true); setConfirmed(false); }}>
@@ -991,7 +1012,7 @@ export function SheetImport({
               每一列預覽代表合併後的一張訂單。可先匯入無問題的整組資料；有問題的訂單不會只匯入其中幾晚。預覽保留一小時。
             </p>
             <p className="mb-3 text-sm" role="status">
-              目前範圍共 {currentPreviewRows.length} 筆預覽，已選 {selection.length} 筆。
+              已讀取整張來源表，共 {preview.rows.length} 組來源紀錄；目前範圍顯示 {currentPreviewRows.length} 組，已選 {selection.length} 組可匯入訂單。
               {pastPreviewCount > 0 && `另有 ${pastPreviewCount} 筆在 ${mapping.from} 前退房，已略過。`}
               每頁顯示 {PREVIEW_PAGE_SIZE} 筆，翻頁不會清除選擇。
             </p>
