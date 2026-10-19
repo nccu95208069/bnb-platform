@@ -144,3 +144,5 @@ The owner requested the complete main-Sheet notes in the legacy sold-calendar de
 # Latest: email cross-device sign-in
 
 See [EMAIL_CROSS_DEVICE_2026-10-16.md](EMAIL_CROSS_DEVICE_2026-10-16.md) for the released cross-device verification, original-device continuation, and email-input copy changes. OS, Guest v21 and Studio v66 are live. A real Gmail plus-address link was verified in Safari and the original Chrome page automatically resumed into the same account. This supersedes the same-browser restriction for newly issued links. PR #42 remains draft and unmerged; physical-phone and other-provider inbox acceptance are not claimed.
+
+The separate [legacy two-property calendar email recovery](LEGACY_CALENDAR_EMAIL_RECOVERY_2026-10-19.md) adds a one-time email reset link for existing calendar members while retaining administrator-assisted recovery. Implementation and synthetic tests are complete; live delivery and login acceptance remain open.

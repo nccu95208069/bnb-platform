@@ -9,6 +9,7 @@ export type Member = {
   invitedAt: string; acceptedAt: string | null; lastActiveAt: string | null;
   credential: OwnerCredential | null;
   invitation: { hash: string; expires: number; sent: 'pending' | 'sent' | 'failed' } | null;
+  passwordRecovery?: { hash: string; expires: number; version: number; credentialBinding: string } | null;
   mustResetPassword?: boolean;
   version: number;
 };
