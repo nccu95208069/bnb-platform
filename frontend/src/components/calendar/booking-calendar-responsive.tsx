@@ -8,7 +8,7 @@ import {useT} from "@/components/i18n/language-provider";
 import { OsPaymentPanel } from "@/components/payments/os-payment-panel";
 
 import { CalendarPrivacy } from "./calendar-privacy";
-import { BatchCancelDialog } from "./batch-cancel-dialog";
+import { BatchReviewDialog } from "./batch-review-dialog";
 import { CalendarToolbar } from "./calendar-toolbar";
 import {
   useCallback,
@@ -31,7 +31,7 @@ import {
   LogOut,
   RefreshCw,
   Search,
-  Trash2,
+  ListChecks,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -236,9 +236,7 @@ const uiLocale = useIntlLocale();
     setMonthTarget(month);
   }, [historyRevision]);
   const [reloadKey, setReloadKey] = useState(0);
-  const [batchOpen, setBatchOpen] = useState(false);
-  const [verifiedDeletedIds, setVerifiedDeletedIds] = useState<string[]>([]);
-  const verifiedDeletedSet = useMemo(() => new Set(verifiedDeletedIds), [verifiedDeletedIds]);
+  const [batchReviewOpen, setBatchReviewOpen] = useState(false);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
   const [editsHydrated, setEditsHydrated] = useState(false);
   const previousView = useRef<CalendarView>(view);
@@ -366,10 +364,9 @@ const uiLocale = useIntlLocale();
   const rawEditedBookings = useMemo(
     () =>
       (data?.bookings ?? [])
-        .filter(booking => !verifiedDeletedSet.has(booking.id))
         .map((booking) => data?.source?.read_only ? booking : overlayEdits(booking, edits))
         .filter((booking): booking is CalendarBooking => booking !== null),
-    [data, edits, verifiedDeletedSet],
+    [data, edits],
   );
 
   const editedBookings = useMemo(
@@ -383,7 +380,7 @@ const uiLocale = useIntlLocale();
   }, [membership]);
   const coverageMissing = !hasCalendarCoverage(data, requestPeriod.start, requestPeriod.end);
   const unavailableSelectedSource = coverageMissing || data?.source_errors?.some(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)));
-  const batchAvailable = Boolean(data?.batch_cancel_enabled && data.data_mode === "private_google_sheet_calendar" &&
+  const batchReviewAvailable = Boolean(data?.batch_review_enabled && data.data_mode === "private_google_sheet_calendar" &&
     permissions.cancelBookings && selectedPropertyIds.length > 0 && !loading && !requestFailed && !coverageMissing &&
     !data.source_errors?.some(item => selectedPropertyIds.includes(item.property_id)) &&
     !data.source_warnings?.some(item => selectedPropertyIds.includes(item.property_id)) &&
@@ -725,9 +722,9 @@ const uiLocale = useIntlLocale();
   return (
     <div className="pb-0 md:space-y-2">
       {renderToolbar(data)}
-      {batchAvailable && <div className="px-2 py-1 md:px-0">
-        <Button type="button" size="sm" variant="outline" className="border-destructive/40 text-destructive" onClick={() => setBatchOpen(true)}>
-          <Trash2 className="size-4" />{uiText("批次刪除已售訂單")}
+      {batchReviewAvailable && <div className="px-2 py-1 md:px-0">
+        <Button type="button" size="sm" variant="outline" onClick={() => setBatchReviewOpen(true)}>
+          <ListChecks className="size-4" />{uiText("批次核對已售房晚")}
         </Button>
       </div>}
       {PAYMENT_SANDBOX && (
@@ -992,15 +989,10 @@ const uiLocale = useIntlLocale();
             {uiText("這個區間沒有符合條件的訂單。")}</div>
         )}
 
-      <BatchCancelDialog open={batchOpen} onOpenChange={setBatchOpen}
+      <BatchReviewDialog open={batchReviewOpen} onOpenChange={setBatchReviewOpen}
         bookings={(data?.bookings ?? []).filter(booking => selectedPropertyIds.includes(booking.property_id) &&
-          (!allowedPropertyIds || allowedPropertyIds.has(booking.property_id)) && !verifiedDeletedSet.has(booking.id))}
-        properties={selectedProperties} initialStart={displayPeriod.start} initialEnd={displayPeriod.end}
-        onVerified={ids => {
-          setVerifiedDeletedIds(current => [...new Set([...current, ...ids])]);
-          setReloadKey(value => value + 1);
-          toast.success(uiText("主表刪除已核對完成"), { description: uiText("日曆會在來源同步後更新；請另行確認 OTA 與退款狀態。") });
-        }} />
+          (!allowedPropertyIds || allowedPropertyIds.has(booking.property_id)))}
+        properties={selectedProperties} initialStart={displayPeriod.start} initialEnd={displayPeriod.end} />
       <BookingDetailsPanel
         booking={selectedBooking}
         orderSegments={selectedOrderSegments}

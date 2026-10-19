@@ -1,6 +1,6 @@
 # Work Handoff Index — 2026-09-05
 
-2026-10-19 isolated calendar work: [batch deletion preview, source-order integrity, and guest/order-number copy controls](CALENDAR_BATCH_DELETE_COPY_2026-10-19.md) are implemented with synthetic verification. The destructive write path remains disabled by default and has not been deployed or used on live rows.
+2026-10-19 isolated calendar work: [batch source review, source-order integrity, and guest/order-number copy controls](CALENDAR_BATCH_REVIEW_COPY_2026-10-19.md) are implemented with synthetic verification. The row-index deletion path was removed after code review found that concurrent direct Sheet edits could delete the wrong booking. No live rows were changed.
 
 2026-10-16 onboarding and standard-workbook release: [3,000-row import, customer password and sharing-guide improvements](ONBOARDING_CLARITY_2026-10-16.md#production-release--2026-10-16) and [v5 booking last-updated time](STANDARD_SHEET_V5_UPDATED_AT_2026-10-16.md#發布與資料邊界) are live on `https://sweetfun-os.vercel.app` from `c4ac224` / Vercel `dpl_4EEqMUY4hPNm3oXN1yzU5zt6Ha6d`.
 

@@ -5,11 +5,10 @@ import type { SheetSourceDefinition } from "./config";
 import { adaptSheetBookings } from "./sweetfun-sheet.ts";
 import { HEADERS, normalizeRows } from "../sheet-monitor/reconcile.ts";
 
-const hash = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 const rowId = (source: SheetSourceDefinition, uid: string) =>
   `sheet-${createHash("sha256").update(`${source.sourceId}:row:${uid}`).digest("hex").slice(0, 20)}`;
 
-export type BatchCancelRow = {
+export type BatchReviewRow = {
   id: string;
   date: string;
   room: string;
@@ -19,26 +18,24 @@ export type BatchCancelRow = {
   sourcePaid: boolean;
 };
 
-export type BatchCancelPreview = {
-  digest: string;
+export type BatchReviewPreview = {
   propertyId: string;
-  rows: BatchCancelRow[];
-  omitted: BatchCancelRow[];
+  rows: BatchReviewRow[];
+  omitted: BatchReviewRow[];
   roomNightCount: number;
   distinctOrderCount: number;
   formalOrderCount: number;
   unlinkedRoomNightCount: number;
   paidRoomNightCount: number;
-  canConfirm: boolean;
+  selectionComplete: boolean;
 };
 
-export type BatchCancelPlan = {
-  preview: BatchCancelPreview;
-  selectedRows: number[];
+export type BatchReviewPlan = {
+  preview: BatchReviewPreview;
   selectedOrderIds: string[];
 };
 
-function summaryRow(booking: CalendarBooking, sourceRow: number, values: unknown[][], nameColumn: number, sourceOrder: string): BatchCancelRow {
+function summaryRow(booking: CalendarBooking, sourceRow: number, values: unknown[][], nameColumn: number, sourceOrder: string): BatchReviewRow {
   return {
     id: booking.id,
     date: booking.check_in,
@@ -50,12 +47,12 @@ function summaryRow(booking: CalendarBooking, sourceRow: number, values: unknown
   };
 }
 
-const ordered = (a: BatchCancelRow, b: BatchCancelRow) =>
+const ordered = (a: BatchReviewRow, b: BatchReviewRow) =>
   a.date.localeCompare(b.date) || a.room.localeCompare(b.room) || a.id.localeCompare(b.id);
 
-// The selection contains immutable source-row identities, never mutable Sheet row numbers.
-// A parent order is all-or-nothing. Missing source order numbers stay independent rows.
-export function planBatchCancel(values: unknown[][], source: SheetSourceDefinition, ids: string[]): BatchCancelPlan {
+// The selection contains source-row identities, never mutable Sheet row numbers.
+// Review a parent order as a whole. Missing source numbers stay independent rows.
+export function planBatchReview(values: unknown[][], source: SheetSourceDefinition, ids: string[]): BatchReviewPlan {
   if (!Array.isArray(ids) || ids.length < 1 || ids.length > 100 ||
       ids.some(id => typeof id !== "string" || !/^sheet-[a-f0-9]{20}$/.test(id)) ||
       new Set(ids).size !== ids.length) throw Error("INVALID_INPUT");
@@ -78,7 +75,7 @@ export function planBatchCancel(values: unknown[][], source: SheetSourceDefiniti
   const sourceRows = new Map(normalized.map(row => [rowId(source, row.cells[9]), row]));
   const acceptedIds = new Set(bookings.map(booking => booking.id));
   // The adapter omits quarantined rows. A damaged row sharing a formal parent
-  // must still block deletion of the otherwise valid nights in that order.
+  // must still block an incomplete or misleading review of that order.
   const selectedFormalNumbers = new Set(safeSelected.filter(booking => booking.source_order_linked)
     .map(booking => sourceRows.get(booking.id)?.cells[11]));
   for (const row of normalized) {
@@ -88,8 +85,7 @@ export function planBatchCancel(values: unknown[][], source: SheetSourceDefiniti
     }
   }
   const omitted = bookings.filter(booking => selectedOrders.has(booking.order_id) && !selectedSet.has(booking.id));
-  const selectedRows = ids.map(id => sourceRows.get(id)?.sourceRow);
-  if (selectedRows.some(row => !Number.isInteger(row) || Number(row) < 2)) throw Error("SOURCE_CHANGED");
+  if (ids.some(id => !sourceRows.has(id))) throw Error("SOURCE_CHANGED");
   const describe = (booking: CalendarBooking) => {
     const row = sourceRows.get(booking.id);
     if (!row) throw Error("SOURCE_CHANGED");
@@ -98,8 +94,7 @@ export function planBatchCancel(values: unknown[][], source: SheetSourceDefiniti
   const rows = safeSelected.map(describe).sort(ordered);
   const omittedRows = omitted.map(describe).sort(ordered);
   const formalOrders = new Set(safeSelected.filter(booking => booking.source_order_linked).map(booking => booking.order_id));
-  const preview: BatchCancelPreview = {
-    digest: hash([source.sourceId, values, ids.slice().sort()]),
+  const preview: BatchReviewPreview = {
     propertyId: source.property.id,
     rows,
     omitted: omittedRows,
@@ -108,23 +103,7 @@ export function planBatchCancel(values: unknown[][], source: SheetSourceDefiniti
     formalOrderCount: formalOrders.size,
     unlinkedRoomNightCount: safeSelected.filter(booking => !booking.source_order_linked).length,
     paidRoomNightCount: rows.filter(row => row.sourcePaid).length,
-    canConfirm: omittedRows.length === 0,
+    selectionComplete: omittedRows.length === 0,
   };
-  return { preview, selectedRows: selectedRows as number[], selectedOrderIds: [...selectedOrders] };
-}
-
-export function expectedAfterDelete(values: unknown[][], selectedRows: number[]): unknown[][] {
-  const remove = new Set(selectedRows);
-  return values.filter((_, index) => !remove.has(index + 1));
-}
-
-export function verifiedAfterDelete(before: unknown[][], after: unknown[][], selectedRows: number[]): boolean {
-  return hash(expectedAfterDelete(before, selectedRows)) === hash(after);
-}
-
-export function deleteDimensionRequests(source: SheetSourceDefinition, selectedRows: number[]) {
-  const descending = [...new Set(selectedRows)].sort((a, b) => b - a);
-  return descending.map(row => ({
-    deleteDimension: { range: { sheetId: source.sheetId, dimension: "ROWS" as const, startIndex: row - 1, endIndex: row } },
-  }));
+  return { preview, selectedOrderIds: [...selectedOrders] };
 }

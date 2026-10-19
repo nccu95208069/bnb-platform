@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, LoaderCircle, Trash2 } from "lucide-react";
+import { AlertTriangle, LoaderCircle } from "lucide-react";
 
 import type { CalendarBooking, CalendarProperty } from "./calendar-types";
 import { addDays } from "./calendar-utils";
@@ -13,39 +13,37 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 type PreviewRow = { id: string; date: string; room: string; guest: string; orderNumber: string | null; sourceLinked: boolean; sourcePaid: boolean };
-type Preview = { digest: string; rows: PreviewRow[]; omitted: PreviewRow[]; roomNightCount: number;
+type Preview = { rows: PreviewRow[]; omitted: PreviewRow[]; roomNightCount: number;
   distinctOrderCount: number; formalOrderCount: number; unlinkedRoomNightCount: number;
-  paidRoomNightCount: number; financialBlockCount: number; canConfirm: boolean };
+  paidRoomNightCount: number; financialBlockCount: number; selectionComplete: boolean; manualActionRequired: true };
 
-export function BatchCancelDialog({ open, onOpenChange, bookings, properties, initialStart, initialEnd, onVerified }: {
+export function BatchReviewDialog({ open, onOpenChange, bookings, properties, initialStart, initialEnd }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   bookings: CalendarBooking[];
   properties: CalendarProperty[];
   initialStart: string;
   initialEnd: string;
-  onVerified: (ids: string[]) => void;
 }) {
   const t = useT();
   return <Dialog open={open} onOpenChange={onOpenChange}>
     {open && <DialogContent className="max-h-[90dvh] w-[calc(100vw-1rem)] overflow-y-auto sm:max-w-2xl">
       <DialogHeader>
-        <DialogTitle>{t("批次刪除已售訂單")}</DialogTitle>
-        <DialogDescription>{t("先選房晚，再核對完整訂單範圍。主表刪除經確認後，日曆同步可能稍後才完成；此操作不會自動退款或取消 OTA 訂單。")}</DialogDescription>
+        <DialogTitle>{t("批次核對已售房晚")}</DialogTitle>
+        <DialogDescription>{t("選取房晚後，從最新主表核對日期、房間和訂單範圍。此畫面不會刪除或修改主表、退款或取消 OTA 訂單。")}</DialogDescription>
       </DialogHeader>
-      <BatchCancelForm bookings={bookings} properties={properties} initialStart={initialStart}
-        initialEnd={initialEnd} onOpenChange={onOpenChange} onVerified={onVerified} />
+      <BatchReviewForm bookings={bookings} properties={properties} initialStart={initialStart}
+        initialEnd={initialEnd} onOpenChange={onOpenChange} />
     </DialogContent>}
   </Dialog>;
 }
 
-export function BatchCancelForm({ bookings, properties, initialStart, initialEnd, onOpenChange, onVerified }: {
+export function BatchReviewForm({ bookings, properties, initialStart, initialEnd, onOpenChange }: {
   bookings: CalendarBooking[];
   properties: CalendarProperty[];
   initialStart: string;
   initialEnd: string;
   onOpenChange: (open: boolean) => void;
-  onVerified: (ids: string[]) => void;
 }) {
   const t = useT();
   const [propertyId, setPropertyId] = useState(properties[0]?.id ?? "");
@@ -54,7 +52,6 @@ export function BatchCancelForm({ bookings, properties, initialStart, initialEnd
   const [guest, setGuest] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [acknowledgePaid, setAcknowledgePaid] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const selectedSet = useMemo(() => new Set(selected), [selected]);
@@ -69,7 +66,6 @@ export function BatchCancelForm({ bookings, properties, initialStart, initialEnd
   function choose(ids: string[]) {
     setSelected(ids);
     setPreview(null);
-    setAcknowledgePaid(false);
     setError("");
   }
 
@@ -77,24 +73,9 @@ export function BatchCancelForm({ bookings, properties, initialStart, initialEnd
     if (!propertyId || selected.length < 1 || selected.length > 100) return;
     setBusy(true); setError("");
     try {
-      const result = await apiClient.post<Preview>("/bookings/batch-cancel", { action: "preview", property_id: propertyId, ids: selected });
+      const result = await apiClient.post<Preview>("/bookings/batch-review", { action: "preview", property_id: propertyId, ids: selected });
       setPreview(result);
     } catch (failure) { setPreview(null); setError(failure instanceof Error ? failure.message : "目前無法預覽，請稍後重試。"); }
-    finally { setBusy(false); }
-  }
-
-  async function confirm() {
-    if (!preview?.canConfirm || (preview.paidRoomNightCount > 0 && !acknowledgePaid)) return;
-    setBusy(true); setError("");
-    try {
-      const result = await apiClient.post<{ verified: boolean; deletedIds: string[] }>("/bookings/batch-cancel", {
-        action: "confirm", property_id: propertyId, ids: selected, digest: preview.digest,
-        acknowledge_paid: acknowledgePaid, request_id: crypto.randomUUID(),
-      });
-      if (!result.verified || result.deletedIds.length !== selected.length || result.deletedIds.some(id => !selectedSet.has(id))) throw Error("刪除結果無法確認，請重新載入核對。");
-      onVerified(result.deletedIds);
-      onOpenChange(false);
-    } catch (failure) { setError(failure instanceof Error ? failure.message : "目前無法刪除，請重新載入核對。"); }
     finally { setBusy(false); }
   }
 
@@ -130,29 +111,26 @@ export function BatchCancelForm({ bookings, properties, initialStart, initialEnd
         {!candidates.length && <p className="px-2 py-3 text-sm text-muted-foreground">{t("此範圍沒有可選的已確認房晚。")}</p>}
       </div>
     </section>
-    {preview && <section aria-label={t("刪除預覽")} className="space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm">
+    {preview && <section aria-label={t("批次核對結果")} className="space-y-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm">
       <div className="flex items-start gap-2"><AlertTriangle className="mt-0.5 size-4 shrink-0" /><div>
-        <p className="font-semibold">{t("將刪除 {0} 房晚，涉及 {1} 個獨立來源訂單／紀錄", [preview.roomNightCount, preview.distinctOrderCount])}</p>
+        <p className="font-semibold">{t("已選 {0} 房晚，涉及 {1} 個獨立來源訂單／紀錄", [preview.roomNightCount, preview.distinctOrderCount])}</p>
         <p className="text-xs">{t("其中有正式編號的訂單 {0} 個；未提供正式編號的房晚 {1} 筆（逐列識別）。", [preview.formalOrderCount, preview.unlinkedRoomNightCount])}</p>
       </div></div>
       <ul className="max-h-40 space-y-1 overflow-y-auto">{preview.rows.map(row => <li key={row.id}>{row.date} · {row.room} · {row.guest} · {row.orderNumber || t("未提供正式編號")}</li>)}</ul>
       {preview.omitted.length > 0 && <div className="rounded-lg border border-red-300 bg-white p-2">
-        <p className="font-semibold text-red-800">{t("部分原訂單還有其他日期；目前不能刪除。")}</p>
+        <p className="font-semibold text-red-800">{t("同筆來源訂單還有其他房晚，請一併核對。")}</p>
         <ul className="mt-1 space-y-1">{preview.omitted.map(row => <li key={row.id}>{row.date} · {row.room} · {row.guest} · {row.orderNumber || t("未提供正式編號")}</li>)}</ul>
         <Button size="sm" variant="outline" className="mt-2" disabled={busy} onClick={() => choose([...new Set([...selected, ...preview.omitted.map(row => row.id)])])}>{t("加入上述房晚並重新預覽")}</Button>
       </div>}
       {preview.financialBlockCount > 0 && <p className="font-semibold text-red-800">{t("有 {0} 個訂單已有 OS 收款或財務紀錄。請先走取消與對帳流程。", [preview.financialBlockCount])}</p>}
-      {preview.paidRoomNightCount > 0 && <label className="flex items-start gap-2 rounded-lg border bg-white p-2">
-        <input type="checkbox" checked={acknowledgePaid} disabled={busy} onChange={event => setAcknowledgePaid(event.target.checked)} />
-        <span>{t("其中 {0} 房晚在來源標記為已付；我知道刪除不會自動退款或更改 OTA 狀態。", [preview.paidRoomNightCount])}</span>
-      </label>}
+      {preview.paidRoomNightCount > 0 && <p className="font-semibold text-amber-900">{t("其中 {0} 房晚在來源標記為已付；變更前請核對退款與 OTA 狀態。", [preview.paidRoomNightCount])}</p>}
+      <p className="rounded-lg border bg-white p-2 text-xs">{t("主表不支援以來源 ID 進行有條件刪列。為避免其他人移動列後誤刪訂單，這份清單僅供人工核對，不會自動寫入。")}</p>
     </section>}
     {error && <p role="alert" className="rounded-lg border border-red-300 bg-red-50 p-2 text-sm text-red-800">{error}</p>}
     <DialogFooter className="gap-2">
       <Button variant="outline" disabled={busy} onClick={() => onOpenChange(false)}>{t("關閉")}</Button>
-      <Button variant="outline" disabled={busy || selected.length < 1 || selected.length > 100 || !propertyId || start > end} onClick={() => void showPreview()}>{t("預覽刪除範圍")}</Button>
-      <Button variant="destructive" disabled={busy || !preview?.canConfirm || (preview.paidRoomNightCount > 0 && !acknowledgePaid)} onClick={() => void confirm()}>
-        {busy ? <LoaderCircle className="size-4 animate-spin" /> : <Trash2 className="size-4" />}{t("確認刪除 {0} 房晚", [preview?.roomNightCount ?? 0])}
+      <Button variant="outline" disabled={busy || selected.length < 1 || selected.length > 100 || !propertyId || start > end} onClick={() => void showPreview()}>
+        {busy && <LoaderCircle className="size-4 animate-spin" />}{t("核對主表房晚")}
       </Button>
     </DialogFooter>
   </>;
