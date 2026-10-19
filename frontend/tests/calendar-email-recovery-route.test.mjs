@@ -15,7 +15,7 @@ test('legacy recovery route sends only to an eligible member and consumes the li
   const password = 'Synthetic old member phrase!';
   const member = {
     id: 'c'.repeat(32), displayName: 'Synthetic member', email: 'member@example.test', phone: null,
-    role: 'viewer', status: 'active', allProperties: false, propertyIds: ['offland'],
+    role: 'god', status: 'active', allProperties: true, propertyIds: ['sweetfun', 'offland'],
     invitedAt: '', acceptedAt: null, lastActiveAt: null,
     credential: await createPasswordCredential(password), invitation: null, version: 1,
   };

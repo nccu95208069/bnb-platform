@@ -63,6 +63,21 @@ test('email recovery is one-time, account-bound and revokes old sessions', async
   await assert.rejects(consumeEmailRecovery(store, token, newPassword, newPassword, now), /RECOVERY_INVALID/);
 });
 
+test('an active god member can recover their own credential and revoke the prior session', async () => {
+  const { member, store } = await fixture({ role: 'god' });
+  const oldSession = createMemberSession(member);
+  const sent = [];
+  await requestEmailRecovery(store, member.email, async (_to, url) => sent.push(url));
+  assert.equal(sent.length, 1);
+  const token = sent[0].split('#')[1];
+  const password = 'Synthetic god replacement phrase!';
+  await consumeEmailRecovery(store, token, password, password);
+  const updated = (await store.read()).value.members[0];
+  assert.equal(updated.role, 'god');
+  assert.equal(await credentialMatches(password, updated.credential), true);
+  assert.equal(validMemberSession(oldSession, updated), false);
+});
+
 test('new requests, expiration and member changes invalidate earlier links', async () => {
   const { member, store } = await fixture();
   const sent = [];
@@ -81,12 +96,12 @@ test('new requests, expiration and member changes invalidate earlier links', asy
   await assert.rejects(inspectEmailRecovery(store, sent[1], now + 2), /RECOVERY_INVALID/);
 });
 
-test('unknown, suspended, god and ambiguous members receive no link', async () => {
+test('unknown, suspended and ambiguous members receive no link', async () => {
   const { member, store } = await fixture();
   const sent = [];
   const send = async (...args) => sent.push(args);
   assert.deepEqual(await requestEmailRecovery(store, 'missing@example.test', send), { eligible: false, delivered: false });
-  for (const change of [{ status: 'suspended' }, { role: 'god' }]) {
+  for (const change of [{ status: 'suspended' }]) {
     const blocked = new MemoryWorkspaceStore([{ ...member, ...change }]);
     assert.deepEqual(await requestEmailRecovery(blocked, member.email, send), { eligible: false, delivered: false });
   }

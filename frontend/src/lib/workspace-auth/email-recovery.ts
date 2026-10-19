@@ -17,8 +17,7 @@ export function emailRecoveryUrl(token: string, requestOrigin?: string) {
 }
 
 function eligibleMember(members: Member[], email: string) {
-  const matches = members.filter(member => member.email === email && member.status === 'active' &&
-    member.role !== 'god' && member.credential);
+  const matches = members.filter(member => member.email === email && member.status === 'active' && member.credential);
   return matches.length === 1 ? matches[0] : null;
 }
 
@@ -63,7 +62,7 @@ export function checkedEmailRecovery(token: unknown, members: Member[], now = Da
   if (!match) throw new Error('RECOVERY_INVALID');
   const member = members.find(item => item.id === match[1]);
   const recovery = member?.passwordRecovery;
-  if (!member || !member.credential || member.status !== 'active' || member.role === 'god' ||
+  if (!member || !member.credential || member.status !== 'active' ||
     !recovery || recovery.expires <= now || recovery.version !== member.version ||
     recovery.credentialBinding !== credentialBinding(member.credential) ||
     !/^[a-f0-9]{64}$/.test(recovery.hash) ||
