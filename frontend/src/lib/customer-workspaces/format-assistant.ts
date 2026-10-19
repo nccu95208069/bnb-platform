@@ -86,6 +86,7 @@ const aliases: Record<Column, string[]> = {
   bookedAt: ["訂房日期", "預訂日期", "下單日期", "bookingdate", "bookedat"],
   notes: ["備註", "訂單備註", "特殊需求", "notes", "requests"],
   status: ["狀態", "訂單狀態", "訂房狀態", "status", "bookingstatus"],
+  sourceRowId: ["唯一id", "來源列id", "rowid", "sourcerowid"],
 };
 const normalize = (value: string) =>
   value.toLowerCase().replace(/[\s_\-/／（）()：:]/g, "");
@@ -99,6 +100,7 @@ export type FormatSuggestion = {
   questions: string[];
   granularity: Mapping["granularity"];
   amountBasis: Mapping["amountBasis"];
+  missingOrderId?: Mapping["missingOrderId"];
   grid?: Mapping["grid"];
 };
 // Suggestions use only explicit labels and exact room names. No guest cells are
@@ -214,6 +216,8 @@ export function suggestFormat(
   const sweetfunRoomNight = ["房型", "預定人姓名", "預定平台", "入住日期",
     "退房日期", "預訂日期", "房費"].every((value, index) => headers[index]?.trim() === value) &&
     headers[9]?.trim() === "唯一ID" && headers[11]?.trim() === "訂單編號";
+  if (sweetfunRoomNight)
+    messages.push("沒有訂單編號的列，會按 J 欄唯一ID 各自建立訂單；相同訂單編號仍合併。重複或空白的唯一ID 會留待核對。");
   const amountBasis: Mapping["amountBasis"] =
     proposed.total < 0
       ? "none"
@@ -272,10 +276,11 @@ export function suggestFormat(
         ? "grid"
         : layout === "nightly"
           ? "night"
-          : repeated
+          : sweetfunRoomNight || repeated
             ? "stay"
             : "order",
     amountBasis: layout === "grid" ? "none" : amountBasis,
+    ...(sweetfunRoomNight ? { missingOrderId: "source-row" as const } : {}),
     ...(layout === "grid"
       ? {
           grid: {

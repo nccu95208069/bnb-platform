@@ -1003,14 +1003,12 @@ test("an empty verified source requires explicit confirmation and never declares
     booking(f, { checkIn: "2027-04-30", checkOut: "2027-05-01" }),
     /SOURCE_COVERAGE/,
   );
-  assert.equal(
-    (
-      await availability(f.store, f.account.id, f.slug, {
-        propertyId: f.property.id,
-        from: "2027-05-01",
-        to: "2027-05-01",
-      })
-    ).rows.length,
-    4,
+  await assert.rejects(
+    availability(f.store, f.account.id, f.slug, {
+      propertyId: f.property.id,
+      from: "2027-05-01",
+      to: "2027-05-01",
+    }),
+    /SOURCE_COVERAGE/,
   );
 });

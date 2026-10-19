@@ -402,3 +402,7 @@ Do not switch the public application from anonymized demo mode until all items b
 # Calendar change intake — 2026-10-07 owner request
 
 See [calendar change intake and deferred producer coordination](CALENDAR_CHANGE_ENDPOINT_2026-10-07.md). Implement the OS receiver first and coordinate bnb-pricing now. **LINE / Gmail / OwlNest room-toggle callbacks with `訂房小助手` remain a required TODO, deferred until the receiver is ready and its current deployment is complete, per the owner's explicit instruction.** Do not mark those producer hooks connected based only on receiver completion.
+
+## Customer full-history import and month calendar — 2026-10-19
+
+See [full-history import and customer calendar parity](SHEET_FULL_HISTORY_CALENDAR_PARITY_2026-10-19.md). Review the local branch, confirm tests and release gates, then check the real customer preview without clicking final import. A row whose source identity, dates, room, or overlap cannot be validated remains a review item; investigate it before treating the calendar as complete or sale-ready.
