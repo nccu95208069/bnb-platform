@@ -1,0 +1,11 @@
+# Legacy calendar copy controls — 2026-10-20
+
+The owner asked to publish the copy controls from the separate calendar review candidate directly to the existing two-property calendar ("Sean version"). This release takes only the booking-detail copy controls from PR #51. The batch-review workflow and any Sheet deletion path are excluded. The release starts from the live legacy email-recovery branch, preserving the existing password-reset flow.
+
+In sold-booking details, a copy button appears beside a visible real guest name and any provided OTA order number or linked source order number. Missing or unlinked source numbers display an explicit missing value; an internal row ID is never substituted. Clipboard success or failure is shown next to the button, with selection-based copying as a fallback for older mobile browsers.
+
+The focused copy UI and calendar revision checks passed (4 tests). TypeScript, full frontend lint (zero errors; five existing warnings), and the production Webpack build passed. Vercel's production Turbopack build and TypeScript check also passed for the staged build.
+
+Production-configured deployment `dpl_Gb935YGB5v6BG3ezSpgBB8QDy3Ne` was first staged without assigning public domains. Its legacy login and forgot-password pages returned HTTP 200; anonymous calendar access redirected to login, the booking API returned HTTP 401, and the recovery API rejected GET with HTTP 405. The staged error log was empty. Immediately before promotion, the primary alias still pointed to the prior recovery release `dpl_9kvbEvMMjL4n7GqeGY8zJ9YMmcyi`.
+
+After the owner's explicit release request, the staged build was promoted. Both `sweetfun-os.vercel.app` and `sweetfun-os-sweetfuns-projects.vercel.app` resolved to the new READY deployment. The public login and recovery pages returned HTTP 200, and the new deployment's error log was empty. In an existing owner-authenticated Chrome session on the public calendar, a sold-booking detail showed the new `複製旅客姓名` button. That booking had no formal source number and correctly showed `未提供正式訂單編號` without a copy button. A real guest name or number was not copied to the clipboard during this browser check; synthetic UI tests covered successful copying and failure feedback.
