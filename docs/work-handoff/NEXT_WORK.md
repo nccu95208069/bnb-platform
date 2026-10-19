@@ -1,6 +1,6 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
-2026-10-19 首次開通後的 Sheet 連結直達唯讀預覽、無草稿列顯示來源原值與舊列略過，已在[本機分支完成並通過檢查](ONBOARDING_PREVIEW_FOLLOWUP_2026-10-19.md)；尚未合併或發布。
+2026-10-19 首次開通後的 Sheet 連結直達唯讀預覽、無草稿列顯示來源原值與舊列略過，已[合併並發布至正式站](ONBOARDING_PREVIEW_FOLLOWUP_2026-10-19.md)；實際訂單匯入仍待使用者核對並確認。
 
 2026-10-19 開通網址與 Sheet 匯入第一頁的簡化、缺房間對應時停止自動預覽的修正均已合併並部署至正式站；登入的非營業工作區已驗證缺房間對應提示。其餘待驗收項目見[交接紀錄](ONBOARDING_SIMPLE_IMPORT_2026-10-19.md)。
 
