@@ -407,6 +407,7 @@ Goal/state/dependencies/progress plus Tool name/version, Step ID, input/output s
 | D-029 | Multi-night stays must be visibly continuous in month/week/day views. | Confirmed |
 | D-030 | Extra guest, extra bed, pet, and baby supplies are structured fields; a note stores residual detail. | Confirmed |
 | D-031 | Price-hidden users must not receive monetary/payment values from the backend. | Current implementation/security conclusion |
+| D-032 | For the existing Sweetfun `/calendar` connected to the main Google order Sheet, order tags live in `工作表1` S「標籤」 and the calendar reads that column. The LINE booking assistant reads and updates the same column for Sweetfun orders. This 2026-10-17 owner decision applies to the legacy Sheet calendar; the separate customer workspace still has its own Redis-backed tag catalog and booking IDs. | Confirmed owner decision, implementation pending release |
 
 ## Unresolved decisions carried forward
 

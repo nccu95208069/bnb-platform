@@ -410,6 +410,7 @@ const uiLocale = useIntlLocale();
         booking.guest_name,
         ...(booking.guest_name_sources ?? []),
         ...(booking.guest_remarks ?? []).flatMap(r => [r.label, r.source]),
+        ...(booking.source_tags ?? []),
         booking.notes,
         booking.room_number,
         booking.order_id,

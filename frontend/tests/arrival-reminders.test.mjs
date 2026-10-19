@@ -146,7 +146,7 @@ test('legacy source reports missing parent keys without losing notes and never u
   const earlier=valid.map((v,i)=>i===3?'2026/10/9':i===4?'2026/10/10':i===8?'pending':i===9?'earlier-row':v);
   const quarantined=await legacyList('sweetfun',now,async()=>[HEADERS,earlier,valid]);
   assert.equal(quarantined.arrivals.length,0);assert.equal(quarantined.unconfirmed[0].reason,'source');
-  const offlandHeaders=[...HEADERS.map(h=>h==='訂單編號'?'刷卡狀態':h),'unused','unused2','付款UID','訂單編號'];
+  const offlandHeaders=[...HEADERS.filter(h=>h!=='標籤').map(h=>h==='訂單編號'?'刷卡狀態':h),'unused','unused2','付款UID','訂單編號'];
   const offland=await legacyList('offland',now,async def=>{assert.equal(def.lastColumn,'Q');return [offlandHeaders,[...cells.map((v,i)=>i===0?'OFFLAND':i===11?'已刷卡':v)]];});
   assert.equal(offland.arrivals.length,0);assert.equal(offland.unconfirmed[0].reason,'order_link');assert.equal(offland.unconfirmed[0].notes,'晚到');
   const linked=cells.map((v,i)=>i===0?'OFFLAND':i===11?'已刷卡':v);linked[16]='canonical-parent';
