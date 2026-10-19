@@ -134,6 +134,13 @@ export default async function Page({
             property.setup?.sheetUrl ??
             (initialProperty ? workspace.onboarding?.sheetUrl : undefined)
           }
+          autoPreview={
+            initialProperty &&
+            Boolean(workspace.onboarding?.sheetUrl && workspace.onboarding.approvedAt) &&
+            !property.setup?.sheetUrl &&
+            !(workspace.importBatches ?? []).some((batch) => batch.propertyId === property.id) &&
+            (!search.source || search.source === "sheet")
+          }
           shareEmail={sharedSheetEmail() ?? undefined}
           helpMessage={journey?.message}
           initialVersion={workspace.version}
