@@ -35,6 +35,9 @@ const occupied = {
       checkOut: "2026-10-06",
       roomIds: ["101"],
       status: "confirmed",
+      total: 3000,
+      entry: "os",
+      payments: [],
     },
   ],
 };
@@ -45,9 +48,15 @@ test("selected rooms remain removable when dates or refreshed availability intro
   });
   const originalWindow = globalThis.window,
     originalDocument = globalThis.document,
+    originalGetComputedStyle = globalThis.getComputedStyle,
+    originalMutationObserver = globalThis.MutationObserver,
+    originalResizeObserver = globalThis.ResizeObserver,
     originalEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
   globalThis.window = dom.window;
   globalThis.document = dom.window.document;
+  globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
+  globalThis.MutationObserver = dom.window.MutationObserver;
+  globalThis.ResizeObserver = class { observe() {} disconnect() {} };
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   dom.window.HTMLDialogElement.prototype.showModal = function () {
     this.open = true;
@@ -55,10 +64,14 @@ test("selected rooms remain removable when dates or refreshed availability intro
   dom.window.HTMLDialogElement.prototype.close = function () {
     this.open = false;
   };
+  dom.window.HTMLElement.prototype.scrollTo = function ({ top }) { this.scrollTop = top; };
   const { createRoot } = await import("react-dom/client");
   t.after(() => {
     globalThis.window = originalWindow;
     globalThis.document = originalDocument;
+    globalThis.getComputedStyle = originalGetComputedStyle;
+    globalThis.MutationObserver = originalMutationObserver;
+    globalThis.ResizeObserver = originalResizeObserver;
     globalThis.IS_REACT_ACT_ENVIRONMENT = originalEnvironment;
     dom.window.close();
   });
