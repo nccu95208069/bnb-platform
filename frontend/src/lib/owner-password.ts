@@ -80,6 +80,19 @@ export class RedisOwnerCredentialStore implements OwnerCredentialStore {
     return body.result;
   }
   async read() { return parseCredential(await this.command(["GET", `${this.prefix}:credential`])); }
+  async readRecovery(): Promise<string | null> {
+    const value = await this.command(["GET", `${this.prefix}:email-recovery`]);
+    if (value !== null && typeof value !== "string") throw new Error("OWNER_STORE_UNAVAILABLE");
+    return value;
+  }
+  async saveRecovery(value: string, seconds: number): Promise<void> {
+    if (await this.command(["SET", `${this.prefix}:email-recovery`, value, "EX", seconds]) !== "OK")
+      throw new Error("OWNER_STORE_UNAVAILABLE");
+  }
+  async replaceForRecovery(expectedCredential: string, expectedRecovery: string, next: OwnerCredential): Promise<boolean> {
+    return await this.command(["EVAL", "if redis.call('GET',KEYS[1])~=ARGV[1] or redis.call('GET',KEYS[2])~=ARGV[2] then return 0 end; redis.call('SET',KEYS[1],ARGV[3]); redis.call('DEL',KEYS[2]); return 1", 2,
+      `${this.prefix}:credential`, `${this.prefix}:email-recovery`, expectedCredential, expectedRecovery, JSON.stringify(next)]) === 1;
+  }
   async consumeAttempt() {
     const count = await this.command(["EVAL", "local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],900) end; return n", 1, `${this.prefix}:attempts`]);
     return typeof count === "number" && count <= 20;
