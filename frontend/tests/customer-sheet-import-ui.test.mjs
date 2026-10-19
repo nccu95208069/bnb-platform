@@ -303,3 +303,50 @@ test("unmatched source rooms stop automatic preview and ask for room review", as
     button.textContent === "檢查必要欄位與房間",
   ));
 });
+
+test("approved first onboarding opens read-only preview and shows source values for rejected rows", async (t) => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "https://test.local" });
+  const globals = { window: globalThis.window, document: globalThis.document,
+    IS_REACT_ACT_ENVIRONMENT: globalThis.IS_REACT_ACT_ENVIRONMENT };
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document,
+    IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import("react-dom/client");
+  const root = createRoot(document.getElementById("root"));
+  t.after(async () => {
+    await act(() => root.unmount());
+    Object.assign(globalThis, globals);
+    dom.window.close();
+  });
+  const calls = [];
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    const body = JSON.parse(options.body);
+    calls.push(body.action);
+    if (body.action === "tabs") return Response.json({ spreadsheetId: "synthetic-sheet",
+      title: "Synthetic", tabs: [{ id: 0, title: "工作表1" }] });
+    if (body.action === "read") return Response.json({ id: "source", title: "工作表1", rows: [
+      ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "備註", "訂單編號"],
+      ["101", "Past Guest", "Direct", "2025-10-01", "2025-10-02", "2025-09-01", "2064", "", "", "row-1", "", ""],
+      ["101", "Future Guest", "Direct", "2027-01-01", "2027-01-02", "2026-12-01", "2500", "", "", "row-2", "", ""],
+    ] });
+    if (body.action === "preview") return Response.json({ id: "preview", rows: [
+      { row: 2, sourceRows: [2], draft: null, issues: ["多列訂單需要來源訂單編號", "已在選定範圍之前退房"] },
+      { row: 3, sourceRows: [3], draft: null, issues: ["多列訂單需要來源訂單編號"] },
+    ] });
+    throw Error(`unexpected action ${body.action}`);
+  });
+  await act(() => root.render(createElement(SheetImport, {
+    slug: "synthetic", property: { id: "property", name: "Test", kind: "rooms",
+      villaRoomIds: [], rooms: [{ id: "room-101", name: "101" }] },
+    configured: true, connected: false, initialBatches: [], initialVersion: 1,
+    sharedUrl: "https://docs.google.com/spreadsheets/d/synthetic-sheet/edit",
+    autoPreview: true,
+  })));
+  assert.deepEqual(calls, ["tabs", "read", "preview"]);
+  assert.equal(document.body.textContent.includes("貼上資料來源"), false);
+  assert.match(document.body.textContent, /Future Guest/);
+  assert.match(document.body.textContent, /來源房費：2500（未核算）/);
+  assert.match(document.body.textContent, /另有 1 筆.*已略過/);
+  assert.equal(document.body.textContent.includes("Past Guest"), false);
+  assert.equal(document.body.textContent.includes("未填姓名"), false);
+  assert.equal(calls.includes("commit"), false);
+});

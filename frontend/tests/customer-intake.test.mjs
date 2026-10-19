@@ -5,7 +5,13 @@ import {
   submitIntake,
   intakeAnswers,
   intakeMessage,
+  sheetLink,
 } from "../src/lib/customer-intake/service.ts";
+test("Sheet links retain only a numeric tab ID", () => {
+  const base = "https://docs.google.com/spreadsheets/d/synthetic-sheet-id-00000000/edit";
+  assert.equal(sheetLink(`${base}?usp=sharing&token=private#gid=7&range=A1`), `${base}#gid=7`);
+  assert.equal(sheetLink(`${base}#gid=not-a-tab`), base);
+});
 function fixture() {
   const data = new Map();
   return {
@@ -82,7 +88,7 @@ test("Sheet join requires questions, a private document link and sharing declara
   assert.equal(saved.sheetAccess, "not_checked");
   assert.equal(
     saved.answers.sheetUrl,
-    "https://docs.google.com/spreadsheets/d/synthetic-sheet-id-00000000/edit",
+    "https://docs.google.com/spreadsheets/d/synthetic-sheet-id-00000000/edit#gid=0",
   );
   assert.equal(store.data.size, 1);
   assert.ok([...store.data.keys()][0].startsWith("intake:"));

@@ -102,6 +102,7 @@ type Group = {
   lines: Line[];
   references: SourceReference[];
   issues: string[];
+  pastRows: number;
 };
 const MAX_ROOM_NIGHTS = 20000;
 const digest = (value: unknown) =>
@@ -335,18 +336,13 @@ export function normalizeSheet(
       lines: [],
       references: [],
       issues: [],
+      pastRows: 0,
     };
     groups.set(groupKey, group);
     group.references.push(reference);
     try {
       const externalId = textValue(rawId, 200);
       group.externalId = externalId;
-      if (mapping.granularity !== "order" && !externalId)
-        throw new Error(
-          column === undefined
-            ? "多列訂單需要來源訂單編號，不能只按客人姓名合併"
-            : "此房況格尚未指定訂單編號，不能只按客人姓名合併",
-        );
       const status = cell(row, c.status).toLowerCase();
       if (status.includes("保留") || ["held", "hold", "awaiting_owner"].includes(status))
         throw new Error("來源保留單需連同期限與占房權威核對，不能當作正式或取消訂單匯入；請使用保留單串接流程");
@@ -381,6 +377,13 @@ export function normalizeSheet(
       const nights = (Date.parse(checkOut) - Date.parse(checkIn)) / 86400000;
       if (nights < 1 || nights > 366)
         throw new Error("退房日期需晚於入住，最長 366 晚");
+      if (checkOut <= mapping.from) group.pastRows += 1;
+      if (mapping.granularity !== "order" && !externalId)
+        throw new Error(
+          column === undefined
+            ? "多列訂單需要來源訂單編號，不能只按客人姓名合併"
+            : "此房況格尚未指定訂單編號，不能只按客人姓名合併",
+        );
       const roomIds = roomsFor(cell(row, c.rooms), mapping, property);
       roomNights += nights * roomIds.length;
       if (roomNights > MAX_ROOM_NIGHTS) throw new Error("IMPORT_SIZE");
@@ -434,7 +437,11 @@ export function normalizeSheet(
       references: group.references,
       roomNightCount: 0,
       draft: null,
-      issues: [...new Set(group.issues)],
+      issues: [...new Set([
+        ...group.issues,
+        ...(group.issues.length && group.pastRows === group.references.length
+          ? ["已在選定範圍之前退房"] : []),
+      ])],
       fingerprint: "",
     };
     if (group.issues.length || !group.lines.length) return result;
@@ -591,6 +598,8 @@ export function normalizeSheet(
       result.issues.push(
         error instanceof Error ? error.message : "無法轉換此訂單",
       );
+      if (group.pastRows === group.references.length)
+        result.issues.push("已在選定範圍之前退房");
     }
     return result;
   });

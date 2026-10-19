@@ -74,6 +74,7 @@ export function SheetImport({
   initialBatches,
   initialVersion,
   sharedUrl,
+  autoPreview = false,
   helpMessage,
   shareEmail,
 }: {
@@ -84,10 +85,12 @@ export function SheetImport({
   initialBatches: Batch[];
   initialVersion: number;
   sharedUrl?: string;
+  autoPreview?: boolean;
   helpMessage?: string;
   shareEmail?: string;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const autoPreviewStarted = useRef(false);
   const [boundUrl, setBoundUrl] = useState(sharedUrl);
   const [suggestion, setSuggestion] = useState<FormatSuggestion | null>(null);
   const [url, setUrl] = useState(sharedUrl ?? "");
@@ -104,6 +107,7 @@ export function SheetImport({
   } | null>(null);
   const [fileTab, setFileTab] = useState("");
   const [stage, setStage] = useState<"source" | "review">("source");
+  const [autoStarting, setAutoStarting] = useState(autoPreview && configured && Boolean(sharedUrl));
   const [recordMode, setRecordMode] = useState<RecordMode>("auto");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [source, setSource] = useState<{
@@ -226,6 +230,13 @@ export function SheetImport({
     });
     await prepareSource(nextSource);
   }
+  useEffect(() => {
+    if (!autoPreview || !configured || !sharedUrl || autoPreviewStarted.current) return;
+    autoPreviewStarted.current = true;
+    void run(continueWithGoogle).finally(() => setAutoStarting(false));
+    // This is the one-time continuation of a previously approved onboarding link.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPreview, configured, sharedUrl]);
   async function commit() {
     if (!preview) return;
     pending.current ??= {
@@ -282,8 +293,17 @@ export function SheetImport({
     label: `第 ${i + 1} 欄 · ${source?.rows[mapping.headerRow - 1]?.[i] || "未命名"}`,
   }));
   const selectedRows = useMemo(() => new Set(selection), [selection]);
-  const previewPages = preview ? Math.ceil(preview.rows.length / PREVIEW_PAGE_SIZE) : 0;
-  const visiblePreviewRows = preview?.rows.slice(previewPage * PREVIEW_PAGE_SIZE, (previewPage + 1) * PREVIEW_PAGE_SIZE) ?? [];
+  const currentPreviewRows = preview?.rows.filter((row) =>
+    !row.issues.includes("已在選定範圍之前退房")) ?? [];
+  const pastPreviewCount = (preview?.rows.length ?? 0) - currentPreviewRows.length;
+  const previewPages = Math.ceil(currentPreviewRows.length / PREVIEW_PAGE_SIZE);
+  const visiblePreviewRows = currentPreviewRows.slice(previewPage * PREVIEW_PAGE_SIZE, (previewPage + 1) * PREVIEW_PAGE_SIZE);
+  function sourceValues(row: ImportPreview["rows"][number], column: number) {
+    if (!source || column < 0) return "";
+    const numbers = row.sourceRows ?? row.references?.map((ref) => ref.row) ?? [row.row];
+    const values = [...new Set(numbers.map((number) => source.rows[number - 1]?.[column]?.trim()).filter(Boolean))];
+    return values.slice(0, 3).join("、") + (values.length > 3 ? "…" : "");
+  }
   const gridCells = useMemo(() =>
     isGrid && source
       ? source.rows.slice(mapping.headerRow).flatMap((row, i) =>
@@ -351,7 +371,11 @@ export function SheetImport({
             寫入結果尚未確認。請按「重試相同匯入」核對；已送出的選擇暫時鎖定。
           </p>
         )}
-        {stage === "source" ? <fieldset
+        {stage === "source" && autoStarting ? (
+          <section role="status" className="rounded-2xl border bg-white p-5">
+            正在讀取已核准的 Google Sheet，準備唯讀預覽…
+          </section>
+        ) : stage === "source" ? <fieldset
           disabled={busy || uncertain}
           className="rounded-2xl border bg-white p-5 disabled:opacity-60"
         >
@@ -967,7 +991,9 @@ export function SheetImport({
               每一列預覽代表合併後的一張訂單。可先匯入無問題的整組資料；有問題的訂單不會只匯入其中幾晚。預覽保留一小時。
             </p>
             <p className="mb-3 text-sm" role="status">
-              共 {preview.rows.length} 筆預覽，已選 {selection.length} 筆。每頁顯示 {PREVIEW_PAGE_SIZE} 筆，翻頁不會清除選擇。
+              目前範圍共 {currentPreviewRows.length} 筆預覽，已選 {selection.length} 筆。
+              {pastPreviewCount > 0 && `另有 ${pastPreviewCount} 筆在 ${mapping.from} 前退房，已略過。`}
+              每頁顯示 {PREVIEW_PAGE_SIZE} 筆，翻頁不會清除選擇。
             </p>
             {previewPages > 1 && (
               <div className="mb-3 flex items-center gap-3 text-sm">
@@ -1021,7 +1047,9 @@ export function SheetImport({
                           : (r.sourceRows ?? [r.row]).join("、")}
                       </td>
                       <td className="border p-2">
-                        {r.draft?.guestName || "未填姓名"}
+                        {r.draft
+                          ? (r.draft.guestName || "未填姓名")
+                          : (sourceValues(r, mapping.columns.guestName) || "來源姓名未對應")}
                         <br />
                         {r.draft?.externalId && (
                           <>
@@ -1031,10 +1059,10 @@ export function SheetImport({
                             <br />
                           </>
                         )}
-                        {property.rooms
+                        {r.draft ? property.rooms
                           .filter((room) => r.draft?.roomIds.includes(room.id))
                           .map((room) => room.name)
-                          .join("、")}
+                          .join("、") : sourceValues(r, mapping.columns.rooms)}
                       </td>
                       <td className="whitespace-nowrap border p-2">
                         {(r.draft?.stays ?? (r.draft ? [r.draft] : [])).map(
@@ -1053,13 +1081,22 @@ export function SheetImport({
                             </div>
                           ),
                         )}
+                        {!r.draft && sourceValues(r, mapping.columns.checkIn) && (
+                          <span>來源日期：{sourceValues(r, mapping.columns.checkIn)}
+                            {sourceValues(r, mapping.columns.checkOut) && ` ～ ${sourceValues(r, mapping.columns.checkOut)}`}
+                          </span>
+                        )}
                         {r.roomNightCount > 0 && (
                           <span className="text-xs">
                             共 {r.roomNightCount} 個房晚
                           </span>
                         )}
                       </td>
-                      <td className="border p-2">{r.draft?.total ?? "未知"}</td>
+                      <td className="border p-2">{r.draft
+                        ? (r.draft.total ?? "未知")
+                        : (sourceValues(r, mapping.columns.total)
+                          ? `來源房費：${sourceValues(r, mapping.columns.total)}（未核算）`
+                          : "來源房費未對應")}</td>
                       <td className="border p-2">
                         來源累計已付{" "}
                         {r.draft?.importedFinance?.sourcePaid ??
