@@ -8,6 +8,7 @@ import {useT} from "@/components/i18n/language-provider";
 import { OsPaymentPanel } from "@/components/payments/os-payment-panel";
 
 import { CalendarPrivacy } from "./calendar-privacy";
+import { BatchReviewDialog } from "./batch-review-dialog";
 import { CalendarToolbar } from "./calendar-toolbar";
 import {
   useCallback,
@@ -30,6 +31,7 @@ import {
   LogOut,
   RefreshCw,
   Search,
+  ListChecks,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -234,6 +236,7 @@ const uiLocale = useIntlLocale();
     setMonthTarget(month);
   }, [historyRevision]);
   const [reloadKey, setReloadKey] = useState(0);
+  const [batchReviewOpen, setBatchReviewOpen] = useState(false);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
   const [editsHydrated, setEditsHydrated] = useState(false);
   const previousView = useRef<CalendarView>(view);
@@ -377,6 +380,11 @@ const uiLocale = useIntlLocale();
   }, [membership]);
   const coverageMissing = !hasCalendarCoverage(data, requestPeriod.start, requestPeriod.end);
   const unavailableSelectedSource = coverageMissing || data?.source_errors?.some(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)));
+  const batchReviewAvailable = Boolean(data?.batch_review_enabled && data.data_mode === "private_google_sheet_calendar" &&
+    permissions.cancelBookings && selectedPropertyIds.length > 0 && !loading && !requestFailed && !coverageMissing &&
+    !data.source_errors?.some(item => selectedPropertyIds.includes(item.property_id)) &&
+    !data.source_warnings?.some(item => selectedPropertyIds.includes(item.property_id)) &&
+    data.sources?.filter(item => selectedPropertyIds.includes(item.property_id)).every(item => item.source.sync?.status === "healthy"));
 
 
   const selectedProperties = useMemo(
@@ -714,6 +722,11 @@ const uiLocale = useIntlLocale();
   return (
     <div className="pb-0 md:space-y-2">
       {renderToolbar(data)}
+      {batchReviewAvailable && <div className="px-2 py-1 md:px-0">
+        <Button type="button" size="sm" variant="outline" onClick={() => setBatchReviewOpen(true)}>
+          <ListChecks className="size-4" />{uiText("批次核對已售房晚")}
+        </Button>
+      </div>}
       {PAYMENT_SANDBOX && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card p-3 text-sm">
           <div>
@@ -976,6 +989,10 @@ const uiLocale = useIntlLocale();
             {uiText("這個區間沒有符合條件的訂單。")}</div>
         )}
 
+      <BatchReviewDialog open={batchReviewOpen} onOpenChange={setBatchReviewOpen}
+        bookings={(data?.bookings ?? []).filter(booking => selectedPropertyIds.includes(booking.property_id) &&
+          (!allowedPropertyIds || allowedPropertyIds.has(booking.property_id)))}
+        properties={selectedProperties} initialStart={displayPeriod.start} initialEnd={displayPeriod.end} />
       <BookingDetailsPanel
         booking={selectedBooking}
         orderSegments={selectedOrderSegments}
