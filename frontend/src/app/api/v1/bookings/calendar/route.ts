@@ -247,6 +247,8 @@ export async function GET(request: NextRequest) {
         source_warnings: warnings,
         guest_access: { available: ownerAccessConfigured(), authenticated },
         data_mode: authenticated ? "private_google_sheet_calendar" : "anonymized_google_sheet_snapshot",
+        batch_cancel_enabled: process.env.CALENDAR_BATCH_CANCEL_ENABLED === "true" &&
+          ["owner", "god", "admin"].includes(principal.role) && definitions.length > 0,
       }, { headers });
     } catch (error) {
       console.error(JSON.stringify({ event: "calendar_unavailable", request_id: requestId, code: calendarReadError(error) }));

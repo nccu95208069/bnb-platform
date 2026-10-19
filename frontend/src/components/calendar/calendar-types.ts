@@ -117,6 +117,7 @@ export type CalendarResponse = {
   source_errors?: { property_id: string; label: string }[];
   guest_access?: { available: boolean; authenticated: boolean };
   data_mode?: string;
+  batch_cancel_enabled?: boolean;
   price_hidden?: boolean;
 };
 

@@ -88,10 +88,13 @@ export async function calendarIncome(property:string,year:number|null):Promise<F
  return entries;
 }
 // Read-only projection for the calendar: finance allocations share its property lock.
-export async function manualFinanceEntries(property:string):Promise<FinanceEntry[]>{
+export async function allFinanceEntries(property:string):Promise<FinanceEntry[]>{
  const years=new Set<number>();let cursor='0',pages=0;
  do{const result=await redisCommand(['SCAN',cursor,'MATCH',`sweetfun-os:finance:v1:${property}:*`,'COUNT',200]) as [string,string[]];cursor=String(result[0]);for(const key of result[1]){const suffix=key.split(':').at(-1)!;if(/^20\d{2}$/.test(suffix))years.add(Number(suffix));}if(++pages>100)throw new Error('UNAVAILABLE');}while(cursor!=='0');
- return (await Promise.all([...years].map(y=>readFinance(property,y)))).flatMap(s=>s.state.entries).filter(e=>e.status==='active'&&e.kind==='income'&&e.method!=='ota');
+ return (await Promise.all([...years].map(y=>readFinance(property,y)))).flatMap(s=>s.state.entries);
+}
+export async function manualFinanceEntries(property:string):Promise<FinanceEntry[]>{
+ return (await allFinanceEntries(property)).filter(e=>e.status==='active'&&e.kind==='income'&&e.method!=='ota');
 }
 
 // Names are snapshots; account IDs preserve identity after renaming. No reimbursement is implied.

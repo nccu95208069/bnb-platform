@@ -31,7 +31,7 @@ export async function accessToken(source: SheetSourceDefinition, write = false, 
 
 // Only this explicitly selected spreadsheet/tab may be read. No client-supplied URLs,
 // ranges, credential delegation or Sheet mutations are accepted by the monitor.
-export async function readOperationalSheet(source: SheetSourceDefinition = SWEETFUN_SOURCE, signal?: AbortSignal): Promise<unknown[][]> {
+export async function readOperationalSheet(source: SheetSourceDefinition = SWEETFUN_SOURCE, signal?: AbortSignal, includeAllColumns = false): Promise<unknown[][]> {
   const token = await accessToken(source, false, signal);
   async function get(path: string) {
     const response = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${source.spreadsheetId}${path}`, {
@@ -43,9 +43,17 @@ export async function readOperationalSheet(source: SheetSourceDefinition = SWEET
   const sheet = metadata.sheets?.find((s: { properties: { sheetId: number } }) => s.properties.sheetId === source.sheetId)?.properties;
   if (!sheet || sheet.title !== source.sheetTitle || metadata.properties?.timeZone !== "Asia/Taipei") throw new Error("SHEET_IDENTITY_MISMATCH");
   const rowCount = sheet.gridProperties.rowCount;
-  const lastColumn = source.lastColumn ?? "L";
-  const requiredColumns = /^[A-Z]{1,3}$/.test(lastColumn) ? [...lastColumn].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0) : 0;
-  if (!requiredColumns || !Number.isInteger(rowCount) || rowCount < 2 || rowCount > 50_000 || sheet.gridProperties.columnCount < requiredColumns) throw new Error("SHEET_GRID_UNSUPPORTED");
+  const configuredColumn = source.lastColumn ?? "L";
+  const requiredColumns = /^[A-Z]{1,3}$/.test(configuredColumn) ? [...configuredColumn].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0) : 0;
+  const columnCount = sheet.gridProperties.columnCount;
+  if (!requiredColumns || !Number.isInteger(rowCount) || rowCount < 2 || rowCount > 50_000 ||
+      !Number.isInteger(columnCount) || columnCount < requiredColumns || (includeAllColumns && columnCount > 128)) throw new Error("SHEET_GRID_UNSUPPORTED");
+  let lastColumn = configuredColumn;
+  if (includeAllColumns) {
+    let remaining = columnCount;
+    lastColumn = "";
+    while (remaining > 0) { remaining--; lastColumn = String.fromCharCode(65 + remaining % 26) + lastColumn; remaining = Math.floor(remaining / 26); }
+  }
   // One complete bounded read, including the J identity/date index for moved/deleted
   // rows. Do not truncate by a guessed last row or assume the Sheet is date-sorted.
   const range = encodeURIComponent(`'${source.sheetTitle.replaceAll("'", "''")}'!A1:${lastColumn}${rowCount}`);

@@ -5,7 +5,8 @@ import {useT} from "@/components/i18n/language-provider";
 
 import { GuestRemarks } from "./booking-identity";
 import { BookingSourceNotes } from "./booking-source-notes";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { CopyableValue } from "./copyable-value";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   Baby,
   Banknote,
@@ -100,7 +101,7 @@ const PAYMENT_LABELS = {
   unpaid: "未付款",
 } as const;
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   const uiText = useT();
 
   return (
@@ -854,9 +855,13 @@ const uiLocale = useIntlLocale();
         <SheetContent className="w-full overflow-y-auto p-0 sm:max-w-xl">
           <SheetHeader className="border-b px-5 py-5 text-left">
             <div className="pr-8">
-              <SheetTitle className="truncate text-xl">
-                {booking?.guest_name ?? "訂單資料"}
-              </SheetTitle>
+              <div className="flex items-start gap-2">
+                <SheetTitle className="min-w-0 flex-1 break-words text-xl">
+                  {booking?.guest_name ?? "訂單資料"}
+                </SheetTitle>
+                {booking && (booking.guest_name_kind === "real" || (!booking.source_read_only && booking.guest_name)) &&
+                  <CopyableValue label="旅客姓名" value={booking.guest_name} showValue={false} />}
+              </div>
               <SheetDescription className="mt-1">
                 {booking
                   ? `${booking.property_name} · ${booking.room_number} · ${formatDate(booking.check_in, uiLocale)}–${formatDate(booking.check_out, uiLocale)}`
@@ -964,8 +969,8 @@ const uiLocale = useIntlLocale();
                     label={uiText("預訂日")}
                     value={formatDate(booking.booked_at, uiLocale)}
                   />
-                  <DetailRow label={uiText("OTA 訂單編號")} value={booking.external_order_no || uiText("來源未提供")} />
-                  <DetailRow label={uiText("OwlNest 訂單編號")} value={booking.owlnest_order_no || uiText("來源未提供")} />
+                  <DetailRow label={uiText("OTA 訂單編號")} value={<CopyableValue label="OTA 訂單編號" value={booking.external_order_no} missing="來源未提供" />} />
+                  <DetailRow label={uiText("來源訂單編號")} value={<CopyableValue label="來源訂單編號" value={booking.source_order_linked === false ? null : booking.owlnest_order_no} />} />
                   <DetailRow
                     label={uiText("系統內部 ID")}
                     value={booking.order_id}
