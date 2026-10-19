@@ -124,9 +124,9 @@ test("Sheet wizard maps columns, quarantines rows, preserves selection after los
     document.querySelector("input"),
     "https://docs.google.com/spreadsheets/d/synthetic-id",
   );
-  await click(button("下一步：查看匯入預覽"));
-  assert.equal(document.body.textContent.includes("資料已讀取，還需要核對"), true);
-  await click(button("檢查必要欄位與房間"));
+  await click(button("檢查並匯入訂房 →"));
+  assert.equal(document.body.textContent.includes("有幾項資料需要你確認"), true);
+  await click(button("確認欄位與房間"));
   const mappedSelect = (label) => [...document.querySelectorAll("label")]
     .find((item) => item.textContent.trim().startsWith(label) && item.querySelector("select"))?.querySelector("select");
   await input(mappedSelect("入住日期"), "0");
@@ -157,8 +157,9 @@ test("Sheet wizard maps columns, quarantines rows, preserves selection after los
     document.querySelector('[aria-label="匯入第 4 列"]').disabled,
     true,
   );
+  await click(button("顯示所有已檢查訂房"));
   await click(document.querySelector('[aria-label="匯入第 3 列"]'));
-  await click(button("確認匯入 1 筆"));
+  await click(button("匯入 1 筆並查看日曆 →"));
   assert.ok(button("重試相同匯入"));
   assert.equal(
     document.querySelector('[aria-label="匯入第 2 列"]').disabled,
@@ -168,11 +169,12 @@ test("Sheet wizard maps columns, quarantines rows, preserves selection after los
   assert.deepEqual(commits[0], commits[1]);
   assert.deepEqual(commits[1].selected, [2]);
   assert.match(document.body.textContent, /已匯入 1 筆訂房/);
+  assert.match(window.location.pathname, /\/w\/test-inn\/calendar/);
   await click(button("撤回此批匯入"));
   assert.match(document.body.textContent, /已撤回 1 筆，保留 0 筆/);
 });
 
-test("shared multi-row Sheet needs only URL, Viewer access, record mode and Next before preview", async (t) => {
+test("a clean shared Sheet imports from one click and opens the calendar", async (t) => {
   const dom = new JSDOM('<div id="root"></div>', { url: "https://test.local" });
   const globals = {
     window: globalThis.window,
@@ -193,6 +195,7 @@ test("shared multi-row Sheet needs only URL, Viewer access, record mode and Next
   });
   const calls = [];
   t.mock.method(globalThis, "fetch", async (_url, options) => {
+    if (options.method === "GET") return Response.json({ version: 3 });
     const body = JSON.parse(options.body);
     calls.push(body);
     if (body.action === "bind") return Response.json({ status: "approved", url: body.url, version: 2 });
@@ -213,6 +216,10 @@ test("shared multi-row Sheet needs only URL, Viewer access, record mode and Next
         guestName: "Sample", externalId: "order-1", total: 5000,
         roomIds: ["room-101"], checkIn: "2027-01-01", checkOut: "2027-01-03",
       }, issues: [], sourceRows: [2, 3] }],
+    });
+    if (body.action === "commit") return Response.json({
+      id: "synthetic-preview", propertyId: "property", bookingIds: ["booking-1"],
+      sourceTitle: "工作表1", createdAt: "2026-10-20T00:00:00Z",
     });
     throw Error(`unexpected action ${body.action}`);
   });
@@ -239,9 +246,9 @@ test("shared multi-row Sheet needs only URL, Viewer access, record mode and Next
     mode.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
   });
   await act(() => [...document.querySelectorAll("button")].find((button) =>
-    button.textContent === "下一步：查看匯入預覽",
+    button.textContent === "檢查並匯入訂房 →",
   ).click());
-  assert.deepEqual(calls.map((call) => call.action), ["bind", "tabs", "read", "preview"]);
+  assert.deepEqual(calls.map((call) => call.action), ["bind", "tabs", "read", "preview", "commit"]);
   assert.equal(calls[2].sheetId, 7);
   assert.equal(calls[3].mapping.granularity, "stay");
   assert.equal(calls[3].mapping.amountBasis, "line");
@@ -249,9 +256,9 @@ test("shared multi-row Sheet needs only URL, Viewer access, record mode and Next
   assert.equal(calls[3].mapping.columns.platform, 2);
   assert.equal(calls[3].mapping.columns.externalId, 11);
   assert.deepEqual(calls[3].mapping.roomMap["101"], ["room-101"]);
-  assert.match(document.body.textContent, /同張訂單可有多列 · 每列房費相加/);
-  assert.match(document.body.textContent, /確認匯入 1 筆/);
-  assert.equal(calls.some((call) => call.action === "commit"), false);
+  assert.deepEqual(calls[4].selected, [2]);
+  assert.match(window.location.pathname, /\/w\/synthetic\/calendar/);
+  assert.match(document.body.textContent, /訂房已在日曆裡/);
 });
 
 test("unmatched source rooms stop automatic preview and ask for room review", async (t) => {
@@ -296,13 +303,13 @@ test("unmatched source rooms stop automatic preview and ask for room review", as
     sharedUrl: "https://docs.google.com/spreadsheets/d/synthetic-sheet/edit",
   })));
   await act(() => [...document.querySelectorAll("button")].find((button) =>
-    button.textContent === "下一步：查看匯入預覽",
+    button.textContent === "檢查並匯入訂房 →",
   ).click());
   assert.deepEqual(calls, ["tabs", "read"]);
-  assert.match(document.body.textContent, /來源房間尚未對應工作區房間：102/);
-  assert.equal(document.body.textContent.includes("重新產生預覽"), false);
+  assert.match(document.body.textContent, /表格中的「102」還不知道對應哪個房間/);
+  assert.equal(document.body.textContent.includes("重新檢查資料"), false);
   assert.ok([...document.querySelectorAll("button")].some((button) =>
-    button.textContent === "檢查必要欄位與房間",
+    button.textContent === "確認欄位與房間",
   ));
 });
 
@@ -355,7 +362,57 @@ test("approved first onboarding previews the entire Sheet and selects unique-ID 
   assert.equal(document.body.textContent.includes("貼上資料來源"), false);
   assert.match(document.body.textContent, /Past Guest/);
   assert.match(document.body.textContent, /Future Guest/);
-  assert.match(document.body.textContent, /已選 2 組可匯入訂單/);
+  assert.match(document.body.textContent, /2筆可匯入/);
+  assert.equal(document.querySelector('details:has(summary)')?.open ?? false, false);
   assert.equal(document.body.textContent.includes("未填姓名"), false);
   assert.equal(calls.includes("commit"), false);
+});
+
+test("ambiguous money columns ask for review instead of silently importing without prices", async (t) => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "https://test.local" });
+  const previous = { window: globalThis.window, document: globalThis.document,
+    IS_REACT_ACT_ENVIRONMENT: globalThis.IS_REACT_ACT_ENVIRONMENT };
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document,
+    IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import("react-dom/client");
+  const root = createRoot(document.getElementById("root"));
+  t.after(async () => { await act(() => root.unmount()); Object.assign(globalThis, previous); dom.window.close(); });
+  const calls = [];
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    const input = JSON.parse(options.body);
+    calls.push(input.action);
+    if (input.action === "tabs") return Response.json({ spreadsheetId: "sheet", title: "Test", tabs: [{ id: 0, title: "工作表1" }] });
+    if (input.action === "read") return Response.json({ id: "source", title: "Test", rows: [
+      ["入住日期", "退房日期", "房間", "房費"],
+      ["2026-10-21", "2026-10-22", "101", "2500"],
+    ] });
+    throw Error(`unexpected ${input.action}`);
+  });
+  await act(() => root.render(createElement(SheetImport, { slug: "test", property: {
+    id: "property", name: "Test", kind: "rooms", villaRoomIds: [], rooms: [{ id: "room-101", name: "101" }],
+  }, configured: true, connected: true, sharedUrl: "https://docs.google.com/spreadsheets/d/sheet/edit",
+  initialBatches: [], initialVersion: 1 })));
+  await act(() => [...document.querySelectorAll("button")].find((item) => item.textContent === "檢查並匯入訂房 →").click());
+  assert.deepEqual(calls, ["tabs", "read"]);
+  assert.match(document.body.textContent, /請在下方指定房費欄/);
+  assert.match(document.body.textContent, /有幾項資料需要你確認/);
+});
+
+test("returning after an import opens a simple calendar handoff", async (t) => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "https://test.local" });
+  const previous = { window: globalThis.window, document: globalThis.document,
+    IS_REACT_ACT_ENVIRONMENT: globalThis.IS_REACT_ACT_ENVIRONMENT };
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document,
+    IS_REACT_ACT_ENVIRONMENT: true });
+  const { createRoot } = await import("react-dom/client");
+  const root = createRoot(document.getElementById("root"));
+  t.after(async () => { await act(() => root.unmount()); Object.assign(globalThis, previous); dom.window.close(); });
+  await act(() => root.render(createElement(SheetImport, { slug: "test", property: {
+    id: "property", name: "Test", rooms: [],
+  }, configured: true, connected: true, initialVersion: 2,
+  initialBatches: [{ id: "batch", propertyId: "property", sourceTitle: "測試訂房表", bookingIds: ["order-1"], createdAt: "2026-10-20T00:00:00Z" }],
+  })));
+  assert.match(document.body.textContent, /訂房已在日曆裡/);
+  assert.equal(document.querySelector('a[href="/w/test/calendar?property=property"]').textContent.includes("查看房況日曆"), true);
+  assert.equal(document.querySelector('button')?.textContent === "檢查並匯入訂房 →", false);
 });

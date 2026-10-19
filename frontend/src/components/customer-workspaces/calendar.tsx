@@ -17,12 +17,14 @@ export function CustomerCalendar({
   initialMonth,
   initialDay,
   initialRoom,
+  importedCount,
 }: {
   initial: WorkspaceView;
   initialPropertyId?: string;
   initialMonth?: string;
   initialDay?: string;
   initialRoom?: string;
+  importedCount?: number;
 }) {
   const router = useRouter();
   const [data, setData] = useState(initial),
@@ -281,6 +283,13 @@ export function CustomerCalendar({
           </div>
         </header>
         <WorkspaceNav data={data} current="calendar" propertyId={propertyId} />
+        {importedCount !== undefined && (
+          <p role="status" className="mt-5 rounded-2xl border border-teal-100 bg-teal-50 p-4 text-sm leading-7 text-teal-950">
+            {importedCount > 0
+              ? `匯入完成，${importedCount} 筆訂房已放進日曆。請核對房間與日期。`
+              : "資料檢查完成，這份來源沒有需要匯入的訂房。"}
+          </p>
+        )}
         {(data.readiness?.[propertyId]?.complete === false ||
           (!data.readiness &&
             data.onboarding &&

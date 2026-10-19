@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { Property, Workspace } from "@/lib/customer-workspaces/types";
 import type {
   ImportPreview,
@@ -14,13 +15,6 @@ const PREVIEW_PAGE_SIZE = 100;
 const GRID_PAGE_SIZE = 100;
 type RecordMode = Mapping["granularity"] | "auto";
 type Batch = NonNullable<Workspace["importBatches"]>[number];
-const recordModeLabels: Record<Mapping["granularity"], string> = {
-  order: "一列一張訂單", stay: "同張訂單可有多列", night: "一列一個住宿夜", grid: "房況格",
-};
-const amountBasisLabels: Record<Mapping["amountBasis"], string> = {
-  order: "同筆訂單金額只算一次", line: "每列房費相加", night: "按每晚房費計算",
-  "room-night": "按每房每晚房費計算", none: "不匯入房費",
-};
 const columnLabels = {
   checkIn: "入住日期",
   checkOut: "退房日期",
@@ -69,6 +63,10 @@ function suggestedMapping(current: Mapping, suggestion: FormatSuggestion, mode: 
     missingOrderId: ["stay", "night"].includes(granularity)
       ? suggestion.missingOrderId ?? "review" : "review" };
 }
+function formatNeedsReview(suggestion: FormatSuggestion) {
+  return suggestion.questions.length > 0 ||
+    suggestion.messages.some((message) => /有多個.*候選欄|重複標題|多個區塊/.test(message));
+}
 export function SheetImport({
   slug,
   property,
@@ -92,6 +90,7 @@ export function SheetImport({
   helpMessage?: string;
   shareEmail?: string;
 }) {
+  const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const autoPreviewStarted = useRef(false);
   const [boundUrl, setBoundUrl] = useState(sharedUrl);
@@ -113,6 +112,8 @@ export function SheetImport({
   const [autoStarting, setAutoStarting] = useState(autoPreview && configured && Boolean(sharedUrl));
   const [recordMode, setRecordMode] = useState<RecordMode>("auto");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [startNewImport, setStartNewImport] = useState(false);
+  const [showAllRows, setShowAllRows] = useState(false);
   const [source, setSource] = useState<{
     id: string;
     title: string;
@@ -177,8 +178,9 @@ export function SheetImport({
     setConfirmed(false);
     setConfirmedEmpty(false);
     setCoverageConfirmed(false);
+    setShowAllRows(false);
   }
-  async function prepareSource(nextSource: NonNullable<typeof source>) {
+  async function prepareSource(nextSource: NonNullable<typeof source>, importWhenClean = false) {
     const nextSuggestion = suggestFormat(nextSource.rows, property);
     const nextMapping = suggestedMapping(mapping, nextSuggestion, recordMode);
     setSource(nextSource);
@@ -191,18 +193,22 @@ export function SheetImport({
     setConfirmed(false);
     setConfirmedEmpty(false);
     setCoverageConfirmed(false);
+    setShowAllRows(false);
     // A matching room column is insufficient: every source room must map to an
     // actual workspace room before the wizard can skip the review step.
-    if (mappingReady(nextMapping) && !unmappedRoomLabels(nextSource.rows, nextMapping).length) {
+    if (mappingReady(nextMapping) && !unmappedRoomLabels(nextSource.rows, nextMapping).length && !formatNeedsReview(nextSuggestion)) {
       const result = await send<ImportPreview>({
         action: "preview", sourceId: nextSource.id, mapping: nextMapping,
       });
       setPreview(result);
       setPreviewPage(0);
-      setSelection(result.rows.filter((row) => !row.issues.length).map((row) => row.row));
+      const readyRows = result.rows.filter((row) => row.draft && !row.issues.length).map((row) => row.row);
+      setSelection(readyRows);
+      if (importWhenClean && readyRows.length === result.rows.length && readyRows.length > 0)
+        await commitPreview(result, readyRows);
     }
   }
-  async function continueWithGoogle() {
+  async function continueWithGoogle(importWhenClean = false) {
     setPreview(null);
     setFileMeta(null);
     let activeUrl = boundUrl ?? url;
@@ -232,7 +238,7 @@ export function SheetImport({
     const nextSource = await send<NonNullable<typeof source>>({
       action: "read", spreadsheetId: nextMeta.spreadsheetId, sheetId: selected.id,
     });
-    await prepareSource(nextSource);
+    await prepareSource(nextSource, importWhenClean);
   }
   useEffect(() => {
     if (!autoPreview || !configured || !sharedUrl || autoPreviewStarted.current) return;
@@ -241,14 +247,13 @@ export function SheetImport({
     // This is the one-time continuation of a previously approved onboarding link.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoPreview, configured, sharedUrl]);
-  async function commit() {
-    if (!preview) return;
+  async function commitPreview(result: ImportPreview, selected: number[], empty = false) {
     pending.current ??= {
       action: "commit",
-      previewId: preview.id,
-      selected: selection,
+      previewId: result.id,
+      selected,
       confirmed: true,
-      confirmedEmpty,
+      confirmedEmpty: empty,
     };
     try {
       const batch = await send<Batch>(pending.current);
@@ -259,14 +264,13 @@ export function SheetImport({
         `/api/customer-workspaces/${slug}`,
       );
       setVersion(current.version);
-      setNotice(
-        `已匯入 ${batch.bookingIds.length} 筆訂房。原始來源未變更；往後請在 OS 登記。`,
-      );
+      setNotice(`已匯入 ${batch.bookingIds.length} 筆訂房。`);
       setPreview(null);
       setSource(null);
       setStage("source");
       setUncertain(false);
       pending.current = null;
+      router.push(`/w/${slug}/calendar?${new URLSearchParams({ property: property.id, imported: batch.id })}`);
     } catch (e) {
       const status = e instanceof Error && "status" in e ? Number(e.status) : 0;
       if (status >= 400 && status < 500) {
@@ -275,6 +279,9 @@ export function SheetImport({
       } else setUncertain(true);
       throw e;
     }
+  }
+  async function commit() {
+    if (preview) await commitPreview(preview, selection, confirmedEmpty);
   }
   const labels =
     source && mapping.columns.rooms >= 0
@@ -289,6 +296,7 @@ export function SheetImport({
       : [];
   const isGrid = mapping.granularity === "grid";
   const isNight = mapping.granularity === "night";
+  const needsFormatReview = suggestion ? formatNeedsReview(suggestion) : false;
   const mappingComplete = mappingReady(mapping);
   const missingRoomLabels = source ? unmappedRoomLabels(source.rows, mapping) : [];
   const columnCount = Math.max(0, ...(source?.rows.map((r) => r.length) ?? []));
@@ -297,11 +305,15 @@ export function SheetImport({
     label: `第 ${i + 1} 欄 · ${source?.rows[mapping.headerRow - 1]?.[i] || "未命名"}`,
   }));
   const selectedRows = useMemo(() => new Set(selection), [selection]);
+  const activeBatch = [...batches].reverse().find((batch) => !batch.undo && batch.bookingIds.length > 0);
+  const showCompleted = stage === "source" && Boolean(activeBatch) && !startNewImport && !autoStarting;
   const currentPreviewRows = preview?.rows.filter((row) =>
     !row.issues.includes("已在選定範圍之前退房")) ?? [];
   const pastPreviewCount = (preview?.rows.length ?? 0) - currentPreviewRows.length;
-  const previewPages = Math.ceil(currentPreviewRows.length / PREVIEW_PAGE_SIZE);
-  const visiblePreviewRows = currentPreviewRows.slice(previewPage * PREVIEW_PAGE_SIZE, (previewPage + 1) * PREVIEW_PAGE_SIZE);
+  const problemRows = currentPreviewRows.filter((row) => !row.draft || row.issues.length > 0);
+  const tableRows = showAllRows || !problemRows.length ? currentPreviewRows : problemRows;
+  const previewPages = Math.ceil(tableRows.length / PREVIEW_PAGE_SIZE);
+  const visiblePreviewRows = tableRows.slice(previewPage * PREVIEW_PAGE_SIZE, (previewPage + 1) * PREVIEW_PAGE_SIZE);
   function sourceValues(row: ImportPreview["rows"][number], column: number) {
     if (!source || column < 0) return "";
     const numbers = row.sourceRows ?? row.references?.map((ref) => ref.row) ?? [row.row];
@@ -343,18 +355,21 @@ export function SheetImport({
     </div>
   ) : null;
   return (
-    <main className="min-h-dvh bg-stone-50 p-4 text-slate-800 sm:p-8">
-      <div className="mx-auto max-w-5xl">
-        <a className="text-teal-800 underline" href={`/w/${slug}/calendar`}>
-          ← 回房況日曆
+    <main className="min-h-dvh bg-[#f4f7f4] px-4 pb-16 pt-8 text-slate-800 sm:px-8 sm:pt-12">
+      <div className="mx-auto max-w-4xl">
+        <a className="inline-flex items-center gap-2 text-sm font-medium text-teal-800 hover:underline" href={`/w/${slug}/calendar`}>
+          <span aria-hidden="true">←</span> 回房況日曆
         </a>
-        <h1 className="mt-5 text-2xl font-semibold">
-          從 Google Sheet 或 Excel／CSV 匯入 · {property.name}
-        </h1>
-        <p className="my-3 text-slate-600">
-          系統會把不同紀錄方式轉成標準訂單，保留來源與列號。這是一次性匯入，往後以
-          OS 為準；不會持續讀取原表、通知客人或關閉 OTA 房量。
-        </p>
+        <header className="my-10 sm:my-14">
+          <div className="mb-5 inline-flex rounded-full border border-teal-200 bg-white px-4 py-2 text-sm font-medium text-teal-900 shadow-sm">
+            {property.name}
+          </div>
+          <p className="text-xs font-semibold tracking-[0.24em] text-teal-700">IMPORT TO CALENDAR</p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-900 sm:text-5xl">把訂房，帶進日曆。</h1>
+          <p className="mt-5 max-w-2xl text-base leading-8 text-slate-600">
+            貼上 Google Sheet 連結，系統會檢查日期、房間和重複訂房。資料沒問題就直接匯入；需要核對的部分才會請你處理。
+          </p>
+        </header>
         {error && (
           <p role="alert" className="my-4 rounded-xl bg-red-50 p-4">
             {error}
@@ -375,16 +390,32 @@ export function SheetImport({
             寫入結果尚未確認。請按「重試相同匯入」核對；已送出的選擇暫時鎖定。
           </p>
         )}
-        {stage === "source" && autoStarting ? (
+        {showCompleted && activeBatch ? (
+          <section className="rounded-[2rem] border border-teal-100 bg-white p-6 shadow-[0_24px_70px_-42px_rgba(15,86,77,0.45)] sm:p-9" role="status">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-teal-800 text-2xl text-white" aria-hidden="true">✓</div>
+            <h2 className="mt-6 text-2xl font-semibold text-slate-900">訂房已在日曆裡</h2>
+            <p className="mt-3 text-slate-600">{activeBatch.sourceTitle} · 已匯入 {activeBatch.bookingIds.length} 筆訂房。原始表格沒有被修改。</p>
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <a className={`${button} inline-flex items-center gap-2`} href={`/w/${slug}/calendar?property=${encodeURIComponent(property.id)}`}>
+                查看房況日曆 <span aria-hidden="true">→</span>
+              </a>
+              <button type="button" className={secondary} onClick={() => setStartNewImport(true)}>再次檢查來源</button>
+            </div>
+          </section>
+        ) : stage === "source" && autoStarting ? (
           <section role="status" className="rounded-2xl border bg-white p-5">
-            正在讀取已核准的 Google Sheet，準備唯讀預覽…
+            正在檢查已連結的 Google Sheet…
           </section>
         ) : stage === "source" ? <fieldset
           disabled={busy || uncertain}
-          className="rounded-2xl border bg-white p-5 disabled:opacity-60"
+          className="rounded-[2rem] border border-white bg-white p-6 shadow-[0_24px_70px_-42px_rgba(15,86,77,0.45)] disabled:opacity-60 sm:p-9"
         >
-          <legend className="px-2 font-semibold">1. 貼上資料來源</legend>
-          <p className="mb-3 text-sm">
+          <legend className="sr-only">匯入資料來源</legend>
+          <div className="mb-7 flex items-center gap-4">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-teal-50 text-xl text-teal-800" aria-hidden="true">↗</div>
+            <div><h2 className="text-xl font-semibold text-slate-900">連結你的訂房表</h2><p className="mt-1 text-sm text-slate-500">只讀取資料，不會修改原表格。</p></div>
+          </div>
+          <p className="mb-3 text-sm leading-7 text-slate-600">
             {boundUrl
               ? "已連結 Google Sheet；接下來系統會讀取資料並產生預覽。原表不會被修改。"
               : shareEmail
@@ -422,10 +453,10 @@ export function SheetImport({
               連結／切換 Google 帳號
             </button>
           )}
-          <label className="mt-4 block">
+          <label className="mt-5 block font-medium text-slate-800">
             Google Sheet 連結
             <input
-              className={field}
+              className={`${field} mt-3 border-slate-200 px-4 py-4 shadow-sm focus:border-teal-700 focus:outline-none focus:ring-4 focus:ring-teal-100`}
               value={url}
               readOnly={Boolean(boundUrl)}
               onChange={(e) => {
@@ -439,17 +470,19 @@ export function SheetImport({
               placeholder="https://docs.google.com/spreadsheets/d/…"
             />
           </label>
-          <label className="mt-4 block">
-            來源紀錄方式
-            <select className={field} value={recordMode}
-              onChange={(event) => setRecordMode(event.target.value as RecordMode)}>
-              <option value="auto">讓系統辨認（建議）</option>
-              <option value="order">一列是一張完整訂單</option>
-              <option value="stay">同張訂單可能有多列房間或住宿</option>
-              <option value="night">一列是一個住宿夜</option>
-              <option value="grid">日期橫排、房間直排的房況格</option>
-            </select>
-          </label>
+          <details className="mt-4 text-sm text-slate-600">
+            <summary className="cursor-pointer text-teal-800">表格格式特殊？選擇資料記錄方式</summary>
+            <label className="mt-3 block">來源紀錄方式
+              <select className={field} value={recordMode}
+                onChange={(event) => setRecordMode(event.target.value as RecordMode)}>
+                <option value="auto">讓系統辨認（建議）</option>
+                <option value="order">一列是一張完整訂單</option>
+                <option value="stay">同張訂單可能有多列房間或住宿</option>
+                <option value="night">一列是一個住宿夜</option>
+                <option value="grid">日期橫排、房間直排的房況格</option>
+              </select>
+            </label>
+          </details>
           {meta && !tab && (
             <label className="mt-4 block">
               訂單所在分頁
@@ -459,11 +492,12 @@ export function SheetImport({
               </select>
             </label>
           )}
-          <button type="button" className={`${button} mt-5`}
+          <button type="button" className={`${button} mt-7 w-full py-4 text-base shadow-lg shadow-teal-900/10 sm:w-auto`}
             disabled={!configured || !url.trim() || (Boolean(meta) && !tab)}
-            onClick={() => run(continueWithGoogle)}>
-            下一步：查看匯入預覽
+            onClick={() => run(() => continueWithGoogle(true))}>
+            {busy ? "正在檢查訂房資料…" : "檢查並匯入訂房 →"}
           </button>
+          <p className="mt-4 text-xs leading-6 text-slate-500">若資料可安全匯入，完成後會直接開啟日曆。有疑義的訂房會先停下來請你核對。</p>
           {!boundUrl && (
             <details className="mt-6 border-t pt-5">
               <summary className="cursor-pointer font-medium text-teal-800">改用 Excel／CSV 檔案</summary>
@@ -503,7 +537,7 @@ export function SheetImport({
                   }
                   setFileTab(staged.tabs[0].sourceId);
                   const first = await send<NonNullable<typeof source>>({ action: "file-source", sourceId: staged.tabs[0].sourceId });
-                  await prepareSource(first);
+                  await prepareSource(first, true);
                 })}
               >
                 上傳並讀取
@@ -525,35 +559,40 @@ export function SheetImport({
                 className={`${button} mt-3`} disabled={!fileTab}
                 onClick={() => run(async () => {
                   const selected = await send<NonNullable<typeof source>>({ action: "file-source", sourceId: fileTab });
-                  await prepareSource(selected);
-                })}>下一步：查看匯入預覽</button>}
+                  await prepareSource(selected, true);
+                })}>檢查並匯入訂房</button>}
             </details>
           )}
+          <div className="mt-8 grid gap-3 border-t border-slate-100 pt-6 text-xs text-slate-500 sm:grid-cols-3">
+            <span>✓ 原表格不會被修改</span><span>✓ 重複與衝突會先擋下</span><span>✓ 匯入後直接查看日曆</span>
+          </div>
         </fieldset> : <section className="rounded-2xl border bg-white p-5">
-          <p className="font-semibold">已讀取 {source?.title ?? "來源資料"}</p>
-          <p className="mt-1 text-sm text-slate-600">已讀取來源資料；確認預覽後才會建立訂單。</p>
+          <p className="font-semibold">已檢查 {source?.title ?? "來源資料"}</p>
+          <p className="mt-1 text-sm text-slate-600">原表格沒有被修改。</p>
           <button type="button" className={`${secondary} mt-3`} onClick={() => {
             setStage("source"); setSource(null); setPreview(null); setShowAdvanced(false);
           }}>更換來源</button>
         </section>}
         {stage === "review" && source && !preview && !showAdvanced && (
-          <section className="mt-5 rounded-2xl border bg-white p-5">
-            <h2 className="font-semibold">{mappingComplete && !missingRoomLabels.length ? "資料已讀取，請重新產生預覽" : "資料已讀取，還需要核對"}</h2>
-            <p className="mt-2 text-sm text-slate-600">{source.rows.length} 列 · {suggestion?.messages[0]}</p>
+          <section className="mt-5 rounded-[2rem] border border-amber-100 bg-white p-6 shadow-sm sm:p-9">
+            <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-50 text-xl text-amber-800" aria-hidden="true">?</div>
+            <h2 className="text-xl font-semibold text-slate-900">{mappingComplete && !missingRoomLabels.length && !needsFormatReview ? "資料已讀取，請再檢查一次" : "有幾項資料需要你確認"}</h2>
+            <p className="mt-3 text-sm leading-7 text-slate-600">{suggestion?.messages[0]}</p>
+            {suggestion?.questions.map((question) => <p className="mt-2 text-sm text-amber-800" key={question}>{question}</p>)}
             {missingRoomLabels.length > 0 && <p className="mt-2 text-sm text-amber-800">
-              來源房間尚未對應工作區房間：{missingRoomLabels.slice(0, 6).join("、")}{missingRoomLabels.length > 6 ? ` 等 ${missingRoomLabels.length} 種` : ""}。請先核對房間，再預覽可匯入的訂單。
+              表格中的「{missingRoomLabels.slice(0, 6).join("、")}{missingRoomLabels.length > 6 ? ` 等 ${missingRoomLabels.length} 種` : ""}」還不知道對應哪個房間。請選好房間後再匯入。
             </p>}
             {!mappingComplete && <p className="mt-2 text-sm text-amber-800">
-              系統尚無法安全判斷必要的日期、房間或訂單編號。請檢查這幾項後再看預覽。
+              日期、房間或訂單編號尚無法安全判斷。請確認表格欄位。
             </p>}
-            {mappingComplete && !missingRoomLabels.length && <button type="button" className={`${button} mt-4`} onClick={() => run(async () => {
+            {mappingComplete && !missingRoomLabels.length && !needsFormatReview && <button type="button" className={`${button} mt-4`} onClick={() => run(async () => {
               const result = await send<ImportPreview>({ action: "preview", sourceId: source.id, mapping });
               setPreview(result);
               setPreviewPage(0);
-              setSelection(result.rows.filter((row) => !row.issues.length).map((row) => row.row));
-            })}>重新產生預覽</button>}
+              setSelection(result.rows.filter((row) => row.draft && !row.issues.length).map((row) => row.row));
+            })}>重新檢查資料</button>}
             <button type="button" className={`${secondary} mt-4`} onClick={() => setShowAdvanced(true)}>
-              檢查必要欄位與房間
+              確認欄位與房間
             </button>
           </section>
         )}
@@ -985,7 +1024,7 @@ export function SheetImport({
                   setPreviewPage(0);
                   setSelection(
                     result.rows
-                      .filter((r) => !r.issues.length)
+                      .filter((r) => r.draft && !r.issues.length)
                       .map((r) => r.row),
                   );
                 })
@@ -997,25 +1036,45 @@ export function SheetImport({
         )}
         {source && !preview && helpCard}
         {preview && (
-          <section className="mt-5 rounded-2xl border bg-white p-5">
-            <h2 className="font-semibold">3. 選擇要匯入的訂單</h2>
-            <p className="mt-2 text-sm text-slate-600">
-              {recordModeLabels[mapping.granularity]} · {amountBasisLabels[mapping.amountBasis]} ·
-              {mapping.from === "2000-01-01" ? "檢視整張來源表的歷史與未來訂單" : `檢視 ${mapping.from} 起仍在住或尚未入住的訂單`}
-              {mapping.missingOrderId === "source-row" && " · 缺訂單編號以來源列唯一ID逐列建單"}
-            </p>
-            <button type="button" className={`${secondary} mt-3`} disabled={busy || uncertain}
-              onClick={() => { setPreview(null); setShowAdvanced(true); setConfirmed(false); }}>
-              調整欄位、房間或匯入日期
-            </button>
-            <p className="my-3 text-sm">
-              每一列預覽代表合併後的一張訂單。可先匯入無問題的整組資料；有問題的訂單不會只匯入其中幾晚。預覽保留一小時。
-            </p>
-            <p className="mb-3 text-sm" role="status">
-              已讀取整張來源表，共 {preview.rows.length} 組來源紀錄；目前範圍顯示 {currentPreviewRows.length} 組，已選 {selection.length} 組可匯入訂單。
-              {pastPreviewCount > 0 && `另有 ${pastPreviewCount} 筆在 ${mapping.from} 前退房，已略過。`}
-              每頁顯示 {PREVIEW_PAGE_SIZE} 筆，翻頁不會清除選擇。
-            </p>
+          <section className="mt-5 rounded-[2rem] border border-white bg-white p-6 shadow-[0_24px_70px_-42px_rgba(15,86,77,0.45)] sm:p-9">
+            <div className="flex items-start gap-4">
+              <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl text-xl ${problemRows.length ? "bg-amber-50 text-amber-800" : "bg-teal-50 text-teal-800"}`} aria-hidden="true">
+                {problemRows.length ? "!" : "✓"}
+              </div>
+              <div>
+                <h2 className="text-2xl font-semibold text-slate-900">
+                  {problemRows.length ? "有幾筆訂房需要核對" : selection.length ? "資料已檢查，可以匯入" : "沒有新的訂房需要匯入"}
+                </h2>
+                <p className="mt-2 text-sm leading-7 text-slate-600">
+                  {problemRows.length
+                    ? "有問題的訂房會留在這裡，不會混進日曆。你可以先匯入已確認的訂房。"
+                    : "系統已核對日期、房間與重複訂房；原始表格沒有被修改。"}
+                </p>
+              </div>
+            </div>
+            <div className="mt-7 grid gap-3 sm:grid-cols-2" role="status">
+              <div className="rounded-2xl bg-teal-50 p-5"><strong className="block text-3xl font-semibold text-teal-900">{selection.length}</strong><span className="mt-1 block text-sm text-teal-900">筆可匯入</span></div>
+              <div className="rounded-2xl bg-amber-50 p-5"><strong className="block text-3xl font-semibold text-amber-900">{problemRows.length}</strong><span className="mt-1 block text-sm text-amber-900">筆未匯入，需核對或已存在</span></div>
+            </div>
+            {pastPreviewCount > 0 && <p className="mt-4 text-sm text-slate-500">另有 {pastPreviewCount} 筆在所選日期前退房，已略過。</p>}
+            <div className="mt-7 flex flex-wrap items-center gap-3">
+              {selection.length > 0 && <button className={`${button} py-4`} disabled={busy} onClick={() => run(commit)}>
+                {uncertain ? "重試相同匯入" : `匯入 ${selection.length} 筆並查看日曆 →`}
+              </button>}
+              {!selection.length && <a href={`/w/${slug}/calendar?property=${encodeURIComponent(property.id)}`} className={secondary}>查看房況日曆</a>}
+              <button type="button" className={secondary} disabled={busy || uncertain}
+                onClick={() => { setPreview(null); setShowAdvanced(true); setConfirmed(false); }}>
+                調整資料辨識
+              </button>
+            </div>
+            <details className="mt-8 border-t border-slate-100 pt-5">
+              <summary className="cursor-pointer font-medium text-teal-800">
+                {problemRows.length ? `查看 ${problemRows.length} 筆未匯入訂房` : "查看訂房明細"}
+              </summary>
+              {problemRows.length > 0 && <button type="button" className="mt-4 text-sm text-teal-800 underline" onClick={() => { setShowAllRows((old) => !old); setPreviewPage(0); }}>
+                {showAllRows ? "只看未匯入的訂房" : "顯示所有已檢查訂房"}
+              </button>}
+              <p className="my-4 text-xs leading-6 text-slate-500">每筆訂房的來源與檢查結果都保留在這裡。表格每頁顯示 {PREVIEW_PAGE_SIZE} 筆，翻頁不會清除選擇。</p>
             {previewPages > 1 && (
               <div className="mb-3 flex items-center gap-3 text-sm">
                 <button type="button" className={secondary} disabled={previewPage === 0} onClick={() => setPreviewPage((page) => page - 1)}>上一頁</button>
@@ -1133,7 +1192,8 @@ export function SheetImport({
                 </tbody>
               </table>
             </div>
-            {helpCard}
+            </details>
+            {problemRows.length > 0 && helpCard}
             {preview.rows.every((row) =>
               row.issues.includes("已在選定範圍之前退房"),
             ) && (
@@ -1145,27 +1205,18 @@ export function SheetImport({
                   onChange={(e) => setConfirmedEmpty(e.target.checked)}
                 />
                 <span>
-                  我已核對來源，確認 {mapping.from}{" "}
-                  起沒有尚未退房或未來的有效訂單。
+                  我確認這份資料沒有需要匯入的訂房。
                 </span>
               </label>
             )}
-            <button
-              className={`${button} mt-4`}
-              disabled={busy || (!selection.length && !confirmedEmpty)}
-              onClick={() => run(commit)}
-            >
-              {uncertain
-                ? "重試相同匯入"
-                : selection.length
-                  ? `確認匯入 ${selection.length} 筆`
-                  : "確認此範圍沒有有效訂單"}
-            </button>
+            {confirmedEmpty && !selection.length && <button className={`${button} mt-4`} disabled={busy} onClick={() => run(commit)}>
+              {uncertain ? "重試相同匯入" : "確認並查看日曆"}
+            </button>}
           </section>
         )}
         {!!batches.length && (
-          <section className="mt-6">
-            <h2 className="font-semibold">匯入紀錄與撤回</h2>
+          <details className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 text-sm">
+            <summary className="cursor-pointer font-medium text-teal-800">管理匯入紀錄</summary>
             <p className="mt-2 text-sm">
               只撤回匯入後未修改的訂單；已修改的訂單會保留並列出數量。撤回保留稽核紀錄，原試算表不變。已撤回的來源訂單不會再次自動匯入。
             </p>
@@ -1229,7 +1280,7 @@ export function SheetImport({
             >
               重新載入紀錄
             </button>
-          </section>
+          </details>
         )}
       </div>
     </main>
