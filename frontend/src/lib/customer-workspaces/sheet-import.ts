@@ -129,8 +129,10 @@ export async function previewImport(
     accountId,
     workspaceId: workspace.id,
     propertyId,
-    coverageFrom: mapping.from,
-    ...(mapping.coverageConfirmed ? { coverageTo: mapping.coverageTo } : {}),
+    ...(mapping.coverageConfirmed ? {
+      coverageFrom: mapping.coverageFrom ?? mapping.from,
+      coverageTo: mapping.coverageTo,
+    } : {}),
     version: workspace.version,
     expiresAt: Date.now() + 3600000,
     sourceKey,

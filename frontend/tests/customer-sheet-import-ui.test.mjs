@@ -151,6 +151,8 @@ test("Sheet wizard maps columns, quarantines rows, preserves selection after los
   assert.equal(previewBody.mapping.columns.checkIn, 0);
   assert.equal(previewBody.mapping.coverageTo, "2026-12-31");
   assert.equal(previewBody.mapping.coverageConfirmed, true);
+  assert.equal(previewBody.mapping.from, "2000-01-01");
+  assert.ok(previewBody.mapping.coverageFrom > "2000-01-01");
   assert.equal(
     document.querySelector('[aria-label="匯入第 4 列"]').disabled,
     true,
@@ -304,7 +306,7 @@ test("unmatched source rooms stop automatic preview and ask for room review", as
   ));
 });
 
-test("approved first onboarding opens read-only preview and shows source values for rejected rows", async (t) => {
+test("approved first onboarding previews the entire Sheet and selects unique-ID history rows", async (t) => {
   const dom = new JSDOM('<div id="root"></div>', { url: "https://test.local" });
   const globals = { window: globalThis.window, document: globalThis.document,
     IS_REACT_ACT_ENVIRONMENT: globalThis.IS_REACT_ACT_ENVIRONMENT };
@@ -318,6 +320,7 @@ test("approved first onboarding opens read-only preview and shows source values 
     dom.window.close();
   });
   const calls = [];
+  let previewBody;
   t.mock.method(globalThis, "fetch", async (_url, options) => {
     const body = JSON.parse(options.body);
     calls.push(body.action);
@@ -328,10 +331,13 @@ test("approved first onboarding opens read-only preview and shows source values 
       ["101", "Past Guest", "Direct", "2025-10-01", "2025-10-02", "2025-09-01", "2064", "", "", "row-1", "", ""],
       ["101", "Future Guest", "Direct", "2027-01-01", "2027-01-02", "2026-12-01", "2500", "", "", "row-2", "", ""],
     ] });
-    if (body.action === "preview") return Response.json({ id: "preview", rows: [
-      { row: 2, sourceRows: [2], draft: null, issues: ["多列訂單需要來源訂單編號", "已在選定範圍之前退房"] },
-      { row: 3, sourceRows: [3], draft: null, issues: ["多列訂單需要來源訂單編號"] },
-    ] });
+    if (body.action === "preview") {
+      previewBody = body;
+      return Response.json({ id: "preview", rows: [
+        { row: 2, sourceRows: [2], draft: { guestName: "Past Guest", checkIn: "2025-10-01", checkOut: "2025-10-02", roomIds: ["room-101"], externalId: "source-row:row-1", total: 2064 }, issues: [] },
+        { row: 3, sourceRows: [3], draft: { guestName: "Future Guest", checkIn: "2027-01-01", checkOut: "2027-01-02", roomIds: ["room-101"], externalId: "source-row:row-2", total: 2500 }, issues: [] },
+      ] });
+    }
     throw Error(`unexpected action ${body.action}`);
   });
   await act(() => root.render(createElement(SheetImport, {
@@ -342,11 +348,14 @@ test("approved first onboarding opens read-only preview and shows source values 
     autoPreview: true,
   })));
   assert.deepEqual(calls, ["tabs", "read", "preview"]);
+  assert.equal(previewBody.mapping.from, "2000-01-01");
+  assert.equal(previewBody.mapping.granularity, "stay");
+  assert.equal(previewBody.mapping.missingOrderId, "source-row");
+  assert.equal(previewBody.mapping.columns.sourceRowId, 9);
   assert.equal(document.body.textContent.includes("貼上資料來源"), false);
+  assert.match(document.body.textContent, /Past Guest/);
   assert.match(document.body.textContent, /Future Guest/);
-  assert.match(document.body.textContent, /來源房費：2500（未核算）/);
-  assert.match(document.body.textContent, /另有 1 筆.*已略過/);
-  assert.equal(document.body.textContent.includes("Past Guest"), false);
+  assert.match(document.body.textContent, /已選 2 組可匯入訂單/);
   assert.equal(document.body.textContent.includes("未填姓名"), false);
   assert.equal(calls.includes("commit"), false);
 });
