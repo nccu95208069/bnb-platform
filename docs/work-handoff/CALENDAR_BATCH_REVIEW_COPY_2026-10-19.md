@@ -2,7 +2,9 @@
 
 ## Status
 
-Implemented on an isolated branch with synthetic verification. This is **not deployed**. The batch review UI is opt-in with `CALENDAR_BATCH_REVIEW_ENABLED=true`; it reads the live source but never changes it. No live booking rows were deleted during development or verification.
+Implemented on an isolated branch with synthetic verification. This is **not live on the primary domain**. The batch review UI is opt-in with `CALENDAR_BATCH_REVIEW_ENABLED=true`; it reads the live source but never changes it. No live booking rows were deleted during development or verification.
+
+On 2026-10-19, the reviewed PR tree was staged as production-target deployment `dpl_H5zG26r2UM4Moa5XqsfYwwdHCcQF` at `https://sweetfun-6hl919dt9-sweetfuns-projects.vercel.app` with `--skip-domain` and a deployment-only `CALENDAR_BATCH_REVIEW_ENABLED=true`. The cloud build and TypeScript passed. The unique URL and project alias require Vercel Authentication. Through the authenticated Vercel test path, `/start` returned 200, anonymous `/calendar` redirected, both calendar and preview APIs returned 401, and a batch `confirm` request returned 405. No staged runtime error was recorded. The primary hostname remained on prior deployment `dpl_gw3LHkEMc2WL9mrbiTkKJ55bnZYs` after staging. Authenticated calendar/UI acceptance remains pending: Google login on the staged host redirects to the configured primary-domain callback, so acceptance needs a direct email-code or existing-password sign-in on the staged host. Do not promote until that check passes and the primary alias is checked again.
 
 ## Behavior
 
