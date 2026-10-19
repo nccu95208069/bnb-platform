@@ -4,6 +4,7 @@ import { api, button, field, secondary } from "./client";
 import { receptionChoices } from "@/lib/hospitality-mode";
 import { PasswordlessLogin } from "./passwordless-login";
 import { customerReturnPath } from "@/lib/customer-workspaces/return-path";
+import { Eye, EyeOff } from "lucide-react";
 type Profile = {
   email: string;
   workspaces: { id: string; slug: string; name: string }[];
@@ -28,6 +29,8 @@ export function Onboarding({
     [busy, setBusy] = useState(false),
     [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [step, setStep] = useState(1),
     [name, setName] = useState(""),
     [slug, setSlug] = useState(""),
@@ -146,6 +149,8 @@ export function Onboarding({
                       className={mode === value ? button : secondary}
                       onClick={() => {
                         setMode(value);
+                        setShowPassword(false);
+                        setShowConfirmPassword(false);
                         setNotice("");
                         setError("");
                       }}
@@ -170,38 +175,38 @@ export function Onboarding({
                   </p>
                 )}
                 {mode !== "recover" && (
-                  <label className="block">
-                    密碼
-                    <input
-                      className={field}
-                      name="password"
-                      type="password"
-                      autoComplete={
-                        mode === "register"
-                          ? "new-password"
-                          : "current-password"
-                      }
-                      minLength={8}
-                      maxLength={128}
-                      required
-                    />
-                  </label>
+                  <div>
+                    <label htmlFor="customer-login-password">密碼</label>
+                    <span className="relative block">
+                      <input
+                        id="customer-login-password"
+                        className={`${field} pr-12`}
+                        name="password"
+                        type={showPassword ? "text" : "password"}
+                        autoComplete={mode === "register" ? "new-password" : "current-password"}
+                        minLength={8}
+                        maxLength={128}
+                        required
+                      />
+                      <button type="button" aria-label={showPassword ? "隱藏密碼" : "顯示密碼"} aria-pressed={showPassword} onClick={() => setShowPassword(value => !value)} className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-600 hover:text-slate-900">
+                        {showPassword ? <EyeOff aria-hidden="true" size={18} /> : <Eye aria-hidden="true" size={18} />}
+                      </button>
+                    </span>
+                  </div>
                 )}
                 {mode === "register" && (
                   <p className="text-sm text-slate-600">新密碼需 8～128 字元，包含英文字母、數字和特殊符號。</p>
                 )}
                 {mode === "register" && (
-                  <label className="block">
-                    再次輸入密碼
-                    <input
-                      className={field}
-                      name="confirmPassword"
-                      type="password"
-                      autoComplete="new-password"
-                      minLength={8}
-                      required
-                    />
-                  </label>
+                  <div>
+                    <label htmlFor="customer-confirm-password">再次輸入密碼</label>
+                    <span className="relative block">
+                      <input id="customer-confirm-password" className={`${field} pr-12`} name="confirmPassword" type={showConfirmPassword ? "text" : "password"} autoComplete="new-password" minLength={8} required />
+                      <button type="button" aria-label={showConfirmPassword ? "隱藏確認密碼" : "顯示確認密碼"} aria-pressed={showConfirmPassword} onClick={() => setShowConfirmPassword(value => !value)} className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-600 hover:text-slate-900">
+                        {showConfirmPassword ? <EyeOff aria-hidden="true" size={18} /> : <Eye aria-hidden="true" size={18} />}
+                      </button>
+                    </span>
+                  </div>
                 )}
                 <p className="text-sm text-slate-500">
                   新客戶請先
