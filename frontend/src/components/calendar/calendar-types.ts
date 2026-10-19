@@ -1,6 +1,6 @@
 export type CalendarView = "month" | "week" | "day";
 export type PaymentStatus = "paid" | "deposit" | "unpaid" | "unknown";
-export type ReservationStatus = "confirmed" | "cancelled";
+export type ReservationStatus = "confirmed" | "held" | "cancelled";
 export type PaymentMethod = "cash" | "bank_transfer" | "credit_card" | "ota" | "other";
 export type PaymentType = "deposit" | "balance" | "other" | "full";
 export type BabySupplyKey =
@@ -68,6 +68,7 @@ export type CalendarBooking = {
   room_rate: number;
   payment_status: PaymentStatus;
   reservation_status: ReservationStatus;
+  hold_label?: string;
   notes: string | null;
   payments: PaymentRecord[];
   audit_log: BookingAuditEvent[];

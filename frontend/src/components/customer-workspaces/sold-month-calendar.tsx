@@ -113,7 +113,7 @@ export function CustomerSoldMonth({ data: initial, propertyId, initialMonth, ini
       <div className="rounded-2xl border bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
           <h2 className="text-lg font-semibold">訂單與房況日曆</h2>
-          <span className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white">已售訂單 · 月</span>
+          <span className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white">訂單與保留 · 月</span>
         </div>
         <div className="flex flex-wrap items-center gap-2 px-4 py-3">
           <button type="button" className={secondary} aria-label="上一月" onClick={() => navigate(moveMonth(month, -1))}>〈</button>
@@ -170,10 +170,11 @@ export function CustomerSoldMonth({ data: initial, propertyId, initialMonth, ini
               back: `/w/${data.slug}/calendar?property=${encodeURIComponent(propertyId)}&month=${month}&day=${day}`,
             })}`}>
             <strong>{booking.room_number} · {booking.guest_name || "姓名未填"}</strong>
+            {booking.hold_label && <p className="text-xs font-semibold text-amber-900">{booking.hold_label}</p>}
             <p className="text-xs text-slate-600">{booking.check_in} 入住 → {booking.check_out} 退房</p>
           </a>)}
         </div>
-        {!dayBookings.length && <p className="mt-3 text-sm text-slate-500">當晚沒有已確認訂單。</p>}
+        {!dayBookings.length && <p className="mt-3 text-sm text-slate-500">當晚沒有訂單或保留占房。</p>}
       </section>}
     </section>
   );
