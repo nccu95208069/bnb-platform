@@ -1,5 +1,7 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
+2026-10-19 完整歷史匯入預覽與既有已售月曆樣式已由 PR #55 合併並發布，正式站已唯讀驗證；真實訂單仍待使用者按最後匯入確認。後續發布必須套用[開通、匯入與月曆發布檢查](ONBOARDING_RELEASE_GATES_2026-10-19.md)，來源衝突仍需個別核對。
+
 2026-10-19 首次開通後的 Sheet 連結直達唯讀預覽、無草稿列顯示來源原值與舊列略過，已[合併並發布至正式站](ONBOARDING_PREVIEW_FOLLOWUP_2026-10-19.md)；實際訂單匯入仍待使用者核對並確認。
 
 2026-10-19 開通網址與 Sheet 匯入第一頁的簡化、缺房間對應時停止自動預覽的修正均已合併並部署至正式站；登入的非營業工作區已驗證缺房間對應提示。其餘待驗收項目見[交接紀錄](ONBOARDING_SIMPLE_IMPORT_2026-10-19.md)。
@@ -405,4 +407,4 @@ See [calendar change intake and deferred producer coordination](CALENDAR_CHANGE_
 
 ## Customer full-history import and month calendar — 2026-10-19
 
-See [full-history import and customer calendar parity](SHEET_FULL_HISTORY_CALENDAR_PARITY_2026-10-19.md). Review the local branch, confirm tests and release gates, then check the real customer preview without clicking final import. A row whose source identity, dates, room, or overlap cannot be validated remains a review item; investigate it before treating the calendar as complete or sale-ready.
+See [full-history import and customer calendar parity](SHEET_FULL_HISTORY_CALENDAR_PARITY_2026-10-19.md) and the [release gates](ONBOARDING_RELEASE_GATES_2026-10-19.md). PR #55 is live; the real customer preview was checked without clicking final import. A row whose source identity, dates, room, or overlap cannot be validated remains a review item; investigate it before treating the calendar as complete or sale-ready.
