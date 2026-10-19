@@ -1,5 +1,7 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
+2026-10-19 首次開通後的 Sheet 連結直達唯讀預覽、無草稿列顯示來源原值與舊列略過，已[合併並發布至正式站](ONBOARDING_PREVIEW_FOLLOWUP_2026-10-19.md)；實際訂單匯入仍待使用者核對並確認。
+
 2026-10-19 開通網址與 Sheet 匯入第一頁的簡化、缺房間對應時停止自動預覽的修正均已合併並部署至正式站；登入的非營業工作區已驗證缺房間對應提示。其餘待驗收項目見[交接紀錄](ONBOARDING_SIMPLE_IMPORT_2026-10-19.md)。
 
 2026-10-16 標準帳本 v5：依業主決定增加訂單「最後更新時間」，保留原訂房日期；舊 v4 帳本守護式升級及缺失歷史時間留白詳見 [實作與發布邊界](STANDARD_SHEET_V5_UPDATED_AT_2026-10-16.md)。程式尚未部署。

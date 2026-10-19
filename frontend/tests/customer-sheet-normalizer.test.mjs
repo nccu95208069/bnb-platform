@@ -174,6 +174,18 @@ test("one bad date or room in an order prevents its other valid lines from being
     assert.ok(order.issues.length);
   }
 });
+test("old rows without order IDs are identified as past while current rows stay for review", () => {
+  const rows = normalized([
+    line("2025-10-01", "2025-10-02", "101", "", "2064", "", "Past Guest"),
+    line("2027-01-01", "2027-01-02", "101", "", "2500", "", "Future Guest"),
+  ]);
+  assert.equal(rows[0].draft, null);
+  assert.ok(rows[0].issues.includes("已在選定範圍之前退房"));
+  assert.ok(rows[0].issues.some((issue) => issue.includes("來源訂單編號")));
+  assert.equal(rows[1].draft, null);
+  assert.ok(!rows[1].issues.includes("已在選定範圍之前退房"));
+  assert.ok(rows[1].issues.some((issue) => issue.includes("來源訂單編號")));
+});
 test("same name without order IDs never joins nightly rows, and repeated room nights block an order", () => {
   const result = normalized([
     line("2026-10-10", "2026-10-11", "101", ""),
@@ -352,6 +364,20 @@ test("group preview commits once, excludes gap nights, hides nightly prices from
   const undone = await undoImport(...f.args, batch.id, current.version);
   assert.deepEqual(undone.cancelled, [booking.id]);
   assert.equal((await f.current()).bookings[0].status, "cancelled");
+});
+test("past missing-ID rows do not create review records when a current order is imported", async () => {
+  const f = workspaceFixture();
+  const preview = await previewImport(...f.args, source([
+    line("2025-10-01", "2025-10-02", "101", "", "2064", "", "Past Guest"),
+    line("2027-01-01", "2027-01-02", "101", "CURRENT", "2500", "", "Future Guest"),
+  ]), mapping());
+  assert.ok(preview.rows[0].issues.includes("已在選定範圍之前退房"));
+  assert.equal(preview.rows[1].issues.length, 0);
+  await commitImport(...f.args, preview.id, [3]);
+  const current = await f.current();
+  assert.equal(current.bookings.length, 1);
+  assert.equal(current.bookings[0].guestName, "Future Guest");
+  assert.equal(current.reviewRecords?.length ?? 0, 0);
 });
 test("a conflicting multi-line order cannot be partially selected by its second source row", async () => {
   const f = workspaceFixture();
