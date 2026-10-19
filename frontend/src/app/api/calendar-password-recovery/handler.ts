@@ -4,7 +4,9 @@ import { inspectEmailRecovery, consumeEmailRecovery, requestEmailRecovery } from
 import { authFailure, inputBody, privateHeaders, sameOrigin } from '@/lib/workspace-auth/http';
 import { mailStatus, sendCustomerLifecycleMail } from '@/lib/workspace-auth/mail';
 import { RedisWorkspaceStore } from '@/lib/workspace-auth/store';
-import { normalizedEmail, validEmail } from '@/lib/workspace-auth/types';
+import { ADMIN_EMAIL, normalizedEmail, validEmail } from '@/lib/workspace-auth/types';
+import { RedisOwnerCredentialStore } from '@/lib/owner-password';
+import { consumeOwnerEmailRecovery, inspectOwnerEmailRecovery, requestOwnerEmailRecovery } from '@/lib/workspace-auth/owner-email-recovery';
 
 function failure(error: unknown) {
   const code = error instanceof Error ? error.message : '';
@@ -32,7 +34,7 @@ export async function handleRecovery(request: NextRequest, schedule: (task: () =
       await store.limit(`calendar-email-recovery:${email}`, 3, 3600);
       if (!(await mailStatus()).configured) throw new Error('MAIL_NOT_CONFIGURED');
       try {
-        const outcome = await requestEmailRecovery(store, email, async (to, url) => {
+        const send = async (to: string, url: string) => {
           schedule(async () => {
             try {
               await sendCustomerLifecycleMail(to, 'Sweetfun OS｜重設既有日曆密碼',
@@ -41,7 +43,10 @@ export async function handleRecovery(request: NextRequest, schedule: (task: () =
               console.warn('calendar_password_recovery_mail_failed');
             }
           });
-        }, Date.now(), request.nextUrl.origin);
+        };
+        const outcome = email === ADMIN_EMAIL
+          ? await requestOwnerEmailRecovery(new RedisOwnerCredentialStore(), send, Date.now(), request.nextUrl.origin)
+          : await requestEmailRecovery(store, email, send, Date.now(), request.nextUrl.origin);
         if (outcome.eligible && !outcome.delivered) console.warn('calendar_password_recovery_schedule_failed');
       } catch {
         // Keep account existence private even when an eligible account changes concurrently.
@@ -52,11 +57,15 @@ export async function handleRecovery(request: NextRequest, schedule: (task: () =
     }
     if (input.action === 'inspect') {
       await store.limit('calendar-email-recovery-inspect', 120, 900);
-      return NextResponse.json(await inspectEmailRecovery(store, input.token), { headers: privateHeaders });
+      return NextResponse.json(typeof input.token === 'string' && input.token.startsWith('owner.')
+        ? await inspectOwnerEmailRecovery(new RedisOwnerCredentialStore(), input.token)
+        : await inspectEmailRecovery(store, input.token), { headers: privateHeaders });
     }
     if (input.action === 'consume') {
       await store.limit('calendar-email-recovery-consume', 80, 900);
-      const result = await consumeEmailRecovery(store, input.token, input.password, input.confirmPassword);
+      const result = typeof input.token === 'string' && input.token.startsWith('owner.')
+        ? await consumeOwnerEmailRecovery(new RedisOwnerCredentialStore(), input.token, input.password, input.confirmPassword)
+        : await consumeEmailRecovery(store, input.token, input.password, input.confirmPassword);
       try {
         await sendCustomerLifecycleMail(result.email, 'Sweetfun OS｜既有日曆密碼已更新',
           '你的 Sweetfun OS 既有兩館日曆密碼已更新，舊登入狀態已失效。若這不是你本人操作，請立即聯絡旅宿管理員。');
