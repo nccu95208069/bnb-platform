@@ -12,7 +12,15 @@ import {
 } from "@/lib/customer-workspaces/format-assistant";
 const PREVIEW_PAGE_SIZE = 100;
 const GRID_PAGE_SIZE = 100;
+type RecordMode = Mapping["granularity"] | "auto";
 type Batch = NonNullable<Workspace["importBatches"]>[number];
+const recordModeLabels: Record<Mapping["granularity"], string> = {
+  order: "一列一張訂單", stay: "同張訂單可有多列", night: "一列一個住宿夜", grid: "房況格",
+};
+const amountBasisLabels: Record<Mapping["amountBasis"], string> = {
+  order: "同筆訂單金額只算一次", line: "每列房費相加", night: "按每晚房費計算",
+  "room-night": "按每房每晚房費計算", none: "不匯入房費",
+};
 const columnLabels = {
   checkIn: "入住日期",
   checkOut: "退房日期",
@@ -26,6 +34,31 @@ const columnLabels = {
   bookedAt: "實際訂房日期（選填）",
   notes: "訂單備註／需求（選填）",
 };
+function mappingReady(mapping: Mapping) {
+  const isGrid = mapping.granularity === "grid";
+  const isNight = mapping.granularity === "night";
+  return (isGrid
+    ? Boolean(mapping.grid?.dateColumns.length)
+    : mapping.columns.checkIn >= 0 && (isNight || mapping.columns.checkOut >= 0)) &&
+    mapping.columns.rooms >= 0 &&
+    (!["stay", "night"].includes(mapping.granularity) || mapping.columns.externalId >= 0) &&
+    (mapping.amountBasis === "none") === (mapping.columns.total === -1) &&
+    (mapping.receivedMeaning === "none") === (mapping.columns.received === -1);
+}
+function suggestedMapping(current: Mapping, suggestion: FormatSuggestion, mode: RecordMode): Mapping {
+  const granularity = mode === "auto" ? suggestion.granularity : mode;
+  const grid = granularity === "grid" ? suggestion.grid : undefined;
+  const columns = granularity === "grid"
+    ? { ...suggestion.columns, checkIn: -1, checkOut: -1, guestName: -1,
+      externalId: -1, total: -1, received: -1, status: -1 }
+    : { ...suggestion.columns, ...(granularity === "night" ? { checkOut: -1 } : {}) };
+  // An ambiguous money heading never becomes a silently assumed amount.
+  if (suggestion.amountBasis === "none") columns.total = -1;
+  return { ...current, headerRow: suggestion.headerRow, columns,
+    roomMap: suggestion.roomMap, granularity,
+    amountBasis: granularity === "grid" ? "none" : suggestion.amountBasis,
+    receivedMeaning: columns.received < 0 ? "none" : "source", grid };
+}
 export function SheetImport({
   slug,
   property,
@@ -63,6 +96,9 @@ export function SheetImport({
     tabs: { id: number; title: string; sourceId: string }[];
   } | null>(null);
   const [fileTab, setFileTab] = useState("");
+  const [stage, setStage] = useState<"source" | "review">("source");
+  const [recordMode, setRecordMode] = useState<RecordMode>("auto");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [source, setSource] = useState<{
     id: string;
     title: string;
@@ -127,6 +163,60 @@ export function SheetImport({
     setConfirmedEmpty(false);
     setCoverageConfirmed(false);
   }
+  async function prepareSource(nextSource: NonNullable<typeof source>) {
+    const nextSuggestion = suggestFormat(nextSource.rows, property);
+    const nextMapping = suggestedMapping(mapping, nextSuggestion, recordMode);
+    setSource(nextSource);
+    setSuggestion(nextSuggestion);
+    setMapping(nextMapping);
+    setStage("review");
+    setShowAdvanced(false);
+    setPreview(null);
+    setSelection([]);
+    setConfirmed(false);
+    setConfirmedEmpty(false);
+    setCoverageConfirmed(false);
+    if (mappingReady(nextMapping)) {
+      const result = await send<ImportPreview>({
+        action: "preview", sourceId: nextSource.id, mapping: nextMapping,
+      });
+      setPreview(result);
+      setPreviewPage(0);
+      setSelection(result.rows.filter((row) => !row.issues.length).map((row) => row.row));
+    }
+  }
+  async function continueWithGoogle() {
+    setPreview(null);
+    setFileMeta(null);
+    let activeUrl = boundUrl ?? url;
+    if (shareEmail && !boundUrl) {
+      const linked = await send<{ status: string; url?: string; version?: number }>({
+        action: "bind", url,
+      });
+      if (linked.status !== "approved") throw new Error("尚未取得 Sheet 檢視權限，請確認分享設定。");
+      activeUrl = linked.url ?? url;
+      setBoundUrl(activeUrl);
+      if (linked.version) setVersion(linked.version);
+    }
+    const nextMeta = meta ?? await send<NonNullable<typeof meta>>({ action: "tabs", url: activeUrl });
+    setMeta(nextMeta);
+    if (!nextMeta.tabs.length) throw new Error("這份 Sheet 沒有可讀取的分頁。");
+    const linkedGid = /(?:[?#&])gid=(\d+)/.exec(activeUrl)?.[1];
+    const selected = nextMeta.tabs.find((item) => String(item.id) === tab) ??
+      nextMeta.tabs.find((item) => String(item.id) === linkedGid) ??
+      (!linkedGid ? nextMeta.tabs.find((item) => item.title === "工作表1") : undefined) ??
+      (!linkedGid && nextMeta.tabs.length === 1 ? nextMeta.tabs[0] : undefined);
+    if (!selected) {
+      setTab("");
+      setNotice("請選擇訂單所在的分頁再繼續。");
+      return;
+    }
+    setTab(String(selected.id));
+    const nextSource = await send<NonNullable<typeof source>>({
+      action: "read", spreadsheetId: nextMeta.spreadsheetId, sheetId: selected.id,
+    });
+    await prepareSource(nextSource);
+  }
   async function commit() {
     if (!preview) return;
     pending.current ??= {
@@ -150,6 +240,7 @@ export function SheetImport({
       );
       setPreview(null);
       setSource(null);
+      setStage("source");
       setUncertain(false);
       pending.current = null;
     } catch (e) {
@@ -174,16 +265,7 @@ export function SheetImport({
       : [];
   const isGrid = mapping.granularity === "grid";
   const isNight = mapping.granularity === "night";
-  const mappingComplete =
-    (isGrid
-      ? Boolean(mapping.grid?.dateColumns.length)
-      : mapping.columns.checkIn >= 0 &&
-        (isNight || mapping.columns.checkOut >= 0)) &&
-    mapping.columns.rooms >= 0 &&
-    (!["stay", "night"].includes(mapping.granularity) ||
-      mapping.columns.externalId >= 0) &&
-    (mapping.amountBasis === "none") === (mapping.columns.total === -1) &&
-    (mapping.receivedMeaning === "none") === (mapping.columns.received === -1);
+  const mappingComplete = mappingReady(mapping);
   const columnCount = Math.max(0, ...(source?.rows.map((r) => r.length) ?? []));
   const columns = Array.from({ length: columnCount }, (_, i) => ({
     id: i,
@@ -259,16 +341,16 @@ export function SheetImport({
             寫入結果尚未確認。請按「重試相同匯入」核對；已送出的選擇暫時鎖定。
           </p>
         )}
-        <fieldset
+        {stage === "source" ? <fieldset
           disabled={busy || uncertain}
           className="rounded-2xl border bg-white p-5 disabled:opacity-60"
         >
-          <legend className="px-2 font-semibold">1. 選擇來源</legend>
+          <legend className="px-2 font-semibold">1. 貼上資料來源</legend>
           <p className="mb-3 text-sm">
             {boundUrl
-              ? "請選擇要匯入的分頁。Sheet 建立者與登入帳號可以不同，不需變更原表格式。"
+              ? "已連結 Google Sheet；接下來系統會讀取資料並產生預覽。原表不會被修改。"
               : shareEmail
-                ? `先將 Sheet 的檢視權限分享給 ${shareEmail}，再貼上連結。不要求建立者與登入帳號相同，也不需公開檔案。`
+                ? `請將 Sheet 的「檢視者」權限分享給 ${shareEmail}，再貼上連結。不需公開檔案。`
                 : "Google 唯讀授權約一小時有效。不需公開分享檔案。"}
           </p>
           {shareEmail && (
@@ -311,6 +393,7 @@ export function SheetImport({
               onChange={(e) => {
                 setUrl(e.target.value);
                 setMeta(null);
+                setTab("");
                 setFileMeta(null);
                 setSource(null);
                 setPreview(null);
@@ -318,85 +401,34 @@ export function SheetImport({
               placeholder="https://docs.google.com/spreadsheets/d/…"
             />
           </label>
-          <button
-            disabled={!configured || !url}
-            className={`${secondary} mt-3`}
-            onClick={() =>
-              run(async () => {
-                setSource(null);
-                setPreview(null);
-                setFileMeta(null);
-                if (shareEmail && !boundUrl) {
-                  const linked = await send<{
-                    status: string;
-                    url?: string;
-                    version?: number;
-                  }>({ action: "bind", url });
-                  if (linked.status !== "approved") {
-                    setNotice("來源連結尚未完成，請重新讀取或聯絡專人協助。");
-                    return;
-                  }
-                  setBoundUrl(linked.url ?? url);
-                  if (linked.version) setVersion(linked.version);
-                }
-                const result = await send<NonNullable<typeof meta>>({
-                  action: "tabs",
-                  url,
-                });
-                setMeta(result);
-                setTab(String(result.tabs[0]?.id ?? ""));
-              })
-            }
-          >
-            讀取分頁
-          </button>
-          {meta && (
-            <div className="mt-4">
-              <p>{meta.title}</p>
-              <label>
-                分頁
-                <select
-                  className={field}
-                  value={tab}
-                  onChange={(e) => {
-                    setTab(e.target.value);
-                    setSource(null);
-                    setPreview(null);
-                  }}
-                >
-                  {meta.tabs.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                className={`${button} mt-3`}
-                disabled={!tab}
-                onClick={() =>
-                  run(async () => {
-                    setPreview(null);
-                    setSource(null);
-                    setConfirmed(false);
-                    setConfirmedEmpty(false);
-                    const result = await send<NonNullable<typeof source>>({
-                      action: "read",
-                      spreadsheetId: meta.spreadsheetId,
-                      sheetId: Number(tab),
-                    });
-                    setSource(result);
-                    setSuggestion(suggestFormat(result.rows, property));
-                  })
-                }
-              >
-                讀取資料
-              </button>
-            </div>
+          <label className="mt-4 block">
+            來源紀錄方式
+            <select className={field} value={recordMode}
+              onChange={(event) => setRecordMode(event.target.value as RecordMode)}>
+              <option value="auto">讓系統辨認（建議）</option>
+              <option value="order">一列是一張完整訂單</option>
+              <option value="stay">同張訂單可能有多列房間或住宿</option>
+              <option value="night">一列是一個住宿夜</option>
+              <option value="grid">日期橫排、房間直排的房況格</option>
+            </select>
+          </label>
+          {meta && !tab && (
+            <label className="mt-4 block">
+              訂單所在分頁
+              <select className={field} value={tab} onChange={(event) => setTab(event.target.value)}>
+                <option value="">請選擇分頁</option>
+                {meta.tabs.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+              </select>
+            </label>
           )}
+          <button type="button" className={`${button} mt-5`}
+            disabled={!configured || !url.trim() || (Boolean(meta) && !tab)}
+            onClick={() => run(continueWithGoogle)}>
+            下一步：查看匯入預覽
+          </button>
           {!boundUrl && (
-            <div className="mt-6 border-t pt-5">
-              <h2 className="font-medium">或上傳 Excel／CSV 檔案</h2>
+            <details className="mt-6 border-t pt-5">
+              <summary className="cursor-pointer font-medium text-teal-800">改用 Excel／CSV 檔案</summary>
               <p className="mt-2 text-sm text-slate-600">
                 支援未加密的 .xlsx、UTF-8 或 Big5 CSV，最多 3 MB。檔名與分頁名稱是來源識別；更新同一份資料時請保留名稱。上傳後仍需核對欄位、房間和每筆預覽。
               </p>
@@ -427,10 +459,13 @@ export function SheetImport({
                   setFileMeta(staged);
                   setMeta(null);
                   setPreview(null);
+                  if (staged.tabs.length !== 1) {
+                    setFileTab("");
+                    return;
+                  }
                   setFileTab(staged.tabs[0].sourceId);
                   const first = await send<NonNullable<typeof source>>({ action: "file-source", sourceId: staged.tabs[0].sourceId });
-                  setSource(first);
-                  setSuggestion(suggestFormat(first.rows, property));
+                  await prepareSource(first);
                 })}
               >
                 上傳並讀取
@@ -441,25 +476,47 @@ export function SheetImport({
                   <select
                     className={field}
                     value={fileTab}
-                    onChange={(event) => run(async () => {
-                      const sourceId = event.target.value;
-                      setFileTab(sourceId);
-                      setPreview(null);
-                      setConfirmed(false);
-                      setConfirmedEmpty(false);
-                      const selected = await send<NonNullable<typeof source>>({ action: "file-source", sourceId });
-                      setSource(selected);
-                      setSuggestion(suggestFormat(selected.rows, property));
-                    })}
+                    onChange={(event) => setFileTab(event.target.value)}
                   >
+                    <option value="">請選擇訂單所在分頁</option>
                     {fileMeta.tabs.map((tab) => <option key={tab.sourceId} value={tab.sourceId}>{tab.title}</option>)}
                   </select>
                 </label>
               )}
-            </div>
+              {fileMeta && fileMeta.tabs.length > 1 && <button type="button"
+                className={`${button} mt-3`} disabled={!fileTab}
+                onClick={() => run(async () => {
+                  const selected = await send<NonNullable<typeof source>>({ action: "file-source", sourceId: fileTab });
+                  await prepareSource(selected);
+                })}>下一步：查看匯入預覽</button>}
+            </details>
           )}
-        </fieldset>
-        {source && (
+        </fieldset> : <section className="rounded-2xl border bg-white p-5">
+          <p className="font-semibold">已讀取 {source?.title ?? "來源資料"}</p>
+          <p className="mt-1 text-sm text-slate-600">系統已自動找欄位與房間；確認預覽後才會建立訂單。</p>
+          <button type="button" className={`${secondary} mt-3`} onClick={() => {
+            setStage("source"); setSource(null); setPreview(null); setShowAdvanced(false);
+          }}>更換來源</button>
+        </section>}
+        {stage === "review" && source && !preview && !showAdvanced && (
+          <section className="mt-5 rounded-2xl border bg-white p-5">
+            <h2 className="font-semibold">{mappingComplete ? "資料已讀取，請重新產生預覽" : "資料已讀取，還需要核對"}</h2>
+            <p className="mt-2 text-sm text-slate-600">{source.rows.length} 列 · {suggestion?.messages[0]}</p>
+            {!mappingComplete && <p className="mt-2 text-sm text-amber-800">
+              系統尚無法安全判斷必要的日期、房間或訂單編號。請檢查這幾項後再看預覽。
+            </p>}
+            {mappingComplete && <button type="button" className={`${button} mt-4`} onClick={() => run(async () => {
+              const result = await send<ImportPreview>({ action: "preview", sourceId: source.id, mapping });
+              setPreview(result);
+              setPreviewPage(0);
+              setSelection(result.rows.filter((row) => !row.issues.length).map((row) => row.row));
+            })}>重新產生預覽</button>}
+            <button type="button" className={`${secondary} mt-4`} onClick={() => setShowAdvanced(true)}>
+              檢查必要欄位與房間
+            </button>
+          </section>
+        )}
+        {stage === "review" && source && !preview && showAdvanced && (
           <fieldset
             disabled={busy || uncertain}
             className="mt-5 rounded-2xl border bg-white p-5 disabled:opacity-60"
@@ -885,6 +942,14 @@ export function SheetImport({
         {preview && (
           <section className="mt-5 rounded-2xl border bg-white p-5">
             <h2 className="font-semibold">3. 選擇要匯入的訂單</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              {recordModeLabels[mapping.granularity]} · {amountBasisLabels[mapping.amountBasis]} ·
+              只匯入 {mapping.from} 起仍在住或尚未入住的訂單
+            </p>
+            <button type="button" className={`${secondary} mt-3`} disabled={busy || uncertain}
+              onClick={() => { setPreview(null); setShowAdvanced(true); setConfirmed(false); }}>
+              調整欄位、房間或匯入日期
+            </button>
             <p className="my-3 text-sm">
               每一列預覽代表合併後的一張訂單。可先匯入無問題的整組資料；有問題的訂單不會只匯入其中幾晚。預覽保留一小時。
             </p>

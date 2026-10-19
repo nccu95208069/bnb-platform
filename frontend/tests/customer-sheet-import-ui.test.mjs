@@ -124,12 +124,14 @@ test("Sheet wizard maps columns, quarantines rows, preserves selection after los
     document.querySelector("input"),
     "https://docs.google.com/spreadsheets/d/synthetic-id",
   );
-  await click(button("讀取分頁"));
-  await click(button("讀取資料"));
-  let selects = document.querySelectorAll("select");
-  await input(selects[2], "0");
-  await input(selects[3], "1");
-  await input(selects[4], "2");
+  await click(button("下一步：查看匯入預覽"));
+  assert.equal(document.body.textContent.includes("資料已讀取，還需要核對"), true);
+  await click(button("檢查必要欄位與房間"));
+  const mappedSelect = (label) => [...document.querySelectorAll("label")]
+    .find((item) => item.textContent.trim().startsWith(label) && item.querySelector("select"))?.querySelector("select");
+  await input(mappedSelect("入住日期"), "0");
+  await input(mappedSelect("退房日期"), "1");
+  await input(mappedSelect("房間／包棟"), "2");
   const firstRoomGroup = [...document.querySelectorAll("fieldset")].find((f) =>
     f.querySelector("legend")?.textContent.startsWith("來源「villa」"),
   );
@@ -166,4 +168,86 @@ test("Sheet wizard maps columns, quarantines rows, preserves selection after los
   assert.match(document.body.textContent, /已匯入 1 筆訂房/);
   await click(button("撤回此批匯入"));
   assert.match(document.body.textContent, /已撤回 1 筆，保留 0 筆/);
+});
+
+test("shared multi-row Sheet needs only URL, Viewer access, record mode and Next before preview", async (t) => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "https://test.local" });
+  const globals = {
+    window: globalThis.window,
+    document: globalThis.document,
+    IS_REACT_ACT_ENVIRONMENT: globalThis.IS_REACT_ACT_ENVIRONMENT,
+  };
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  const { createRoot } = await import("react-dom/client");
+  const root = createRoot(document.getElementById("root"));
+  t.after(async () => {
+    await act(() => root.unmount());
+    Object.assign(globalThis, globals);
+    dom.window.close();
+  });
+  const calls = [];
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    const body = JSON.parse(options.body);
+    calls.push(body);
+    if (body.action === "bind") return Response.json({ status: "approved", url: body.url, version: 2 });
+    if (body.action === "tabs") return Response.json({
+      spreadsheetId: "synthetic-sheet", title: "Synthetic Sheet",
+      tabs: [{ id: 1, title: "Other" }, { id: 7, title: "工作表1" }],
+    });
+    if (body.action === "read") return Response.json({
+      id: "synthetic-source", title: "工作表1",
+      rows: [
+        ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "備註", "訂單編號"],
+        ["101", "Sample", "Direct", "2027-01-01", "2027-01-02", "2026-12-01", "2500", "", "", "row-1", "", "order-1"],
+        ["101", "Sample", "Direct", "2027-01-02", "2027-01-03", "2026-12-01", "2500", "", "", "row-2", "", "order-1"],
+      ],
+    });
+    if (body.action === "preview") return Response.json({
+      id: "synthetic-preview", rows: [{ row: 2, draft: {
+        guestName: "Sample", externalId: "order-1", total: 5000,
+        roomIds: ["room-101"], checkIn: "2027-01-01", checkOut: "2027-01-03",
+      }, issues: [], sourceRows: [2, 3] }],
+    });
+    throw Error(`unexpected action ${body.action}`);
+  });
+  await act(() => root.render(createElement(SheetImport, {
+    slug: "synthetic", property: { id: "property", name: "Test", kind: "rooms",
+      villaRoomIds: [], rooms: [{ id: "room-101", name: "101" }] },
+    configured: true, connected: false, initialBatches: [], initialVersion: 1,
+    shareEmail: "viewer@example.test",
+  })));
+  assert.match(document.body.textContent, /「檢視者」權限/);
+  assert.equal(document.body.textContent.includes("標題在第幾列"), false);
+  const url = document.querySelector('input[placeholder^="https://docs.google.com"]');
+  await act(() => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value").set.call(
+      url, "https://docs.google.com/spreadsheets/d/synthetic-sheet/edit#gid=7",
+    );
+    url.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  const mode = [...document.querySelectorAll("label")].find((label) =>
+    label.textContent.includes("來源紀錄方式"),
+  ).querySelector("select");
+  await act(() => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype, "value").set.call(mode, "stay");
+    mode.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+  });
+  await act(() => [...document.querySelectorAll("button")].find((button) =>
+    button.textContent === "下一步：查看匯入預覽",
+  ).click());
+  assert.deepEqual(calls.map((call) => call.action), ["bind", "tabs", "read", "preview"]);
+  assert.equal(calls[2].sheetId, 7);
+  assert.equal(calls[3].mapping.granularity, "stay");
+  assert.equal(calls[3].mapping.amountBasis, "line");
+  assert.equal(calls[3].mapping.columns.guestName, 1);
+  assert.equal(calls[3].mapping.columns.platform, 2);
+  assert.equal(calls[3].mapping.columns.externalId, 11);
+  assert.deepEqual(calls[3].mapping.roomMap["101"], ["room-101"]);
+  assert.match(document.body.textContent, /同張訂單可有多列 · 每列房費相加/);
+  assert.match(document.body.textContent, /確認匯入 1 筆/);
+  assert.equal(calls.some((call) => call.action === "commit"), false);
 });

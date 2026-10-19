@@ -32,6 +32,7 @@ const aliases: Record<Column, string[]> = {
     "客人",
     "客人姓名",
     "旅客姓名",
+    "預定人姓名",
     "訂房人",
     "guest",
     "guestname",
@@ -81,7 +82,7 @@ const aliases: Record<Column, string[]> = {
     "已付訂金",
     "訂金",
   ],
-  platform: ["平台", "預訂平台", "訂房平台", "通路", "channel", "platform"],
+  platform: ["平台", "預訂平台", "預定平台", "訂房平台", "通路", "channel", "platform"],
   bookedAt: ["訂房日期", "預訂日期", "下單日期", "bookingdate", "bookedat"],
   notes: ["備註", "訂單備註", "特殊需求", "notes", "requests"],
   status: ["狀態", "訂單狀態", "訂房狀態", "status", "bookingstatus"],
@@ -143,14 +144,8 @@ export function suggestFormat(
   const headers = rows[best?.index ?? 0] ?? [];
   const grid =
     proposed.checkOut < 0 &&
-    rows
-      .slice(0, 5)
-      .some(
-        (row) =>
-          row.filter((cell) =>
-            /^(?:\d{4}[-/])?\d{1,2}[-/]\d{1,2}$/.test(cell.trim()),
-          ).length >= 1,
-      );
+    proposed.rooms >= 0 &&
+    headers.some((cell) => /^(?:\d{4}[-/])?\d{1,2}[-/]\d{1,2}$/.test(cell.trim()));
   const nightly =
     proposed.checkOut < 0 &&
     headers.some((cell) =>
@@ -214,9 +209,16 @@ export function suggestFormat(
   if (best && candidates[1]?.score === best.score && best.score > 0)
     messages.push("表中可能有重複標題或多個區塊，請確認真正的標題列。");
   const amountHeader = normalize(headers[proposed.total] ?? "");
+  // Sweetfun's operational sheet has one room-night per row. Its G-column
+  // 房費 belongs to that row, while L links rows into one order.
+  const sweetfunRoomNight = ["房型", "預定人姓名", "預定平台", "入住日期",
+    "退房日期", "預訂日期", "房費"].every((value, index) => headers[index]?.trim() === value) &&
+    headers[9]?.trim() === "唯一ID" && headers[11]?.trim() === "訂單編號";
   const amountBasis: Mapping["amountBasis"] =
     proposed.total < 0
       ? "none"
+      : sweetfunRoomNight
+        ? "line"
       : amountHeader === "每房每晚"
         ? "room-night"
         : ["房晚金額", "每列金額"].includes(amountHeader)
