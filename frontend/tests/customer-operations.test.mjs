@@ -919,6 +919,29 @@ test("format suggestions recognize order, nightly and grid layouts without a uni
   );
   assert.equal(ambiguous.columns.total, -1);
   assert.ok(ambiguous.messages.length > 1);
+  const sweetfunRows = [
+    ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "備註", "訂單編號"],
+    ["101", "Test guest", "Direct", "2027-01-01", "2027-01-02", "2026-12-01", "2500", "", "", "row-1", "", "order-1"],
+    ["101", "Test guest", "Direct", "2027-01-02", "2027-01-03", "2026-12-01", "2500", "", "", "row-2", "", "order-1"],
+  ];
+  const sweetfun = suggestFormat(sweetfunRows, f.property);
+  assert.equal(sweetfun.layout, "orders");
+  assert.equal(sweetfun.granularity, "stay");
+  assert.equal(sweetfun.columns.guestName, 1);
+  assert.equal(sweetfun.columns.platform, 2);
+  assert.equal(sweetfun.columns.externalId, 11);
+  assert.equal(sweetfun.amountBasis, "line");
+  assert.deepEqual(sweetfun.roomMap["101"], [f.property.rooms[0].id]);
+  const sweetfunPreview = await previewImport(f.store, f.account.id, f.slug, f.property.id,
+    { spreadsheetId: "synthetic-sweetfun", sheetId: 7, title: "Synthetic", rows: sweetfunRows },
+    { headerRow: sweetfun.headerRow, columns: sweetfun.columns, roomMap: sweetfun.roomMap,
+      granularity: sweetfun.granularity, amountBasis: sweetfun.amountBasis,
+      receivedMeaning: "none", currency: "TWD", from: "2026-10-19" });
+  assert.equal(sweetfunPreview.rows.length, 1);
+  assert.deepEqual(sweetfunPreview.rows[0].issues, []);
+  assert.equal(sweetfunPreview.rows[0].draft.total, 5000);
+  assert.equal(sweetfunPreview.rows[0].draft.platform, "Direct");
+  assert.equal(suggestFormat([["入住", "退房", "房間"], ["2027-01-01", "2027-01-02", "101"]], f.property).layout, "orders");
 });
 test("an empty verified source requires explicit confirmation and never declares dates before the coverage start available", async () => {
   const f = await fixture();
