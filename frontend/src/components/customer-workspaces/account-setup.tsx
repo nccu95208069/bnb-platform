@@ -67,7 +67,7 @@ export function AccountSetup() {
           <form onSubmit={submit} className="space-y-5">
             <p>{info.email}</p>
             <p className="text-sm text-slate-600">
-              請設定 12～128 字元的密碼。密碼只由你保管，服務人員無法查看。
+              請設定 8～128 字元的密碼，包含英文字母、數字和特殊符號。密碼只由你保管，服務人員無法查看。
             </p>
             <label className="block">
               新密碼
@@ -76,7 +76,7 @@ export function AccountSetup() {
                 type="password"
                 name="password"
                 autoComplete="new-password"
-                minLength={12}
+                minLength={8}
                 maxLength={128}
                 required
               />
@@ -88,7 +88,7 @@ export function AccountSetup() {
                 type="password"
                 name="confirmPassword"
                 autoComplete="new-password"
-                minLength={12}
+                minLength={8}
                 maxLength={128}
                 required
               />

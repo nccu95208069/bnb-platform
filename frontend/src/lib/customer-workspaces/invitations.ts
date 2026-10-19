@@ -4,7 +4,7 @@ import {
 } from "./identity.ts";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { accountKey, digest } from "./auth.ts";
-import { createPasswordCredential } from "../owner-password.ts";
+import { createCustomerPasswordCredential } from "../owner-password.ts";
 import { normalizedEmail, validEmail } from "../workspace-auth/types.ts";
 import { loadWorkspace } from "./service.ts";
 import { mutationContext, saveMutation, withReceipt } from "./mutations.ts";
@@ -264,7 +264,7 @@ export async function acceptInvitation(
   const account: Account = current.value ?? {
     id: randomUUID(),
     email: invitation.email,
-    credential: await createPasswordCredential(password as string),
+    credential: await createCustomerPasswordCredential(password as string),
     emailVerifiedAt: at,
     workspaces: [],
   };

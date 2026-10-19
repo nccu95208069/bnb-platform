@@ -1,9 +1,9 @@
 "use client";
 import { customerReturnPath } from "@/lib/customer-workspaces/return-path";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, button, field, secondary } from "./client";
 import { useCommand } from "./use-command";
-import { EmailLoginWaiting, type EmailLoginChallenge } from "./email-login-waiting";
+import { EmailLoginWaiting, loadEmailChallenge, saveEmailChallenge, type EmailLoginChallenge } from "./email-login-waiting";
 export function PasswordlessLogin({
   destination = "start",
   initialEmail = "",
@@ -20,6 +20,8 @@ export function PasswordlessLogin({
     [notice, setNotice] = useState(""),
     [error, setError] = useState(""),
     [preparing, setPreparing] = useState(false);
+  const scope = `passwordless:${destination}`;
+  useEffect(() => { const saved = loadEmailChallenge(scope); if (saved && (!fixedEmail || saved.email === initialEmail)) { setChallenge(saved); if (saved.email) setEmail(saved.email); } }, [scope, fixedEmail, initialEmail]);
   const request = useCommand("/api/customer-login"),
     running = useRef(false);
   const locked = preparing || request.busy || request.uncertain;
@@ -33,13 +35,15 @@ export function PasswordlessLogin({
       await api("/api/customer-login", "POST", { action: "prepare" });
       const result = await request.execute<{ detail: string } & EmailLoginChallenge>({
         action: "request",
+        protocol: "code-v3",
         email,
         destination,
         ...(destination === "start" ? { returnPath: customerReturnPath(new URLSearchParams(location.search).get("next")) ?? undefined } : {}),
       });
       if (result) {
         setNotice(result.data.detail);
-        setChallenge(result.data.pairingCode ? result.data : null);
+        const next = result.data.codeRequired ? { ...result.data, email: email.trim() } : null;
+        setChallenge(next); saveEmailChallenge(scope, next);
       }
     } catch (e) {
       setError((e as Error).message);
@@ -76,7 +80,7 @@ export function PasswordlessLogin({
       <p className="text-sm leading-6 text-slate-600">
         {destination === "calendar"
           ? "預覽會暫存一小時。可在手機驗證信箱，再回到這台裝置確認保存。"
-          : "輸入可收信的電子信箱，開啟登入連結後即可繼續。"}
+          : "輸入可收信的電子信箱，輸入信件中的登入碼即可繼續。"}
       </p>
       {destination === "start" && googleConfigured && (
         <button
@@ -103,7 +107,7 @@ export function PasswordlessLogin({
             onChange={(e) => {
               setEmail(e.target.value);
               setNotice("");
-              setChallenge(null);
+              setChallenge(null); saveEmailChallenge(scope, null);
             }}
           />
         </label>
@@ -111,14 +115,14 @@ export function PasswordlessLogin({
           {preparing || request.busy
             ? "正在處理…"
             : notice
-              ? "重新申請登入連結"
-              : "寄送登入連結"}
+              ? "重新寄送登入碼"
+              : "寄送登入碼"}
         </button>
       </form>
       <p className="text-xs leading-6 text-slate-500">
-        連結有效 15 分鐘，可使用電腦或手機開啟。
+        登入碼有效 15 分鐘，可使用電腦或手機開啟。
       </p>
-      {challenge && <EmailLoginWaiting key={challenge.requestKey} challenge={challenge} />}
+      {challenge && <EmailLoginWaiting key={challenge.requestKey} challenge={challenge} scope={scope} />}
       {notice && (
         <p
           role="status"

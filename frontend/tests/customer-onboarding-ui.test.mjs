@@ -166,3 +166,19 @@ test("password recovery uses a generic response and has no public registration o
     /如果這個信箱已有帳號/,
   );
 });
+
+test("workspace setup accepts a pasted underscore slug by converting it to a valid URL", async (t) => {
+  t.mock.method(globalThis, "fetch", async () => Response.json({
+    email: "owner@example.test",
+    workspaces: [{ id: "existing", slug: "existing", name: "Existing" }],
+  }));
+  const { button, control, click, fill } = await mount(t, Onboarding);
+  await fill(control("旅宿名稱"), "Synthetic property");
+  await fill(control("網址代稱"), "sweetfun_test_1019");
+  assert.equal(control("網址代稱").value, "sweetfun-test-1019");
+  await click([...document.querySelectorAll("button[aria-pressed]")]
+    .find((item) => item.textContent.includes("包棟")));
+  assert.equal(button("下一步：房間").disabled, false);
+  await click(button("下一步：房間"));
+  assert.match(document.body.textContent, /整棟內的房間/);
+});

@@ -10,7 +10,7 @@ import { api, button, field, plusDays, secondary, today } from "./client";
 import { staysOf } from "@/lib/customer-workspaces/domain";
 import { WorkspaceNav } from "./workspace-nav";
 import { OrderDetail } from "./order-detail";
-import { MonthCalendar } from "./month-calendar";
+import { CustomerSoldMonth } from "./sold-month-calendar";
 export function CustomerCalendar({
   initial,
   initialPropertyId,
@@ -63,6 +63,7 @@ export function CustomerCalendar({
   const canWrite =
       ["owner", "admin", "housekeeper"].includes(data.role) &&
       !data.readiness?.[propertyId]?.connected &&
+      (property?.setup?.mode !== "sheet" || Boolean(property.setup.coverageFrom && property.setup.coverageTo)) &&
       (data.readiness?.[propertyId]?.complete ??
         (!data.onboarding || data.onboarding.complete)),
     checkOut = plusDays(checkIn, nights);
@@ -236,7 +237,7 @@ export function CustomerCalendar({
     );
   return (
     <main className="min-h-dvh bg-stone-50 p-4 text-slate-800 sm:p-8">
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-[1720px]">
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <a href="/workspaces" className="text-sm text-teal-800 underline">
@@ -303,6 +304,12 @@ export function CustomerCalendar({
             ，再新增訂房。
           </p>
         )}
+        {property?.setup?.mode === "sheet" && !property.setup.coverageTo && (
+          <p role="status" className="mt-4 rounded-xl bg-amber-50 p-4 text-sm leading-7">
+            歷史訂單可在日曆檢視；來源尚未確認完整的可售期間，空白日期不能視為空房。
+            請到 <a className="underline" href={`/w/${data.slug}/import?property=${encodeURIComponent(propertyId)}`}>匯入與核對來源</a> 設定核對期間。
+          </p>
+        )}
         {data.readiness?.[propertyId]?.coverageFrom && (
           <p className="mt-4 text-sm text-slate-600">
             本館訂單已核對範圍：{data.readiness[propertyId].coverageFrom}{" "}
@@ -345,8 +352,7 @@ export function CustomerCalendar({
             </select>
           </label>
         )}
-        <MonthCalendar
-          loadWindow
+        <CustomerSoldMonth
           key={propertyId}
           data={data}
           propertyId={propertyId}

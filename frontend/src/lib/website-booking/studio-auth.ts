@@ -1,6 +1,6 @@
 import { authenticate, SESSION_SECONDS, sessionFor } from "../customer-workspaces/auth.ts";
 import { consumeEmailLogin, requestEmailLogin } from "../customer-workspaces/passwordless.ts";
-import { requestDeviceEmailLogin, inspectDeviceEmailLogin, consumeDeviceEmailLogin, pollDeviceEmailLogin } from "../customer-workspaces/email-device-login.ts";
+import { requestDeviceEmailLogin, inspectDeviceEmailLogin, consumeDeviceEmailLogin, consumeDeviceEmailCode, pollDeviceEmailLogin } from "../customer-workspaces/email-device-login.ts";
 import type { CustomerStore } from "../customer-workspaces/store.ts";
 import type { CustomerMail } from "../customer-intake/delivery.ts";
 import type { WebsiteClient } from "./types.ts";
@@ -15,11 +15,12 @@ export async function studioAuthOperation(store: CustomerStore, client: WebsiteC
   if (input.action === "request") {
     fields(input, ["action", "origin", "email", "requestKey", "proof", "protocol"]);
     await store.limit(`studio-signup:${client.id}`, 100);
-    if (input.protocol !== undefined && input.protocol !== "device-v2") throw Error("INVALID_INPUT");
-    const requestLogin = input.protocol === "device-v2" ? requestDeviceEmailLogin : requestEmailLogin;
+    if (input.protocol !== undefined && !["device-v2", "code-v3"].includes(input.protocol as string)) throw Error("INVALID_INPUT");
+    const requestLogin = input.protocol ? requestDeviceEmailLogin : requestEmailLogin;
     const result = await requestLogin(store, {
       email: input.email, requestKey: input.requestKey, proof: input.proof as string,
       studio: { clientId: client.id, origin: client.editor_origin },
+      ...(input.protocol === "code-v3" ? { codeInEmail: true } : {}),
     }, send);
     if (result.status !== "accepted") throw Error("LOGIN_DELIVERY_UNCONFIRMED");
     return result;
@@ -34,10 +35,15 @@ export async function studioAuthOperation(store: CustomerStore, client: WebsiteC
     if (result.status !== "approved") return result;
     return { status: result.status, id: result.account.id, email: result.account.email, session: sessionFor(result.account), expiresIn: SESSION_SECONDS };
   }
+  if (input.action === "consume-code") {
+    fields(input, ["action", "origin", "requestKey", "proof", "loginCode"]);
+    const result = await consumeDeviceEmailCode(store, input.requestKey, input.proof, input.loginCode, client.id);
+    return { id: result.account.id, email: result.account.email, session: sessionFor(result.account), expiresIn: SESSION_SECONDS };
+  }
   if (input.action === "consume") {
-    fields(input, ["action", "origin", "token", "proof", "mode", "pairingCode"]);
-    const result = typeof input.token === "string" && input.token.startsWith("v2.")
-      ? await consumeDeviceEmailLogin(store, input.token, input.proof, input.mode, input.pairingCode, client.id)
+    fields(input, ["action", "origin", "token", "proof", "mode", "pairingCode", "loginCode"]);
+    const result = typeof input.token === "string" && /^v[23]\./.test(input.token)
+      ? await consumeDeviceEmailLogin(store, input.token, input.proof, input.mode, input.token.startsWith("v3.") ? input.loginCode : input.pairingCode, client.id)
       : await consumeEmailLogin(store, input.token, input.proof, undefined, undefined, undefined, client.id);
     return { id: result.account.id, email: result.account.email, session: sessionFor(result.account), expiresIn: SESSION_SECONDS };
   }

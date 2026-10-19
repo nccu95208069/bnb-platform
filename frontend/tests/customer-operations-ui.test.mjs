@@ -289,7 +289,7 @@ test("invitation strips its fragment and asks existing members for their current
 test("format helper recognizes explicit totals and preserves source paid without a recipient question", async (t) => {
   const rows = [
     ["入住日期", "退房日期", "房號", "訂單總額", "已付"],
-    ["2027-01-01", "2027-01-02", "101", "3000", "1000"],
+    ["2027-01-01", "2027-01-02", "unmapped", "3000", "1000"],
   ];
   t.mock.method(globalThis, "fetch", async (_, options) => {
     const input = JSON.parse(options.body);
@@ -312,8 +312,8 @@ test("format helper recognizes explicit totals and preserves source paid without
     initialBatches: [],
     initialVersion: 1,
   });
-  await click(button("讀取分頁"));
-  await click(button("讀取資料"));
+  await click(button("下一步：查看匯入預覽"));
+  await click(button("檢查必要欄位與房間"));
   await click(button("採用欄位與房間建議，再由我核對"));
   assert.equal(control("入住日期").value, "0");
   assert.equal(control("房費欄位的意思").value, "order");

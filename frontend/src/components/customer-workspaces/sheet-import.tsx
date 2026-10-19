@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Property, Workspace } from "@/lib/customer-workspaces/types";
 import type {
   ImportPreview,
@@ -10,7 +10,17 @@ import {
   suggestFormat,
   type FormatSuggestion,
 } from "@/lib/customer-workspaces/format-assistant";
+const PREVIEW_PAGE_SIZE = 100;
+const GRID_PAGE_SIZE = 100;
+type RecordMode = Mapping["granularity"] | "auto";
 type Batch = NonNullable<Workspace["importBatches"]>[number];
+const recordModeLabels: Record<Mapping["granularity"], string> = {
+  order: "一列一張訂單", stay: "同張訂單可有多列", night: "一列一個住宿夜", grid: "房況格",
+};
+const amountBasisLabels: Record<Mapping["amountBasis"], string> = {
+  order: "同筆訂單金額只算一次", line: "每列房費相加", night: "按每晚房費計算",
+  "room-night": "按每房每晚房費計算", none: "不匯入房費",
+};
 const columnLabels = {
   checkIn: "入住日期",
   checkOut: "退房日期",
@@ -23,7 +33,42 @@ const columnLabels = {
   platform: "預訂平台（選填）",
   bookedAt: "實際訂房日期（選填）",
   notes: "訂單備註／需求（選填）",
+  sourceRowId: "來源列唯一ID（缺訂單編號時使用）",
 };
+function mappingReady(mapping: Mapping) {
+  const isGrid = mapping.granularity === "grid";
+  const isNight = mapping.granularity === "night";
+  return (isGrid
+    ? Boolean(mapping.grid?.dateColumns.length)
+    : mapping.columns.checkIn >= 0 && (isNight || mapping.columns.checkOut >= 0)) &&
+    mapping.columns.rooms >= 0 &&
+    (!["stay", "night"].includes(mapping.granularity) || mapping.columns.externalId >= 0) &&
+    (mapping.amountBasis === "none") === (mapping.columns.total === -1) &&
+    (mapping.receivedMeaning === "none") === (mapping.columns.received === -1);
+}
+function unmappedRoomLabels(rows: string[][], mapping: Mapping) {
+  if (mapping.columns.rooms < 0) return [];
+  return [...new Set(rows.slice(mapping.headerRow)
+    .map((row) => (row[mapping.columns.rooms] ?? "").trim())
+    .filter(Boolean))]
+    .filter((label) => !mapping.roomMap[label]?.length);
+}
+function suggestedMapping(current: Mapping, suggestion: FormatSuggestion, mode: RecordMode): Mapping {
+  const granularity = mode === "auto" ? suggestion.granularity : mode;
+  const grid = granularity === "grid" ? suggestion.grid : undefined;
+  const columns = granularity === "grid"
+    ? { ...suggestion.columns, checkIn: -1, checkOut: -1, guestName: -1,
+      externalId: -1, total: -1, received: -1, status: -1 }
+    : { ...suggestion.columns, ...(granularity === "night" ? { checkOut: -1 } : {}) };
+  // An ambiguous money heading never becomes a silently assumed amount.
+  if (suggestion.amountBasis === "none") columns.total = -1;
+  return { ...current, headerRow: suggestion.headerRow, columns,
+    roomMap: suggestion.roomMap, granularity,
+    amountBasis: granularity === "grid" ? "none" : suggestion.amountBasis,
+    receivedMeaning: columns.received < 0 ? "none" : "source", grid,
+    missingOrderId: ["stay", "night"].includes(granularity)
+      ? suggestion.missingOrderId ?? "review" : "review" };
+}
 export function SheetImport({
   slug,
   property,
@@ -32,6 +77,7 @@ export function SheetImport({
   initialBatches,
   initialVersion,
   sharedUrl,
+  autoPreview = false,
   helpMessage,
   shareEmail,
 }: {
@@ -42,10 +88,12 @@ export function SheetImport({
   initialBatches: Batch[];
   initialVersion: number;
   sharedUrl?: string;
+  autoPreview?: boolean;
   helpMessage?: string;
   shareEmail?: string;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const autoPreviewStarted = useRef(false);
   const [boundUrl, setBoundUrl] = useState(sharedUrl);
   const [suggestion, setSuggestion] = useState<FormatSuggestion | null>(null);
   const [url, setUrl] = useState(sharedUrl ?? "");
@@ -61,6 +109,10 @@ export function SheetImport({
     tabs: { id: number; title: string; sourceId: string }[];
   } | null>(null);
   const [fileTab, setFileTab] = useState("");
+  const [stage, setStage] = useState<"source" | "review">("source");
+  const [autoStarting, setAutoStarting] = useState(autoPreview && configured && Boolean(sharedUrl));
+  const [recordMode, setRecordMode] = useState<RecordMode>("auto");
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [source, setSource] = useState<{
     id: string;
     title: string;
@@ -83,13 +135,16 @@ export function SheetImport({
     amountBasis: "none",
     receivedMeaning: "none",
     currency: "TWD",
-    from: today(),
+    from: "2000-01-01",
+    coverageFrom: today(),
   });
   const [confirmedEmpty, setConfirmedEmpty] = useState(false);
   const [coverageConfirmed, setCoverageConfirmed] = useState(false);
   const [confirmed, setConfirmed] = useState(false),
     [preview, setPreview] = useState<ImportPreview | null>(null),
-    [selection, setSelection] = useState<number[]>([]);
+    [selection, setSelection] = useState<number[]>([]),
+    [previewPage, setPreviewPage] = useState(0),
+    [gridPage, setGridPage] = useState(0);
   const [batches, setBatches] = useState(initialBatches),
     [version, setVersion] = useState(initialVersion),
     [busy, setBusy] = useState(false),
@@ -117,10 +172,75 @@ export function SheetImport({
     setMapping(next);
     setPreview(null);
     setSelection([]);
+    setPreviewPage(0);
+    setGridPage(0);
     setConfirmed(false);
     setConfirmedEmpty(false);
     setCoverageConfirmed(false);
   }
+  async function prepareSource(nextSource: NonNullable<typeof source>) {
+    const nextSuggestion = suggestFormat(nextSource.rows, property);
+    const nextMapping = suggestedMapping(mapping, nextSuggestion, recordMode);
+    setSource(nextSource);
+    setSuggestion(nextSuggestion);
+    setMapping(nextMapping);
+    setStage("review");
+    setShowAdvanced(false);
+    setPreview(null);
+    setSelection([]);
+    setConfirmed(false);
+    setConfirmedEmpty(false);
+    setCoverageConfirmed(false);
+    // A matching room column is insufficient: every source room must map to an
+    // actual workspace room before the wizard can skip the review step.
+    if (mappingReady(nextMapping) && !unmappedRoomLabels(nextSource.rows, nextMapping).length) {
+      const result = await send<ImportPreview>({
+        action: "preview", sourceId: nextSource.id, mapping: nextMapping,
+      });
+      setPreview(result);
+      setPreviewPage(0);
+      setSelection(result.rows.filter((row) => !row.issues.length).map((row) => row.row));
+    }
+  }
+  async function continueWithGoogle() {
+    setPreview(null);
+    setFileMeta(null);
+    let activeUrl = boundUrl ?? url;
+    if (shareEmail && !boundUrl) {
+      const linked = await send<{ status: string; url?: string; version?: number }>({
+        action: "bind", url,
+      });
+      if (linked.status !== "approved") throw new Error("尚未取得 Sheet 檢視權限，請確認分享設定。");
+      activeUrl = linked.url ?? url;
+      setBoundUrl(activeUrl);
+      if (linked.version) setVersion(linked.version);
+    }
+    const nextMeta = meta ?? await send<NonNullable<typeof meta>>({ action: "tabs", url: activeUrl });
+    setMeta(nextMeta);
+    if (!nextMeta.tabs.length) throw new Error("這份 Sheet 沒有可讀取的分頁。");
+    const linkedGid = /(?:[?#&])gid=(\d+)/.exec(activeUrl)?.[1];
+    const selected = nextMeta.tabs.find((item) => String(item.id) === tab) ??
+      nextMeta.tabs.find((item) => String(item.id) === linkedGid) ??
+      (!linkedGid ? nextMeta.tabs.find((item) => item.title === "工作表1") : undefined) ??
+      (!linkedGid && nextMeta.tabs.length === 1 ? nextMeta.tabs[0] : undefined);
+    if (!selected) {
+      setTab("");
+      setNotice("請選擇訂單所在的分頁再繼續。");
+      return;
+    }
+    setTab(String(selected.id));
+    const nextSource = await send<NonNullable<typeof source>>({
+      action: "read", spreadsheetId: nextMeta.spreadsheetId, sheetId: selected.id,
+    });
+    await prepareSource(nextSource);
+  }
+  useEffect(() => {
+    if (!autoPreview || !configured || !sharedUrl || autoPreviewStarted.current) return;
+    autoPreviewStarted.current = true;
+    void run(continueWithGoogle).finally(() => setAutoStarting(false));
+    // This is the one-time continuation of a previously approved onboarding link.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPreview, configured, sharedUrl]);
   async function commit() {
     if (!preview) return;
     pending.current ??= {
@@ -144,6 +264,7 @@ export function SheetImport({
       );
       setPreview(null);
       setSource(null);
+      setStage("source");
       setUncertain(false);
       pending.current = null;
     } catch (e) {
@@ -168,22 +289,26 @@ export function SheetImport({
       : [];
   const isGrid = mapping.granularity === "grid";
   const isNight = mapping.granularity === "night";
-  const mappingComplete =
-    (isGrid
-      ? Boolean(mapping.grid?.dateColumns.length)
-      : mapping.columns.checkIn >= 0 &&
-        (isNight || mapping.columns.checkOut >= 0)) &&
-    mapping.columns.rooms >= 0 &&
-    (!["stay", "night"].includes(mapping.granularity) ||
-      mapping.columns.externalId >= 0) &&
-    (mapping.amountBasis === "none") === (mapping.columns.total === -1) &&
-    (mapping.receivedMeaning === "none") === (mapping.columns.received === -1);
+  const mappingComplete = mappingReady(mapping);
+  const missingRoomLabels = source ? unmappedRoomLabels(source.rows, mapping) : [];
   const columnCount = Math.max(0, ...(source?.rows.map((r) => r.length) ?? []));
   const columns = Array.from({ length: columnCount }, (_, i) => ({
     id: i,
     label: `第 ${i + 1} 欄 · ${source?.rows[mapping.headerRow - 1]?.[i] || "未命名"}`,
   }));
-  const gridCells =
+  const selectedRows = useMemo(() => new Set(selection), [selection]);
+  const currentPreviewRows = preview?.rows.filter((row) =>
+    !row.issues.includes("已在選定範圍之前退房")) ?? [];
+  const pastPreviewCount = (preview?.rows.length ?? 0) - currentPreviewRows.length;
+  const previewPages = Math.ceil(currentPreviewRows.length / PREVIEW_PAGE_SIZE);
+  const visiblePreviewRows = currentPreviewRows.slice(previewPage * PREVIEW_PAGE_SIZE, (previewPage + 1) * PREVIEW_PAGE_SIZE);
+  function sourceValues(row: ImportPreview["rows"][number], column: number) {
+    if (!source || column < 0) return "";
+    const numbers = row.sourceRows ?? row.references?.map((ref) => ref.row) ?? [row.row];
+    const values = [...new Set(numbers.map((number) => source.rows[number - 1]?.[column]?.trim()).filter(Boolean))];
+    return values.slice(0, 3).join("、") + (values.length > 3 ? "…" : "");
+  }
+  const gridCells = useMemo(() =>
     isGrid && source
       ? source.rows.slice(mapping.headerRow).flatMap((row, i) =>
           (mapping.grid?.dateColumns ?? []).flatMap((column) =>
@@ -201,7 +326,22 @@ export function SheetImport({
               : [],
           ),
         )
-      : [];
+      : [], [isGrid, source, mapping.headerRow, mapping.columns.rooms, mapping.grid?.dateColumns]);
+  const gridPages = Math.ceil(gridCells.length / GRID_PAGE_SIZE);
+  const visibleGridCells = gridCells.slice(gridPage * GRID_PAGE_SIZE, (gridPage + 1) * GRID_PAGE_SIZE);
+  const helpCard = (boundUrl || shareEmail) ? (
+    <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm">
+      <h3 className="font-medium">對欄位或預覽結果有疑問？</h3>
+      <p className="mt-1">先不要確認匯入。請說明哪個欄位或來源列需要核對，專人會收到你的說明；原表不會被修改。</p>
+      <label className="mt-3 block">需要協助的內容
+        <textarea className={field} maxLength={1000} value={help} onChange={(e) => setHelp(e.target.value)} placeholder="例如：第 25 列的包棟訂單應該對應哪些房間？" />
+      </label>
+      <button className={`${secondary} mt-3`} disabled={busy || !help.trim()} onClick={() => run(async () => {
+        const r = await send<{ notification: string }>({ action: "help", message: help });
+        setNotice(r.notification === "accepted" ? "協助需求已保存，通知已交由寄信服務送出。" : "協助需求已保存；通知尚待確認，你也可以使用服務信箱聯絡我們。");
+      })}>請專人協助核對</button>
+    </div>
+  ) : null;
   return (
     <main className="min-h-dvh bg-stone-50 p-4 text-slate-800 sm:p-8">
       <div className="mx-auto max-w-5xl">
@@ -230,61 +370,32 @@ export function SheetImport({
             待核對事項：{helpMessage}
           </p>
         )}
-        {(boundUrl || shareEmail) && (
-          <details className="my-4 rounded-xl border bg-white p-4">
-            <summary className="cursor-pointer">
-              表格格式不同、逐晚拆列或需要協助？
-            </summary>
-            <p className="my-3 text-sm">
-              不必猜欄位或先改原表。請說明你不確定的部分，服務人員會收到通知協助核對。
-            </p>
-            <label className="text-sm">
-              需要協助的內容
-              <textarea
-                className={field}
-                maxLength={1000}
-                value={help}
-                onChange={(e) => setHelp(e.target.value)}
-              />
-            </label>
-            <button
-              className={`${secondary} mt-3`}
-              disabled={busy || !help.trim()}
-              onClick={() =>
-                run(async () => {
-                  const r = await send<{ notification: string }>({
-                    action: "help",
-                    message: help,
-                  });
-                  setNotice(
-                    r.notification === "accepted"
-                      ? "協助需求已保存，通知已交由寄信服務送出。"
-                      : "協助需求已保存；通知尚待確認，你也可以使用服務信箱聯絡我們。",
-                  );
-                })
-              }
-            >
-              請專人協助核對
-            </button>
-          </details>
-        )}
         {uncertain && (
           <p role="alert" className="my-4 rounded-xl bg-amber-50 p-4">
             寫入結果尚未確認。請按「重試相同匯入」核對；已送出的選擇暫時鎖定。
           </p>
         )}
-        <fieldset
+        {stage === "source" && autoStarting ? (
+          <section role="status" className="rounded-2xl border bg-white p-5">
+            正在讀取已核准的 Google Sheet，準備唯讀預覽…
+          </section>
+        ) : stage === "source" ? <fieldset
           disabled={busy || uncertain}
           className="rounded-2xl border bg-white p-5 disabled:opacity-60"
         >
-          <legend className="px-2 font-semibold">1. 選擇來源</legend>
+          <legend className="px-2 font-semibold">1. 貼上資料來源</legend>
           <p className="mb-3 text-sm">
             {boundUrl
-              ? "請選擇要匯入的分頁。Sheet 建立者與登入帳號可以不同，不需變更原表格式。"
+              ? "已連結 Google Sheet；接下來系統會讀取資料並產生預覽。原表不會被修改。"
               : shareEmail
-                ? `先將 Sheet 的檢視權限分享給 ${shareEmail}，再貼上連結。不要求建立者與登入帳號相同，也不需公開檔案。`
+                ? `請將 Sheet 的「檢視者」權限分享給 ${shareEmail}，再貼上連結。不需公開檔案。`
                 : "Google 唯讀授權約一小時有效。不需公開分享檔案。"}
           </p>
+          {shareEmail && (
+            <a href="/guides/share-google-sheet" target="_blank" rel="noopener noreferrer" className="mb-4 inline-block text-sm font-medium text-teal-800 underline underline-offset-4">
+              看圖文教學：如何分享 Google Sheet（另開分頁）
+            </a>
+          )}
           {!configured && (
             <p className="mb-3 text-amber-800">
               此測試環境尚未設定 Google 授權，設定完成後即可使用。
@@ -320,6 +431,7 @@ export function SheetImport({
               onChange={(e) => {
                 setUrl(e.target.value);
                 setMeta(null);
+                setTab("");
                 setFileMeta(null);
                 setSource(null);
                 setPreview(null);
@@ -327,85 +439,34 @@ export function SheetImport({
               placeholder="https://docs.google.com/spreadsheets/d/…"
             />
           </label>
-          <button
-            disabled={!configured || !url}
-            className={`${secondary} mt-3`}
-            onClick={() =>
-              run(async () => {
-                setSource(null);
-                setPreview(null);
-                setFileMeta(null);
-                if (shareEmail && !boundUrl) {
-                  const linked = await send<{
-                    status: string;
-                    url?: string;
-                    version?: number;
-                  }>({ action: "bind", url });
-                  if (linked.status !== "approved") {
-                    setNotice("來源連結尚未完成，請重新讀取或聯絡專人協助。");
-                    return;
-                  }
-                  setBoundUrl(linked.url ?? url);
-                  if (linked.version) setVersion(linked.version);
-                }
-                const result = await send<NonNullable<typeof meta>>({
-                  action: "tabs",
-                  url,
-                });
-                setMeta(result);
-                setTab(String(result.tabs[0]?.id ?? ""));
-              })
-            }
-          >
-            讀取分頁
-          </button>
-          {meta && (
-            <div className="mt-4">
-              <p>{meta.title}</p>
-              <label>
-                分頁
-                <select
-                  className={field}
-                  value={tab}
-                  onChange={(e) => {
-                    setTab(e.target.value);
-                    setSource(null);
-                    setPreview(null);
-                  }}
-                >
-                  {meta.tabs.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.title}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <button
-                className={`${button} mt-3`}
-                disabled={!tab}
-                onClick={() =>
-                  run(async () => {
-                    setPreview(null);
-                    setSource(null);
-                    setConfirmed(false);
-                    setConfirmedEmpty(false);
-                    const result = await send<NonNullable<typeof source>>({
-                      action: "read",
-                      spreadsheetId: meta.spreadsheetId,
-                      sheetId: Number(tab),
-                    });
-                    setSource(result);
-                    setSuggestion(suggestFormat(result.rows, property));
-                  })
-                }
-              >
-                讀取資料
-              </button>
-            </div>
+          <label className="mt-4 block">
+            來源紀錄方式
+            <select className={field} value={recordMode}
+              onChange={(event) => setRecordMode(event.target.value as RecordMode)}>
+              <option value="auto">讓系統辨認（建議）</option>
+              <option value="order">一列是一張完整訂單</option>
+              <option value="stay">同張訂單可能有多列房間或住宿</option>
+              <option value="night">一列是一個住宿夜</option>
+              <option value="grid">日期橫排、房間直排的房況格</option>
+            </select>
+          </label>
+          {meta && !tab && (
+            <label className="mt-4 block">
+              訂單所在分頁
+              <select className={field} value={tab} onChange={(event) => setTab(event.target.value)}>
+                <option value="">請選擇分頁</option>
+                {meta.tabs.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}
+              </select>
+            </label>
           )}
+          <button type="button" className={`${button} mt-5`}
+            disabled={!configured || !url.trim() || (Boolean(meta) && !tab)}
+            onClick={() => run(continueWithGoogle)}>
+            下一步：查看匯入預覽
+          </button>
           {!boundUrl && (
-            <div className="mt-6 border-t pt-5">
-              <h2 className="font-medium">或上傳 Excel／CSV 檔案</h2>
+            <details className="mt-6 border-t pt-5">
+              <summary className="cursor-pointer font-medium text-teal-800">改用 Excel／CSV 檔案</summary>
               <p className="mt-2 text-sm text-slate-600">
                 支援未加密的 .xlsx、UTF-8 或 Big5 CSV，最多 3 MB。檔名與分頁名稱是來源識別；更新同一份資料時請保留名稱。上傳後仍需核對欄位、房間和每筆預覽。
               </p>
@@ -436,10 +497,13 @@ export function SheetImport({
                   setFileMeta(staged);
                   setMeta(null);
                   setPreview(null);
+                  if (staged.tabs.length !== 1) {
+                    setFileTab("");
+                    return;
+                  }
                   setFileTab(staged.tabs[0].sourceId);
                   const first = await send<NonNullable<typeof source>>({ action: "file-source", sourceId: staged.tabs[0].sourceId });
-                  setSource(first);
-                  setSuggestion(suggestFormat(first.rows, property));
+                  await prepareSource(first);
                 })}
               >
                 上傳並讀取
@@ -450,25 +514,50 @@ export function SheetImport({
                   <select
                     className={field}
                     value={fileTab}
-                    onChange={(event) => run(async () => {
-                      const sourceId = event.target.value;
-                      setFileTab(sourceId);
-                      setPreview(null);
-                      setConfirmed(false);
-                      setConfirmedEmpty(false);
-                      const selected = await send<NonNullable<typeof source>>({ action: "file-source", sourceId });
-                      setSource(selected);
-                      setSuggestion(suggestFormat(selected.rows, property));
-                    })}
+                    onChange={(event) => setFileTab(event.target.value)}
                   >
+                    <option value="">請選擇訂單所在分頁</option>
                     {fileMeta.tabs.map((tab) => <option key={tab.sourceId} value={tab.sourceId}>{tab.title}</option>)}
                   </select>
                 </label>
               )}
-            </div>
+              {fileMeta && fileMeta.tabs.length > 1 && <button type="button"
+                className={`${button} mt-3`} disabled={!fileTab}
+                onClick={() => run(async () => {
+                  const selected = await send<NonNullable<typeof source>>({ action: "file-source", sourceId: fileTab });
+                  await prepareSource(selected);
+                })}>下一步：查看匯入預覽</button>}
+            </details>
           )}
-        </fieldset>
-        {source && (
+        </fieldset> : <section className="rounded-2xl border bg-white p-5">
+          <p className="font-semibold">已讀取 {source?.title ?? "來源資料"}</p>
+          <p className="mt-1 text-sm text-slate-600">已讀取來源資料；確認預覽後才會建立訂單。</p>
+          <button type="button" className={`${secondary} mt-3`} onClick={() => {
+            setStage("source"); setSource(null); setPreview(null); setShowAdvanced(false);
+          }}>更換來源</button>
+        </section>}
+        {stage === "review" && source && !preview && !showAdvanced && (
+          <section className="mt-5 rounded-2xl border bg-white p-5">
+            <h2 className="font-semibold">{mappingComplete && !missingRoomLabels.length ? "資料已讀取，請重新產生預覽" : "資料已讀取，還需要核對"}</h2>
+            <p className="mt-2 text-sm text-slate-600">{source.rows.length} 列 · {suggestion?.messages[0]}</p>
+            {missingRoomLabels.length > 0 && <p className="mt-2 text-sm text-amber-800">
+              來源房間尚未對應工作區房間：{missingRoomLabels.slice(0, 6).join("、")}{missingRoomLabels.length > 6 ? ` 等 ${missingRoomLabels.length} 種` : ""}。請先核對房間，再預覽可匯入的訂單。
+            </p>}
+            {!mappingComplete && <p className="mt-2 text-sm text-amber-800">
+              系統尚無法安全判斷必要的日期、房間或訂單編號。請檢查這幾項後再看預覽。
+            </p>}
+            {mappingComplete && !missingRoomLabels.length && <button type="button" className={`${button} mt-4`} onClick={() => run(async () => {
+              const result = await send<ImportPreview>({ action: "preview", sourceId: source.id, mapping });
+              setPreview(result);
+              setPreviewPage(0);
+              setSelection(result.rows.filter((row) => !row.issues.length).map((row) => row.row));
+            })}>重新產生預覽</button>}
+            <button type="button" className={`${secondary} mt-4`} onClick={() => setShowAdvanced(true)}>
+              檢查必要欄位與房間
+            </button>
+          </section>
+        )}
+        {stage === "review" && source && !preview && showAdvanced && (
           <fieldset
             disabled={busy || uncertain}
             className="mt-5 rounded-2xl border bg-white p-5 disabled:opacity-60"
@@ -512,7 +601,7 @@ export function SheetImport({
               </section>
             )}
             <p className="text-sm">
-              {source.title} · {source.rows.length} 列。最多 501 列、前 52
+              {source.title} · {source.rows.length} 列。最多 3,001 列（含標題與前置列）、52
               欄。日期需包含西元年，例如 2026/10/2。金額以新臺幣計。
             </p>
             <label className="mt-3 block">
@@ -747,8 +836,15 @@ export function SheetImport({
                   </select>
                 </label>
                 {mapping.grid?.cellMeaning === "guest-name" && (
-                  <div className="max-h-96 overflow-auto">
-                    {gridCells.map((cell) => (
+                  <div>
+                    <p className="mb-2 text-sm">共 {gridCells.length} 個有內容的格子。每頁顯示 {GRID_PAGE_SIZE} 個，翻頁會保留已填的訂單編號。</p>
+                    {gridPages > 1 && <div className="mb-3 flex items-center gap-3 text-sm">
+                      <button type="button" className={secondary} disabled={gridPage === 0} onClick={() => setGridPage((page) => page - 1)}>上一頁</button>
+                      <span>第 {gridPage + 1}／{gridPages} 頁</span>
+                      <button type="button" className={secondary} disabled={gridPage + 1 >= gridPages} onClick={() => setGridPage((page) => page + 1)}>下一頁</button>
+                    </div>}
+                    <div className="max-h-96 overflow-auto">
+                    {visibleGridCells.map((cell) => (
                       <label key={cell.key} className="mb-3 block text-sm">
                         第 {cell.row} 列、第 {cell.column} 欄 · {cell.room} ·{" "}
                         {cell.date} · {cell.content}
@@ -772,6 +868,7 @@ export function SheetImport({
                         />
                       </label>
                     ))}
+                    </div>
                   </div>
                 )}
               </section>
@@ -807,7 +904,7 @@ export function SheetImport({
               </fieldset>
             ))}
             <label className="mt-4 block">
-              匯入此日期以後仍在住／尚未入住的訂單
+              匯入起始日期（預設 2000 年，包含目前可讀到的歷史資料）
               <input
                 className={field}
                 type="date"
@@ -819,12 +916,28 @@ export function SheetImport({
                 }
               />
             </label>
+            {["stay", "night"].includes(mapping.granularity) && (
+              <label className="mt-4 flex items-start gap-3 text-sm">
+                <input type="checkbox" className="mt-1"
+                  checked={mapping.missingOrderId === "source-row"}
+                  disabled={(mapping.columns.sourceRowId ?? -1) < 0}
+                  onChange={(event) => changeMapping({ ...mapping,
+                    missingOrderId: event.target.checked ? "source-row" : "review" })} />
+                <span>缺訂單編號時，依來源列唯一ID逐列建立獨立訂單；唯一ID 空白或重複仍待核對。若同一訂單跨多列但沒有訂單編號，房費會保留各列金額。</span>
+              </label>
+            )}
+            <label className="mt-4 block">
+              可售房況已核對的起始日（與歷史匯入起始日分開）
+              <input className={field} type="date" min="2000-01-01" max="2100-12-31"
+                value={mapping.coverageFrom ?? mapping.from}
+                onChange={(event) => changeMapping({ ...mapping, coverageFrom: event.target.value || undefined })} />
+            </label>
             <label className="mt-4 block">
               來源完整涵蓋到哪一天（不含；留空時不作為官網可售房況）
               <input
                 className={field}
                 type="date"
-                min={mapping.from}
+                min={mapping.coverageFrom ?? mapping.from}
                 max="2100-12-31"
                 value={mapping.coverageTo ?? ""}
                 onChange={(e) =>
@@ -869,6 +982,7 @@ export function SheetImport({
                     mapping: { ...mapping, ...(coverageConfirmed ? { coverageConfirmed: true as const } : {}) },
                   });
                   setPreview(result);
+                  setPreviewPage(0);
                   setSelection(
                     result.rows
                       .filter((r) => !r.issues.length)
@@ -881,12 +995,34 @@ export function SheetImport({
             </button>
           </fieldset>
         )}
+        {source && !preview && helpCard}
         {preview && (
           <section className="mt-5 rounded-2xl border bg-white p-5">
             <h2 className="font-semibold">3. 選擇要匯入的訂單</h2>
+            <p className="mt-2 text-sm text-slate-600">
+              {recordModeLabels[mapping.granularity]} · {amountBasisLabels[mapping.amountBasis]} ·
+              {mapping.from === "2000-01-01" ? "檢視整張來源表的歷史與未來訂單" : `檢視 ${mapping.from} 起仍在住或尚未入住的訂單`}
+              {mapping.missingOrderId === "source-row" && " · 缺訂單編號以來源列唯一ID逐列建單"}
+            </p>
+            <button type="button" className={`${secondary} mt-3`} disabled={busy || uncertain}
+              onClick={() => { setPreview(null); setShowAdvanced(true); setConfirmed(false); }}>
+              調整欄位、房間或匯入日期
+            </button>
             <p className="my-3 text-sm">
               每一列預覽代表合併後的一張訂單。可先匯入無問題的整組資料；有問題的訂單不會只匯入其中幾晚。預覽保留一小時。
             </p>
+            <p className="mb-3 text-sm" role="status">
+              已讀取整張來源表，共 {preview.rows.length} 組來源紀錄；目前範圍顯示 {currentPreviewRows.length} 組，已選 {selection.length} 組可匯入訂單。
+              {pastPreviewCount > 0 && `另有 ${pastPreviewCount} 筆在 ${mapping.from} 前退房，已略過。`}
+              每頁顯示 {PREVIEW_PAGE_SIZE} 筆，翻頁不會清除選擇。
+            </p>
+            {previewPages > 1 && (
+              <div className="mb-3 flex items-center gap-3 text-sm">
+                <button type="button" className={secondary} disabled={previewPage === 0} onClick={() => setPreviewPage((page) => page - 1)}>上一頁</button>
+                <span>第 {previewPage + 1}／{previewPages} 頁</span>
+                <button type="button" className={secondary} disabled={previewPage + 1 >= previewPages} onClick={() => setPreviewPage((page) => page + 1)}>下一頁</button>
+              </div>
+            )}
             <div className="overflow-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -907,14 +1043,14 @@ export function SheetImport({
                   </tr>
                 </thead>
                 <tbody>
-                  {preview.rows.map((r) => (
+                  {visiblePreviewRows.map((r) => (
                     <tr key={r.row}>
                       <td className="border p-2">
                         <input
                           aria-label={`匯入第 ${r.row} 列`}
                           type="checkbox"
                           disabled={busy || uncertain || !!r.issues.length}
-                          checked={selection.includes(r.row)}
+                          checked={selectedRows.has(r.row)}
                           onChange={(e) =>
                             setSelection((old) =>
                               e.target.checked
@@ -932,7 +1068,9 @@ export function SheetImport({
                           : (r.sourceRows ?? [r.row]).join("、")}
                       </td>
                       <td className="border p-2">
-                        {r.draft?.guestName || "未填姓名"}
+                        {r.draft
+                          ? (r.draft.guestName || "未填姓名")
+                          : (sourceValues(r, mapping.columns.guestName) || "來源姓名未對應")}
                         <br />
                         {r.draft?.externalId && (
                           <>
@@ -942,10 +1080,10 @@ export function SheetImport({
                             <br />
                           </>
                         )}
-                        {property.rooms
+                        {r.draft ? property.rooms
                           .filter((room) => r.draft?.roomIds.includes(room.id))
                           .map((room) => room.name)
-                          .join("、")}
+                          .join("、") : sourceValues(r, mapping.columns.rooms)}
                       </td>
                       <td className="whitespace-nowrap border p-2">
                         {(r.draft?.stays ?? (r.draft ? [r.draft] : [])).map(
@@ -964,13 +1102,22 @@ export function SheetImport({
                             </div>
                           ),
                         )}
+                        {!r.draft && sourceValues(r, mapping.columns.checkIn) && (
+                          <span>來源日期：{sourceValues(r, mapping.columns.checkIn)}
+                            {sourceValues(r, mapping.columns.checkOut) && ` ～ ${sourceValues(r, mapping.columns.checkOut)}`}
+                          </span>
+                        )}
                         {r.roomNightCount > 0 && (
                           <span className="text-xs">
                             共 {r.roomNightCount} 個房晚
                           </span>
                         )}
                       </td>
-                      <td className="border p-2">{r.draft?.total ?? "未知"}</td>
+                      <td className="border p-2">{r.draft
+                        ? (r.draft.total ?? "未知")
+                        : (sourceValues(r, mapping.columns.total)
+                          ? `來源房費：${sourceValues(r, mapping.columns.total)}（未核算）`
+                          : "來源房費未對應")}</td>
                       <td className="border p-2">
                         來源累計已付{" "}
                         {r.draft?.importedFinance?.sourcePaid ??
@@ -986,6 +1133,7 @@ export function SheetImport({
                 </tbody>
               </table>
             </div>
+            {helpCard}
             {preview.rows.every((row) =>
               row.issues.includes("已在選定範圍之前退房"),
             ) && (

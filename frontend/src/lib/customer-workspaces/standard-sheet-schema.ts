@@ -1,4 +1,4 @@
-export const STANDARD_SHEET_VERSION = 4;
+export const STANDARD_SHEET_VERSION = 5;
 export const STANDARD_SHEET_MARKER = "bnb-standard-workbook";
 export type StandardColumn = {
   key: string;
@@ -50,6 +50,7 @@ export const STANDARD_SHEET_TABS = [
       col("holdScope", "保留範圍", undefined, 220),
       col("holdState", "保留處理狀態", undefined, 200),
       col("latePaymentReview", "釋出後款項待處理", undefined, 180),
+      col("updatedAt", "最後更新時間", "datetime", 180),
     ],
   },
   {
@@ -156,9 +157,11 @@ export const LEGACY_COLUMN_COUNTS: Partial<Record<string, number>> = {
   payments: 10,
 };
 export const V3_COLUMN_COUNTS: Partial<Record<string, number>> = { orders: 23 };
+export const V4_COLUMN_COUNTS: Partial<Record<string, number>> = { orders: 28 };
 export type StandardTabKey = (typeof STANDARD_SHEET_TABS)[number]["key"];
 
 export const STANDARD_SHEET_RULES: (string | number)[][] = [
+  ["R31", "更新時間", "訂房日期保留客人原下訂日期；最後更新時間是 OS 最近一次接受訂單變更的時間。舊訂單若無可靠時間則留空，不以匯出日代填。"],
   ["R29", "保留", "保留與正式訂單分開；保留到期仍占房，由業主延長或釋出。OS 保留範圍不代表外部通路已關房。"],
   ["R30", "訂金轉正式", "確認收到實際訂金後，沿原訂單 ID 轉正式；實收、尾款與保留狀態分開。釋出後到帳不自動恢復占房。"],
   [

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, button, field, secondary } from "../customer-workspaces/client";
 import { useCommand } from "../customer-workspaces/use-command";
-import { EmailLoginWaiting, type EmailLoginChallenge } from "../customer-workspaces/email-login-waiting";
+import { EmailLoginWaiting, loadEmailChallenge, saveEmailChallenge, type EmailLoginChallenge } from "../customer-workspaces/email-login-waiting";
 
 type RoomConfig = {
   roomTypeId: string;
@@ -122,6 +122,8 @@ export function OwnerConnection({ connectionId }: { connectionId: string }) {
   const [notice, setNotice] = useState("");
   const [loginChallenge, setLoginChallenge] = useState<EmailLoginChallenge | null>(null);
   const [preparingLogin, setPreparingLogin] = useState(false);
+  const loginScope = `owner:${connectionId}`;
+  useEffect(() => { const saved = loadEmailChallenge(loginScope); setLoginChallenge(saved); if (saved?.email) setEmail(saved.email); }, [loginScope]);
   const prepared = useRef(false);
   const requestingLogin = useRef(false);
   const login = useCommand(endpoint);
@@ -177,12 +179,14 @@ export function OwnerConnection({ connectionId }: { connectionId: string }) {
       }
       const result = await login.execute<{ detail: string } & EmailLoginChallenge>({
         action: "login-request",
+        protocol: "code-v3",
         connectionId,
         email: email.trim(),
       });
       if (result) {
         setNotice(result.data.detail);
-        setLoginChallenge(result.data.pairingCode ? result.data : null);
+        const next = result.data.codeRequired ? { ...result.data, email: email.trim() } : null;
+        setLoginChallenge(next); saveEmailChallenge(loginScope, next);
       }
     } catch (caught) {
       setError((caught as Error).message);
@@ -234,7 +238,7 @@ export function OwnerConnection({ connectionId }: { connectionId: string }) {
                   required
                   value={email}
                   disabled={preparingLogin || login.busy || login.uncertain}
-                  onChange={(event) => { setEmail(event.target.value); setLoginChallenge(null); }}
+                  onChange={(event) => { setEmail(event.target.value); setLoginChallenge(null); saveEmailChallenge(loginScope, null); }}
                 />
               </label>
               <button
@@ -245,7 +249,7 @@ export function OwnerConnection({ connectionId }: { connectionId: string }) {
                   ? "正在寄送…"
                   : login.uncertain
                     ? "確認原寄信請求"
-                    : "寄送登入連結"}
+                    : "寄送登入碼"}
               </button>
             </form>
             {login.uncertain && (
@@ -254,7 +258,7 @@ export function OwnerConnection({ connectionId }: { connectionId: string }) {
               </p>
             )}
             {notice && <p role="status" className="break-words">{notice}</p>}
-            {loginChallenge && <EmailLoginWaiting key={loginChallenge.requestKey} challenge={loginChallenge} />}
+            {loginChallenge && <EmailLoginWaiting key={loginChallenge.requestKey} challenge={loginChallenge} scope={loginScope} />}
             {login.error && <ErrorMessage message={login.error} />}
             <button className={secondary} onClick={() => void refresh()}>
               重新查詢登入狀態

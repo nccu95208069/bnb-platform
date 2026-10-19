@@ -37,15 +37,15 @@ export async function POST(request: NextRequest) {
       return response;
     }
     if (input.action === "login-request") {
-      fields(input, ["action", "connectionId", "email", "requestKey"]);
+      fields(input, ["action", "connectionId", "email", "requestKey", "protocol"]);
       const c = (await connectionFor(store, input.connectionId)).value;
       if (request.cookies.get(WEBSITE_LOGIN_COOKIE)?.value !== c.id) throw Error("LOGIN_BROWSER_REQUIRED");
       if (email(input.email) !== c.ownerEmail) throw Error("WEBSITE_OWNER_MISMATCH");
       const result = await requestDeviceEmailLogin(store, { email: input.email, requestKey: input.requestKey,
-        proof: request.cookies.get(LOGIN_PROOF_COOKIE)?.value, websiteConnectionId: c.id }, sendCustomerLifecycleMail, intakePreview());
+        proof: request.cookies.get(LOGIN_PROOF_COOKIE)?.value, websiteConnectionId: c.id, codeInEmail: input.protocol === "code-v3" }, sendCustomerLifecycleMail, intakePreview());
       if (result.status === "preview") return NextResponse.json({ delivery: "preview", detail: "此環境停用寄信，尚未寄出登入連結。請使用可寄信的驗收環境，或聯絡管理員。" }, { headers: ownerHeaders });
       if (result.status !== "accepted") throw Error("LOGIN_DELIVERY_UNCONFIRMED");
-      return NextResponse.json({ delivery: "accepted", requestKey: result.requestKey, pairingCode: result.pairingCode, expiresAt: result.expiresAt, detail: "登入連結已寄出，可使用電腦或手機驗證。登入後仍需確認網站設定，才會建立日曆。" }, { headers: ownerHeaders });
+      return NextResponse.json({ delivery: "accepted", requestKey: result.requestKey, pairingCode: result.pairingCode, codeRequired: result.codeRequired, expiresAt: result.expiresAt, detail: "登入信已寄出，可使用電腦或手機驗證。登入後仍需確認網站設定，才會建立日曆。" }, { headers: ownerHeaders });
     }
     const account = await authenticate(store, request.cookies.get(CUSTOMER_COOKIE)?.value);
     await store.limit(`website-owner:${account.id}`, 60);
