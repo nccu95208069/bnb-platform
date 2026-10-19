@@ -251,3 +251,55 @@ test("shared multi-row Sheet needs only URL, Viewer access, record mode and Next
   assert.match(document.body.textContent, /確認匯入 1 筆/);
   assert.equal(calls.some((call) => call.action === "commit"), false);
 });
+
+test("unmatched source rooms stop automatic preview and ask for room review", async (t) => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "https://test.local" });
+  const globals = {
+    window: globalThis.window,
+    document: globalThis.document,
+    IS_REACT_ACT_ENVIRONMENT: globalThis.IS_REACT_ACT_ENVIRONMENT,
+  };
+  Object.assign(globalThis, {
+    window: dom.window,
+    document: dom.window.document,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  const { createRoot } = await import("react-dom/client");
+  const root = createRoot(document.getElementById("root"));
+  t.after(async () => {
+    await act(() => root.unmount());
+    Object.assign(globalThis, globals);
+    dom.window.close();
+  });
+  const calls = [];
+  t.mock.method(globalThis, "fetch", async (_url, options) => {
+    const body = JSON.parse(options.body);
+    calls.push(body.action);
+    if (body.action === "tabs") return Response.json({
+      spreadsheetId: "synthetic-sheet", title: "Synthetic Sheet",
+      tabs: [{ id: 0, title: "工作表1" }],
+    });
+    if (body.action === "read") return Response.json({
+      id: "source", title: "工作表1", rows: [
+        ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "備註", "訂單編號"],
+        ["102", "Sample", "Direct", "2027-01-01", "2027-01-02", "2026-12-01", "2500", "", "", "row-1", "", "order-1"],
+      ],
+    });
+    throw Error(`unexpected action ${body.action}`);
+  });
+  await act(() => root.render(createElement(SheetImport, {
+    slug: "synthetic", property: { id: "property", name: "Test", kind: "rooms",
+      villaRoomIds: [], rooms: [{ id: "room-101", name: "101" }] },
+    configured: true, connected: true, initialBatches: [], initialVersion: 1,
+    sharedUrl: "https://docs.google.com/spreadsheets/d/synthetic-sheet/edit",
+  })));
+  await act(() => [...document.querySelectorAll("button")].find((button) =>
+    button.textContent === "下一步：查看匯入預覽",
+  ).click());
+  assert.deepEqual(calls, ["tabs", "read"]);
+  assert.match(document.body.textContent, /來源房間尚未對應工作區房間：102/);
+  assert.equal(document.body.textContent.includes("重新產生預覽"), false);
+  assert.ok([...document.querySelectorAll("button")].some((button) =>
+    button.textContent === "檢查必要欄位與房間",
+  ));
+});

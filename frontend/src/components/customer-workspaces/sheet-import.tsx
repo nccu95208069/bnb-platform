@@ -45,6 +45,13 @@ function mappingReady(mapping: Mapping) {
     (mapping.amountBasis === "none") === (mapping.columns.total === -1) &&
     (mapping.receivedMeaning === "none") === (mapping.columns.received === -1);
 }
+function unmappedRoomLabels(rows: string[][], mapping: Mapping) {
+  if (mapping.columns.rooms < 0) return [];
+  return [...new Set(rows.slice(mapping.headerRow)
+    .map((row) => (row[mapping.columns.rooms] ?? "").trim())
+    .filter(Boolean))]
+    .filter((label) => !mapping.roomMap[label]?.length);
+}
 function suggestedMapping(current: Mapping, suggestion: FormatSuggestion, mode: RecordMode): Mapping {
   const granularity = mode === "auto" ? suggestion.granularity : mode;
   const grid = granularity === "grid" ? suggestion.grid : undefined;
@@ -176,7 +183,9 @@ export function SheetImport({
     setConfirmed(false);
     setConfirmedEmpty(false);
     setCoverageConfirmed(false);
-    if (mappingReady(nextMapping)) {
+    // A matching room column is insufficient: every source room must map to an
+    // actual workspace room before the wizard can skip the review step.
+    if (mappingReady(nextMapping) && !unmappedRoomLabels(nextSource.rows, nextMapping).length) {
       const result = await send<ImportPreview>({
         action: "preview", sourceId: nextSource.id, mapping: nextMapping,
       });
@@ -266,6 +275,7 @@ export function SheetImport({
   const isGrid = mapping.granularity === "grid";
   const isNight = mapping.granularity === "night";
   const mappingComplete = mappingReady(mapping);
+  const missingRoomLabels = source ? unmappedRoomLabels(source.rows, mapping) : [];
   const columnCount = Math.max(0, ...(source?.rows.map((r) => r.length) ?? []));
   const columns = Array.from({ length: columnCount }, (_, i) => ({
     id: i,
@@ -493,19 +503,22 @@ export function SheetImport({
           )}
         </fieldset> : <section className="rounded-2xl border bg-white p-5">
           <p className="font-semibold">已讀取 {source?.title ?? "來源資料"}</p>
-          <p className="mt-1 text-sm text-slate-600">系統已自動找欄位與房間；確認預覽後才會建立訂單。</p>
+          <p className="mt-1 text-sm text-slate-600">已讀取來源資料；確認預覽後才會建立訂單。</p>
           <button type="button" className={`${secondary} mt-3`} onClick={() => {
             setStage("source"); setSource(null); setPreview(null); setShowAdvanced(false);
           }}>更換來源</button>
         </section>}
         {stage === "review" && source && !preview && !showAdvanced && (
           <section className="mt-5 rounded-2xl border bg-white p-5">
-            <h2 className="font-semibold">{mappingComplete ? "資料已讀取，請重新產生預覽" : "資料已讀取，還需要核對"}</h2>
+            <h2 className="font-semibold">{mappingComplete && !missingRoomLabels.length ? "資料已讀取，請重新產生預覽" : "資料已讀取，還需要核對"}</h2>
             <p className="mt-2 text-sm text-slate-600">{source.rows.length} 列 · {suggestion?.messages[0]}</p>
+            {missingRoomLabels.length > 0 && <p className="mt-2 text-sm text-amber-800">
+              來源房間尚未對應工作區房間：{missingRoomLabels.slice(0, 6).join("、")}{missingRoomLabels.length > 6 ? ` 等 ${missingRoomLabels.length} 種` : ""}。請先核對房間，再預覽可匯入的訂單。
+            </p>}
             {!mappingComplete && <p className="mt-2 text-sm text-amber-800">
               系統尚無法安全判斷必要的日期、房間或訂單編號。請檢查這幾項後再看預覽。
             </p>}
-            {mappingComplete && <button type="button" className={`${button} mt-4`} onClick={() => run(async () => {
+            {mappingComplete && !missingRoomLabels.length && <button type="button" className={`${button} mt-4`} onClick={() => run(async () => {
               const result = await send<ImportPreview>({ action: "preview", sourceId: source.id, mapping });
               setPreview(result);
               setPreviewPage(0);

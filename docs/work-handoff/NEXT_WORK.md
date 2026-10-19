@@ -1,6 +1,6 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
-2026-10-19 開通網址與 Sheet 匯入第一頁的簡化已在獨立分支實作，尚未部署；行為、測試與發布前核對見[交接紀錄](ONBOARDING_SIMPLE_IMPORT_2026-10-19.md)。
+2026-10-19 開通網址與 Sheet 匯入第一頁的簡化已合併並部署至正式站。正式站的非營業測試來源揭露「房間尚未對應仍自動預覽」問題；後續修正與待驗收項目見[交接紀錄](ONBOARDING_SIMPLE_IMPORT_2026-10-19.md)。
 
 2026-10-16 標準帳本 v5：依業主決定增加訂單「最後更新時間」，保留原訂房日期；舊 v4 帳本守護式升級及缺失歷史時間留白詳見 [實作與發布邊界](STANDARD_SHEET_V5_UPDATED_AT_2026-10-16.md)。程式尚未部署。
 2026-10-11 OS-04: owner-approved OS and LINE rollout is complete. Sweetfun and OFFLAND reminders are enabled for Taipei 09:00, with separately labeled unconfirmed room-night summaries. The new scheduler returned HTTP 200; one authorized synthetic LINE message has a persisted provider receipt and was visibly received in LINE desktop. First automatic arrival-note dispatch is due October 12 and has not yet been observed; physical-phone and external-customer acceptance remain open. See [release evidence](OS_READINESS_2026-10-10.md#正式-line-啟用--2026-10-11).
