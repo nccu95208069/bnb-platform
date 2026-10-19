@@ -147,4 +147,4 @@ See [EMAIL_CROSS_DEVICE_2026-10-16.md](EMAIL_CROSS_DEVICE_2026-10-16.md) for the
 
 The separate [legacy two-property calendar email recovery](LEGACY_CALENDAR_EMAIL_RECOVERY_2026-10-19.md) adds a one-time email reset link for active calendar members and the initial owner credential while retaining administrator-assisted recovery. The combined release and a new member email delivery are verified; the recipient's password change and fresh login remain to be confirmed.
 
-[Legacy calendar copy controls](LEGACY_CALENDAR_COPY_2026-10-20.md) are live on Sean version: the booking detail can copy visible guest names and provided formal order numbers; a follow-up adds a separate copy button for the displayed system-internal ID without using it as a source-order fallback. The separate batch-review workflow remains outside this release.
+[Legacy calendar copy controls](LEGACY_CALENDAR_COPY_2026-10-20.md) are live on Sean version: the booking detail can copy visible guest names, provided formal order numbers and the separately labeled system-internal ID without using it as a source-order fallback. The separate batch-review workflow remains outside this release.
