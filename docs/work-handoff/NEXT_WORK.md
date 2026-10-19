@@ -408,3 +408,5 @@ See [calendar change intake and deferred producer coordination](CALENDAR_CHANGE_
 ## Customer full-history import and month calendar — 2026-10-19
 
 See [full-history import and customer calendar parity](SHEET_FULL_HISTORY_CALENDAR_PARITY_2026-10-19.md) and the [release gates](ONBOARDING_RELEASE_GATES_2026-10-19.md). PR #55 is live; the real customer preview was checked without clicking final import. A row whose source identity, dates, room, or overlap cannot be validated remains a review item; investigate it before treating the calendar as complete or sale-ready.
+
+The 2026-10-20 owner decision simplifies the [Sheet import handoff](SHEET_IMPORT_SIMPLE_FLOW_2026-10-20.md): one explicit click may check and import a completely valid source, then open the calendar. Ambiguous or conflicting rows remain outside the automatic path; an approved onboarding link remains preview-only until the owner clicks import.

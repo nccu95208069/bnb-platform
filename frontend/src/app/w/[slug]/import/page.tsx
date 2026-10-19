@@ -77,16 +77,16 @@ export default async function Page({
             (initialProperty ? workspace.onboarding?.calendarKind : undefined);
     const selectedSource = calendarKind ?? "sheet";
     const sourceLinks = (
-      <nav aria-label="切換匯入來源" className="mx-auto flex max-w-4xl flex-wrap gap-2 px-6 pt-6">
+      <nav aria-label="切換匯入來源" className="flex flex-wrap gap-2 bg-[#f4f7f4] px-4 pt-6 sm:px-[max(2rem,calc((100vw-56rem)/2))]">
         {([[
           "sheet",
-          "Google Sheet／Excel／CSV",
-        ], ["google_calendar", "Google 日曆"], ["ios_calendar", "iPhone／iPad 日曆"], ["android_calendar", "Android 日曆"]] as const).map(([source, label]) => (
+          "表格／Excel／CSV",
+        ], ["google_calendar", "Google 日曆"], ["ios_calendar", "iPhone／iPad"], ["android_calendar", "Android 日曆"]] as const).map(([source, label]) => (
           <a
             key={source}
             href={`?${new URLSearchParams({ property: property.id, source })}`}
             aria-current={selectedSource === source ? "page" : undefined}
-            className={`rounded-lg border px-3 py-2 text-sm ${selectedSource === source ? "border-teal-700 bg-teal-50 text-teal-900" : "bg-white text-slate-700 hover:border-teal-700"}`}
+            className={`rounded-full border px-4 py-2.5 text-sm font-medium transition-colors ${selectedSource === source ? "border-teal-800 bg-teal-800 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-teal-700 hover:text-teal-900"}`}
           >
             {label}
           </a>
