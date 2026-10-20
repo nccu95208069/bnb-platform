@@ -17,6 +17,7 @@
 - 另以 OS 只讀簽章程式及全新合成會員／館別測試 `GET /v1/properties/{propertyId}/bookings?limit=1`：經受保護 Preview 回 `200`，證明原始查詢字串在實際路由可通過短效證明驗證。這是合成會員，尚未接正式 OS 登入。短效憑證已撤銷並刪除；使用者批准後透過控制台刪除唯一合成館別列，重新查詢確認館別、憑證、占房、outbox、稽核均為零。
 - 合成 API、PostgreSQL 隔離、憑證撤銷、唯讀 OS proof 和本機備份還原演練已驗證。此結果不代表真實館別已切換。
 - 新增逐館唯讀完整性檢查，會以受限角色在一致快照核對訂單房晚與占房索引，並檢查待同步通路操作是否仍被 fence 保護；本機 PostgreSQL 交易及備份還原前後的合成資料均已通過。沒有用真實館別執行。
+- 2026-10-21 將含水芳遷移輔助工具的本地候選部署至新的受保護 Preview，控制面讀回 `Ready`／`preview`。正常未登入訪客請求被保護層轉向登入；登入的無憑證唯讀 API 請求回 `401 UNAUTHORIZED`、`private, no-store`。正式公開別名再次回 `503 SERVICE_UNAVAILABLE`，沒有啟用正式接單。Supabase 專用庫目前保存一個水芳**唯讀影子**館別，版本 2、1,607 筆訂單、1,758 個占房鍵、4 個隔離組；館別 authority epoch 仍為 0、通路和網站銷售均關閉，憑證／outbox／audit 均為 0。詳細來源和例外見[遷移執行紀錄](SWEETFUN_MIGRATION_EXECUTION_2026-10-20.md)。
 
 ## 專用資料庫初始化
 
@@ -32,4 +33,4 @@
 3. 設定限流、錯誤率及資料庫連線監控；驗證資料庫停機時固定回 `503`，不洩漏內部資訊。
 4. 維持 OS 影子橋接預設關閉；網站報價、LINE owner action、OwlNest 登入後台的房量寫入請求與財務證據尚未完成，不得將 Iron Gate 指為真實訂單的唯一 writer。每館切換須先備份、影子比對、關閉舊 writer、核對並準備回滾。
 
-目前有固定 503 的 Production 空殼與受 Vercel Authentication 保護的 Preview；Supabase 專用專案及私有 schema 已建立，沒有遷移任何真實訂單，也未啟用真實接單。
+目前有固定 503 的 Production 空殼與受 Vercel Authentication 保護的 Preview；Supabase 專用私有 schema 已存入真實來源的**唯讀影子**，但尚未作為訂單權威、尚未啟用真實接單或財務付款事件。
