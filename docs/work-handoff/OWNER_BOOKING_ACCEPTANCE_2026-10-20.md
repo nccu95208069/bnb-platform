@@ -39,3 +39,21 @@ Local evidence includes screenshots and authoritative snapshots at held, deposit
 - The five local Redis HTTP tests require a dedicated Redis server and could not run on this host. The existing CI job provides Redis 7.2 and runs them. The browser acceptance exercised actual owner HTTP routes with isolated storage.
 - Emails/LINE delivery, bank transfer execution, live production persistence and real sales activation were intentionally outside this test. Queued notification text is not evidence of delivery.
 - Changes remain in a review branch; this task does not authorize a production rollout or reopening sales.
+
+## PR #60 review follow-up
+
+The owner authorized a full review of the draft PR and fixes for any findings, while keeping Houyuan in test mode and withholding merge/deployment approval. Review covered all changed files plus the underlying session/membership checks, receipt and hold operations, workspace transactions, cancellation, guest availability and calendar projection.
+
+No runtime defect was reproduced in the reviewed permissions, receipt replay or cancellation paths. A coverage gap was addressed: the new first-account flow did not have direct HTTP tests for revoked permissions or concurrent financial operations. The additional tests exercise actual route handlers against isolated memory storage locally and repeat the six API scenarios against Redis/Lua in CI.
+
+| Area | Review and regression evidence |
+| --- | --- |
+| Authorization | Current active role and property grant are enforced on every command, including replay. Viewer/housekeeper account creation and hold conversion, out-of-scope admins, missing sessions and cross-origin writes are rejected. Removing an admin's scope, downgrading the role or deactivating membership also rejects a previously successful command's retry. Hidden-price calendar responses contain no accounts, totals or receipts. |
+| First account and deposit | Concurrent identical account creation produces one account and no receipt. Different content on the same request key is rejected. Foreign account IDs are rejected. Concurrent bank-deposit confirmation, subsequent replay and stale/new-key conversion attempts retain one receipt and one order ID. |
+| Balance and refund | Two different requests based on the same version cannot both commit. Exact retries retain the original ledger entries. Housekeepers retain their documented scoped receipt permission but cannot refund or cancel; viewers cannot write. Refunds cannot exceed net received. |
+| Cancellation and inventory | Payment settlement and explicit website-cancellation confirmation are required. Refund alone retains occupancy. Successful cancellation removes only that booking's occupancy. Replaying the old cancellation neither deletes a maintenance block nor releases a replacement hold. Historical cancelled orders remain queryable, while the rendered calendar excludes them. |
+| Concurrent actions and UI | Deposit/release and payment/cancellation races each admit one mutation. The resulting ledger and availability agree. Rapid double submission after account creation sends one deposit command; a lost bank-deposit response locks other actions and retries the exact payload without adding a receipt. |
+
+Local follow-up validation: six HTTP scenarios using isolated memory storage plus 19 focused UI/calendar checks passed. CI includes the same six scenarios twice (memory and real Redis), the expanded UI tests, all existing workspace regressions, backend checks and the frontend production build. The exact revision's CI result is recorded on [draft PR #60](https://github.com/nccu95208069/bnb-platform/pull/60).
+
+This follow-up changes tests, CI coverage and this review record only. It does not change production application logic, property settings, external channel inventory, real payment execution or notification delivery. The application records acknowledged receipts/refunds; actual bank reconciliation and production acceptance remain separate from these synthetic tests.
