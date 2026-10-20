@@ -69,6 +69,8 @@ export type Booking = {
   paymentEvents?: PaymentEvent[];
   /** Immutable source evidence for a read-only OS shadow import; never projected to API callers. */
   osSnapshot?: Record<string, unknown>;
+  /** Restricted original room-night rows for a read-only Sweetfun Sheet candidate. */
+  sweetfunSnapshot?: Record<string, unknown>;
 };
 
 export type PaymentEvent = {
@@ -139,6 +141,8 @@ export type PropertyState = {
   readOnly?: boolean;
   /** Restricted provenance for a prepared OS candidate. Never included in API projections. */
   osImport?: { sourceHash: string; workspaceVersion: number; propertySnapshot: Record<string, unknown> };
+  /** Restricted source and exception evidence for a read-only Sweetfun Sheet candidate. */
+  sweetfunImport?: Record<string, unknown>;
   channel: { mode: "none" | "owlnest"; ready: boolean; websiteSalesEnabled: boolean;
     grantId: string | null; websiteBindingId: string | null };
   sourceGrants: { grantId: string; sourceSystem: string; sourceAccount: string; active: boolean }[];
