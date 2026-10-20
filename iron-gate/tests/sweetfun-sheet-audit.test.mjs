@@ -11,6 +11,7 @@ function row(rowNumber, { room = "101", checkIn, checkOut, fee = "1,200.50",
   values[2] = "synthetic channel";
   values[3] = checkIn;
   values[4] = checkOut;
+  values[5] = "2026-10-01";
   values[6] = fee;
   values[7] = paid;
   values[8] = check;
@@ -70,4 +71,15 @@ test("rejects changed headers and incomplete row ordering", () => {
   assert.throws(() => auditSweetfunSnapshot({
     headers: [...SWEETFUN_HEADERS], rows: [valid, { ...valid, rowNumber: 2 }],
   }), /UNORDERED_SWEETFUN_ROWS/);
+});
+
+test("keeps source booking date separate from the room night", () => {
+  const a = row(2, { checkIn: "2026-11-01", checkOut: "2026-11-02", id: "j1" });
+  a.values[5] = "invalid";
+  const snapshot = { headers: [...SWEETFUN_HEADERS], rows: [a] };
+  const audit = auditSweetfunSnapshot(snapshot);
+  assert.deepEqual(audit.summary.issues.BOOKED_DATE_INVALID.rows, [2]);
+  assert.equal(audit.records[0].bookedAt, null);
+  a.values[5] = "2026-10-01";
+  assert.equal(verifySweetfunAudit(snapshot, audit).matches, false);
 });

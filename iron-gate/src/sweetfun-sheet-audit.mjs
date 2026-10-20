@@ -71,6 +71,7 @@ export function auditSweetfunSnapshot(snapshot) {
     const room = cell(item.values, 0);
     const checkIn = day(cell(item.values, 3));
     const checkOut = day(cell(item.values, 4));
+    const bookedAt = day(cell(item.values, 5));
     const amount = cents(cell(item.values, 6));
     const sourceId = cell(item.values, 9);
     const record = {
@@ -82,6 +83,7 @@ export function auditSweetfunSnapshot(snapshot) {
       room,
       checkIn,
       checkOut,
+      bookedAt,
       roomFeeCents: amount,
       paymentMarker: cell(item.values, 7),
       issues: [],
@@ -90,9 +92,12 @@ export function auditSweetfunSnapshot(snapshot) {
     if (!sourceId) flag(record, "SOURCE_ID_MISSING");
     else bySourceId.set(sourceId, [...(bySourceId.get(sourceId) ?? []), record]);
     if (!ROOM_NAMES.has(room)) flag(record, "ROOM_UNKNOWN");
+    if (!cell(item.values, 1)) flag(record, "GUEST_NAME_MISSING");
+    if (!record.platform) flag(record, "PLATFORM_MISSING");
     if (!checkIn || !checkOut) flag(record, "DATE_INVALID");
     else if (Date.parse(`${checkOut}T00:00:00Z`) - Date.parse(`${checkIn}T00:00:00Z`) !== 86_400_000)
       flag(record, "STAY_NOT_SINGLE_NIGHT");
+    if (!bookedAt) flag(record, "BOOKED_DATE_INVALID");
     if (amount === null) flag(record, "ROOM_FEE_INVALID");
     if (!PAYMENT_MARKERS.has(record.paymentMarker)) flag(record, "PAYMENT_MARKER_UNKNOWN");
     if (cell(item.values, 8) !== "OK") flag(record, "SOURCE_CHECK_NOT_OK");
@@ -154,6 +159,7 @@ export function verifySweetfunAudit(snapshot, audit) {
       record.platform !== cell(item.values, 2) || record.otaAlias !== cell(item.values, 13) ||
       record.room !== room || record.checkIn !== checkIn ||
       record.checkOut !== day(cell(item.values, 4)) ||
+      record.bookedAt !== day(cell(item.values, 5)) ||
       record.roomFeeCents !== cents(cell(item.values, 6)) ||
       record.paymentMarker !== cell(item.values, 7)) changed++;
   }
