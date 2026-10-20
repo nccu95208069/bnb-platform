@@ -79,7 +79,15 @@
 
 固定副本的 `財務異動紀錄` 唯一資料列標示 `finance-v1`、`deposit`、`active`，有訂單鍵、金額與實際收付日；`訂單收款摘要` 唯一資料列的館別、訂單鍵、同步序號與操作編號均與它相同，摘要的已收訂金及已收房費值都等於該事件金額。LINE 財務程式把 Firestore 分筆帳本視為確認後的原始紀錄，將異動與訂單摘要作為同一批 Sheet 投影並讀回。因此這兩列符合**一個事件與一個衍生摘要**的形狀，不能加成兩筆收入；仍須以正式 Firestore entry／version／operation／projection receipt 及實際付款證據確認對應關係，也須和 OS 私有帳本排除重複。
 
-LINE 財務的歷史發布紀錄指出根 collection `line_finance_v1_books`，水芳館別下有 `control/book`、最新 `entries`、不可變 `versions`、`operations`、`events`、`audit`、`outbox`、投影控制與回執；另有訂單財務 registry、期初與刷卡來源核對資料。收款、修改與作廢使用同一 entry 的版本脈絡，作廢不是退款；期初已收沒有可推定的現金日期，刷卡累計也沒有單筆交易 ID。完整備份與反向核對必須涵蓋這些文件及投影水位，不能只備份 Sheet 兩頁或只讀目前 active 明細。這是程式／歷史文件的資料契約，非本輪已完成的正式 Firestore 備份或全量驗收。
+LINE 財務的歷史發布紀錄指出根 collection `line_finance_v1_books`，水芳館別下有 `control/book`、最新 `entries`、不可變 `versions`、`operations`、`events`、`audit`、`outbox`、投影控制與回執；訂單財務 registry 另有 `orders`、`booking_operations`、`order_operations`、`external_receipts`、`control/allocations`，涵蓋期初與刷卡來源核對。收款、修改與作廢使用同一 entry 的版本脈絡，作廢不是退款；期初已收沒有可推定的現金日期，刷卡累計也沒有單筆交易 ID。完整備份與反向核對必須涵蓋這些文件及投影水位，不能只備份 Sheet 兩頁或只讀目前 active 明細。這是程式／歷史文件的資料契約，非本輪已完成的正式 Firestore 備份或全量驗收。
+
+| 金額／狀態來源 | 目前可確認的用途 | 遷移時的計數規則 |
+| --- | --- | --- |
+| 主表 G | 每個實體房晚的房費。 | 算應收房費，不算已收現金。 |
+| 主表 H、H 註記、O:Q 卡欄 | 支付／卡同步的來源標記與累計線索。 | 不由 `done` 或卡欄直接造交易；先對原事件與期初核對。 |
+| LINE Firestore `entries`／`versions`、`operations`、`external_receipts` | LINE 財務確認、更正、作廢和刷卡來源核對的原始事件／回執。 | 依穩定 entry／operation ID 與版本逐筆核對；只從確認且有效的最新版本算目前餘額，保留所有歷史版本。 |
+| LINE Sheet `財務異動紀錄`／`訂單收款摘要` | 原始帳本的同步投影與訂單彙總。 | 對 Firestore 的 outbox／投影回執查漏；不與原始 entry 重複加總。 |
+| Sean OS 私有日曆收款／逐年財務帳本 | OS 操作及財務呈現的另一組私有紀錄。 | 依收據 ID、來源 ID、訂單與金額對 LINE／卡來源排重；正式資料尚未讀回。 |
 
 另有 OS 私有收款紀錄與逐年財務帳本：登記訂金／尾款／額外費用、退款與沖銷、帳戶、OTA 請款／入帳、收入支出與配置各有不同口徑。`IRON_GATE_V1.md` 目前只將**訂單相關的已核實收退款事件**列為 Iron Gate 責任；較廣的銀行對帳、平台請款與營運費用仍需財務領域保管並和訂單 ID 關聯。實際資料、是否已上線和金額尚未讀取；每個來源要先確定「原始交易」「狀態標記」「衍生摘要」角色，避免同一筆錢遷移兩次。
 
