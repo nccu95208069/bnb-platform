@@ -117,6 +117,8 @@ Supabase 備份頁的瀏覽器檢查因需要透過 ChatGPT 登入而被自動�
 
 2026-10-21 約 02:54 台北時間，另一項獨立發布工作完成 Gmail／LINE 共用訂單服務的新版本切流；本任務再用不含環境值的 Cloud Run 控制面唯讀查詢，確認正式 `gmail-order-handler` 的最新已就緒 revision 為 `gmail-order-handler-unified-assistant-16f32d1`，承接 100% 流量。發布工作紀錄顯示本輪只新增 `LINE_ASSISTANT_ENABLED=true`，其餘設定維持原樣，並回報 23 項入口、五個排程、Gmail 推送與房態佇列核對通過；獨立檢視該工作樹固定產品來源的 `build_live_orders` 與 `SheetOrders.commit`，LINE 訂單確認仍指向正式 Sheet 並以 Sheets batch update 寫入，程式中沒有 Iron Gate 事件接線。此檢視不涵蓋新映像的全部 writer 或來源事件水位，因此不能作為 Iron Gate authority 切換證據。活原表的修改時間再次讀回仍為 `2026-10-20T15:34:12.453Z`。
 
+2026-10-21 約 03:59 台北時間，正式 Cloud Run 再查仍是 `unified-assistant-16f32d1` 承接 100% 流量；活原表修改時間仍是 `2026-10-20T15:34:12.453Z`。新增只讀、固定路徑的 [`scripts/summarize-sweetfun-firestore-sources.py`](scripts/summarize-sweetfun-firestore-sources.py)，只輸出六個 Gmail／LINE Firestore 集合的筆數、最新文件更新時間與排序內容摘要，不輸出文件、ID 或權杖。當時 Gmail claims／watermarks 為 11／9，最新更新均在 10 月 19 日；LINE 訂單 journal／events 為 321／181，最新更新均在 10 月 20 日 14:58 UTC 之前；水芳 LINE 財務 entry／outbox 各 1，最新更新在 10 月 16 日。六集合合成摘要 `151cc8cb586d3a5aeb559e07986c8e392694eac4f6e4de137697b3581465c3b1`，可供後續偵測內容漂移。這是逐頁順序讀取的**選定集合觀察值**，不是 Firestore 一致快照；Gmail 新單／取消、OS、Sheet 人工改動及在途請求仍須獨立查核。Supabase 唯讀影子再讀回版本 2、1,607 訂單、1,758 房晚、outbox／audit 0，沒有啟用接單。
+
 ## 下一步可直接執行的工程工作
 
 1. 在不輸出客資的情況下，把固定副本的每個 J 房晚及每個財務事件建立受限核對鍵；全量比對來源→候選和候選→來源，另算逐房晚／逐訂單／逐月金額，例外逐項關閉。
