@@ -18,8 +18,8 @@ Sean 自用 OS 與 Iron Gate 的無損寫入／受權讀取缺口另見[資料�
 
 | 入口 | 從程式可核實 | 需以正式服務再核實 |
 | --- | --- | --- |
-| Gmail check order | `src/main.py::process_email` 對新單、修改、取消使用 `src/sheets/updater.py` 寫入／刪除 Sheet 列；修改付款方式有不改房晚列的分支。 | 正式 Cloud Run revision、Watch／Pub/Sub、補收和人工重跑的每一寫入端點、Firestore 持久處理水位及成功通知時機。 |
-| LINE OA 較新服務 | 較早候選有登記訂單、修改既有列、OwlNest 開關房；登記時 H 預設 `not_yet`。較新 `line-order-feedback-release-20261018` 分支新增 `FinanceService`／`FinanceRepository`／`FinanceLane`，簽署確認後原子寫 Firestore 財務明細、版本、操作回執、audit、outbox，再由投影 worker 將異動與摘要寫同一活頁簿兩個專頁並回讀；不改原主表付款欄。先前正式 `whole-cancel-d3bdee4` 版本的財務、投影及私訊開關均為 true；Firestore 的唯一水芳財務事件與 Sheet 雙投影已獨立核對。 | 正式流量已換成 `close-currency-ae6de58`，新版本設定與寫入程式尚未核對；實際 LINE OA/群組／私訊授權設定、訂單操作與來源水位、未知結果、Cloud Logging 保留期限、OwlNest 真實讀回及在途任務仍未全量核對。 |
+| Gmail check order | `src/main.py::process_email` 對新單、修改、取消使用 `src/sheets/updater.py` 寫入／刪除 Sheet 列；修改付款方式有不改房晚列的分支。正式 Cloud Run 最新 `unified-assistant-16f32d1` 承接 100% 流量。 | 新 revision 的 Gmail 實際寫入分支、Watch／Pub/Sub、補收和人工重跑的每一寫入端點、Firestore 持久處理水位及成功通知時機。 |
+| LINE OA 較新服務 | 較早候選有登記訂單、修改既有列、OwlNest 開關房；登記時 H 預設 `not_yet`。較新 `line-order-feedback-release-20261018` 分支新增 `FinanceService`／`FinanceRepository`／`FinanceLane`，簽署確認後原子寫 Firestore 財務明細、版本、操作回執、audit、outbox，再由投影 worker 將異動與摘要寫同一活頁簿兩個專頁並回讀；不改原主表付款欄。新發布的固定產品來源仍以 `SheetOrders.commit` 確認寫入正式 Sheet，未含 Iron Gate 事件接線；Firestore 的唯一水芳財務事件與 Sheet 雙投影已獨立核對。 | 正式流量已換成 `unified-assistant-16f32d1`；實際 LINE OA／群組／私訊授權設定、訂單操作與來源水位、未知結果、Cloud Logging 保留期限、OwlNest 真實讀回及在途任務仍未全量核對。 |
 | Sean Sweetfun OS | `/api/v1/order-payments` 保存私有收款、核對來源並可能回寫主表 H／註記；`/api/v1/finance` 有另一份私有逐年帳本。 | 現行正式部署、私有資料完整性與備份、各財務事件重複／沖銷關係、其他建單／封房／網站操作路徑。 |
 | Sheet 綁定 Apps Script | 2026-08-03 交接稱 `apps_script_v2_batch_20260731.gs` 曾在線上；其 `onEdit` 可生成 J、依 Q `done` 改 H，手動選單也可補 J；另向 Google Calendar 同步。 | 今日實際腳本版本、簡單／安裝型／定時觸發器與操作帳號，以及切換時禁寫／排空／日曆改接的實證。 |
 
