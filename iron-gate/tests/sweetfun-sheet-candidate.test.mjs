@@ -23,6 +23,14 @@ test("groups only by an explicit parent alias, preserving every original row", (
   ] };
   const prepared = prepareSweetfunGroups(snapshot);
   assert.deepEqual(prepared.candidates.map((item) => item.key), ["L:l1", "J:j3", "J:j4"]);
+  assert.deepEqual(prepared.candidates[0].rows.map(({ sourceId, room, checkIn, checkOut,
+    bookedAt, platform, otaAlias, roomFeeCents }) => ({ sourceId, room, checkIn, checkOut,
+    bookedAt, platform, otaAlias, roomFeeCents })), [
+    { sourceId: "j1", room: "101", checkIn: "2026-11-01", checkOut: "2026-11-02",
+      bookedAt: "2026-10-01", platform: "OTA", otaAlias: "", roomFeeCents: 120050 },
+    { sourceId: "j2", room: "102", checkIn: "2026-11-01", checkOut: "2026-11-02",
+      bookedAt: "2026-10-01", platform: "OTA", otaAlias: "", roomFeeCents: 120050 },
+  ]);
   assert.equal(prepared.candidates[0].roomFeeCents, "240100");
   assert.equal(prepared.summary.sourceRows, 4);
   assert.equal(prepared.summary.paymentEventsCreated, 0);

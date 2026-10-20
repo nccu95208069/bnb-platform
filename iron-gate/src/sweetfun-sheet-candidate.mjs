@@ -42,7 +42,10 @@ export function prepareSweetfunGroups(snapshot) {
       record.sourceId ? `J:${record.sourceId}` : `ROW:${record.rowNumber}`;
     const group = groups.get(key) ?? { key, rows: [], issues: [] };
     group.rows.push({ rowNumber: record.rowNumber, values: structuredClone(source.values),
-      sourceId: record.sourceId, roomFeeCents: record.roomFeeCents,
+      sourceId: record.sourceId, room: record.room, checkIn: record.checkIn,
+      checkOut: record.checkOut, bookedAt: record.bookedAt,
+      platform: record.platform, otaAlias: record.otaAlias,
+      roomFeeCents: record.roomFeeCents,
       rowHash: digest(source.values) });
     for (const issue of record.issues) group.issues.push(issue);
     groups.set(key, group);
