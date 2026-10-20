@@ -4,6 +4,10 @@ function columns(row) {
   return SWEETFUN_HEADERS.map((_, index) => String(row.values[index] ?? ""));
 }
 
+function notes(row) {
+  return SWEETFUN_HEADERS.map((_, index) => String(row.notes?.[index] ?? ""));
+}
+
 function indexRows(snapshot, audit) {
   const byNumber = new Map(snapshot.rows.map((row) => [row.rowNumber, row]));
   const byId = new Map();
@@ -45,17 +49,23 @@ export function diffSweetfunSnapshots(before, after) {
   for (const sourceId of ids) {
     const oldRow = oldRows.get(sourceId), newRow = newRows.get(sourceId);
     const oldColumns = oldRow && columns(oldRow), newColumns = newRow && columns(newRow);
+    const oldNotes = oldRow && notes(oldRow), newNotes = newRow && notes(newRow);
     const changedColumns = oldRow && newRow
       ? SWEETFUN_HEADERS.flatMap((_, index) => oldColumns[index] === newColumns[index] ? [] : [index])
       : [];
+    const changedNoteColumns = oldRow && newRow
+      ? SWEETFUN_HEADERS.flatMap((_, index) => oldNotes[index] === newNotes[index] ? [] : [index])
+      : [];
     const moved = Boolean(oldRow && newRow && oldRow.rowNumber !== newRow.rowNumber);
-    if (!oldRow || !newRow || changedColumns.length || moved) changes.push({
+    if (!oldRow || !newRow || changedColumns.length || changedNoteColumns.length || moved) changes.push({
       sourceId,
       kind: !oldRow ? "appeared" : !newRow ? "disappeared" : "existing",
       moved,
-      changedColumns,
-      before: oldRow ? { rowNumber: oldRow.rowNumber, values: structuredClone(oldRow.values) } : null,
-      after: newRow ? { rowNumber: newRow.rowNumber, values: structuredClone(newRow.values) } : null,
+      changedColumns, changedNoteColumns,
+      before: oldRow ? { rowNumber: oldRow.rowNumber,
+        values: structuredClone(oldRow.values), notes: structuredClone(oldRow.notes ?? []) } : null,
+      after: newRow ? { rowNumber: newRow.rowNumber,
+        values: structuredClone(newRow.values), notes: structuredClone(newRow.notes ?? []) } : null,
     });
   }
   return { beforeHash: oldAudit.sourceHash, afterHash: newAudit.sourceHash, changes,
@@ -64,7 +74,8 @@ export function diffSweetfunSnapshots(before, after) {
       appeared: changes.filter((change) => change.kind === "appeared").length,
       disappeared: changes.filter((change) => change.kind === "disappeared").length,
       moved: changes.filter((change) => change.moved).length,
-      changed: changes.filter((change) => change.changedColumns.length).length,
+      changed: changes.filter((change) =>
+        change.changedColumns.length || change.changedNoteColumns.length).length,
       blockingIssues: [], complete: true, canApply: false, canCutover: false,
     } };
 }

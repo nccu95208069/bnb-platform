@@ -48,6 +48,18 @@ test("normalizes trailing empty cells but detects a modified source snapshot", (
   assert.equal(verifySweetfunDiff(before, after, diff).beforeUnchanged, false);
 });
 
+test("detects a note-only change on an existing source row", () => {
+  const before = snapshot([row(2, "a")]);
+  before.rows[0].notes = Array(19).fill(null);
+  const after = structuredClone(before);
+  after.rows[0].notes[7] = "Synthetic payment note";
+  const diff = diffSweetfunSnapshots(before, after);
+  assert.equal(diff.summary.changed, 1);
+  assert.deepEqual(diff.changes[0].changedColumns, []);
+  assert.deepEqual(diff.changes[0].changedNoteColumns, [7]);
+  assert.equal(verifySweetfunDiff(before, after, diff).matches, true);
+});
+
 test("requires a version-bound owner decision before creating a cancellation memo", () => {
   const before = snapshot([row(2, "cancelled"), row(3, "unresolved")]);
   const after = snapshot([]);
