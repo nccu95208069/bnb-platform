@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { SWEETFUN_HEADERS } from "../src/sweetfun-sheet-audit.mjs";
+import { prepareSweetfunGroups } from "../src/sweetfun-sheet-candidate.mjs";
 import { prepareSweetfunShadow, verifySweetfunShadow } from "../src/sweetfun-shadow.mjs";
 import { checkPropertyIntegrity } from "../src/property-integrity.mjs";
 import { IronGateService, nightsFor } from "../src/service.ts";
@@ -30,9 +31,10 @@ function fixture() {
   ] };
 }
 
-function config() {
+function config(snapshot = fixture()) {
   return { workspaceId: uid(1), propertyId: uid(2), roomIds: rooms,
     sourceId: "synthetic-sheet", capturedAt: "2026-10-20T00:00:00.000Z",
+    expectedSourceHash: prepareSweetfunGroups(snapshot).sourceHash,
     inventoryVersion: 1, authorityEpoch: 0,
     bookingIds: { "L:parent1": uid(100), "J:j3": uid(101) } };
 }
@@ -78,6 +80,8 @@ test("requires a complete persistent ID map and rejects changed source evidence"
   const fresh = prepareSweetfunShadow(snapshot, cfg);
   snapshot.rows[0].values[6] = "1300.50";
   assert.equal(verifySweetfunShadow(snapshot, cfg, fresh.state).matches, false);
+  assert.throws(() => prepareSweetfunShadow(snapshot, cfg),
+    /SWEETFUN_SOURCE_HASH_MISMATCH/);
 });
 
 test("restricted source evidence is absent from booking reads and writes stay closed", async () => {

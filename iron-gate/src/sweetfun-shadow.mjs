@@ -11,6 +11,8 @@ function validConfig(config) {
     !Number.isSafeInteger(config.inventoryVersion) || config.inventoryVersion < 1 ||
     !Number.isSafeInteger(config.authorityEpoch) || config.authorityEpoch < 0 ||
     typeof config.sourceId !== "string" || !config.sourceId.trim() ||
+    typeof config.expectedSourceHash !== "string" ||
+    !/^[0-9a-f]{64}$/.test(config.expectedSourceHash) ||
     typeof config.capturedAt !== "string" || !Number.isFinite(Date.parse(config.capturedAt)) ||
     typeof config.roomIds !== "object" || config.roomIds === null ||
     JSON.stringify(Object.keys(config.roomIds).sort()) !== JSON.stringify(roomNames) ||
@@ -34,13 +36,16 @@ function cell(values, index) {
 
 /**
  * Prepare a lossless, read-only Iron Gate state from a frozen private Sheet copy.
- * An explicit, persistent UUID map is required; this function never invents IDs.
+ * An explicit, persistent UUID map and frozen source hash are required;
+ * this function never invents IDs or accepts another snapshot version.
  * It does not seed a database, grant credentials, or claim availability authority.
  * Returned state contains private names, notes and aliases: keep it restricted.
  */
 export function prepareSweetfunShadow(snapshot, config) {
   validConfig(config);
   const prepared = prepareSweetfunGroups(snapshot);
+  if (prepared.sourceHash !== config.expectedSourceHash)
+    throw Error("SWEETFUN_SOURCE_HASH_MISMATCH");
   if (!verifySweetfunGroups(snapshot, prepared).matches) throw Error("SWEETFUN_SOURCE_DRIFT");
   const accepted = prepared.candidates.filter((group) =>
     group.issues.every((issue) => reviewOnly.has(issue)));
@@ -136,7 +141,16 @@ export function prepareSweetfunShadow(snapshot, config) {
 
 /** Recompute source and candidate in both directions without returning private IDs. */
 export function verifySweetfunShadow(snapshot, config, observedState) {
-  const expected = prepareSweetfunShadow(snapshot, config);
+  let expected;
+  try { expected = prepareSweetfunShadow(snapshot, config); }
+  catch (error) {
+    if (error?.message !== "SWEETFUN_SOURCE_HASH_MISMATCH") throw error;
+    const current = prepareSweetfunGroups(snapshot);
+    return { sourceRows: current.summary.sourceRows,
+      projectedRows: null, sourceHash: current.sourceHash,
+      expectedSourceHash: config.expectedSourceHash,
+      readOnly: observedState?.readOnly === true, matches: false, canCutover: false };
+  }
   const projectedRows = (observedState?.bookings ?? []).reduce((sum, booking) =>
     sum + (booking.sweetfunSnapshot?.rows?.length ?? 0), 0) +
     (observedState?.sweetfunImport?.quarantined ?? []).reduce((sum, group) =>
