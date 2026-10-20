@@ -2,7 +2,7 @@
 
 日期：2026-10-20（Asia/Taipei）
 
-狀態：**已開始唯讀執行，建立私人來源副本並完成 Sheet 原生複製的隔離讀回演練；最新 1,762 個主表列已在受限記憶體完成逐列候選核對與無寫入唯讀試轉。其他帳本備份、財務全量核對、正式 UUID 映射、真實匯入及切換權威仍未完成。** 範圍先限水芳 Sweetfun；OFFLAND 另行盤點與切換。此計畫將原始 Google Sheet 視為仍在營運的來源，整個準備與試轉期間只讀，保留原表、既有 OS 與其可用性。實際進度見[執行紀錄](SWEETFUN_MIGRATION_EXECUTION_2026-10-20.md)。
+狀態：**已開始唯讀執行，建立私人來源副本並完成 Sheet 原生複製的隔離讀回演練；一份 1,762 列的固定副本已在受限記憶體完成逐列候選核對與無寫入唯讀試轉。後續另有 1,761 列的固定副本，活表仍持續變動；財務全量核對、正式 UUID 映射、真實匯入及切換權威仍未完成。** 範圍先限水芳 Sweetfun；OFFLAND 另行盤點與切換。此計畫將原始 Google Sheet 視為仍在營運的來源，整個準備與試轉期間只讀，保留原表、既有 OS 與其可用性。實際進度見[執行紀錄](SWEETFUN_MIGRATION_EXECUTION_2026-10-20.md)。
 
 ## 目前確認的邊界
 
@@ -10,6 +10,7 @@
 - Sweetfun OS 的「登記收款」另有已上線、經業主授權的狹義主表 H 欄與儲存格註記回寫；Sheet 不能概括為所有流程都只讀。調查和影子試轉不得干擾這條正式寫入路徑。見 [收款主表回寫](../docs/work-handoff/OS_PAYMENT_MAIN_SHEET_2026-10-05.md)。
 - 客戶工作區目前的 Sheet「確認匯入」會產生新 UUID 並寫入 OS `workspace.bookings`；它不寫 Iron Gate，也不能當成水芳既有訂單已遷移的證明。見 [三系統資料責任](../docs/work-handoff/SEAN_SAAS_IRON_GATE_DATA_BOUNDARY_2026-10-20.md)。
 - Iron Gate PostgreSQL 目前以 `iron_gate.property_state.state_json` 保存館別／訂單狀態，`occupied_room_nights` 保存占房索引，另有 outbox 和稽核；沒有可將舊 Sheet 一列直接 `INSERT` 的訂單明細表。`os-shadow.mjs` 只接受很窄的 OS 原生訂單候選；新增的 `sweetfun-shadow.mjs` 可把受限來源副本組成無寫入、暫不開放銷售的唯讀狀態，但要求正式 UUID 映射且不能承接未定義的財務語意。兩者皆不執行正式匯入或切換；Production 入口仍固定 503。
+- Supabase PostgreSQL 是 Iron Gate 訂單／房晚資料的目標；Upstash Redis 是現有 Sweetfun OS 私有財務與收款帳本的來源。已完成的 Upstash 原生備份保留來源復原能力，但 Redis 備份檔不能直接還原到 PostgreSQL；把已轉換的資料匯入 Supabase 是另一個需逐筆核對的遷移步驟。業主要求先停下額外付費的 Upstash 隔離還原測試庫，因此此測試保持未完成；可繼續準備 Supabase 唯讀影子映射，不把它當作 Redis 備份已驗證。
 - 2026-10-16 曾有一份私人來源**副本**供比對，當時記錄 1,742 個資料列、1,734 列可安全對照、8 列待核對。這是過時基線，**不是**目前全表筆數、最終可匯入數或遷移通過率。正式試轉須重新擷取並重算。副本與既有客戶工作區測試資料也不是原表的權威替身。
 - 業主補充的 **Gmail check order／訂房小助手是核心上游 writer**。其程式由 Gmail Watch／Pub/Sub 及 24 小時補收取得平台郵件，`src/main.py::process_email` 解析新增、修改、取消，經 `src/sheets/updater.py` 寫入 Sweetfun 主表。Gmail 服務的來源與 OS／Iron Gate 在不同 repository／部署單位；須以實際正式版本與設定再次核對，不能只根據本地候選分支推論線上已啟用的功能。
 - 業主另確認 **Sweetfun OS 工作台**及 **LINE 官方帳號**也能操作訂單／房況；LINE 可下達開房、關房、改單和登記收款指令。這兩條不能因已處理 Gmail 就遺漏。**訂單相關財務也在本次範圍內**，但付款標記、實際收款、退款、平台請款及營運費用各有不同來源與語意。第一輪活表唯讀證據見 [水芳來源盤點](SWEETFUN_MIGRATION_SOURCE_INVENTORY_2026-10-20.md)。
@@ -105,4 +106,4 @@ Iron Gate 預計保有**訂單關聯的已核實收退款事件**，但它目前
 
 ## 本輪結論與下一步
 
-目前已開始唯讀盤點、建立並比對私人來源副本，且完成 Sheet 原生副本的隔離讀回演練；其他資料來源尚未完成可還原備份或逐筆轉換／財務核對。仍缺 Gmail／OS／LINE 的正式入口與私有帳本實際盤點、正式 UUID 對照、財務／來源欄位無損契約、專用匯入器、三入口影子事件／回執、真實試轉、其他帳本備份還原演練與切換閘門。上述任一項缺失時 `canCutover` 必須維持 `false`，Iron Gate Production 不得接管水芳真實訂單。接續以唯讀方式完成階段 0–1 的來源與私有帳本盤點，再由工程端執行全量逐筆雙向核對；完成後才提供具體切換報告供業主決定正式窗口。
+目前已開始唯讀盤點、建立並比對私人來源副本，且完成 Sheet 原生副本的隔離讀回演練。OS Redis 已有一份完成的原生備份及每日備份設定，Firestore 已有每日七天受管備份排程；兩者都尚未完成隔離還原與讀回核對，Firestore 首份備份也尚未讀回。仍缺正式 UUID 對照、財務／來源欄位無損契約、專用匯入器、三入口影子事件／回執、真實試轉、私有帳本還原演練與切換閘門。上述任一項缺失時 `canCutover` 必須維持 `false`，Iron Gate Production 不得接管水芳真實訂單。接續以唯讀方式完成來源與私有帳本逐筆對照；完成後才提供具體切換報告供業主決定正式窗口。
