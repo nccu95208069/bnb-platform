@@ -66,6 +66,22 @@ test("detects an omitted source row and a changed snapshot", () => {
   assert.equal(verifySweetfunGroups(snapshot, fresh).sourceUnchanged, false);
 });
 
+test("preserves source cell notes and rejects a changed payment note", () => {
+  const source = row(2, "j1", "l1", "101", "2026-11-01");
+  source.notes = Array(19).fill("");
+  source.notes[7] = "Synthetic status-only request; zero income";
+  const snapshot = { headers: [...SWEETFUN_HEADERS], rows: [source] };
+  const prepared = prepareSweetfunGroups(snapshot);
+  assert.equal(prepared.candidates[0].rows[0].notes[7], source.notes[7]);
+  assert.equal(prepared.summary.paymentEventsCreated, 0);
+  assert.equal(verifySweetfunGroups(snapshot, prepared).matches, true);
+  prepared.candidates[0].rows[0].notes[7] = "Changed note";
+  assert.equal(verifySweetfunGroups(snapshot, prepared).matches, false);
+  const fresh = prepareSweetfunGroups(snapshot);
+  source.notes[7] = "Source changed";
+  assert.equal(verifySweetfunGroups(snapshot, fresh).sourceUnchanged, false);
+});
+
 test("legacy aliases exactly match the existing Sean OS Sheet adapter", () => {
   const sourceId = "sweetfun-operations-sheet-v1";
   const rows = [

@@ -42,11 +42,12 @@ export function prepareSweetfunGroups(snapshot) {
       record.sourceId ? `J:${record.sourceId}` : `ROW:${record.rowNumber}`;
     const group = groups.get(key) ?? { key, rows: [], issues: [] };
     group.rows.push({ rowNumber: record.rowNumber, values: structuredClone(source.values),
+      notes: structuredClone(source.notes ?? []),
       sourceId: record.sourceId, room: record.room, checkIn: record.checkIn,
       checkOut: record.checkOut, bookedAt: record.bookedAt,
       platform: record.platform, otaAlias: record.otaAlias,
       roomFeeCents: record.roomFeeCents,
-      rowHash: digest(source.values) });
+      rowHash: digest({ values: source.values, notes: source.notes ?? [] }) });
     for (const issue of record.issues) group.issues.push(issue);
     groups.set(key, group);
   }
@@ -98,8 +99,9 @@ export function verifySweetfunGroups(snapshot, prepared) {
     projectedByNumber.set(row.rowNumber, row);
     const source = sourceByNumber.get(row.rowNumber);
     if (!source) { extra++; continue; }
-    if (digest(source.values) !== row.rowHash ||
+    if (digest({ values: source.values, notes: source.notes ?? [] }) !== row.rowHash ||
       JSON.stringify(source.values) !== JSON.stringify(row.values) ||
+      JSON.stringify(source.notes ?? []) !== JSON.stringify(row.notes) ||
       cell(source.values, 9) !== row.sourceId) changed++;
   }
   const missing = sourceRows.filter((row) => !projectedByNumber.has(row.rowNumber)).length;

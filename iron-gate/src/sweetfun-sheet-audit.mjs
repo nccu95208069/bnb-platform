@@ -37,7 +37,10 @@ function exactHeader(headers) {
 
 function validRow(item) {
   return item && Number.isSafeInteger(item.rowNumber) && item.rowNumber >= 2 &&
-    Array.isArray(item.values) && item.values.length <= SWEETFUN_HEADERS.length;
+    Array.isArray(item.values) && item.values.length <= SWEETFUN_HEADERS.length &&
+    (item.notes === undefined || (Array.isArray(item.notes) &&
+      item.notes.length <= SWEETFUN_HEADERS.length &&
+      item.notes.every((note) => note === null || typeof note === "string")));
 }
 
 /**
