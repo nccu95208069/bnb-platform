@@ -102,9 +102,9 @@ def main():
                        "restored_only": len(restored.keys() - live.keys())})
     print(json.dumps({"scope": "selected Sweetfun finance, LINE and Gmail collections",
                       "documents": report}, ensure_ascii=False))
-    critical = report[:7]
-    if any(row["restored"] == 0 or row["changed"] or row["live_only"] or
-           row["restored_only"] for row in critical):
+    if any(row["restored"] == 0 for row in report[:7]) or any(
+            row["changed"] or row["live_only"] or row["restored_only"]
+            for row in report):
         return 2
     return 0
 
