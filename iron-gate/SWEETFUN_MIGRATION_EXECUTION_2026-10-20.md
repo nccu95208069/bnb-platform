@@ -119,6 +119,8 @@ Supabase 備份頁的瀏覽器檢查因需要透過 ChatGPT 登入而被自動�
 
 2026-10-21 約 03:59 台北時間，正式 Cloud Run 再查仍是 `unified-assistant-16f32d1` 承接 100% 流量；活原表修改時間仍是 `2026-10-20T15:34:12.453Z`。新增只讀、固定路徑的 [`scripts/summarize-sweetfun-firestore-sources.py`](scripts/summarize-sweetfun-firestore-sources.py)，只輸出六個 Gmail／LINE Firestore 集合的筆數、最新文件更新時間與排序內容摘要，不輸出文件、ID 或權杖。當時 Gmail claims／watermarks 為 11／9，最新更新均在 10 月 19 日；LINE 訂單 journal／events 為 321／181，最新更新均在 10 月 20 日 14:58 UTC 之前；水芳 LINE 財務 entry／outbox 各 1，最新更新在 10 月 16 日。六集合合成摘要 `151cc8cb586d3a5aeb559e07986c8e392694eac4f6e4de137697b3581465c3b1`，可供後續偵測內容漂移。這是逐頁順序讀取的**選定集合觀察值**，不是 Firestore 一致快照；Gmail 新單／取消、OS、Sheet 人工改動及在途請求仍須獨立查核。Supabase 唯讀影子再讀回版本 2、1,607 訂單、1,758 房晚、outbox／audit 0，沒有啟用接單。
 
+2026-10-21 約 05:57 台北時間，正式 Cloud Run revision、活原表修改時間與上述六個來源集合摘要再次讀回均未變。另從固定私人副本的 B／L／N 欄，只在受限記憶體重新核對三組 `PARENT_GUEST_INCONSISTENT`：每組恰有兩個房晚，同一 L 父單及 N 通路別名、同平台／預訂日，較長的姓名文字均是較短文字後面多兩個字元，並非單純空白或標點差異。三組中兩組可在連接的 Gmail 以精確 N 找到 6／5 封通路郵件；其內文與摘要分別有 5／4 封出現較短姓名文字，沒有出現較長文字。第三組沒有 Gmail 精確命中。這些郵件提供了兩組顯示文字的旁證，**不能**證明第三組或每一房晚的住客身分、正式 writer 回執，也不能靠文字前綴自動合併；影子訂單的共同 `guestName` 繼續留空，來源每列姓名仍保存在受限 `sweetfunSnapshot.rows`，三組繼續標記供人工核對。沒有將姓名、別名或郵件 ID 輸出到本紀錄或 Git。
+
 ## 下一步可直接執行的工程工作
 
 1. 在不輸出客資的情況下，把固定副本的每個 J 房晚及每個財務事件建立受限核對鍵；全量比對來源→候選和候選→來源，另算逐房晚／逐訂單／逐月金額，例外逐項關閉。
