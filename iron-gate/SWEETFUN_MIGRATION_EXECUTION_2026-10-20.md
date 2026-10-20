@@ -18,7 +18,7 @@ Sean 自用 OS 與 Iron Gate 的無損寫入／受權讀取缺口另見[資料�
 | 入口 | 從程式可核實 | 需以正式服務再核實 |
 | --- | --- | --- |
 | Gmail check order | `src/main.py::process_email` 對新單、修改、取消使用 `src/sheets/updater.py` 寫入／刪除 Sheet 列；修改付款方式有不改房晚列的分支。 | 正式 Cloud Run revision、Watch／Pub/Sub、補收和人工重跑的每一寫入端點、Firestore 持久處理水位及成功通知時機。 |
-| LINE OA 候選服務 | 同一候選程式的 `line_agent` 有登記訂單、修改既有列、OwlNest 開關房；登記時 H 預設 `not_yet`。 | 業主實際使用哪個 OA／revision；「登記收款」命令的 handler、帳本與 Sheet 回寫、OwlNest 真實讀回及所有在途任務。 |
+| LINE OA 候選服務 | 同一候選程式的 `line_agent` 有登記訂單、修改既有列、OwlNest 開關房；登記時 H 預設 `not_yet`。`src/main.py::_build_line_dispatcher` 使用記憶體對話狀態及短效 webhook 去重；候選改單路徑會刪列再重建，另有 Firestore 引用訊息索引和開關房紀錄，不能當作完整持久訂單事件帳本。 | 業主實際使用哪個 OA／revision；「登記收款」命令的 handler、帳本與 Sheet 回寫、Cloud Logging／LINE 操作證據保留期限、OwlNest 真實讀回及所有在途任務。 |
 | Sean Sweetfun OS | `/api/v1/order-payments` 保存私有收款、核對來源並可能回寫主表 H／註記；`/api/v1/finance` 有另一份私有逐年帳本。 | 現行正式部署、私有資料完整性與備份、各財務事件重複／沖銷關係、其他建單／封房／網站操作路徑。 |
 | Sheet 綁定 Apps Script | 2026-08-03 交接稱 `apps_script_v2_batch_20260731.gs` 曾在線上；其 `onEdit` 可生成 J、依 Q `done` 改 H，手動選單也可補 J；另向 Google Calendar 同步。 | 今日實際腳本版本、簡單／安裝型／定時觸發器與操作帳號，以及切換時禁寫／排空／日曆改接的實證。 |
 
