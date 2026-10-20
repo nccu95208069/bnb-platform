@@ -22,6 +22,11 @@ function amount(items) {
   return items.reduce((total, item) => total + BigInt(item.amountCents), 0n).toString();
 }
 
+function unverifiedClaims(items) {
+  return items.map((item) => ({ ...structuredClone(item),
+    externalSettlement: "unverified" }));
+}
+
 function unique(items, key, label) {
   const seen = new Set();
   for (const item of items) {
@@ -144,7 +149,11 @@ export function prepareSweetfunFinanceClaims(snapshot) {
   return {
     sourceHash: sha(snapshot),
     sourceRecords: { osEntries, osReceipts, lineEntries },
-    claims: { manualIncome, manualExpense, calendarReceipts, lineIncome, lineExpense },
+    claims: { manualIncome: unverifiedClaims(manualIncome),
+      manualExpense: unverifiedClaims(manualExpense),
+      calendarReceipts: unverifiedClaims(calendarReceipts),
+      lineIncome: unverifiedClaims(lineIncome),
+      lineExpense: unverifiedClaims(lineExpense) },
     nonCash: { statusOnlyReceipts: osReceipts.filter((r) => r.statusOnly),
       sheetMarkers: structuredClone(sheetMarkers),
       calendarProjections: osEntries.filter((e) => e.source === "calendar"),
@@ -153,6 +162,7 @@ export function prepareSweetfunFinanceClaims(snapshot) {
     summary: { osManualIncomeCents: amount(manualIncome), osManualExpenseCents: amount(manualExpense),
       osCalendarReceiptCents: amount(calendarReceipts), lineIncomeCents: amount(lineIncome),
       lineExpenseCents: amount(lineExpense), issueCount: issues.length,
+      externalSettlement: "unverified",
       paymentEventsCreated: 0, canStage: false, canCutover: false },
   };
 }

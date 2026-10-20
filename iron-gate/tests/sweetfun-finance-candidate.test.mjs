@@ -40,6 +40,10 @@ test("counts source claims once while keeping status and projections noncash", (
   assert.equal(candidate.nonCash.statusOnlyReceipts.length, 1);
   assert.equal(candidate.summary.paymentEventsCreated, 0);
   assert.equal(candidate.summary.canStage, false);
+  assert.equal(candidate.summary.externalSettlement, "unverified");
+  assert.ok(Object.values(candidate.claims).flat().every((claim) =>
+    claim.externalSettlement === "unverified"));
+  assert.equal(candidate.sourceRecords.osEntries[0].externalSettlement, undefined);
   assert.equal(verifySweetfunFinanceClaims(source, candidate).matches, true);
   candidate.claims.lineIncome[0].amountCents = 8000;
   assert.equal(verifySweetfunFinanceClaims(source, candidate).matches, false);
