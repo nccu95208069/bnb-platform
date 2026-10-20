@@ -324,11 +324,12 @@ export default async function Page({
                   </div>
                   {data.role !== "viewer_no_price" && (
                     <p className="text-sm sm:text-right">
-                      整筆總額 {money(b.total)}
+                      {b.status === "cancelled" ? "原房費" : "整筆總額"} {money(b.total)}
                       <span className="mt-1 block text-slate-600">
-                        房費實收 {money(summary.received)} · 尚待收款{" "}
+                        房費實收 {money(summary.received)} · {b.status === "cancelled" ? "原房費差額" : "尚待收款"}{" "}
                         {money(summary.remaining)}
                       </span>
+                      {b.status === "cancelled" && <span className="mt-1 block text-slate-600">已取消，差額不代表應補款。</span>}
                     </p>
                   )}
                 </div>

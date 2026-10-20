@@ -1,5 +1,6 @@
 import type { CalendarBooking, CalendarProperty, CalendarRoom } from "@/components/calendar/calendar-types";
 import { financeSummary, staysOf } from "./domain.ts";
+import { bookingStatusLabel } from "./hold-state.ts";
 import type { Booking, Property, WorkspaceView } from "./types.ts";
 
 export function channelForCalendar(value: string | null | undefined): CalendarBooking["platform"] {
@@ -9,7 +10,7 @@ export function channelForCalendar(value: string | null | undefined): CalendarBo
   if (/airbnb|air bnb/.test(text)) return "airbnb";
   if (/trip|ctrip/.test(text)) return "ctrip";
   if (/owl/.test(text)) return "owljourney";
-  if (/line|直訂|直接|官網|direct/.test(text)) return "direct";
+  if (/line|直訂|直接|官網|direct|official website/.test(text)) return "direct";
   return "other";
 }
 
@@ -62,8 +63,8 @@ function projectBooking(
       booked_at: booking.bookedAt ?? null,
       room_rate: 0,
       payment_status: paymentStatus,
-      reservation_status: "confirmed" as const,
-      source_conflict: booking.status === "held",
+      reservation_status: booking.status,
+      ...(booking.status === "held" ? { hold_label: bookingStatusLabel(booking) } : {}),
       notes: null,
       payments: [],
       audit_log: [],

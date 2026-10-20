@@ -408,3 +408,7 @@ See [calendar change intake and deferred producer coordination](CALENDAR_CHANGE_
 ## Customer full-history import and month calendar — 2026-10-19
 
 See [full-history import and customer calendar parity](SHEET_FULL_HISTORY_CALENDAR_PARITY_2026-10-19.md) and the [release gates](ONBOARDING_RELEASE_GATES_2026-10-19.md). PR #55 is live; the real customer preview was checked without clicking final import. A row whose source identity, dates, room, or overlap cannot be validated remains a review item; investigate it before treating the calendar as complete or sale-ready.
+
+## 2026-10-20 — Owner booking verification in isolated test mode
+
+[Owner booking acceptance](OWNER_BOOKING_ACCEPTANCE_2026-10-20.md) records first-transfer account creation, calendar hold/source display, deposit and balance confirmation, guarded refund/cancellation, and same-date reopening. The fixes are review-branch only; no production rollout or official sales activation was performed.

@@ -14,6 +14,8 @@ export function HoldControls({ data, booking, onSaved, onPendingChange, external
   const [scope, setScope] = useState(false), [confirmed, setConfirmed] = useState(false);
   const [amount, setAmount] = useState(""), [method, setMethod] = useState("cash");
   const [account, setAccount] = useState(""), [overpayment, setOverpayment] = useState(false);
+  const [addingAccount, setAddingAccount] = useState(false);
+  const [accountName, setAccountName] = useState(""), [accountLast4, setAccountLast4] = useState("");
   const [deadline, setDeadline] = useState("");
   const [receivedAt, setReceivedAt] = useState(() => new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 16));
   const pending = command.busy || command.uncertain, locked = pending || externalLocked;
@@ -22,11 +24,20 @@ export function HoldControls({ data, booking, onSaved, onPendingChange, external
   const canManage = data.features?.holds && ["owner", "admin"].includes(data.role);
   const isPayment = ["hold-convert", "hold-late-payment", "hold-refund"].includes(action);
   async function save(extra: Record<string, unknown> = {}) {
-    const result = await command.execute<{ workspace: WorkspaceView }>({
+    const result = await command.execute<{ workspace: WorkspaceView; targetId?: string }>({
       action, bookingId: booking.id, bookingVersion: booking.version, version: data.version,
       confirmPlatformOnly: scope, ...extra,
     });
-    if (result) { onSaved(result.data.workspace); setAction(""); setScope(false); setConfirmed(false); setNotice("已儲存並重新查回。"); }
+    if (result) {
+      onSaved(result.data.workspace);
+      if (result.input.action === "receipt-account") {
+        setAccount(result.data.targetId ?? "");
+        setAddingAccount(false); setAccountName(""); setAccountLast4("");
+        setNotice("已新增收款帳戶。請繼續核對金額與入帳時間，再確認收款。");
+      } else {
+        setAction(""); setScope(false); setConfirmed(false); setNotice("已儲存並重新查回。");
+      }
+    }
   }
   if (!booking.hold) return null;
   return <section className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-5">
@@ -38,9 +49,19 @@ export function HoldControls({ data, booking, onSaved, onPendingChange, external
     {canManage && booking.status !== "confirmed" && booking.hold.state !== "converted" && <div className="mt-4">
       <div className="flex flex-wrap gap-2">
         {(booking.status === "held" ? [["hold-extend", "延長保留"], ["hold-convert", "確認已收訂金"], ["hold-release", "釋出保留"]] : [["hold-late-payment", "登記釋出後到款"], ["hold-refund", "登記退款"]]).map(([value, label]) =>
-          <button type="button" key={value} disabled={locked} className={secondary} onClick={() => { setAction(value); setScope(false); setConfirmed(false); command.setError(""); }}>{label}</button>)}
+          <button type="button" key={value} disabled={locked} className={secondary} onClick={() => { setAction(value); setAddingAccount(false); setScope(false); setConfirmed(false); command.setError(""); }}>{label}</button>)}
       </div>
-      {action && <form className="mt-4" onSubmit={e => { e.preventDefault(); void save(isPayment ? { amount: Number(amount), method, receiptAccountId: account || undefined, receivedAt: `${receivedAt}+08:00`, confirmedReceipt: confirmed, allowOverpayment: overpayment } : action === "hold-extend" ? { expiresAt: new Date(`${deadline}+08:00`).toISOString() } : {}); }}>
+      {addingAccount && <form className="mt-4" onSubmit={e => { e.preventDefault(); void save({ action: "receipt-account", propertyId: booking.propertyId, name: accountName, last4: accountLast4 }); }}>
+        <fieldset disabled={locked} className="space-y-3">
+          <legend className="mb-2 font-semibold">新增收款帳戶</legend>
+          <p className="text-sm">只記錄名稱與末四碼，供核對入帳使用；不會連接銀行或代為收款。</p>
+          <label className="block">帳戶名稱<input className={field} required maxLength={60} value={accountName} onChange={e => setAccountName(e.target.value)} /></label>
+          <label className="block">帳號末四碼<input className={field} required inputMode="numeric" pattern="[0-9]{4}" maxLength={4} value={accountLast4} onChange={e => setAccountLast4(e.target.value)} /></label>
+          <button className={button}>儲存收款帳戶</button>
+          <button className={`${secondary} ml-2`} type="button" onClick={() => setAddingAccount(false)}>返回核款</button>
+        </fieldset>
+      </form>}
+      {action && !addingAccount && <form className="mt-4" onSubmit={e => { e.preventDefault(); void save(isPayment ? { amount: Number(amount), method, receiptAccountId: account || undefined, receivedAt: `${receivedAt}+08:00`, confirmedReceipt: confirmed, allowOverpayment: overpayment } : action === "hold-extend" ? { expiresAt: new Date(`${deadline}+08:00`).toISOString() } : {}); }}>
         <fieldset disabled={locked} className="space-y-3">
           {action === "hold-extend" && <>
             <div className="flex gap-2">{[12, 24].map(hours => <button type="button" className={secondary} key={hours} disabled={!scope} onClick={() => void save({ hours })}>延長 {hours} 小時</button>)}</div>
@@ -51,6 +72,10 @@ export function HoldControls({ data, booking, onSaved, onPendingChange, external
             <label className="block">入帳時間（臺北）<input type="datetime-local" required className={field} value={receivedAt} onChange={e => setReceivedAt(e.target.value)} /></label>
             <label className="block">方式<select className={field} value={method} onChange={e => { setMethod(e.target.value); setAccount(""); }}><option value="cash">現金</option><option value="bank">轉帳</option><option value="card">信用卡</option><option value="other">其他</option></select></label>
             {method !== "cash" && <label className="block">入帳帳戶<select className={field} required={["bank", "card"].includes(method)} value={account} onChange={e => setAccount(e.target.value)}><option value="">請選擇</option>{property?.receiptAccounts?.map(a => <option key={a.id} value={a.id}>{a.name} · •••• {a.last4}</option>)}</select></label>}
+            {method !== "cash" && <div className="text-sm">
+              {!property?.receiptAccounts?.length && <p className="mb-2">尚未設定收款帳戶，請先新增，再核對這筆入帳。</p>}
+              <button type="button" className={secondary} onClick={() => { setAddingAccount(true); setConfirmed(false); setScope(false); command.setError(""); }}>新增收款帳戶</button>
+            </div>}
             <label className="flex gap-2"><input type="checkbox" required checked={confirmed} onChange={e => setConfirmed(e.target.checked)} />我已核對實際{action === "hold-refund" ? "退款" : "入帳"}，金額與時間正確。</label>
             {action !== "hold-refund" && <label className="flex gap-2"><input type="checkbox" checked={overpayment} onChange={e => setOverpayment(e.target.checked)} />若超過房費，我已核對並確認保留溢收。</label>}
           </>}
@@ -61,7 +86,7 @@ export function HoldControls({ data, booking, onSaved, onPendingChange, external
         </fieldset>
       </form>}
       {command.error && <p role="alert" className="mt-3 text-red-800">{command.error}</p>}
-      {command.uncertain ? <button className={`${button} mt-3`} disabled={command.busy} onClick={() => void save()}>重試相同操作並核對結果</button> : command.error && <button disabled={locked} className={`${secondary} mt-3`} onClick={async () => { try { onSaved(await api<WorkspaceView>(`/api/customer-workspaces/${data.slug}`)); setAction(""); command.setError(""); } catch (e) { command.setError((e as Error).message); } }}>重新載入最新資料</button>}
+      {command.uncertain ? <button className={`${button} mt-3`} disabled={command.busy} onClick={() => void save()}>重試相同操作並核對結果</button> : command.error && <button disabled={locked} className={`${secondary} mt-3`} onClick={async () => { try { onSaved(await api<WorkspaceView>(`/api/customer-workspaces/${data.slug}`)); setAction(""); setAddingAccount(false); command.setError(""); } catch (e) { command.setError((e as Error).message); } }}>重新載入最新資料</button>}
     </div>}
   </section>;
 }

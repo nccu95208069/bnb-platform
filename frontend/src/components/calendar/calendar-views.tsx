@@ -275,20 +275,20 @@ const uiLocale = useIntlLocale();
                 const { booking } = segment;
                 const nights = stayNightCount(booking);
                 const guestName = realGuestName(booking);
-                const label = `${PLATFORM_LABELS[booking.platform] ?? "其他"}｜${guestName || "姓名尚未開放"}｜${booking.property_name}｜${booking.room_number}｜${booking.check_in}–${booking.check_out}${nights > 1 ? `｜連住 ${nights} 晚` : ""}`;
+                const label = `${PLATFORM_LABELS[booking.platform] ?? "其他"}${booking.hold_label ? `｜${booking.hold_label}` : ""}｜${guestName || "姓名尚未開放"}｜${booking.property_name}｜${booking.room_number}｜${booking.check_in}–${booking.check_out}${nights > 1 ? `｜連住 ${nights} 晚` : ""}`;
                 return <button key={booking.id} type="button" title={uiText(label)} aria-label={uiText(label)}
                   data-stay-id={booking.id} data-stay-start={segment.start} data-stay-end={segment.end}
                   data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
                   onClick={() => onSelectBooking(booking)}
                   style={{ gridColumn: `${segment.start + 1} / ${segment.end + 1}`, gridRow: segment.lane + 2, fontSize: monthBookingFontSize(fontScale, desktop), WebkitTextSizeAdjust: "none", textSizeAdjust: "none" }}
                   className={cn("relative z-10 mx-0.5 flex min-w-0 items-center gap-0.5 overflow-hidden rounded-[3px] px-0.5 text-left leading-none font-medium focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:mx-1 md:px-1",
-                    booking.source_conflict ? "bg-slate-200 text-slate-800 hover:bg-slate-300" : PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
+                    booking.hold_label ? "bg-amber-100 text-amber-950 hover:bg-amber-200" : booking.source_conflict ? "bg-slate-200 text-slate-800 hover:bg-slate-300" : PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
                     segment.continuesBefore && "ml-0 rounded-l-none border-l-0 sm:ml-0 md:ml-0",
                     segment.continuesAfter && "mr-0 rounded-r-none border-r-0 sm:mr-0 md:mr-0")}>
                   {segment.continuesBefore && <span aria-hidden="true">‹</span>}
                   <span className={cn("min-w-0 flex-1", !expanded && !twoLine && "truncate")}>
                     <span className={cn("truncate", expanded || twoLine ? "block" : "inline")} style={{ lineHeight: `${12 * fontScale}px` }}>
-                      <span className="font-semibold">{booking.source_conflict ? uiText("待核對") : twoLine && !desktop ? MONTH_COMPACT_PLATFORM_LABELS[booking.platform] ?? "其" : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
+                      <span className="font-semibold">{booking.hold_label ? uiText(booking.hold_label) : booking.source_conflict ? uiText("待核對") : twoLine && !desktop ? MONTH_COMPACT_PLATFORM_LABELS[booking.platform] ?? "其" : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
                       <span className={cn(twoLine ? "ml-0.5" : "ml-1", "opacity-85")}>{booking.room_number}</span>
                       {nights > 1 && !twoLine && <span className="ml-1">{nights}{uiText("晚")}</span>}
                     </span>

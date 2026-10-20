@@ -9,7 +9,7 @@ export function realGuestName(booking: CalendarBooking): string {
 }
 
 export function bookingIdentityText(booking: CalendarBooking): string {
-  return [booking.source_conflict ? "待核對" : PLATFORM_LABELS[booking.platform] ?? "其他", realGuestName(booking), booking.room_number].filter(Boolean).join(" · ");
+  return [booking.source_conflict ? "待核對" : PLATFORM_LABELS[booking.platform] ?? "其他", booking.hold_label, realGuestName(booking), booking.room_number].filter(Boolean).join(" · ");
 }
 
 // Use the same ordering in week/day cards; aliases must never stand in for names.
@@ -21,6 +21,7 @@ export function BookingIdentity({ booking }: { booking: CalendarBooking }) {
     <span className="min-w-0 flex-1">
       <span className="block truncate">
       <span className="font-semibold">{booking.source_conflict ? uiText("待核對") : uiText(PLATFORM_LABELS[booking.platform] ?? "其他")}</span>
+      {booking.hold_label && <span className="ml-1.5 font-semibold">{uiText(booking.hold_label)}</span>}
       {guestName && <span className="ml-1.5 font-medium">{guestName}</span>}
       <span className="ml-1.5 opacity-80">{booking.room_number}</span>
       </span>
