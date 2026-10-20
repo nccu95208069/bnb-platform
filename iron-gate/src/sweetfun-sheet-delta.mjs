@@ -77,3 +77,43 @@ export function verifySweetfunDiff(before, after, diff) {
     afterUnchanged: diff?.afterHash === expected.afterHash,
     canCutover: false };
 }
+
+/**
+ * Record an explicit private cancellation decision for vanished J rows. A bare
+ * disappearance never becomes a cancellation. This is a review memo, not an
+ * Iron Gate write or proof of which legacy writer removed the source rows.
+ */
+export function annotateSweetfunDisappearances(diff, decisions = []) {
+  if (!diff?.summary?.complete || !Array.isArray(diff.changes) ||
+    typeof diff.beforeHash !== "string" || typeof diff.afterHash !== "string" ||
+    !Array.isArray(decisions)) throw Error("INVALID_SWEETFUN_DIFF_DECISIONS");
+  const vanished = diff.changes.filter((change) => change.kind === "disappeared");
+  const disappeared = new Map(vanished.map((change) => [change.sourceId, change]));
+  if (disappeared.size !== vanished.length || disappeared.size !== diff.summary.disappeared ||
+    vanished.some((change) => !change.sourceId || !change.before || change.after))
+    throw Error("INVALID_SWEETFUN_DIFF_DECISIONS");
+  const assigned = new Map();
+  for (const decision of decisions) {
+    if (decision?.outcome !== "cancelled" || decision.evidenceType !== "owner_attestation" ||
+      typeof decision.evidenceRef !== "string" || !decision.evidenceRef.trim() ||
+      decision.beforeHash !== diff.beforeHash || decision.afterHash !== diff.afterHash ||
+      !Array.isArray(decision.sourceIds) || !decision.sourceIds.length ||
+      new Set(decision.sourceIds).size !== decision.sourceIds.length)
+      throw Error("INVALID_SWEETFUN_CANCELLATION_DECISION");
+    for (const sourceId of decision.sourceIds) {
+      if (!disappeared.has(sourceId) || assigned.has(sourceId))
+        throw Error("CANCELLATION_SOURCE_ID_NOT_UNIQUE_DISAPPEARANCE");
+      assigned.set(sourceId, decision);
+    }
+  }
+  const tombstones = [...assigned].map(([sourceId, decision]) => ({
+    sourceId, before: structuredClone(disappeared.get(sourceId).before),
+    evidenceType: decision.evidenceType, evidenceRef: decision.evidenceRef,
+    beforeHash: diff.beforeHash, afterHash: diff.afterHash,
+    writerReceiptVerified: false,
+  }));
+  const unresolved = [...disappeared.keys()].filter((sourceId) => !assigned.has(sourceId));
+  return { tombstones, unresolved,
+    summary: { disappeared: disappeared.size, ownerConfirmedCancelled: tombstones.length,
+      unresolved: unresolved.length, writerReceiptVerified: 0, canCutover: false } };
+}

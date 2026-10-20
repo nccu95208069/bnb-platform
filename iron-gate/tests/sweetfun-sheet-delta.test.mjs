@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { SWEETFUN_HEADERS } from "../src/sweetfun-sheet-audit.mjs";
-import { diffSweetfunSnapshots, verifySweetfunDiff } from "../src/sweetfun-sheet-delta.mjs";
+import { annotateSweetfunDisappearances, diffSweetfunSnapshots, verifySweetfunDiff } from
+  "../src/sweetfun-sheet-delta.mjs";
 
 function row(rowNumber, id, fee = "1200") {
   const values = Array(19).fill("");
@@ -45,4 +46,25 @@ test("normalizes trailing empty cells but detects a modified source snapshot", (
   assert.equal(diff.changes.length, 0);
   before.rows[0].values[6] = "1500";
   assert.equal(verifySweetfunDiff(before, after, diff).beforeUnchanged, false);
+});
+
+test("requires a version-bound owner decision before creating a cancellation memo", () => {
+  const before = snapshot([row(2, "cancelled"), row(3, "unresolved")]);
+  const after = snapshot([]);
+  const diff = diffSweetfunSnapshots(before, after);
+  const undecided = annotateSweetfunDisappearances(diff);
+  assert.equal(undecided.tombstones.length, 0);
+  assert.deepEqual(undecided.unresolved, ["cancelled", "unresolved"]);
+  const decision = { outcome: "cancelled", evidenceType: "owner_attestation",
+    evidenceRef: "synthetic-conversation-evidence", beforeHash: diff.beforeHash,
+    afterHash: diff.afterHash, sourceIds: ["cancelled"] };
+  const annotated = annotateSweetfunDisappearances(diff, [decision]);
+  assert.equal(annotated.summary.ownerConfirmedCancelled, 1);
+  assert.deepEqual(annotated.unresolved, ["unresolved"]);
+  assert.equal(annotated.tombstones[0].writerReceiptVerified, false);
+  assert.equal(annotated.summary.canCutover, false);
+  assert.throws(() => annotateSweetfunDisappearances(diff,
+    [{ ...decision, afterHash: "wrong" }]), /INVALID_SWEETFUN_CANCELLATION_DECISION/);
+  assert.throws(() => annotateSweetfunDisappearances(diff,
+    [{ ...decision, sourceIds: ["other"] }]), /CANCELLATION_SOURCE_ID_NOT_UNIQUE_DISAPPEARANCE/);
 });
