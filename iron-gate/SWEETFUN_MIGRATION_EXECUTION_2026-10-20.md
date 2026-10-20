@@ -115,7 +115,7 @@ Supabase 備份頁的瀏覽器檢查因需要透過 ChatGPT 登入而被自動�
 
 2026-10-21 約 01:49 台北時間，Firestore 隔離還原作業回報 `SUCCESSFUL`／`COMPLETED`。以短期記憶體內憑證、只讀 REST 分頁，把正式 `(default)` 與新還原資料庫的 17 個指定集合逐文件比對 Firestore `fields` 的排序 SHA-256：財務 entry、version、operation、event、audit、outbox、投影回執各 1 筆，orders 4、booking operations 5、contexts 1、control 3；LINE 訂單 journal 321、events 181；Gmail claims 11、watermarks 9；兩個空集合各 0。這 17 個集合中，兩庫相同文件內容數等於各集合文件數，改值／任一方獨有均為 0。驗證程式只輸出集合名稱和計數，不輸出原文、ID 或憑證；這是**指定集合的還原驗證**，不能當作整個 Firestore 所有集合的全量 checksum。驗證後刪除**只有測試用途的新命名資料庫**，再列表確認僅剩正式 `(default)`；來源備份與每日排程保留。
 
-2026-10-21 約 02:54 台北時間，另一項獨立發布工作完成 Gmail 訂單服務的新版本切流；本任務再用不含環境值的 Cloud Run 控制面唯讀查詢，確認正式 `gmail-order-handler` 的最新已就緒 revision 為 `gmail-order-handler-unified-assistant-16f32d1`，承接 100% 流量。發布工作回報 23 項入口、五個排程、Gmail 推送與房態佇列核對通過；本遷移任務尚未獨立核對此 revision 的寫入程式、功能開關、來源事件水位或影子事件接線，因此它仍不能作為 Iron Gate authority 切換證據。活原表的修改時間再次讀回仍為 `2026-10-20T15:34:12.453Z`。
+2026-10-21 約 02:54 台北時間，另一項獨立發布工作完成 Gmail／LINE 共用訂單服務的新版本切流；本任務再用不含環境值的 Cloud Run 控制面唯讀查詢，確認正式 `gmail-order-handler` 的最新已就緒 revision 為 `gmail-order-handler-unified-assistant-16f32d1`，承接 100% 流量。發布工作紀錄顯示本輪只新增 `LINE_ASSISTANT_ENABLED=true`，其餘設定維持原樣，並回報 23 項入口、五個排程、Gmail 推送與房態佇列核對通過；獨立檢視該工作樹固定產品來源的 `build_live_orders` 與 `SheetOrders.commit`，LINE 訂單確認仍指向正式 Sheet 並以 Sheets batch update 寫入，程式中沒有 Iron Gate 事件接線。此檢視不涵蓋新映像的全部 writer 或來源事件水位，因此不能作為 Iron Gate authority 切換證據。活原表的修改時間再次讀回仍為 `2026-10-20T15:34:12.453Z`。
 
 ## 下一步可直接執行的工程工作
 
