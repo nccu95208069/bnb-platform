@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { SWEETFUN_HEADERS } from "../src/sweetfun-sheet-audit.mjs";
-import { prepareSweetfunGroups, verifySweetfunGroups } from
+import { legacySweetfunIds, prepareSweetfunGroups, verifySweetfunGroups } from
   "../src/sweetfun-sheet-candidate.mjs";
+import { adaptSheetBookings } from "../../frontend/src/lib/booking-sources/sweetfun-sheet.ts";
 
 function row(rowNumber, id, parent, room, checkIn, options = {}) {
   const values = Array(19).fill("");
@@ -55,4 +56,22 @@ test("detects an omitted source row and a changed snapshot", () => {
   const fresh = prepareSweetfunGroups(snapshot);
   snapshot.rows[0].values[6] = "1,300.50";
   assert.equal(verifySweetfunGroups(snapshot, fresh).sourceUnchanged, false);
+});
+
+test("legacy aliases exactly match the existing Sean OS Sheet adapter", () => {
+  const sourceId = "sweetfun-operations-sheet-v1";
+  const rows = [
+    row(2, "j1", "l1", "101", "2026-11-01", { fee: "1200" }),
+    row(3, "j2", "", "102", "2026-11-01", { fee: "1200" }),
+  ];
+  const adapted = adaptSheetBookings([SWEETFUN_HEADERS, ...rows.map(r => r.values)],
+    sourceId, "2026-10-20T00:00:00.000Z");
+  for (let i = 0; i < rows.length; i++) {
+    const ids = legacySweetfunIds(sourceId, rows[i].values[9], rows[i].values[11]);
+    assert.equal(ids.rowId, adapted.bookings[i].id);
+    assert.equal(ids.orderId, adapted.bookings[i].order_id);
+  }
+  assert.notEqual(legacySweetfunIds(sourceId, "j1", "l1").orderId,
+    legacySweetfunIds(sourceId, "j1", "").orderId);
+  assert.throws(() => legacySweetfunIds(sourceId, ""), /INVALID_SWEETFUN_SOURCE_ID/);
 });

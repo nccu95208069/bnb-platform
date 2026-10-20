@@ -9,6 +9,20 @@ function digest(value) {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
+function opaque(value) {
+  return createHash("sha256").update(value).digest("hex").slice(0, 20);
+}
+
+/** Reproduce the current Sean OS Sheet adapter aliases; these are not IG UUIDs. */
+export function legacySweetfunIds(sourceId, sourceJ, parentL = "") {
+  if (typeof sourceId !== "string" || !sourceId.trim() ||
+    typeof sourceJ !== "string" || !sourceJ.trim() ||
+    typeof parentL !== "string") throw Error("INVALID_SWEETFUN_SOURCE_ID");
+  const uid = sourceJ.trim(), parent = parentL.trim();
+  return { rowId: `sheet-${opaque(`${sourceId}:row:${uid}`)}`,
+    orderId: `SF-${opaque(`${sourceId}:order:${parent || `ungrouped:${uid}`}`)}` };
+}
+
 function distinct(values) {
   return [...new Set(values)].sort();
 }
