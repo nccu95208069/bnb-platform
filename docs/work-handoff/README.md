@@ -2,7 +2,7 @@
 
 2026-10-20 資料責任對齊：[Sean Sweetfun OS、BnB SaaS OS 與 Iron Gate 的三個角色、目前 Sheet 匯入落點與目標權威](SEAN_SAAS_IRON_GATE_DATA_BOUNDARY_2026-10-20.md)。目前客戶工作區測試仍在 Sweetfun OS 網站內，確認匯入寫入 OS 工作區；Iron Gate 尚未接管真實訂單。
 
-2026-10-20 水芳遷移規劃：[主訂房 Sheet、Gmail、Sweetfun OS、LINE 與訂單財務逐階段轉入 Iron Gate](../../iron-gate/SWEETFUN_SHEET_MIGRATION_PLAN_2026-10-20.md)；[第一輪唯讀來源盤點](../../iron-gate/SWEETFUN_MIGRATION_SOURCE_INVENTORY_2026-10-20.md)。尚未匯入或切換真實訂單。
+2026-10-20 水芳遷移規劃：[主訂房 Sheet、Gmail、Sweetfun OS、LINE 與訂單財務逐階段轉入 Iron Gate](../../iron-gate/SWEETFUN_SHEET_MIGRATION_PLAN_2026-10-20.md)；[來源盤點](../../iron-gate/SWEETFUN_MIGRATION_SOURCE_INVENTORY_2026-10-20.md)與[執行紀錄](../../iron-gate/SWEETFUN_MIGRATION_EXECUTION_2026-10-20.md)。已建立私人來源副本，尚未匯入或切換真實訂單。
 
 2026-10-12 BETA self-service correction: [owner-led website admission without preregistered email, confirmed static-source inventory gate, connected-calendar gaps, and deployment order](BETA_SELF_SERVICE_OS_ADMISSION_2026-10-12.md). A pending Studio UUID site can be approved by a newly verified owner with sales off; a confirmed ICS, Sheet, CSV or Excel snapshot can share inventory only when its coverage contains the entire advertised period and the owner acknowledges manual updates.
 
