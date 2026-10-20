@@ -62,3 +62,5 @@ BnB SaaS OS 日曆 ← Iron Gate API 的授權讀取結果
 3. 對真實館別執行備份、影子比對、衝突處理、受控切換及可演練的回滾；確認權限、監控與端到端結果。未完成前，Iron Gate 正式入口維持關閉。
 
 技術差異與上線狀態分別見 [OS／Iron Gate 接線差異](../../iron-gate/OS_INTEGRATION_MATRIX.md)及 [Iron Gate 部署清單](../../iron-gate/DEPLOYMENT_VERCEL_SUPABASE.md)。本文記錄的是資料責任與對外用詞；不取代逐館遷移計畫。
+
+水芳現有 `Sweetfun caledar 2025` 主表及 Gmail check order 的具體遷移順序、核對門檻和回退條件，見 [水芳遷移計畫](../../iron-gate/SWEETFUN_SHEET_MIGRATION_PLAN_2026-10-20.md)。
