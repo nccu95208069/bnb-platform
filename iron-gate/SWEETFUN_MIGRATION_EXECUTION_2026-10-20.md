@@ -10,7 +10,7 @@ Sean 自用 OS 與 Iron Gate 的無損寫入／受權讀取缺口另見[資料�
 | 階段 | 已完成證據 | 未完成／阻擋 |
 | --- | --- | --- |
 | 0. 來源與 writer 盤點 | 已核對主表 A:S 與 11 個分頁的使用範圍；原表更新後重新固定來源版本。已從 Cloud Run 控制面唯讀核實 Gmail／LINE 服務目前正式 revision、100% 流量、財務與投影開關；Firestore 水芳財務根帳本與各子集合數量亦已讀回。已在業主指定的正式 OS 瀏覽器工作階段唯讀讀回水芳訂單與 2026 財務檢視，並以 Redis 唯讀憑證盤點水芳財務／付款命名空間鍵數與收據／操作數。另發現曾上線的 Sheet 綁定 Apps Script 具有 J／H 寫入能力。 | Gmail 處理水位／LINE 各訂單操作回執與在途任務、目前 Apps Script 版本／觸發器與人工入口、OS 其他命名空間及可還原備份仍未逐一讀回。單一正式 revision 與一筆財務事件核對不能宣稱 writer 清單完整。 |
-| 1. 備份 | 在業主私人 Drive 資料夾建立 Google Sheets 原生完整副本；讀回為擁有者單獨存取。主表 `A1:AL2521` 的顯示值 17/17 段相同，`userEnteredValue`／註記 17/17 段相同；其他十個分頁的使用範圍顯示值 23/23 段、`userEnteredValue`／註記 27/27 段相同。主表完整網格及其他十個分頁使用範圍的儲存格格式／驗證／文字格式片段／超連結 40/40 段相同。另從原生副本在同一個僅擁有者可存取的私人資料夾建立隔離測試檔，11 個分頁 metadata 相同，主表完整網格 17/17 段與其他分頁使用範圍 23/23 段的原始值／註記／格式／驗證／超連結讀回相同；原表修改時間不變。業主授權後已為 Firestore 建立每日 7 天受管備份排程；正式 OS Redis 已有一份 `Completed` 的 Upstash 原生備份，並啟用每日保留 1 天。 | 其他分頁使用範圍外的空白儲存格格式、Apps Script、OS Redis 備份的隔離還原、LINE Firestore 財務／訂單操作／回執／outbox、Gmail 事件及 Iron Gate 資料庫尚未形成已驗證可還原的備份；Firestore 正式資料庫關閉時間點還原，新排程尚無首份備份或隔離還原演練，整體備份閘門未通過。整份 XLSX 上傳路徑因敏感資料會經暫存鏈路而被自動審查拒絕，已改用 Google Sheet 原生私人副本與還原讀回；不得繞過遭拒的傳輸路徑。 |
+| 1. 備份 | 在業主私人 Drive 資料夾建立 Google Sheets 原生完整副本；讀回為擁有者單獨存取。主表 `A1:AL2521` 的顯示值 17/17 段相同，`userEnteredValue`／註記 17/17 段相同；其他十個分頁的使用範圍顯示值 23/23 段、`userEnteredValue`／註記 27/27 段相同。主表完整網格及其他十個分頁使用範圍的儲存格格式／驗證／文字格式片段／超連結 40/40 段相同。另從原生副本在同一個僅擁有者可存取的私人資料夾建立隔離測試檔，11 個分頁 metadata 相同，主表完整網格 17/17 段與其他分頁使用範圍 23/23 段的原始值／註記／格式／驗證／超連結讀回相同；原表修改時間不變。業主授權後已為 Firestore 建立每日 7 天受管備份排程，首份已 `READY` 並開始隔離還原；正式 OS Redis 已有一份 `Completed` 的 Upstash 原生備份，並啟用每日保留 1 天。 | 其他分頁使用範圍外的空白儲存格格式、Apps Script、OS Redis 備份的隔離還原及 Iron Gate 資料庫尚未形成已驗證可還原的備份；Firestore 隔離還原尚未完成讀回，整體備份閘門未通過。整份 XLSX 上傳路徑因敏感資料會經暫存鏈路而被自動審查拒絕，已改用 Google Sheet 原生私人副本與還原讀回；不得繞過遭拒的傳輸路徑。 |
 | 2. 轉換與逐筆核對 | 已新增純函式 `auditSweetfunSnapshot`、`verifySweetfunAudit`、`prepareSweetfunGroups` 與 `verifySweetfunGroups`，以合成資料驗證來源列保存、J／L 分組、同房同夜衝突、精確元轉分、完整來源雜湊、雙向逐列核對及支付標記不產生收款事件。另新增 `diffSweetfunSnapshots`／`verifySweetfunDiff`，用 J 比對兩次私人快照，分清出現、消失、搬列和 A:S 欄位改值；J 空白或重複時拒絕產出差異明細，消失只代表較新快照缺列，不推論取消。一份 1,762 列已在受限記憶體完成候選核對；後續固定的 1,761 列亦完成全量核對，並已匯入 Supabase 唯讀影子，並以合成資料測試欄位與例外規則。最新私人 Sheet 副本與正式 OS 已在不輸出原始鍵的情況下比對雜湊摘要：先前版本 1,759 個可接受房晚的 J 身分、1,607 個父單身分及房型／入住退房日／房費／平台逐列完全相同；4 個來源衝突列在 OS 被隔離。歷史 H 付款標記有舊快照差異，不能用 OS 值覆蓋來源。 | 尚未逐案解釋全部歷史增刪及 3 組父單姓名差異、已建立持久 UUID 對照並只匯入訂單／房晚影子；財務全量及即時增量尚未匯入。兩組重疊不能作可售房晚。 |
 | 3–6. 影子、平行觀察、切換、回退 | Supabase 已建立 1 個唯讀水芳影子館別，增量後獨立讀回 1,607 訂單、1,758 房晚、4 隔離列、2 封鎖房晚；重跑不新增資料。 | 平行事件、水位追趕、財務導入及 writer 改接尚未完成；`canCutover=false`，原 Sheet 與原服務維持權威。 |
 
@@ -19,7 +19,7 @@ Sean 自用 OS 與 Iron Gate 的無損寫入／受權讀取缺口另見[資料�
 | 入口 | 從程式可核實 | 需以正式服務再核實 |
 | --- | --- | --- |
 | Gmail check order | `src/main.py::process_email` 對新單、修改、取消使用 `src/sheets/updater.py` 寫入／刪除 Sheet 列；修改付款方式有不改房晚列的分支。 | 正式 Cloud Run revision、Watch／Pub/Sub、補收和人工重跑的每一寫入端點、Firestore 持久處理水位及成功通知時機。 |
-| LINE OA 較新服務 | 較早候選有登記訂單、修改既有列、OwlNest 開關房；登記時 H 預設 `not_yet`。較新 `line-order-feedback-release-20261018` 分支新增 `FinanceService`／`FinanceRepository`／`FinanceLane`，簽署確認後原子寫 Firestore 財務明細、版本、操作回執、audit、outbox，再由投影 worker 將異動與摘要寫同一活頁簿兩個專頁並回讀；不改原主表付款欄。Cloud Run 控制面唯讀確認目前 `gmail-order-handler-whole-cancel-d3bdee4` 承接 100% 流量，財務、投影及私訊開關均為 true；Firestore 的唯一水芳財務事件與 Sheet 雙投影已獨立核對。 | 實際 LINE OA/群組／私訊授權設定、訂單操作與來源水位、未知結果、Cloud Logging 保留期限、OwlNest 真實讀回及在途任務仍未全量核對。 |
+| LINE OA 較新服務 | 較早候選有登記訂單、修改既有列、OwlNest 開關房；登記時 H 預設 `not_yet`。較新 `line-order-feedback-release-20261018` 分支新增 `FinanceService`／`FinanceRepository`／`FinanceLane`，簽署確認後原子寫 Firestore 財務明細、版本、操作回執、audit、outbox，再由投影 worker 將異動與摘要寫同一活頁簿兩個專頁並回讀；不改原主表付款欄。先前正式 `whole-cancel-d3bdee4` 版本的財務、投影及私訊開關均為 true；Firestore 的唯一水芳財務事件與 Sheet 雙投影已獨立核對。 | 正式流量已換成 `close-currency-ae6de58`，新版本設定與寫入程式尚未核對；實際 LINE OA/群組／私訊授權設定、訂單操作與來源水位、未知結果、Cloud Logging 保留期限、OwlNest 真實讀回及在途任務仍未全量核對。 |
 | Sean Sweetfun OS | `/api/v1/order-payments` 保存私有收款、核對來源並可能回寫主表 H／註記；`/api/v1/finance` 有另一份私有逐年帳本。 | 現行正式部署、私有資料完整性與備份、各財務事件重複／沖銷關係、其他建單／封房／網站操作路徑。 |
 | Sheet 綁定 Apps Script | 2026-08-03 交接稱 `apps_script_v2_batch_20260731.gs` 曾在線上；其 `onEdit` 可生成 J、依 Q `done` 改 H，手動選單也可補 J；另向 Google Calendar 同步。 | 今日實際腳本版本、簡單／安裝型／定時觸發器與操作帳號，以及切換時禁寫／排空／日曆改接的實證。 |
 
@@ -43,7 +43,7 @@ Vercel 部署列表顯示 `sweetfun-os` 有 2026-10-20 02:05（台北）建立�
 
 已從最新 Sheet 副本的 14 格 H 附註抽出 9 個不同 OS 請求 ID，按 J／L 對到 9 張舊 OS 訂單，逐張唯讀查 `/api/v1/order-payments`：每張只有一筆 `status_only` 收據，收據請求 ID 與附註逐一相同，9 筆金額均為 0，`sheet_sync` 均為 `verified`，未另有非狀態收據；相應 OS 財務配置已收均為 0。這使這 9 個附註的原始 OS 操作及回寫可逐一閉環，但不證明這些訂單沒有別處的 OTA／銀行款項，也不涵蓋其餘訂單的私有收據。
 
-正式 Cloud Run 控制面另於本輪唯讀確認專案的 `gmail-order-handler` 服務目前仍由 `gmail-order-handler-whole-cancel-d3bdee4` 承接 100% 流量，`LINE_FINANCE_ENABLED`、`LINE_FINANCE_PROJECTION_ENABLED`、`LINE_FINANCE_DM_ENABLED` 都為 true；Firestore 專案與服務設定一致。這把歷史發布紀錄提升為目前 revision／設定的證據，但不等於逐筆 Gmail／LINE 訂單處理已驗收。
+正式 Cloud Run 控制面先前唯讀確認專案的 `gmail-order-handler` 服務當時由 `gmail-order-handler-whole-cancel-d3bdee4` 承接 100% 流量，`LINE_FINANCE_ENABLED`、`LINE_FINANCE_PROJECTION_ENABLED`、`LINE_FINANCE_DM_ENABLED` 都為 true；Firestore 專案與服務設定一致。這是當時 revision／設定的證據，但不等於逐筆 Gmail／LINE 訂單處理已驗收；後續流量版本見下方時間紀錄。
 
 Firestore 水芳財務根文件 `revision=12`、`data_revision=1`；子集合實數為 `entries`／不可變 `versions`／`operations`／`events`／`audit`／`outbox`／`projection_receipts` 各 1，`orders` 4、`booking_operations` 5，`order_operations`／`external_receipts` 各 0。對唯一有效 `deposit` entry，唯讀核對其內容與不可變版本、已記錄操作的結果、稽核 after、outbox entry 全相同；操作 ID、稽核及 outbox 關聯相同；稽核／outbox／投影回執序號均為 1，outbox 與投影回執核對碼相同，投影控制已完成到 1 且無進行中的 claim。最新私人 Sheet 的 `財務異動紀錄` 唯一資料列在明細、操作、訂單別名、金額、版本、序號、類型和狀態均與此原始 entry 相符；`訂單收款摘要` 同一訂單／操作／序號的已收訂金與已收房費值均等於該筆異動，證明它是衍生投影而非第二筆錢。正式 OS 同一訂單的私有收據版本為 0、收據 0 筆、財務配置已收 0，故未在 OS 財務檢視重複計入這筆 LINE 訂金；銀行／刷卡實際入帳仍需憑證。
 
@@ -106,6 +106,12 @@ Google Cloud 唯讀控制面再查正式 Firestore `(default)` 位於 `asia-nort
 另在本地分支準備 Supabase 財務**來源證據**影子表與匯入器，尚未套用正式資料庫。表僅存四份原始來源本文、雜湊與固定來源版本，不給服務 runtime 改寫或查閱，也不建立付款事件。一次性本機 PostgreSQL 15 演練通過插入四份、相同批次重跑無異動、同批次改值拒絕、H 欄來源漂移拒絕、匯入角色不得改訂房資料；本機測試資料庫已停止並移除。正式 Firestore 每日備份排程在約 00:53 台北再查仍無第一份可還原備份；依 [Supabase 官方備份說明](https://supabase.com/docs/guides/platform/backups)，Pro 組織的專案有每日備份、可取得最近七天，但此任務尚未獨立讀回本專案的實際備份或完成隔離還原。因此不以方案規格代替已驗證的復原能力，暫不把私有財務本文寫入正式 Supabase。
 
 2026-10-21 約 01:23 台北時間，業主回答目前沒有可提供的外部銀行／刷卡收支憑據。對 OS 九筆手動收入、兩筆支出、日曆收據與 LINE 訂金，遷移保留原帳本主張及內部回執關聯，但**外部入出帳狀態維持未對帳**；不要求業主補造證據。財務候選的每筆主張與小計新增 `externalSettlement="unverified"`，來源原文不改。這不阻礙訂房唯讀影子與來源證據保存的準備；它阻止把帳本數字當成已核實現金。仍須完成備份還原、來源 writer 接線及正式切換核對。
+
+2026-10-21 約 01:28 台北時間，Firestore 每日排程首份備份已讀回 `READY`，快照時間為 01:20:33；已啟動恢復到同專案、同區域的**新命名資料庫**，原 `(default)` 資料庫沒有被覆寫。隔離還原作業仍在進行，待完成後須核對水芳財務事件鏈及 Gmail／LINE 操作集合，再清理測試資料庫。原 Sheet 修改時間仍為 `2026-10-20T15:34:12.453Z`。Iron Gate 的本地候選程式已部署到受 Vercel 保護的 Preview，控制面顯示 `Ready` 且目標為 `preview`；實際無憑證唯讀請求回 `401 UNAUTHORIZED`、`private, no-store`。既有 Production 仍回固定 `503 SERVICE_UNAVAILABLE`，沒有接管真實請求；Supabase 影子再次讀回一館、版本 2、1,607 訂單、1,758 房晚、4 隔離組，唯讀閘門開啟、憑證／outbox／audit 均為 0。
+
+Supabase 備份頁的瀏覽器檢查因需要透過 ChatGPT 登入而被自動審查拒絕，理由是業主尚未明確授權該登入方式；已停止該登入，不改用其他路徑繞過。已向業主詢問是否授權該特定登入。這項阻擋只影響 Supabase 實際備份的控制台核實，不能把 Pro 方案的備份規格寫成已讀回的還原點。
+
+2026-10-21 約 01:38 台北時間，唯讀核對 Cloud Run 流量發現正式 `gmail-order-handler` 已改由 `gmail-order-handler-close-currency-ae6de58` 承接 100%，新 revision 建立於 2026-10-20 23:50 台北時間；先前確認的 `whole-cancel-d3bdee4` 不再是正式流量版本。本輪只讀 revision 名稱、建立時間與映像摘要，尚未核對新映像的寫入程式、所有功能開關或事件水位，因此舊版 writer 盤點不能作為新版本的切換證據。讀取容器環境的嘗試因可能包含密鑰而被自動審查拒絕，改用不含環境值的控制面查詢確認 revision／流量，沒有輸出憑證。
 
 ## 下一步可直接執行的工程工作
 
