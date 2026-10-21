@@ -34,3 +34,5 @@
 4. 維持 OS 影子橋接預設關閉；網站報價、LINE owner action、OwlNest 登入後台的房量寫入請求與財務證據尚未完成，不得將 Iron Gate 指為真實訂單的唯一 writer。每館切換須先備份、影子比對、關閉舊 writer、核對並準備回滾。
 
 目前有固定 503 的 Production 空殼與受 Vercel Authentication 保護的 Preview；Supabase 專用私有 schema 已存入真實來源的**唯讀影子**，但尚未作為訂單權威、尚未啟用真實接單或財務付款事件。
+
+2026-10-21 候選程式加入與 Preview 完全分離的 Production 閘門：`IRON_GATE_PRODUCTION_ENABLED=true` 才讀取獨立的 `IRON_GATE_PRODUCTION_DATABASE_URL` 和 `IRON_GATE_PRODUCTION_OS_PROOF_SECRET`；目前正式環境**沒有**啟用這些設定，公開入口仍須維持 503。這是程式準備，不等於正式部署或切換。另已把訂單列表回覆加上 inventory version、authority epoch 和唯讀狀態，讓 OS 日曆能在逐頁及逐房晚讀取時拒絕版本漂移。現存水芳來源影子已更新至版本 5、1,606 張唯讀訂單／1,758 個占房房晚、epoch 0；正式來源 grant／link 仍為 0。啟用前還須完成[OS 日曆切換候選](OS_CALENDAR_HANDOFF_2026-10-21.md)、Gmail writer、舊入口停寫與最終來源核對。

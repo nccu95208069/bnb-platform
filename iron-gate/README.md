@@ -4,6 +4,7 @@ Iron Gate 是獨立的訂單與房晚權威服務。此目錄目前提供可執�
 
 Sean 自用 OS、民宿客戶 OS 工作區與 Iron Gate 的目前／目標資料責任，見 [2026-10-20 業主對齊紀錄](../docs/work-handoff/SEAN_SAAS_IRON_GATE_DATA_BOUNDARY_2026-10-20.md)。
 水芳主表、Gmail check order、Sweetfun OS、LINE 官方帳號及訂單財務的逐階段遷移與切換檢查，見 [Sweetfun Sheet → Iron Gate 遷移計畫](SWEETFUN_SHEET_MIGRATION_PLAN_2026-10-20.md)；唯讀統計和目前工作分別見[來源盤點](SWEETFUN_MIGRATION_SOURCE_INVENTORY_2026-10-20.md)及[執行紀錄](SWEETFUN_MIGRATION_EXECUTION_2026-10-20.md)。
+水芳 OS 日曆的預設關閉讀取候選及其限制見[日曆切換紀錄](OS_CALENDAR_HANDOFF_2026-10-21.md)。
 
 `src/channel-runner.mjs` 提供注入式通路操作模擬，不含真實 OwlNest 寫入連線。`src/owlnest-web-readback.mjs` 將現有登入後的日曆 GET 做成唯讀、注入憑證的 adapter；其一個房晚的讀取已用真實帳號驗證。`src/owlnest-stock-command.mjs` 只從 OwlNest 目前網頁程式建構候選單房晚命令，不發送請求。使用者指定沿用網站登入後的後台請求；候選房量寫入的傳輸編碼、授權與真實效果仍須在受控測試工作階段核對，詳見 [OwlNest 接線調查](OWLNEST_API_STATUS.md)。
 
@@ -30,7 +31,7 @@ npm run build
 
 ## Vercel 專案
 
-`api/index.mjs` 是獨立 Vercel 專案的 Node.js 入口；`vercel.json` 只把 `/v1/` 路徑導向它。建置先產生 `dist/`，公開靜態目錄 `public/` 保持空白。入口需要 Vercel 明確標記 `VERCEL_ENV=preview`、Preview 專用 `IRON_GATE_PREVIEW_ENABLED=true`、伺服器端的 `IRON_GATE_DATABASE_URL` 與 `IRON_GATE_OS_PROOF_SECRET`；其他目標一律回 `503 SERVICE_UNAVAILABLE`。資料庫 URL 必須使用驗證主機名稱的 TLS，連線角色必須是受限的 `iron_gate_runtime` 成員；連線字串及 proof secret 不可提交到 Git 或放在瀏覽器環境變數。資料庫建立、管理帳號、遷移和發證都不由 Vercel 函式執行。
+`api/index.mjs` 是獨立 Vercel 專案的 Node.js 入口；`vercel.json` 只把 `/v1/` 路徑導向它。建置先產生 `dist/`，公開靜態目錄 `public/` 保持空白。Preview 需要 `VERCEL_ENV=preview`、`IRON_GATE_PREVIEW_ENABLED=true`、伺服器端 `IRON_GATE_DATABASE_URL` 與 `IRON_GATE_OS_PROOF_SECRET`。Production 使用**獨立**的 `IRON_GATE_PRODUCTION_ENABLED=true`、`IRON_GATE_PRODUCTION_DATABASE_URL`、`IRON_GATE_PRODUCTION_OS_PROOF_SECRET`；目前未設定這些正式開關與憑證，故仍回 `503 SERVICE_UNAVAILABLE`。資料庫 URL 必須使用驗證主機名稱的 TLS，連線角色必須是受限的 `iron_gate_runtime` 成員；連線字串及 proof secret 不可提交到 Git 或放在瀏覽器環境變數。資料庫建立、管理帳號、遷移和發證都不由 Vercel 函式執行。
 
 新 Vercel `sweetfuns-projects/iron-gate` 專案已配置三項 Preview 專用變數。Production 空殼固定回 503；受 Vercel 登入保護的 Preview 在完成受限資料庫檢查後，對未授權訂單請求回 401。專用 Supabase PostgreSQL 已建立。短生命週期函式使用 transaction pooler；程式每次讀寫都以明確 transaction 設定逐館 RLS。正式啟用前要在部署預覽中核對 OS 簽章的完整請求路徑與查詢字串。部署及資料庫準備狀態詳見 [部署清單](DEPLOYMENT_VERCEL_SUPABASE.md)。
 
