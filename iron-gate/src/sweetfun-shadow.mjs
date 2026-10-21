@@ -20,6 +20,20 @@ function validConfig(config) {
     new Set(Object.values(config.roomIds)).size !== roomNames.length ||
     typeof config.bookingIds !== "object" || config.bookingIds === null ||
     Array.isArray(config.bookingIds)) throw Error("INVALID_SWEETFUN_SHADOW_CONFIG");
+  if (config.cancellationTombstones !== undefined &&
+    (!Array.isArray(config.cancellationTombstones) ||
+      new Set(config.cancellationTombstones.map((item) => item?.sourceId)).size !==
+        config.cancellationTombstones.length ||
+      config.cancellationTombstones.some((item) =>
+        typeof item?.sourceId !== "string" || !item.sourceId ||
+        item.before?.values?.[9] !== item.sourceId ||
+        !Number.isSafeInteger(item.before?.rowNumber) ||
+        item.evidenceType !== "owner_attestation" ||
+        typeof item.evidenceRef !== "string" || !item.evidenceRef.trim() ||
+        !/^[0-9a-f]{64}$/.test(item.beforeHash ?? "") ||
+        !/^[0-9a-f]{64}$/.test(item.afterHash ?? "") ||
+        item.writerReceiptVerified !== false)))
+    throw Error("INVALID_SWEETFUN_CANCELLATION_TOMBSTONES");
 }
 
 function canonical(value) {
@@ -120,7 +134,9 @@ export function prepareSweetfunShadow(snapshot, config) {
     sweetfunImport: { sourceHash: prepared.sourceHash, sourceId: config.sourceId,
       capturedAt: config.capturedAt, headers: structuredClone(snapshot.headers),
       quarantined: structuredClone(quarantined),
-      uncontainedReviewRows },
+      uncontainedReviewRows,
+      ...(config.cancellationTombstones?.length ?
+        { cancellationTombstones: structuredClone(config.cancellationTombstones) } : {}) },
     channel: { mode: "none", ready: false, websiteSalesEnabled: false,
       grantId: null, websiteBindingId: null },
     sourceGrants: [], bookings, sourceLinks: [], operations: [], fences,

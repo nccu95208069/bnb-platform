@@ -1,4 +1,6 @@
-import { diffSweetfunSnapshots, verifySweetfunDiff } from "./sweetfun-sheet-delta.mjs";
+import { isDeepStrictEqual } from "node:util";
+import { annotateSweetfunDisappearances, diffSweetfunSnapshots, verifySweetfunDiff } from
+  "./sweetfun-sheet-delta.mjs";
 import { prepareSweetfunShadow } from "./sweetfun-shadow.mjs";
 import { checkPropertyIntegrity } from "./property-integrity.mjs";
 import { nightsFor } from "./service.ts";
@@ -34,7 +36,9 @@ export function planSweetfunAdditiveShadow(currentState, nextSnapshot, nextConfi
     nextConfig?.workspaceId !== currentState.workspaceId ||
     nextConfig?.propertyId !== currentState.propertyId ||
     nextConfig?.authorityEpoch !== 0 ||
-    nextConfig?.inventoryVersion !== currentState.version + 1)
+    nextConfig?.inventoryVersion !== currentState.version + 1 ||
+    !isDeepStrictEqual(nextConfig?.cancellationTombstones ?? [],
+      currentState.sweetfunImport?.cancellationTombstones ?? []))
     throw Error("UNSAFE_SWEETFUN_SHADOW_ADVANCE");
   const oldSnapshot = { headers: currentState.sweetfunImport.headers,
     rows: sourceRows(currentState) };
@@ -74,5 +78,90 @@ export function planSweetfunAdditiveShadow(currentState, nextSnapshot, nextConfi
       addedRows: delta.summary.appeared,
       addedBookings: next.state.bookings.length - currentState.bookings.length,
       addedRoomNights: addedOccupancy.length,
+      paymentEventsCreated: 0, canCutover: false } };
+}
+
+/**
+ * Plan one owner-attested, single-booking cancellation in a read-only shadow.
+ * The complete private source copy, prior state, owner decision, and persistent
+ * UUID map must agree before the old occupied night may be removed. Concurrent
+ * changes to the plain order-note column K can be copied through; any other
+ * changed source field still requires separate review.
+ */
+export function planSweetfunCancellationShadow(currentState, nextSnapshot,
+  nextConfig, ownerDecision) {
+  if (!currentState?.readOnly || currentState.authorityEpoch !== 0 ||
+    currentState.channel?.ready || currentState.channel?.websiteSalesEnabled ||
+    currentState.bookings?.some((booking) => booking.paymentEvents?.length) ||
+    currentState.sourceGrants?.length || currentState.operations?.length ||
+    currentState.sourceLinks?.length || currentState.receipts?.length ||
+    currentState.manualBlocks?.length ||
+    !Array.isArray(currentState.bookings) ||
+    nextConfig?.sourceId !== currentState.sweetfunImport?.sourceId ||
+    nextConfig?.sourceCopyId === nextConfig?.sourceId ||
+    nextConfig?.capturedAt !== nextConfig?.sourceCopyCreatedAt ||
+    nextConfig?.workspaceId !== currentState.workspaceId ||
+    nextConfig?.propertyId !== currentState.propertyId ||
+    nextConfig?.authorityEpoch !== 0 ||
+    nextConfig?.inventoryVersion !== currentState.version + 1)
+    throw Error("UNSAFE_SWEETFUN_SHADOW_CANCELLATION");
+  const oldSnapshot = { headers: currentState.sweetfunImport.headers,
+    rows: sourceRows(currentState) };
+  const delta = diffSweetfunSnapshots(oldSnapshot, nextSnapshot);
+  const sourceNoteChanges = delta.changes.filter((change) =>
+    change.changedColumns.length || change.changedNoteColumns.length);
+  if (!verifySweetfunDiff(oldSnapshot, nextSnapshot, delta).matches ||
+    delta.beforeHash !== currentState.sweetfunImport.sourceHash ||
+    delta.afterHash !== nextConfig.expectedSourceHash || !delta.summary.complete ||
+    delta.summary.appeared || delta.summary.disappeared !== 1 ||
+    sourceNoteChanges.length !== delta.summary.changed ||
+    sourceNoteChanges.some((change) => change.kind !== "existing" ||
+      change.changedNoteColumns.length ||
+      change.changedColumns.some((column) => column !== 10)))
+    throw Error("SWEETFUN_SHADOW_CANCELLATION_SOURCE_DRIFT");
+  const annotation = annotateSweetfunDisappearances(delta, [ownerDecision]);
+  const priorTombstones = currentState.sweetfunImport.cancellationTombstones ?? [];
+  if (annotation.unresolved.length || annotation.tombstones.length !== 1 ||
+    !isDeepStrictEqual(nextConfig.cancellationTombstones,
+      [...priorTombstones, ...annotation.tombstones]))
+    throw Error("SWEETFUN_SHADOW_CANCELLATION_DECISION_DRIFT");
+  const vanishedId = annotation.tombstones[0].sourceId;
+  const removed = currentState.bookings.filter((booking) =>
+    booking.sweetfunSnapshot?.rows?.some((row) => row.values?.[9] === vanishedId));
+  if (removed.length !== 1 || removed[0].status !== "confirmed" ||
+    removed[0].sweetfunSnapshot.rows.length !== 1 || removed[0].stays.length !== 1)
+    throw Error("SWEETFUN_SHADOW_CANCELLATION_BOOKING_CONFLICT");
+  const next = prepareSweetfunShadow(nextSnapshot, nextConfig);
+  if (!isDeepStrictEqual(currentState.roomIds, next.state.roomIds) ||
+    next.state.readOnly !== true || next.state.bookings.some((booking) =>
+      booking.paymentEvents?.length) || !checkPropertyIntegrity(next.state,
+        occupied(next.state)).ok)
+    throw Error("UNSAFE_SWEETFUN_SHADOW_CANCELLATION");
+  const oldBookings = new Map(currentState.bookings.map((booking) =>
+    [booking.sweetfunSnapshot?.groupKey, booking.id]));
+  const newBookings = new Map(next.state.bookings.map((booking) =>
+    [booking.sweetfunSnapshot?.groupKey, booking.id]));
+  if (oldBookings.size !== currentState.bookings.length ||
+    newBookings.size !== currentState.bookings.length - 1 ||
+    newBookings.has(removed[0].sweetfunSnapshot.groupKey) ||
+    [...oldBookings].some(([key, id]) =>
+      key !== removed[0].sweetfunSnapshot.groupKey && newBookings.get(key) !== id))
+    throw Error("SWEETFUN_SHADOW_BOOKING_ID_DRIFT");
+  const oldCells = occupied(currentState);
+  const nextCells = occupied(next.state);
+  const remaining = new Map(nextCells.map((cell) =>
+    [`${cell.room_id}:${cell.night}`, cell.booking_id]));
+  const removedCells = oldCells.filter((cell) =>
+    !remaining.has(`${cell.room_id}:${cell.night}`));
+  if (removedCells.length !== 1 || removedCells[0].booking_id !== removed[0].id ||
+    oldCells.length !== nextCells.length + 1 || remaining.size !== nextCells.length ||
+    oldCells.some((cell) => cell.booking_id !== removed[0].id &&
+      remaining.get(`${cell.room_id}:${cell.night}`) !== cell.booking_id))
+    throw Error("SWEETFUN_SHADOW_CANCELLATION_OCCUPANCY_DRIFT");
+  return { state: next.state, removedOccupancy: removedCells,
+    summary: { beforeHash: delta.beforeHash, afterHash: delta.afterHash,
+      removedRows: 1, removedBookings: 1, removedRoomNights: 1,
+      sourceNoteRowsChanged: sourceNoteChanges.length,
+      ownerConfirmedCancelled: 1, writerReceiptVerified: false,
       paymentEventsCreated: 0, canCutover: false } };
 }
