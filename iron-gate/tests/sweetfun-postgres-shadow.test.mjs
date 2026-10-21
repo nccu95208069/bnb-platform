@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { Pool } from "pg";
 import { SWEETFUN_HEADERS } from "../src/sweetfun-sheet-audit.mjs";
 import { prepareSweetfunGroups } from "../src/sweetfun-sheet-candidate.mjs";
-import { seedSweetfunShadow, advanceSweetfunShadow, cancelSweetfunShadow } from
+import { seedSweetfunShadow, advanceSweetfunShadow, cancelSweetfunShadow,
+  reconcileSweetfunShadow } from
   "../scripts/seed-sweetfun-shadow.mjs";
 import { annotateSweetfunDisappearances, diffSweetfunSnapshots } from
   "../src/sweetfun-sheet-delta.mjs";
@@ -150,6 +151,84 @@ test("Sweetfun shadow cancellation transaction deletes two nights and retains to
       assert.equal(stored.sweetfunImport.cancellationTombstones.length, 2);
       assert.equal((await admin.query(`SELECT count(*)::int AS n
         FROM iron_gate.occupied_room_nights WHERE property_id=$1`, [propertyId])).rows[0].n, 1);
+    } finally {
+      await admin.query("DELETE FROM iron_gate.occupied_room_nights WHERE property_id=$1", [propertyId]);
+      await admin.query("DELETE FROM iron_gate.property_state WHERE property_id=$1", [propertyId]);
+      await pool.end(); await admin.end();
+    }
+  });
+
+test("Sweetfun mixed revision atomically adds one order and cancels two orders",
+  { skip: !runtimeUrl || !adminUrl }, async () => {
+    if (!isLocalTest(runtimeUrl) || !isLocalTest(adminUrl))
+      throw Error("SHADOW_TEST_REQUIRES_LOCAL_IRON_GATE_TEST_DATABASE");
+    const makeRow = (rowNumber, room, sourceId, parentId, checkIn, checkOut) => {
+      const values = Array(19).fill("");
+      Object.assign(values, { 0: room, 1: "Synthetic guest", 2: "Synthetic OTA",
+        3: checkIn, 4: checkOut, 5: "2026/10/01", 6: "1200",
+        7: "not_yet", 8: "OK", 9: sourceId, 11: parentId });
+      return { rowNumber, values, notes: Array(19).fill(null) };
+    };
+    const before = { headers: [...SWEETFUN_HEADERS], rows: [
+      makeRow(2, "202", "cancel-a", "parent-a", "2026/12/13", "2026/12/14"),
+      makeRow(3, "302", "cancel-b", "parent-b", "2026/12/12", "2026/12/13"),
+      makeRow(4, "101", "keep", "parent-keep", "2026/12/15", "2026/12/16"),
+    ] };
+    const after = { headers: [...SWEETFUN_HEADERS], rows: [
+      { ...structuredClone(before.rows[2]), rowNumber: 2 },
+      makeRow(3, "301", "add-c", "parent-c", "2026/10/25", "2026/10/26"),
+    ] };
+    const oldGroups = prepareSweetfunGroups(before).candidates;
+    const newGroups = prepareSweetfunGroups(after).candidates;
+    const oldIds = Object.fromEntries(oldGroups.map((group) =>
+      [group.key, crypto.randomUUID()]));
+    const nextIds = Object.fromEntries(newGroups.map((group) =>
+      [group.key, oldIds[group.key] ?? crypto.randomUUID()]));
+    const workspaceId = crypto.randomUUID(), propertyId = crypto.randomUUID();
+    const roomIds = Object.fromEntries(["101", "102", "201", "202", "301", "302"]
+      .map((room) => [room, crypto.randomUUID()]));
+    const firstConfig = { sourceId: "synthetic-original", sourceCopyId: "synthetic-before",
+      sourceCopyCreatedAt: "2026-10-21T00:00:00.000Z",
+      capturedAt: "2026-10-21T00:00:00.000Z",
+      expectedSourceHash: prepareSweetfunGroups(before).sourceHash,
+      workspaceId, propertyId, roomIds, bookingIds: oldIds,
+      inventoryVersion: 1, authorityEpoch: 0 };
+    const diff = diffSweetfunSnapshots(before, after);
+    const decisions = ["cancel-a", "cancel-b"].map((sourceId) => ({
+      outcome: "cancelled", evidenceType: "owner_attestation",
+      evidenceRef: "synthetic-owner-confirmation", beforeHash: diff.beforeHash,
+      afterHash: diff.afterHash, sourceIds: [sourceId],
+    }));
+    const config = { ...firstConfig, sourceCopyId: "synthetic-after",
+      sourceCopyCreatedAt: "2026-10-21T01:00:00.000Z",
+      capturedAt: "2026-10-21T01:00:00.000Z",
+      expectedSourceHash: diff.afterHash, bookingIds: nextIds,
+      inventoryVersion: 2,
+      cancellationTombstones: annotateSweetfunDisappearances(diff,
+        decisions).tombstones };
+    const pool = new Pool({ connectionString: runtimeUrl });
+    const admin = new Pool({ connectionString: adminUrl });
+    const localDatabase = { expectedDatabaseName: "iron_gate_test" };
+    try {
+      await seedSweetfunShadow(pool, before, firstConfig, localDatabase);
+      const result = await reconcileSweetfunShadow(pool, after, config,
+        decisions, localDatabase);
+      assert.equal(result.action, "reconciled");
+      assert.equal(result.addedRows, 1);
+      assert.equal(result.removedRows, 2);
+      assert.equal(result.addedBookings, 1);
+      assert.equal(result.removedBookings, 2);
+      assert.equal(result.addedRoomNights, 1);
+      assert.equal(result.removedRoomNights, 2);
+      assert.equal((await reconcileSweetfunShadow(pool, after, config,
+        decisions, localDatabase)).action, "unchanged");
+      const stored = await new PostgresPropertyRepository(pool).read(propertyId);
+      assert.equal(stored.version, 2);
+      assert.equal(stored.readOnly, true);
+      assert.equal(stored.bookings.length, 2);
+      assert.equal(stored.sweetfunImport.cancellationTombstones.length, 2);
+      assert.equal((await admin.query(`SELECT count(*)::int AS n
+        FROM iron_gate.occupied_room_nights WHERE property_id=$1`, [propertyId])).rows[0].n, 2);
     } finally {
       await admin.query("DELETE FROM iron_gate.occupied_room_nights WHERE property_id=$1", [propertyId]);
       await admin.query("DELETE FROM iron_gate.property_state WHERE property_id=$1", [propertyId]);
