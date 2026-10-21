@@ -2,7 +2,8 @@ import type {
   Action, AmendBookingInput, Booking, BookingReceipt, CreateBookingInput, CreateHoldInput,
   ExtendHoldInput,
   DesiredCell, Night, PaymentEventInput, Principal, PropertyRepository, PropertyState,
-  ReadbackInput, RequestReceipt, SourceEventInput, Stay, TransactionContext, EventType,
+  ReadbackInput, RequestReceipt, SourceEventInput, SourceOrderLookupInput, Stay,
+  TransactionContext, EventType,
 } from "./types.ts";
 import { GateError } from "./errors.ts";
 export { GateError } from "./errors.ts";
@@ -839,6 +840,32 @@ export class IronGateService {
     });
   }
 
+  async sourceOrderLookup(principal: Principal,
+    input: SourceOrderLookupInput): Promise<Record<string, unknown>> {
+    uuid(input.propertyId);
+    nonempty(input.sourceSystem, 64); nonempty(input.sourceAccount, 128);
+    nonempty(input.externalOrderId, 256);
+    if (principal.origin !== "source" || !principal.grantId ||
+      principal.sourceSystem !== input.sourceSystem ||
+      principal.sourceAccount !== input.sourceAccount) reject("FORBIDDEN", 403);
+    const state = await this.repository.read(input.propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    authorize(principal, state, "source:write");
+    const key = [input.sourceSystem, input.sourceAccount, input.externalOrderId].join("\u0000");
+    const link = state.sourceLinks.find((item) => item.key === key);
+    const booking = link?.bookingId ? state.bookings.find((item) => item.id === link.bookingId) : null;
+    if (link?.bookingId && !booking) reject("SOURCE_LINK_BROKEN", 409);
+    return { propertyId: state.propertyId, inventoryVersion: state.version,
+      readOnly: state.readOnly === true,
+      sourceVersion: link?.sourceVersion ?? null,
+      bookingId: booking?.id ?? null, bookingVersion: booking?.version ?? null,
+      bookingStatus: booking?.status ?? null,
+      stays: booking ? structuredClone(booking.stays) : [],
+      diverged: link?.diverged ?? false,
+      tombstoned: Boolean(link?.tombstoneNights.length),
+    };
+  }
+
   async applySourceEvent(principal: Principal, requestKey: string,
     input: SourceEventInput): Promise<Record<string, unknown>> {
     uuid(input.propertyId); uuid(requestKey);
@@ -924,6 +951,9 @@ export class IronGateService {
           booking.stays = structuredClone(input.stays);
           booking.guestName = input.guestName;
           booking.bookedAt = input.bookedAt;
+          // The booking-only source event carries no fee. An imported Sheet
+          // amount cannot remain a current amount after an external change.
+          booking.totalCents = null;
         }
       } else {
         booking = { id: crypto.randomUUID(), workspaceId: state.workspaceId, propertyId: state.propertyId,

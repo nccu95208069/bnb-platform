@@ -248,6 +248,61 @@ test("source version and booking divergence stop an external overwrite", async (
   assert.equal((await repository.read(propertyId)).bookings[0].guestName, "Owner correction");
 });
 
+test("source lookup exposes only current link state to its scoped writer", async () => {
+  const { service, repository } = setup();
+  const source = principal("source");
+  const lookup = { propertyId, sourceSystem: "ota", sourceAccount: "synthetic-account",
+    externalOrderId: "external-1" };
+  assert.deepEqual(await service.sourceOrderLookup(source, lookup), {
+    propertyId, inventoryVersion: 1, readOnly: false, sourceVersion: null,
+    bookingId: null, bookingVersion: null, bookingStatus: null, stays: [],
+    diverged: false, tombstoned: false,
+  });
+  const first = await service.applySourceEvent(source, key(), sourceInput());
+  const linked = await service.sourceOrderLookup(source, lookup);
+  assert.equal(linked.sourceVersion, "v1");
+  assert.equal(linked.bookingId, first.bookingId);
+  assert.deepEqual(linked.stays, sourceInput().stays);
+  assert.equal(JSON.stringify(linked).includes("External Guest"), false);
+  await assert.rejects(service.sourceOrderLookup(principal("source", {
+    sourceAccount: "other-account" }), lookup), errorCode("FORBIDDEN"));
+  await repository.transact(propertyId, (state) => { state.readOnly = true; });
+  assert.equal((await service.sourceOrderLookup(source, lookup)).readOnly, true);
+  await assert.rejects(service.applySourceEvent(source, key(), sourceInput(2, {
+    sourceVersion: "v2", previousSourceVersion: "v1",
+  })), errorCode("PROPERTY_READ_ONLY"));
+});
+
+test("source lookup HTTP route rejects unscoped requests and returns no guest data", async () => {
+  const { service } = setup();
+  const request = new Request("https://iron.invalid/v1/source-orders/lookup", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ propertyId, sourceSystem: "ota",
+      sourceAccount: "synthetic-account", externalOrderId: "external-1" }),
+  });
+  const denied = createHandler(service, async () => principal("os"));
+  assert.equal((await denied(request.clone())).status, 403);
+  const allowed = createHandler(service, async () => principal("source"));
+  const response = await allowed(request.clone());
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).sourceVersion, null);
+});
+
+test("booking-only source modification clears a stale imported fee", async () => {
+  const { service, repository } = setup();
+  const source = principal("source");
+  const first = await service.applySourceEvent(source, key(), sourceInput());
+  await repository.transact(propertyId, (state) => {
+    state.bookings[0].totalCents = 1200000;
+  });
+  const updated = await service.applySourceEvent(source, key(), sourceInput(2, {
+    sourceVersion: "v2", previousSourceVersion: "v1",
+  }));
+  assert.equal(updated.state, "applied");
+  const state = await repository.read(propertyId);
+  assert.equal(state.bookings.find((item) => item.id === first.bookingId).totalCents, null);
+});
+
 test("source identity parts reject control characters before key composition", async () => {
   const { service } = setup();
   const bad = sourceInput(1, { externalOrderId: "first\u0000second" });

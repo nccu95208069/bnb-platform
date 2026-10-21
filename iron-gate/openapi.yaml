@@ -319,6 +319,15 @@ components:
           items: { $ref: '#/components/schemas/Stay' }
         guestName: { type: [string, 'null'], maxLength: 200 }
         bookedAt: { type: [string, 'null'], format: date, description: Original source booking date or unknown }
+    SourceOrderLookup:
+      type: object
+      additionalProperties: false
+      required: [propertyId, sourceSystem, sourceAccount, externalOrderId]
+      properties:
+        propertyId: { type: string, format: uuid }
+        sourceSystem: { type: string, minLength: 1, maxLength: 64 }
+        sourceAccount: { type: string, minLength: 1, maxLength: 128 }
+        externalOrderId: { type: string, minLength: 1, maxLength: 256 }
     DesiredCell:
       type: object
       additionalProperties: false
@@ -694,6 +703,22 @@ paths:
       responses:
         '200': { description: Source fact applied or cancellation tombstone recorded }
         '409': { description: Conflict; review_required result can be durably recorded }
+  /v1/source-orders/lookup:
+    post:
+      operationId: lookupSourceOrder
+      summary: Read one order identity for the same scoped source grant
+      description: >-
+        Returns the current source version, booking ID/version/status, stays,
+        inventory version and review flags. It works while the property remains
+        read-only and never returns guest, contact or payment fields.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SourceOrderLookup' }
+      responses:
+        '200': { description: Current scoped source order state }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/inventory-operations/{operationKey}:
     get:
       operationId: getChannelOperation

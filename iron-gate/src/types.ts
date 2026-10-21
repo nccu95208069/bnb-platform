@@ -202,6 +202,9 @@ export type SourceEventInput = {
   bookedAt: string | null;
 };
 
+export type SourceOrderLookupInput = Pick<SourceEventInput,
+  "propertyId" | "sourceSystem" | "sourceAccount" | "externalOrderId">;
+
 export type ReadbackInput = {
   propertyId: string;
   operationKey: string;
