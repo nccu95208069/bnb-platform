@@ -33,3 +33,5 @@
 再次唯讀檢查 OwlNest 當前公開的 PlanView 與 utility 程式：單房晚更新仍走 `PUT .../calendars/stock`。頁面先把 `lang` 與 `stock_items` 合併，再交給 jQuery 預設的表單序列化；utility 也把語言加到 URL 查詢。`src/owlnest-web-provider.mjs` 現在依此建立單房晚的 `application/x-www-form-urlencoded` 請求，包含房型、日期、庫存 0/1、停售狀態和防超賣欄位。它由注入的短效授權和 HTTP client 呼叫，固定 OwlNest 主機、拒絕登入重導與異常回應，不自動重送結果不明的 PUT；`src/channel-runner.mjs` 必須再執行新的日曆 GET 並記錄每格讀回，才可能解除房晚 fence。
 
 這仍是**未接入正式 dispatch 的候選**。合成測試覆蓋表單欄位、GET→PUT→GET 與結果不明時不重送；公開網頁程式和模擬回應不能證明登入後 stock PUT 被接受，也不能證明線上房量會按預期變更。須由業主指定不影響接單的測試房晚，明確同意受控的關房、讀回、復原、再讀回，並核對實際傳輸與效果後，才可接上正式通路 runner。此前沒有發出 OwlNest PUT，`saleReady=false`。
+
+受控真機測試須先固定**唯一館別、房型、日期**及原始房量，查原 Sheet 沒有該房晚訂單或衝突，確認不是房價實驗的保護日期，且擁有者可即時處理異常。短效登入憑證只在受限本機讀取；連續兩次日曆 GET 必須均為 `count=1,is_lock=false`。只送一次單格絕對關房 PUT，之後輪詢 GET 到 `count=0,is_lock=true`；再送一次單格絕對開房 PUT，輪詢 GET 到原始 `count=1,is_lock=false`。每次記錄請求時間、HTTP 狀態、回應狀態與精確房晚讀回，不記錄 token、cookie 或旅客資料。PUT 回應成功但房量未變、結果不明、讀回逾時或出現其他訂單時，都不得盲目重送或宣稱恢復；立刻以唯讀 GET 確認實際狀態，維持受控停售並通知擁有者處理，直到讀回原狀或明確記錄未復原。這個受控測試只驗證一格與當時網站版本，正式接線仍需逐館 lease、憑證管理及事件消費驗收。
