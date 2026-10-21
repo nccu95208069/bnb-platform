@@ -221,7 +221,8 @@ export async function GET(request: NextRequest) {
       const principal = await principalFor(request);
       if (!principal) return NextResponse.json({detail:"請先登入。"},{status:401,headers:{"Cache-Control":"private, no-store",Vary:"Cookie"}});
       const definitions = activeSources().filter(d => allowedProperty(principal, d.property.id));
-      if (process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED === "true" &&
+      if ((process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED === "true" ||
+          process.env.IRON_GATE_SWEETFUN_CALENDAR_PREVIEW_ENABLED === "true") &&
           definitions.some(d => d.key === "sweetfun")) {
         const offland = definitions.filter(d => d.key !== "sweetfun");
         const [ig, other] = await Promise.all([
@@ -236,7 +237,13 @@ export async function GET(request: NextRequest) {
         const bookings = projectBookings([
           ...ig.bookings, ...(other?.bookings ?? []),
         ], principal);
-        const source = { label: "Iron Gate 訂房紀錄", observed_at: ig.observedAt,
+        const preview = ig.mode === "snapshot_preview";
+        const source = preview ? {
+          label: "Iron Gate 固定快照預覽", observed_at: ig.observedAt,
+          private_snapshot_at: ig.snapshotCapturedAt!,
+          private_snapshot_version: String(ig.inventoryVersion),
+          read_only: true, automatic_sync: false, availability_authoritative: false,
+        } : { label: "Iron Gate 訂房紀錄", observed_at: ig.observedAt,
           read_only: true, automatic_sync: true, availability_authoritative: false,
           private_snapshot_version: String(ig.inventoryVersion),
           sync: { status: "confirming" as const, last_checked_at: ig.observedAt,
@@ -265,7 +272,7 @@ export async function GET(request: NextRequest) {
           request_id: requestId,
           source_errors: other?.errors ?? [], source_warnings: other?.warnings ?? [],
           guest_access: { available: ownerAccessConfigured(), authenticated: true },
-          data_mode: "iron_gate_booking_only",
+          data_mode: preview ? "iron_gate_snapshot_preview" : "iron_gate_booking_only",
         }, { headers });
       }
       const result = await readCalendarSources(definitions, start, end, principal.viewPrices, {
@@ -299,7 +306,7 @@ export async function GET(request: NextRequest) {
     } catch (error) {
       console.error(JSON.stringify({ event: "calendar_unavailable", request_id: requestId, code: calendarReadError(error) }));
       // Never fall back to fictional bookings when an operational source is configured.
-      return NextResponse.json({ detail: "訂房表快照暫時無法讀取，請稍後重試。", request_id: requestId }, { status: 503, headers });
+      return NextResponse.json({ detail: "訂房日曆資料暫時無法讀取，請稍後重試。", request_id: requestId }, { status: 503, headers });
     } finally {
       await recordCalendarHealth(events, requestId, startedAt);
     }

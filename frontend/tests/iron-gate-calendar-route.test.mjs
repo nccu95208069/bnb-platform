@@ -37,6 +37,7 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
     propertyIds: ['sweetfun'], credential: { schema: 1, kind: 'password',
       revision: 'd'.repeat(64), salt: 'e'.repeat(32), hash: 'f'.repeat(128) } };
   let inventoryMatches = true;
+  let snapshotMatches = true;
   let sheetCalls = 0;
   let igCalls = 0;
   t.mock.method(console, 'error', () => {});
@@ -56,6 +57,7 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
     assert.equal(options.headers.authorization, `Bearer ${grant.token}`);
     assert.ok(options.headers['x-iron-gate-os-proof']);
     igCalls++;
+    const preview = process.env.IRON_GATE_SWEETFUN_CALENDAR_PREVIEW_ENABLED === 'true';
     if (target.includes('/availability?')) {
       const cells = Object.entries(roomIds).map(([room, roomId]) => ({
         roomId, date: '2026-10-25',
@@ -63,10 +65,13 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
         saleReady: false,
       }));
       return Response.json({ propertyId, inventoryVersion: 7,
-        authorityEpoch: 1, cells });
+        authorityEpoch: preview ? 0 : 1, cells });
     }
     return Response.json({ propertyId, inventoryVersion: 7,
-      authorityEpoch: 1, readOnly: false, nextCursor: null,
+      authorityEpoch: preview ? 0 : 1, readOnly: preview,
+      snapshot: preview ? { capturedAt: '2026-10-21T09:52:08.770Z',
+        sourceHash: snapshotMatches ? 'f'.repeat(64) : 'e'.repeat(64) } : null,
+      nextCursor: null,
       bookings: [{ id: '66666666-6666-4666-8666-666666666666',
         workspaceId, propertyId, status: 'confirmed', guestName: 'Sample Guest',
         stays: [{ checkIn: '2026-10-25', checkOut: '2026-10-26',
@@ -90,5 +95,26 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
   const failed = await GET(request);
   assert.equal(failed.status, 503);
   assert.equal((await failed.json()).bookings, undefined);
+  assert.equal(sheetCalls, 0);
+
+  inventoryMatches = true;
+  delete process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED;
+  Object.assign(process.env, {
+    IRON_GATE_SWEETFUN_CALENDAR_PREVIEW_ENABLED: 'true',
+    IRON_GATE_SWEETFUN_SNAPSHOT_VERSION: '7',
+    IRON_GATE_SWEETFUN_SNAPSHOT_HASH: 'f'.repeat(64),
+  });
+  const previewResponse = await GET(request);
+  const preview = await previewResponse.json();
+  assert.equal(previewResponse.status, 200);
+  assert.equal(preview.data_mode, 'iron_gate_snapshot_preview');
+  assert.equal(preview.source.private_snapshot_at, '2026-10-21T09:52:08.770Z');
+  assert.equal(preview.source.automatic_sync, false);
+  assert.equal(preview.bookings[0].snapshot_only, true);
+  assert.equal(sheetCalls, 0);
+  snapshotMatches = false;
+  const drift = await GET(request);
+  assert.equal(drift.status, 503);
+  assert.equal((await drift.json()).bookings, undefined);
   assert.equal(sheetCalls, 0);
 });

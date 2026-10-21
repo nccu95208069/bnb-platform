@@ -553,9 +553,14 @@ export class IronGateService {
       btoa(JSON.stringify({ v: 1, propertyId, status: options.status, from: options.from,
         to: options.to, createdAt: last.createdAt, id: last.id }))
         .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") : null;
+    const snapshot = state.readOnly === true && state.authorityEpoch === 0 &&
+      state.sweetfunImport && typeof state.sweetfunImport.capturedAt === "string" &&
+      typeof state.sweetfunImport.sourceHash === "string"
+      ? { capturedAt: state.sweetfunImport.capturedAt,
+        sourceHash: state.sweetfunImport.sourceHash } : null;
     return { propertyId, inventoryVersion: state.version,
       authorityEpoch: state.authorityEpoch, readOnly: state.readOnly === true,
-      bookings: page.map((booking) => publicBooking(booking, principal)), nextCursor };
+      snapshot, bookings: page.map((booking) => publicBooking(booking, principal)), nextCursor };
   }
 
   async listEvents(principal: Principal, propertyId: string, after: number,

@@ -764,6 +764,7 @@ test("booking list uses scoped seek pagination and hides money without its grant
   assert.equal(first.inventoryVersion, 3);
   assert.equal(first.authorityEpoch, 7);
   assert.equal(first.readOnly, false);
+  assert.equal(first.snapshot, null);
   assert.equal("totalCents" in first.bookings[0], false);
   assert.ok(first.nextCursor);
   const second = await service.listBookings(reader, propertyId,
@@ -775,6 +776,24 @@ test("booking list uses scoped seek pagination and hides money without its grant
   assert.equal(second.nextCursor, null);
   await assert.rejects(service.listBookings(reader, otherPropertyId,
     { limit: 1, cursor: first.nextCursor, status: null, from: null, to: null }), errorCode("INVALID_CURSOR"));
+});
+
+test("read-only Sweetfun list exposes only a pinned snapshot identity to OS readers", async () => {
+  const repository = new MemoryPropertyRepository();
+  repository.seed({ workspaceId, propertyId, roomIds: [roomId], version: 7,
+    authorityEpoch: 0, readOnly: true,
+    sweetfunImport: { capturedAt: "2026-10-21T09:52:08.770Z",
+      sourceHash: "f".repeat(64), privateRows: [{ guestName: "Do not expose" }] },
+    channel: { mode: "none", ready: false, websiteSalesEnabled: false,
+      grantId: null, websiteBindingId: null },
+    sourceGrants: [], bookings: [], sourceLinks: [], operations: [], fences: [],
+    manualBlocks: [], receipts: [] });
+  const result = await new IronGateService(repository).listBookings(
+    principal("os", { authorityEpoch: 0, actions: ["booking:read"], fields: [] }),
+    propertyId, { limit: 10, cursor: null, status: null, from: null, to: null });
+  assert.deepEqual(result.snapshot, { capturedAt: "2026-10-21T09:52:08.770Z",
+    sourceHash: "f".repeat(64) });
+  assert.equal(JSON.stringify(result).includes("Do not expose"), false);
 });
 
 test("outbox events are ordered, PII-free, replayable, and not duplicated by retries", async () => {

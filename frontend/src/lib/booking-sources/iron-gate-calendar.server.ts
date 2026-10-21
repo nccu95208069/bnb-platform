@@ -13,16 +13,21 @@ type ReadGrant = {
 export type IronGateCalendarConfig = {
   baseUrl: string;
   proofSecret: string;
+  mode: 'authority' | 'snapshot_preview';
   expectedAuthorityEpoch: number;
+  expectedInventoryVersion: number | null;
+  expectedSnapshotHash: string | null;
   grant: ReadGrant;
   roomIds: Record<string, string>;
 };
 
 type Page = { propertyId: string; inventoryVersion: number; authorityEpoch: number;
-  readOnly: boolean; bookings: unknown[]; nextCursor: string | null };
+  readOnly: boolean; snapshot: { capturedAt: string; sourceHash: string } | null;
+  bookings: unknown[]; nextCursor: string | null };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
+const SHA256 = /^[0-9a-f]{64}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ROOMS = ['101', '102', '201', '202', '301', '302'];
 const DAY_MS = 86_400_000;
@@ -51,14 +56,26 @@ function baseUrl(value: string): string {
   return url.origin;
 }
 
-/** This flag is separate from the existing Sheet reader and starts closed. */
+function snapshotTimestamp(value: unknown): value is string {
+  return typeof value === 'string' &&
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(value) &&
+    !Number.isNaN(Date.parse(value)) && new Date(value).toISOString() === value;
+}
+
+/** The authority and fixed-snapshot preview switches both start closed. */
 export function ironGateCalendarConfig(env: NodeJS.ProcessEnv = process.env): IronGateCalendarConfig {
   try {
-    if (env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED !== 'true') throw Error();
+    const authority = env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED === 'true';
+    const preview = env.IRON_GATE_SWEETFUN_CALENDAR_PREVIEW_ENABLED === 'true';
+    if (authority === preview) throw Error();
     const grant = JSON.parse(env.IRON_GATE_SWEETFUN_CALENDAR_GRANT ?? 'null') as unknown;
     const roomIds = JSON.parse(env.IRON_GATE_SWEETFUN_ROOM_IDS ?? 'null') as unknown;
     const proofSecret = env.IRON_GATE_SWEETFUN_OS_PROOF_SECRET ?? '';
-    const expectedAuthorityEpoch = Number(env.IRON_GATE_SWEETFUN_AUTHORITY_EPOCH);
+    const expectedAuthorityEpoch = authority ? Number(env.IRON_GATE_SWEETFUN_AUTHORITY_EPOCH) : 0;
+    const expectedInventoryVersion = preview ?
+      Number(env.IRON_GATE_SWEETFUN_SNAPSHOT_VERSION) : null;
+    const expectedSnapshotHash = preview ?
+      env.IRON_GATE_SWEETFUN_SNAPSHOT_HASH ?? null : null;
     if (!object(grant) || Object.keys(grant).sort().join(',') !==
         'clientId,credentialId,propertyId,token,workspaceId' ||
       Object.values(grant).some(value => typeof value !== 'string') ||
@@ -70,10 +87,15 @@ export function ironGateCalendarConfig(env: NodeJS.ProcessEnv = process.env): Ir
       ROOMS.some(room => !UUID.test(String(roomIds[room]))) ||
       new Set(Object.values(roomIds)).size !== ROOMS.length ||
       Buffer.byteLength(proofSecret, 'utf8') < 32 ||
-      !Number.isSafeInteger(expectedAuthorityEpoch) || expectedAuthorityEpoch < 1)
+      !Number.isSafeInteger(expectedAuthorityEpoch) ||
+      authority && expectedAuthorityEpoch < 1 ||
+      preview && (!Number.isSafeInteger(expectedInventoryVersion) ||
+        expectedInventoryVersion === null || expectedInventoryVersion < 1 ||
+        !expectedSnapshotHash || !SHA256.test(expectedSnapshotHash)))
       throw Error();
     return { baseUrl: baseUrl(env.IRON_GATE_SWEETFUN_BASE_URL ?? ''),
-      proofSecret, expectedAuthorityEpoch,
+      proofSecret, mode: preview ? 'snapshot_preview' : 'authority',
+      expectedAuthorityEpoch, expectedInventoryVersion, expectedSnapshotHash,
       grant: grant as ReadGrant, roomIds: roomIds as Record<string, string> };
   } catch { throw Error('IRON_GATE_CALENDAR_CONFIG_INVALID'); }
 }
@@ -130,14 +152,20 @@ async function getJson(url: string, config: IronGateCalendarConfig, principal: P
 function validPage(value: unknown, config: IronGateCalendarConfig): value is Page {
   return object(value) && value.propertyId === config.grant.propertyId &&
     Number.isSafeInteger(value.inventoryVersion) && Number(value.inventoryVersion) >= 0 &&
-    value.authorityEpoch === config.expectedAuthorityEpoch && value.readOnly === false &&
+    value.authorityEpoch === config.expectedAuthorityEpoch &&
+    value.readOnly === (config.mode === 'snapshot_preview') &&
+    (config.mode === 'authority' ||
+      value.inventoryVersion === config.expectedInventoryVersion &&
+      object(value.snapshot) && snapshotTimestamp(value.snapshot.capturedAt) &&
+      value.snapshot.sourceHash === config.expectedSnapshotHash) &&
     Array.isArray(value.bookings) && value.bookings.length <= 100 &&
     (value.nextCursor === null || typeof value.nextCursor === 'string' &&
       /^[A-Za-z0-9_-]{1,512}$/.test(value.nextCursor));
 }
 
 function calendarBooking(booking: Record<string, unknown>,
-  roomNumber: string, stayIndex: number, checkIn: string, checkOut: string): CalendarBooking {
+  roomNumber: string, stayIndex: number, checkIn: string, checkOut: string,
+  snapshotOnly: boolean): CalendarBooking {
   const id = `ig-${booking.id}-${stayIndex}-${roomNumber}`;
   const name = typeof booking.guestName === 'string' && booking.guestName.trim()
     ? booking.guestName.trim() : '姓名待核';
@@ -149,12 +177,14 @@ function calendarBooking(booking: Record<string, unknown>,
     room_rate: 0, payment_status: 'unknown', reservation_status: 'confirmed',
     notes: null, payments: [], audit_log: [], extra_guest_count: 0,
     extra_bed_count: 0, pet_count: 0, baby_supplies: [], service_note: null,
-    source_read_only: true, requirements_known: false, payment_unconfirmed: true,
+    source_read_only: true, snapshot_only: snapshotOnly,
+    requirements_known: false, payment_unconfirmed: true,
     source_payment_label: '財務仍以原帳本為準，未遷入此訂房檢視',
     price_hidden: true };
 }
 
-function blockedBooking(roomNumber: string, night: string): CalendarBooking {
+function blockedBooking(roomNumber: string, night: string,
+  snapshotOnly: boolean): CalendarBooking {
   const id = `ig-block-${roomNumber}-${night}`;
   return { id, sheet_row_id: id, order_id: id, external_order_no: null,
     property_id: 'sweetfun', property_name: '水芳 Sweetfun',
@@ -164,7 +194,8 @@ function blockedBooking(roomNumber: string, night: string): CalendarBooking {
     room_rate: 0, payment_status: 'unknown', reservation_status: 'confirmed',
     notes: null, payments: [], audit_log: [], extra_guest_count: 0,
     extra_bed_count: 0, pet_count: 0, baby_supplies: [], service_note: null,
-    source_read_only: true, source_conflict: true, requirements_known: false,
+    source_read_only: true, snapshot_only: snapshotOnly,
+    source_conflict: true, requirements_known: false,
     payment_unconfirmed: true, price_hidden: true };
 }
 
@@ -173,7 +204,8 @@ export async function readSweetfunIronGateCalendar(start: string, end: string,
   principal: Principal, config: IronGateCalendarConfig,
   send: typeof fetch = fetch): Promise<{ bookings: CalendarBooking[];
     inventoryVersion: number; authorityEpoch: number; soldRoomNights: number;
-    blockedRoomNights: number;
+    blockedRoomNights: number; mode: IronGateCalendarConfig['mode'];
+    snapshotCapturedAt: string | null;
     observedAt: string }> {
   const first = day(start), last = day(end);
   if (last <= first || last - first > 1500) throw Error('IRON_GATE_CALENDAR_INVALID_DATE');
@@ -192,6 +224,7 @@ export async function readSweetfunIronGateCalendar(start: string, end: string,
   };
   let cursor: string | null = null;
   let version: number | null = null;
+  let snapshotCapturedAt: string | null = null;
   const seenCursors = new Set<string>();
   const seenBookings = new Set<string>();
   const bookings: CalendarBooking[] = [];
@@ -202,6 +235,11 @@ export async function readSweetfunIronGateCalendar(start: string, end: string,
     if (!validPage(raw, config) || version !== null && raw.inventoryVersion !== version)
       throw Error('IRON_GATE_CALENDAR_VERSION_DRIFT');
     version = raw.inventoryVersion;
+    if (config.mode === 'snapshot_preview') {
+      if (snapshotCapturedAt !== null && raw.snapshot!.capturedAt !== snapshotCapturedAt)
+        throw Error('IRON_GATE_CALENDAR_VERSION_DRIFT');
+      snapshotCapturedAt = raw.snapshot!.capturedAt;
+    }
     for (const item of raw.bookings) {
       if (!object(item) || !UUID.test(String(item.id)) ||
         item.propertyId !== config.grant.propertyId ||
@@ -225,7 +263,8 @@ export async function readSweetfunIronGateCalendar(start: string, end: string,
           if (!roomNumber) throw Error('IRON_GATE_CALENDAR_INVALID_BOOKING');
           if (to >= first && from < last)
             bookings.push(calendarBooking(item, roomNumber,
-              stayIndex, rawStay.checkIn, rawStay.checkOut));
+              stayIndex, rawStay.checkIn, rawStay.checkOut,
+              config.mode === 'snapshot_preview'));
           for (let n = Math.max(from, first); n < Math.min(to, last); n++) {
             const key = `${roomId}:${date(n)}`;
             if (sold.has(key)) throw Error('IRON_GATE_CALENDAR_COLLISION');
@@ -274,10 +313,12 @@ export async function readSweetfunIronGateCalendar(start: string, end: string,
     throw Error('IRON_GATE_CALENDAR_VERSION_DRIFT');
   for (const [key, state] of observed) if (state === 'blocked') {
     const [roomId, night] = key.split(':');
-    bookings.push(blockedBooking(roomById.get(roomId)!, night));
+    bookings.push(blockedBooking(roomById.get(roomId)!, night,
+      config.mode === 'snapshot_preview'));
   }
   return { bookings, inventoryVersion: version,
     authorityEpoch: config.expectedAuthorityEpoch,
+    mode: config.mode, snapshotCapturedAt,
     soldRoomNights: sold.size,
     blockedRoomNights: [...observed.values()].filter(state => state === 'blocked').length,
     observedAt: new Date().toISOString() };

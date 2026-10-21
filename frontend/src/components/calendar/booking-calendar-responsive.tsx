@@ -866,6 +866,14 @@ const uiLocale = useIntlLocale();
           {uiText("示範模式：可測試權限、付款、改期與取消；變更只保存在這台裝置。")}</div>
       )}
 
+      {data?.data_mode === "iron_gate_snapshot_preview" && (
+        <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          {uiText("Iron Gate 固定快照預覽 · 不接單、不自動追單。這不是目前可售房況。")}
+          {data.source?.private_snapshot_at && <> {uiText("資料擷取時間：")}
+            {new Date(data.source.private_snapshot_at).toLocaleString(uiLocale, { timeZone: "Asia/Taipei" })}。</>}
+        </div>
+      )}
+
       {data?.guest_access?.available && <CalendarPrivacy authenticated={data.guest_access.authenticated} />}
 
       {query.trim() && <section className="m-2 rounded-xl border bg-card p-3 md:m-0" aria-label={uiText("搜尋結果")}>

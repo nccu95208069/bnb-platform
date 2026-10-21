@@ -29,6 +29,7 @@ export function GuestNotificationButton({booking,detail=false}:{booking:Calendar
  const preview=useAccessControl(s=>s.previewRole),property=booking.property_id,key=`${property}:${booking.order_id}`,state=data[property]?.states[booking.order_id];
  const editable=!booking.snapshot_only&&data[property]?.can_write&&!['viewer','viewer_no_price'].includes(preview??'');
  const error=errors[property]||errors[key],loading=!data[property],saving=busy[key];
+ if(booking.snapshot_only)return null;
  return <span className={detail?'block rounded-lg border p-3':'ml-auto flex shrink-0 flex-col items-end gap-1'} onClick={e=>e.stopPropagation()}>
   <button type="button" aria-pressed={Boolean(state?.notified)} disabled={saving||(!error&&(loading||!editable||booking.reservation_status==='cancelled'))} onClick={()=>error?void refresh(property):void toggle(booking)} title={t(state?.notified?'撤回已通知標記':'僅標記已通知，不會發送訊息')} className="min-h-10 rounded-md border border-current/20 bg-white/70 px-2 text-xs font-medium text-slate-800 disabled:opacity-60">
    {t(error?'重新整理':saving?'儲存中…':loading?'讀取中…':state?.notified?'✅ 已通知':'尚未通知')}
