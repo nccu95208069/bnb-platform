@@ -157,7 +157,9 @@ Supabase 備份頁的瀏覽器檢查因需要透過 ChatGPT 登入而被自動�
 
 同一批原始財務證據再從正式受限表唯讀取回，以固定影子版本 4 的 1,759 個接受 J 與 4 個隔離 J 建立兩套來源 ID 的逐筆映射；影子狀態在分段讀取前後皆為版本 4、1,607 張訂單、1,759 房晚，所有訂單付款事件均為 0。受限本機規劃器讀回：**82 個訂單層級來源連結**各對唯一新 UUID，其中 OS 手動收入分攤 71、OS 收據 10、LINE entry 1；**2 筆未附訂單的 OS 支出**保留館別層級主張；未解決連結 0。合成測試確認來源指到隔離列或固定來源版本不符時會阻擋，不能把隔離資料當成可接單紀錄。這是原帳本主張到新訂單 ID 的受限對照，沒有把任何主張升格為已對帳現金、沒有建立 Iron Gate `paymentEvents`，也沒有改接任何 writer。私有本機資料在測試後清除。
 
-2026-10-21 下午另在獨立 Gmail／LINE 來源工作樹加入**尚未推送或部署**的水芳 Gmail 寫入見證候選：新單、改單、取消在主表寫入前先建立 Firestore `prepared`，寫後讀回 L／J／A:S 指紋、筆數與預期 J，結果不明即交人工且不自動重播；OFFLAND 不受影響。Iron Gate 本地另有 `sweetfun-writer-evidence.mjs`，用獨立的 Python／Node 指紋測試向量核對 Gmail 見證，以及 LINE V2 既有 `succeeded` journal 的原／新列和兩份固定來源副本。Gmail 完整離線測試 **5,822 通過、11 項需憑證或人工環境而跳過**；Iron Gate 測試 **100 通過、7 跳過**。這些都是**候選程式與合成證據**；正式 Gmail revision、LINE journal 水位及 OS writer 均未改接，沒有新的正式 Firestore 見證，仍不能稱為實際平行觀察或切換完成。
+2026-10-21 下午另在獨立 Gmail／LINE 來源工作樹加入水芳 Gmail 寫入見證候選：新單、改單、取消在主表寫入前先建立 Firestore `prepared`，寫後讀回 L／J／A:S 指紋、筆數與預期 J，結果不明即交人工且不自動重播；OFFLAND 不受影響。這份預設關閉的候選已推送到**私有** Gmail 來源倉庫的專用分支，**尚未部署或啟用**；草稿 PR 的建立被自動審核拒絕，理由是該次外部發布尚無特定授權，未改用其他管道重試。Iron Gate 本地另有 `sweetfun-writer-evidence.mjs`，用獨立的 Python／Node 指紋測試向量核對 Gmail 見證，以及 LINE V2 既有 `succeeded` journal 的原／新列和兩份固定來源副本。Gmail 完整離線測試 **5,824 通過、11 項需憑證或人工環境而跳過**；Iron Gate 當時測試 **100 通過、7 跳過**。這些都是**候選程式與合成證據**；正式 Gmail revision、LINE journal 水位及 OS writer 均未改接，沒有新的正式 Firestore 見證，仍不能稱為實際平行觀察或切換完成。
+
+另核對正式 OS 收款／財務路徑：`finance-store` 的 `writeFinance` 使用版本 CAS 和 append-only `operations[].event`，日曆收款的 `appendReceipt` 同時保存收據與任務，需待 `finishSheetSync` 對主表回讀後才標示完成。新增只讀差異核對器 `sweetfun-os-writer-delta.mjs`，逐次驗證財務版本、前綴操作鏈、目標快照及不相關資料未變；收據另驗核 audit／mission，主表同步驗證只改動原待核收據並有完成任務。它可拒絕跳版、偽造 audit、額外變更與錯誤收據任務；目前只有合成測試，尚未取得兩個正式 OS 寫入時點的夾擊快照，也未形成持久跨系統回執，不能當作切換水位。
 
 ## 下一步可直接執行的工程工作
 

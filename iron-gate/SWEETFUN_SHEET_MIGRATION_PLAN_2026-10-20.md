@@ -114,4 +114,4 @@ Firestore 每日七天受管排程的首份備份已讀回 `READY`，向新命�
 
 12:02 台北時間正式 Sheet 又有 Gmail 服務修訂；唯讀核對只有 215 列位置變動，J 集合、A:S 值／註記及兩個財務投影均未變。影子的業務房晚對這次讀值仍一致，但嚴格來源列號版本與最終 writer 水位尚未追上。
 
-當日下午，正式專用 Supabase 已受限保存四類財務來源原文並回讀，82 筆訂單層級主張及 2 筆館別支出主張已對到固定版本 4 的影子 UUID，未解決連結 0；這些主張未轉成付款事件，外部結算未驗證。另完成 Gmail 主表寫入見證及 LINE `succeeded` journal 的**本地候選**核對器和合成測試。Gmail 候選尚未推送、部署或正式啟用，OS／LINE／Gmail 的共同事件水位和舊 writer 封寫尚未建立；因此 `canCutover=false`，Iron Gate Production 仍不接管真實訂單。
+當日下午，正式專用 Supabase 已受限保存四類財務來源原文並回讀，82 筆訂單層級主張及 2 筆館別支出主張已對到固定版本 4 的影子 UUID，未解決連結 0；這些主張未轉成付款事件，外部結算未驗證。另完成 Gmail 主表寫入見證、LINE `succeeded` journal 核對器，以及正式 OS 財務操作／收據／主表同步的只讀差異核對器與合成測試。Gmail 預設關閉的候選已推送私有來源倉庫分支，但草稿 PR 被自動審核擋下；候選尚未部署或正式啟用。OS／LINE／Gmail 的共同事件水位和舊 writer 封寫尚未建立；因此 `canCutover=false`，Iron Gate Production 仍不接管真實訂單。
