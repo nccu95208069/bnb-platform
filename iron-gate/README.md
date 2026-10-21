@@ -5,6 +5,7 @@ Iron Gate 是獨立的訂單與房晚權威服務。此目錄目前提供可執�
 Sean 自用 OS、民宿客戶 OS 工作區與 Iron Gate 的目前／目標資料責任，見 [2026-10-20 業主對齊紀錄](../docs/work-handoff/SEAN_SAAS_IRON_GATE_DATA_BOUNDARY_2026-10-20.md)。
 水芳主表、Gmail check order、Sweetfun OS、LINE 官方帳號及訂單財務的逐階段遷移與切換檢查，見 [Sweetfun Sheet → Iron Gate 遷移計畫](SWEETFUN_SHEET_MIGRATION_PLAN_2026-10-20.md)；唯讀統計和目前工作分別見[來源盤點](SWEETFUN_MIGRATION_SOURCE_INVENTORY_2026-10-20.md)及[執行紀錄](SWEETFUN_MIGRATION_EXECUTION_2026-10-20.md)。
 水芳 OS 日曆的預設關閉讀取候選及其限制見[日曆切換紀錄](OS_CALENDAR_HANDOFF_2026-10-21.md)。
+業主於 2026-10-21 決定先完成日曆格式、舊表轉換與逐筆核對，再補 Gmail 持續更新，最後才接 LINE／OwlNest；目前執行順序見[水芳日曆先行計畫](SWEETFUN_CALENDAR_FIRST_PLAN_2026-10-21.md)。
 
 `src/channel-runner.mjs` 以注入的通路 adapter 逐房晚操作，並要求操作後重新讀回。`src/owlnest-web-readback.mjs` 的登入後日曆 GET 已用真實帳號唯讀驗證；`src/owlnest-stock-command.mjs` 與 `src/owlnest-web-provider.mjs` 依 OwlNest 網頁目前的表單請求建立**尚未接入正式流程**的寫入候選。真實 stock PUT、短暫關房與復原仍需在業主指定的安全房晚受控核對；目前沒有發送任何 OwlNest PUT。詳見 [OwlNest 接線調查](OWLNEST_API_STATUS.md)。
 
