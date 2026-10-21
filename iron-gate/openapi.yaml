@@ -196,6 +196,15 @@ components:
         createdAt: { type: string, format: date-time }
         source: { type: string, enum: [os, line, website, external] }
         guestName: { type: [string, 'null'] }
+        sourceCalendar:
+          type: object
+          description: Unambiguous historical Sweetfun calendar labels, available only to OS readers with the guest_name field grant; raw source rows and IDs are never returned.
+          additionalProperties: false
+          required: [platform, externalOrderNo, bookedAt]
+          properties:
+            platform: { type: [string, 'null'] }
+            externalOrderNo: { type: [string, 'null'] }
+            bookedAt: { type: [string, 'null'], format: date }
         contact: { type: [string, 'null'] }
         notes: { type: [string, 'null'] }
         totalCents: { type: [integer, 'null'] }
