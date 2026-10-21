@@ -36,3 +36,5 @@
 目前有固定 503 的 Production 空殼與受 Vercel Authentication 保護的 Preview；Supabase 專用私有 schema 已存入真實來源的**唯讀影子**，但尚未作為訂單權威、尚未啟用真實接單或財務付款事件。
 
 2026-10-21 候選程式加入與 Preview 完全分離的 Production 閘門：`IRON_GATE_PRODUCTION_ENABLED=true` 才讀取獨立的 `IRON_GATE_PRODUCTION_DATABASE_URL` 和 `IRON_GATE_PRODUCTION_OS_PROOF_SECRET`；目前正式環境**沒有**啟用這些設定，公開入口仍須維持 503。這是程式準備，不等於正式部署或切換。另已把訂單列表回覆加上 inventory version、authority epoch 和唯讀狀態，讓 OS 日曆能在逐頁及逐房晚讀取時拒絕版本漂移。現存水芳來源影子已更新至版本 5、1,606 張唯讀訂單／1,758 個占房房晚、epoch 0；正式來源 grant／link 仍為 0。啟用前還須完成[OS 日曆切換候選](OS_CALENDAR_HANDOFF_2026-10-21.md)、Gmail writer、舊入口停寫與最終來源核對。
+
+17:29 台北時間從乾淨的草稿 PR #37 分支部署受保護 Preview `dpl_9DuEEdiibqQs1XufZtHQUPX44neS`，控制面讀回 target `preview`／Ready，Node API 建置成功。未登入訪客收到預覽登入導向 302；使用 Vercel 登入繞過預覽保護後，無 Iron Gate 憑證的訂單 GET 回 401、`private, no-store`。公開 Production 別名再讀仍為 503。未傳送有憑證的寫入、沒有改動正式來源、資料庫 grant 或 Production 設定。
