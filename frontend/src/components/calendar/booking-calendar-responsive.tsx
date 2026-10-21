@@ -86,6 +86,7 @@ const LIVE_SHEET = process.env.NEXT_PUBLIC_CALENDAR_SOURCE === "sheet_snapshot";
 const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 const EDIT_STORAGE_KEY = "sweetfun-os-demo-edits-v4";
 const MONTHS = monthStarts("2025-01-01", 36);
+const FIXED_PREVIEW = process.env.NEXT_PUBLIC_IRON_GATE_FIXED_PREVIEW === "true";
 
 type OrderPatch = {
   guest_name?: string;
@@ -117,7 +118,7 @@ type DemoEditState = {
 const EMPTY_EDITS: DemoEditState = { orders: {}, segments: {} };
 
 async function readCalendar(start: string, end: string): Promise<CalendarResponse> {
-  if (process.env.NEXT_PUBLIC_IRON_GATE_FIXED_PREVIEW === "true") {
+  if (FIXED_PREVIEW) {
     const response = await fetch(`/api/v1/bookings/calendar?start=${start}&end=${end}`,
       { cache: "no-store" });
     if (!response.ok) throw Error("無法讀取固定快照，請稍後重試。");
@@ -245,10 +246,12 @@ const uiLocale = useIntlLocale();
   const handledNavigationRequest = useRef(navigationRequest?.id ?? 0);
 
   const requestPeriod = useMemo(
-    () => fetchPeriod(anchorDate, query.trim() ? "month" : view,
-      process.env.NEXT_PUBLIC_IRON_GATE_FIXED_PREVIEW === "true"),
+    () => fetchPeriod(anchorDate, query.trim() ? "month" : view, FIXED_PREVIEW),
     [anchorDate, view, query],
   );
+  const previewMonth = startOfMonth(anchorDate);
+  const monthsToShow = useMemo(() => FIXED_PREVIEW ? [previewMonth] : MONTHS,
+    [previewMonth]);
   const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess(); }, [setSelectedId, initializeAccess]);
   const { data, loading, refreshing, error, requestFailed, lastLoadedAt } = useCalendarData({
     start: requestPeriod.start, end: requestPeriod.end, scope: accessScope, reload: reloadKey,
@@ -924,7 +927,7 @@ const uiLocale = useIntlLocale();
           {view === "month" && (
             <div className="calendar-month-mobile-viewport -mx-2 md:mx-0">
               <MonthScroller
-                months={MONTHS}
+                months={monthsToShow}
                 targetMonth={monthTarget}
                 targetDate={anchorDate}
                 targetRevision={todayRequest + historyRevision}
