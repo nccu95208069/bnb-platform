@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { SWEETFUN_HEADERS } from "../src/sweetfun-sheet-audit.mjs";
 import { prepareSweetfunGroups } from "../src/sweetfun-sheet-candidate.mjs";
-import { prepareSweetfunShadow } from "../src/sweetfun-shadow.mjs";
+import { prepareSweetfunShadow, sweetfunRowHash } from "../src/sweetfun-shadow.mjs";
 import { prepareSweetfunSourceLinks } from "../src/sweetfun-source-links.mjs";
 
 const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -67,4 +67,33 @@ test("source identity preparation refuses changed groups or authority already op
     /UNSAFE_SWEETFUN_SOURCE_LINK_PREPARATION/);
   assert.throws(() => prepareSweetfunSourceLinks(shadow(), "sweetfun-calendar-sheet", "other-sheet"),
     /UNSAFE_SWEETFUN_SOURCE_LINK_PREPARATION/);
+});
+
+test("owner-confirmed retained cancellation keeps its booking and fences its old night", () => {
+  const current = shadow();
+  const cancelled = current.bookings.find((booking) =>
+    booking.sweetfunSnapshot.groupKey === "J:j2");
+  cancelled.status = "cancelled";
+  cancelled.version = 2;
+  const sourceRow = cancelled.sweetfunSnapshot.rows[0];
+  current.sweetfunImport.retainedCancellationDecisions = [{
+    sourceId: "j2", rowNumber: sourceRow.rowNumber,
+    rowHash: sweetfunRowHash(sourceRow), sourceHash: current.sweetfunImport.sourceHash,
+    outcome: "cancelled", evidenceType: "owner_attestation",
+    evidenceRef: "synthetic-owner-decision",
+  }];
+  const planned = prepareSweetfunSourceLinks(current,
+    "sweetfun-calendar-sheet", "synthetic-sheet");
+  assert.equal(planned.summary.activeLinks, 1);
+  assert.equal(planned.summary.cancelledLinks, 1);
+  const link = planned.state.sourceLinks.find((item) => item.externalOrderId === "J:j2");
+  assert.equal(link.bookingId, cancelled.id);
+  assert.equal(link.lastAppliedBookingVersion, 2);
+  assert.match(link.sourceVersion, /^sheet-cancel-v1:[0-9a-f]{64}$/);
+  assert.deepEqual(link.tombstoneNights,
+    [{ roomId: roomIds["102"], date: "2026-11-01" }]);
+  current.sweetfunImport.retainedCancellationDecisions[0].rowHash = "a".repeat(64);
+  assert.throws(() => prepareSweetfunSourceLinks(current,
+    "sweetfun-calendar-sheet", "synthetic-sheet"),
+  /SWEETFUN_RETAINED_CANCELLATION_LINK_CONFLICT/);
 });

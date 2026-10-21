@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { sweetfunRowHash } from "./sweetfun-shadow.mjs";
 
 const rooms = ["101", "102", "201", "202", "301", "302"];
 
@@ -57,20 +58,64 @@ export function prepareSweetfunSourceLinks(shadow, sourceSystem, sourceAccount) 
     throw Error("UNSAFE_SWEETFUN_SOURCE_LINK_PREPARATION");
 
   const links = new Map();
+  const retainedDecisions = new Map((shadow.sweetfunImport.retainedCancellationDecisions ?? [])
+    .map((decision) => [decision?.sourceId, decision]));
+  if (retainedDecisions.size !==
+    (shadow.sweetfunImport.retainedCancellationDecisions ?? []).length)
+    throw Error("SWEETFUN_RETAINED_CANCELLATION_LINK_CONFLICT");
+  const matchedRetained = new Set();
+  let activeLinks = 0;
+  let retainedCancelledLinks = 0;
   for (const booking of shadow.bookings) {
     const groupKey = booking?.sweetfunSnapshot?.groupKey;
     const rows = booking?.sweetfunSnapshot?.rows;
     const key = sourceKey(groupKey, sourceSystem, sourceAccount);
     groupKeyForRows(groupKey, rows);
     if (booking.sweetfunSnapshot.sourceHash !== shadow.sweetfunImport.sourceHash ||
-      booking.status !== "confirmed" || !Number.isSafeInteger(booking.version) ||
+      !["confirmed", "cancelled"].includes(booking.status) ||
+      !Number.isSafeInteger(booking.version) ||
       booking.version < 1 || links.has(key)) throw Error("SWEETFUN_SOURCE_LINK_CONFLICT");
+    if (booking.status === "cancelled") {
+      const row = rows[0];
+      const decision = retainedDecisions.get(row?.values?.[9]);
+      const roomIndex = rooms.indexOf(String(row?.values?.[0] ?? "").trim());
+      const checkIn = date(row?.values?.[3]), checkOut = date(row?.values?.[4]);
+      if (rows.length !== 1 || !decision ||
+        decision.outcome !== "cancelled" || decision.evidenceType !== "owner_attestation" ||
+        !identityPart(decision.evidenceRef, 256) ||
+        !/^[0-9a-f]{64}$/.test(decision.sourceHash ?? "") ||
+        !/^[0-9a-f]{64}$/.test(decision.rowHash ?? "") ||
+        decision.rowNumber < 2 || !Number.isSafeInteger(decision.rowNumber) ||
+        decision.rowHash !== sweetfunRowHash({ ...row, rowNumber: decision.rowNumber }) ||
+        roomIndex < 0 || checkOut.time - checkIn.time !== 86_400_000 ||
+        booking.stays.length !== 1 ||
+        booking.stays[0].checkIn !== checkIn.iso ||
+        booking.stays[0].checkOut !== checkOut.iso ||
+        booking.stays[0].roomIds.length !== 1 ||
+        booking.stays[0].roomIds[0] !== shadow.roomIds[roomIndex] ||
+        matchedRetained.has(decision.sourceId))
+        throw Error("SWEETFUN_RETAINED_CANCELLATION_LINK_CONFLICT");
+      matchedRetained.add(decision.sourceId);
+      retainedCancelledLinks++;
+      links.set(key, { key, sourceSystem, sourceAccount, externalOrderId: groupKey,
+        bookingId: booking.id,
+        sourceVersion: `sheet-cancel-v1:${hash({ sourceHash: shadow.sweetfunImport.sourceHash,
+          groupKey, rowHash: row.rowHash, decision })}`,
+        lastAppliedBookingVersion: booking.version, diverged: false,
+        tombstoneNights: [{ roomId: shadow.roomIds[roomIndex], date: checkIn.iso }] });
+      continue;
+    }
+    if (rows.some((row) => retainedDecisions.has(row.values[9])))
+      throw Error("SWEETFUN_RETAINED_CANCELLATION_LINK_CONFLICT");
+    activeLinks++;
     links.set(key, { key, sourceSystem, sourceAccount, externalOrderId: groupKey,
       bookingId: booking.id,
       sourceVersion: `sheet-v1:${hash({ sourceHash: shadow.sweetfunImport.sourceHash,
         groupKey, rows: rows.map((row) => row.rowHash) })}`,
       lastAppliedBookingVersion: booking.version, diverged: false, tombstoneNights: [] });
   }
+  if (matchedRetained.size !== retainedDecisions.size)
+    throw Error("SWEETFUN_RETAINED_CANCELLATION_LINK_CONFLICT");
 
   const cancelled = new Map();
   for (const item of shadow.sweetfunImport.cancellationTombstones ?? []) {
@@ -108,6 +153,6 @@ export function prepareSweetfunSourceLinks(shadow, sourceSystem, sourceAccount) 
   const next = structuredClone(shadow);
   next.sourceLinks = [...links.values()].sort((a, b) => a.key.localeCompare(b.key));
   return { state: next,
-    summary: { activeLinks: shadow.bookings.length, cancelledLinks: cancelled.size,
+    summary: { activeLinks, cancelledLinks: cancelled.size + retainedCancelledLinks,
       sourceHash: shadow.sweetfunImport.sourceHash, readOnly: true, canCutover: false } };
 }
