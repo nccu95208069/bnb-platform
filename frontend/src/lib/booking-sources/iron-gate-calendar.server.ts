@@ -225,7 +225,7 @@ export async function readSweetfunIronGateCalendar(start: string, end: string,
   if (!(principal.allProperties || principal.propertyIds.includes('sweetfun')))
     throw Error('IRON_GATE_CALENDAR_FORBIDDEN');
   const origin = baseUrl(config.baseUrl);
-  const queryFrom = date(first - 1);
+  const queryFrom = date(first);
   const path = `/v1/properties/${config.grant.propertyId}/bookings`;
   const makePageUrl = (cursor: string | null) => {
     const url = new URL(path, `${origin}/`);
@@ -274,7 +274,7 @@ export async function readSweetfunIronGateCalendar(start: string, end: string,
         for (const roomId of rawStay.roomIds) {
           const roomNumber = roomById.get(String(roomId));
           if (!roomNumber) throw Error('IRON_GATE_CALENDAR_INVALID_BOOKING');
-          if (to >= first && from < last)
+          if (to > first && from < last)
             bookings.push(calendarBooking(item, roomNumber,
               stayIndex, rawStay.checkIn, rawStay.checkOut,
               config.mode === 'snapshot_preview'));

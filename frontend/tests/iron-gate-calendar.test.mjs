@@ -109,6 +109,17 @@ test('calendar rejects inventory that omits a confirmed sold night', async () =>
   /IRON_GATE_CALENDAR_INVENTORY_DRIFT/);
 });
 
+test('a room that checked out at the range start is not shown or counted', async () => {
+  const c = config();
+  const data = fixture({ sold: false, blocked: false });
+  data.page.bookings[0].stays[0] = { checkIn: '2026-10-24',
+    checkOut: '2026-10-25', roomIds: [roomIds['101']] };
+  const result = await readSweetfunIronGateCalendar('2026-10-25', '2026-10-26',
+    principal, c, sender(data, c));
+  assert.equal(result.bookings.length, 0);
+  assert.equal(result.soldRoomNights, 0);
+});
+
 test('calendar rejects a version change before the final readback', async () => {
   const c = config();
   await assert.rejects(readSweetfunIronGateCalendar('2026-10-25', '2026-10-26',
