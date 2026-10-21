@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { auditSweetfunFinanceSources } from "../scripts/audit-sweetfun-finance-sources.mjs";
 import { legacySweetfunIds } from "../src/sweetfun-sheet-candidate.mjs";
+import { planSweetfunFinanceLinks } from "../src/sweetfun-finance-link.mjs";
 
 const fs = (value) => {
   if (Array.isArray(value)) return { arrayValue: { values: value.map(fs) } };
@@ -18,7 +19,7 @@ const key = (id) => `sweetfun-os:payments:v1:sweetfun:${createHash("sha256")
   .update(JSON.stringify(id)).digest("hex")}`;
 
 function fixture() {
-  const sourceId = "synthetic-sheet-source";
+  const sourceId = "sweetfun-operations-sheet-v1";
   const lineParent = "V2-synthetic-order";
   const firstOrder = legacySweetfunIds(sourceId, "synthetic-j1", "synthetic-l1").orderId;
   const lineOrder = legacySweetfunIds(sourceId, "synthetic-j2", lineParent).orderId;
@@ -72,6 +73,28 @@ function fixture() {
   return { osRaw, lineRaw, sheetMap, projection };
 }
 
+function shadowFixture(sheetMap, sourceHash) {
+  const sourceCopyCreatedAt = "2026-10-21T00:00:00.000Z";
+  const rawRow = (row) => {
+    const values = Array(19).fill(""), notes = Array(19).fill(null);
+    values[7] = row.markerH; values[9] = row.sourceJ;
+    values[11] = row.parentL; notes[7] = row.noteH;
+    return { values, notes };
+  };
+  const shadow = { propertyId: "11111111-1111-4111-8111-111111111111",
+    readOnly: true, authorityEpoch: 0,
+    channel: { ready: false, websiteSalesEnabled: false },
+    sweetfunImport: { sourceId: sheetMap.sheetSourceId, sourceHash,
+      capturedAt: sourceCopyCreatedAt, quarantined: [] },
+    bookings: sheetMap.rows.map((row, index) => ({
+      id: `${index + 1}`.repeat(8) + "-1111-4111-8111-111111111111",
+      paymentEvents: [], sweetfunSnapshot: { rows: [rawRow(row)] } })) };
+  const manifest = { propertyId: shadow.propertyId, sheetSourceHash: sourceHash,
+    sourceCopyCreatedAt,
+    normalizedSourceHash: null };
+  return { shadow, manifest };
+}
+
 test("live finance evidence counts source claims once and links two order aliases", () => {
   const { osRaw, lineRaw, sheetMap, projection } = fixture();
   const result = auditSweetfunFinanceSources(osRaw, lineRaw, sheetMap, projection);
@@ -107,4 +130,28 @@ test("live finance evidence rejects altered LINE projection and OS ledger identi
   changedOperation.collections.operations[0].fields.status.stringValue = "failed";
   assert.throws(() => auditSweetfunFinanceSources(data.osRaw, changedOperation,
     data.sheetMap, data.projection), /LINE_SOURCE_PROJECTION_MISMATCH/);
+});
+
+test("links each source claim to one shadow booking and keeps property expense separate", () => {
+  const data = fixture();
+  const rawSources = [data.osRaw, data.lineRaw, data.sheetMap, data.projection];
+  const sourceHash = "a".repeat(64);
+  const { shadow, manifest } = shadowFixture(data.sheetMap, sourceHash);
+  manifest.normalizedSourceHash = auditSweetfunFinanceSources(...rawSources).report.sourceHash;
+  const plan = planSweetfunFinanceLinks(rawSources, shadow, manifest);
+  assert.equal(plan.report.linkedClaims, 4);
+  assert.equal(plan.report.propertyClaims, 1);
+  assert.equal(plan.report.unresolvedClaims, 0);
+  assert.equal(plan.report.paymentEventsCreated, 0);
+  assert.equal(plan.report.canCutover, false);
+  assert.ok(plan.bindings.every((binding) => binding.externalSettlement === "unverified"));
+  const quarantined = structuredClone(shadow);
+  quarantined.sweetfunImport.quarantined.push({
+    rows: quarantined.bookings.pop().sweetfunSnapshot.rows });
+  const blocked = planSweetfunFinanceLinks(rawSources, quarantined, manifest);
+  assert.equal(blocked.report.unresolvedClaims, 2);
+  assert.ok(blocked.unresolved.every((item) => item.reason === "QUARANTINED_SOURCE_ROW"));
+  assert.throws(() => planSweetfunFinanceLinks(rawSources,
+    { ...shadow, sweetfunImport: { ...shadow.sweetfunImport, sourceHash: "b".repeat(64) } },
+    manifest), /FINANCE_LINK_SHADOW_MISMATCH/);
 });
