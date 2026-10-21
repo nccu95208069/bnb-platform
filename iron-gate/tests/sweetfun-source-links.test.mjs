@@ -45,6 +45,9 @@ test("final source identity keeps imported UUIDs and known cancellation tombston
   const imported = planned.state.sourceLinks.find((item) => item.externalOrderId === "L:platform-1");
   assert.equal(imported.bookingId, uid(100));
   assert.equal(imported.lastAppliedBookingVersion, 1);
+  assert.equal(imported.key, JSON.stringify(["sweetfun-calendar-sheet",
+    "synthetic-sheet", "L:platform-1"]));
+  assert.equal(imported.key.includes("\u0000"), false);
   assert.match(imported.sourceVersion, /^sheet-v1:[0-9a-f]{64}$/);
   const tombstone = planned.state.sourceLinks.find((item) =>
     item.externalOrderId === "L:platform-cancelled");

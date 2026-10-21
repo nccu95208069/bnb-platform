@@ -263,6 +263,8 @@ test("source lookup exposes only current link state to its scoped writer", async
   assert.equal(linked.sourceVersion, "v1");
   assert.equal(linked.bookingId, first.bookingId);
   assert.deepEqual(linked.stays, sourceInput().stays);
+  assert.equal((await repository.read(propertyId)).sourceLinks[0].key,
+    JSON.stringify(["ota", "synthetic-account", "external-1"]));
   assert.equal(JSON.stringify(linked).includes("External Guest"), false);
   await assert.rejects(service.sourceOrderLookup(principal("source", {
     sourceAccount: "other-account" }), lookup), errorCode("FORBIDDEN"));

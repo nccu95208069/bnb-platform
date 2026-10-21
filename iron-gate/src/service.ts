@@ -43,6 +43,12 @@ function timestamp(value: unknown): number {
   return time;
 }
 function keyOf(cell: Night): string { return `${cell.roomId}:${cell.date}`; }
+// JSONB rejects the NUL code point. JSON array encoding is unambiguous for
+// source components and can be stored in PostgreSQL without a delimiter byte.
+function sourceOrderKey(sourceSystem: string, sourceAccount: string,
+  externalOrderId: string): string {
+  return JSON.stringify([sourceSystem, sourceAccount, externalOrderId]);
+}
 function uniqueNights(cells: Night[]): Night[] {
   return [...new Map(cells.map((cell) => [keyOf(cell), cell])).values()];
 }
@@ -851,7 +857,7 @@ export class IronGateService {
     const state = await this.repository.read(input.propertyId);
     if (!state) reject("PROPERTY_NOT_FOUND", 404);
     authorize(principal, state, "source:write");
-    const key = [input.sourceSystem, input.sourceAccount, input.externalOrderId].join("\u0000");
+    const key = sourceOrderKey(input.sourceSystem, input.sourceAccount, input.externalOrderId);
     const link = state.sourceLinks.find((item) => item.key === key);
     const booking = link?.bookingId ? state.bookings.find((item) => item.id === link.bookingId) : null;
     if (link?.bookingId && !booking) reject("SOURCE_LINK_BROKEN", 409);
@@ -889,7 +895,7 @@ export class IronGateService {
       if (prior) return prior.response;
       if (state.version !== input.expectedInventoryVersion) reject("VERSION_CONFLICT", 409);
       const cells = nightsFor(input.stays, state.roomIds);
-      const sourceKey = [input.sourceSystem, input.sourceAccount, input.externalOrderId].join("\u0000");
+      const sourceKey = sourceOrderKey(input.sourceSystem, input.sourceAccount, input.externalOrderId);
       let link = state.sourceLinks.find((item) => item.key === sourceKey);
       const linkedBooking = link?.bookingId ? state.bookings.find((item) => item.id === link!.bookingId) : null;
       const review = (reason: string, affected: Night[]): Record<string, unknown> => {

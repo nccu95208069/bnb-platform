@@ -15,7 +15,7 @@ function sourceKey(groupKey, sourceSystem, sourceAccount) {
   if (typeof groupKey !== "string" || groupKey.length > 256 ||
     !/^(?:L|J):\S+$/u.test(groupKey) || /[\u0000-\u001f\u007f]/u.test(groupKey))
     throw Error("SWEETFUN_SOURCE_GROUP_ID_INVALID");
-  return [sourceSystem, sourceAccount, groupKey].join("\u0000");
+  return JSON.stringify([sourceSystem, sourceAccount, groupKey]);
 }
 
 function groupKeyForRows(groupKey, rows) {
@@ -100,7 +100,7 @@ export function prepareSweetfunSourceLinks(shadow, sourceSystem, sourceAccount) 
       new Set(cells.map((cell) => `${cell.roomId}:${cell.date}`)).size !== cells.length)
       throw Error("SWEETFUN_TOMBSTONE_DUPLICATE");
     links.set(key, { key, sourceSystem, sourceAccount,
-      externalOrderId: key.slice(sourceSystem.length + sourceAccount.length + 2),
+      externalOrderId: JSON.parse(key)[2],
       bookingId: null, sourceVersion: `sheet-cancel-v1:${hash(sorted)}`,
       lastAppliedBookingVersion: 0, diverged: false, tombstoneNights: cells });
   }

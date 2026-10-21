@@ -16,14 +16,14 @@ function occupiedRows(state) {
     .map((cell) => ({ room_id: cell.roomId, night: cell.date, booking_id: booking.id })));
 }
 
-function privateJson(path) {
+export function privateJson(path) {
   const stat = lstatSync(path);
   if (!stat.isFile() || (stat.mode & 0o077) || stat.size > 4_000_000)
     throw Error("UNSAFE_PRIVATE_INPUT");
   return JSON.parse(readFileSync(path, "utf8"));
 }
 
-function databaseUrl(credentials) {
+export function databaseUrl(credentials) {
   if (!credentials || credentials.projectRef !== targetProjectRef ||
     credentials.login !== expectedLogin || typeof credentials.password !== "string" ||
     !/^[0-9a-f]{64}$/.test(credentials.password) ||
