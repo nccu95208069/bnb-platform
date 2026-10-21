@@ -35,16 +35,24 @@ export function databaseUrlForVercel(rawUrl) {
 export function createVercelFetch(env = process.env) {
   let ready;
   return async (request) => {
-    // A first deployment can be misclassified as Production. Only a Preview
-    // environment with an explicit flag may initialize the private database.
-    if (env.VERCEL_ENV !== "preview" || env.IRON_GATE_PREVIEW_ENABLED !== "true")
+    // Production and Preview each need their own explicit switch and secrets.
+    // A deployment, including an accidental Production deployment, starts closed.
+    const preview = env.VERCEL_ENV === "preview" &&
+      env.IRON_GATE_PREVIEW_ENABLED === "true";
+    const production = env.VERCEL_ENV === "production" &&
+      env.IRON_GATE_PRODUCTION_ENABLED === "true";
+    if (!preview && !production)
       return unavailable();
     try {
       ready ??= (async () => {
-        if (!env.IRON_GATE_DATABASE_URL || !env.IRON_GATE_OS_PROOF_SECRET)
+        const rawDatabaseUrl = production ? env.IRON_GATE_PRODUCTION_DATABASE_URL :
+          env.IRON_GATE_DATABASE_URL;
+        const proofSecret = production ? env.IRON_GATE_PRODUCTION_OS_PROOF_SECRET :
+          env.IRON_GATE_OS_PROOF_SECRET;
+        if (!rawDatabaseUrl || !proofSecret)
           throw Error("MISSING_CONFIGURATION");
-        const databaseUrl = databaseUrlForVercel(env.IRON_GATE_DATABASE_URL);
-        const verifyOsMember = createOsMemberProofVerifier(env.IRON_GATE_OS_PROOF_SECRET);
+        const databaseUrl = databaseUrlForVercel(rawDatabaseUrl);
+        const verifyOsMember = createOsMemberProofVerifier(proofSecret);
         const pool = new Pool({ connectionString: databaseUrl,
           max: 2, connectionTimeoutMillis: 5000, idleTimeoutMillis: 10000 });
         return createPostgresIronGateHandler(pool, verifyOsMember,

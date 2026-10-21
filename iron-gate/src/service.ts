@@ -553,7 +553,9 @@ export class IronGateService {
       btoa(JSON.stringify({ v: 1, propertyId, status: options.status, from: options.from,
         to: options.to, createdAt: last.createdAt, id: last.id }))
         .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") : null;
-    return { propertyId, bookings: page.map((booking) => publicBooking(booking, principal)), nextCursor };
+    return { propertyId, inventoryVersion: state.version,
+      authorityEpoch: state.authorityEpoch, readOnly: state.readOnly === true,
+      bookings: page.map((booking) => publicBooking(booking, principal)), nextCursor };
   }
 
   async listEvents(principal: Principal, propertyId: string, after: number,

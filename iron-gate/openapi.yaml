@@ -222,9 +222,12 @@ components:
     BookingPage:
       type: object
       additionalProperties: false
-      required: [propertyId, bookings, nextCursor]
+      required: [propertyId, inventoryVersion, authorityEpoch, readOnly, bookings, nextCursor]
       properties:
         propertyId: { type: string, format: uuid }
+        inventoryVersion: { type: integer, minimum: 0 }
+        authorityEpoch: { type: integer, minimum: 0 }
+        readOnly: { type: boolean }
         bookings:
           type: array
           items: { $ref: '#/components/schemas/BookingProjection' }

@@ -761,11 +761,16 @@ test("booking list uses scoped seek pagination and hides money without its grant
   const first = await service.listBookings(reader, propertyId,
     { limit: 1, cursor: null, status: null, from: null, to: null });
   assert.equal(first.bookings.length, 1);
+  assert.equal(first.inventoryVersion, 3);
+  assert.equal(first.authorityEpoch, 7);
+  assert.equal(first.readOnly, false);
   assert.equal("totalCents" in first.bookings[0], false);
   assert.ok(first.nextCursor);
   const second = await service.listBookings(reader, propertyId,
     { limit: 1, cursor: first.nextCursor, status: null, from: null, to: null });
   assert.equal(second.bookings.length, 1);
+  assert.equal(second.inventoryVersion, first.inventoryVersion);
+  assert.equal(second.authorityEpoch, first.authorityEpoch);
   assert.notEqual(second.bookings[0].id, first.bookings[0].id);
   assert.equal(second.nextCursor, null);
   await assert.rejects(service.listBookings(reader, otherPropertyId,

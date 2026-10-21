@@ -33,6 +33,27 @@ test("Production cannot read Preview credentials or initialize a pool", async ()
   assert.equal(secretReads, 0);
 });
 
+test("Production switch uses only separate Production settings", async () => {
+  let previewReads = 0;
+  let productionReads = 0;
+  const handle = createVercelFetch({
+    VERCEL_ENV: "production",
+    IRON_GATE_PREVIEW_ENABLED: "true",
+    IRON_GATE_PRODUCTION_ENABLED: "true",
+    get IRON_GATE_DATABASE_URL() { previewReads++; return "unused"; },
+    get IRON_GATE_OS_PROOF_SECRET() { previewReads++; return "unused"; },
+    get IRON_GATE_PRODUCTION_DATABASE_URL() {
+      productionReads++;
+      return "postgres://runtime@db.example/postgres?sslmode=require";
+    },
+    IRON_GATE_PRODUCTION_OS_PROOF_SECRET: "x".repeat(32),
+  });
+  const response = await handle(new Request("https://iron-gate.example/v1/properties"));
+  assert.equal(response.status, 503);
+  assert.equal(previewReads, 0);
+  assert.equal(productionReads, 1);
+});
+
 test("An unflagged deployment remains unavailable before reading credentials", async () => {
   let secretReads = 0;
   const handle = createVercelFetch({
