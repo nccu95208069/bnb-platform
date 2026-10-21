@@ -895,6 +895,7 @@ export class IronGateService {
       bookingId: booking?.id ?? null, bookingVersion: booking?.version ?? null,
       bookingStatus: booking?.status ?? null,
       stays: booking ? structuredClone(booking.stays) : [],
+      bookedAt: booking?.bookedAt ?? null,
       diverged: link?.diverged ?? false,
       tombstoned: Boolean(link?.tombstoneNights.length),
     };

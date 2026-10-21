@@ -255,7 +255,7 @@ test("source lookup exposes only current link state to its scoped writer", async
     externalOrderId: "external-1" };
   assert.deepEqual(await service.sourceOrderLookup(source, lookup), {
     propertyId, inventoryVersion: 1, readOnly: false, sourceVersion: null,
-    bookingId: null, bookingVersion: null, bookingStatus: null, stays: [],
+    bookingId: null, bookingVersion: null, bookingStatus: null, stays: [], bookedAt: null,
     diverged: false, tombstoned: false,
   });
   const first = await service.applySourceEvent(source, key(), sourceInput());
@@ -263,6 +263,7 @@ test("source lookup exposes only current link state to its scoped writer", async
   assert.equal(linked.sourceVersion, "v1");
   assert.equal(linked.bookingId, first.bookingId);
   assert.deepEqual(linked.stays, sourceInput().stays);
+  assert.equal(linked.bookedAt, "2026-10-12");
   assert.equal((await repository.read(propertyId)).sourceLinks[0].key,
     JSON.stringify(["ota", "synthetic-account", "external-1"]));
   assert.equal(JSON.stringify(linked).includes("External Guest"), false);

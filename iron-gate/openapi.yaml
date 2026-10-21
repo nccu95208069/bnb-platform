@@ -721,7 +721,7 @@ paths:
       summary: Read one order identity for the same scoped source grant
       description: >-
         Returns the current source version, booking ID/version/status, stays,
-        inventory version and review flags. It works while the property remains
+        original bookedAt date or null, inventory version and review flags. It works while the property remains
         read-only and never returns guest, contact or payment fields.
       requestBody:
         required: true
