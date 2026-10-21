@@ -6,7 +6,7 @@ Sean 自用 OS、民宿客戶 OS 工作區與 Iron Gate 的目前／目標資料
 水芳主表、Gmail check order、Sweetfun OS、LINE 官方帳號及訂單財務的逐階段遷移與切換檢查，見 [Sweetfun Sheet → Iron Gate 遷移計畫](SWEETFUN_SHEET_MIGRATION_PLAN_2026-10-20.md)；唯讀統計和目前工作分別見[來源盤點](SWEETFUN_MIGRATION_SOURCE_INVENTORY_2026-10-20.md)及[執行紀錄](SWEETFUN_MIGRATION_EXECUTION_2026-10-20.md)。
 水芳 OS 日曆的預設關閉讀取候選及其限制見[日曆切換紀錄](OS_CALENDAR_HANDOFF_2026-10-21.md)。
 
-`src/channel-runner.mjs` 提供注入式通路操作模擬，不含真實 OwlNest 寫入連線。`src/owlnest-web-readback.mjs` 將現有登入後的日曆 GET 做成唯讀、注入憑證的 adapter；其一個房晚的讀取已用真實帳號驗證。`src/owlnest-stock-command.mjs` 只從 OwlNest 目前網頁程式建構候選單房晚命令，不發送請求。使用者指定沿用網站登入後的後台請求；候選房量寫入的傳輸編碼、授權與真實效果仍須在受控測試工作階段核對，詳見 [OwlNest 接線調查](OWLNEST_API_STATUS.md)。
+`src/channel-runner.mjs` 以注入的通路 adapter 逐房晚操作，並要求操作後重新讀回。`src/owlnest-web-readback.mjs` 的登入後日曆 GET 已用真實帳號唯讀驗證；`src/owlnest-stock-command.mjs` 與 `src/owlnest-web-provider.mjs` 依 OwlNest 網頁目前的表單請求建立**尚未接入正式流程**的寫入候選。真實 stock PUT、短暫關房與復原仍需在業主指定的安全房晚受控核對；目前沒有發送任何 OwlNest PUT。詳見 [OwlNest 接線調查](OWLNEST_API_STATUS.md)。
 
 ## 本機驗證
 

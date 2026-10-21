@@ -27,3 +27,9 @@
 4. 只有上述房量請求與讀回在受控環境被實測，且逐館 lease、房型映射、憑證保管與修復流程完成後，才將寫入 adapter 接到 `src/channel-runner.mjs`。目前它仍是合成模擬，OwlNest 館 `saleReady=false`。
 
 此調查已登入 OwlNest，並唯讀驗證一個房晚的日曆回應結構；未更改房況或價格。
+
+### 2026-10-21 候選傳輸補齊
+
+再次唯讀檢查 OwlNest 當前公開的 PlanView 與 utility 程式：單房晚更新仍走 `PUT .../calendars/stock`。頁面先把 `lang` 與 `stock_items` 合併，再交給 jQuery 預設的表單序列化；utility 也把語言加到 URL 查詢。`src/owlnest-web-provider.mjs` 現在依此建立單房晚的 `application/x-www-form-urlencoded` 請求，包含房型、日期、庫存 0/1、停售狀態和防超賣欄位。它由注入的短效授權和 HTTP client 呼叫，固定 OwlNest 主機、拒絕登入重導與異常回應，不自動重送結果不明的 PUT；`src/channel-runner.mjs` 必須再執行新的日曆 GET 並記錄每格讀回，才可能解除房晚 fence。
+
+這仍是**未接入正式 dispatch 的候選**。合成測試覆蓋表單欄位、GET→PUT→GET 與結果不明時不重送；公開網頁程式和模擬回應不能證明登入後 stock PUT 被接受，也不能證明線上房量會按預期變更。須由業主指定不影響接單的測試房晚，明確同意受控的關房、讀回、復原、再讀回，並核對實際傳輸與效果後，才可接上正式通路 runner。此前沒有發出 OwlNest PUT，`saleReady=false`。

@@ -25,9 +25,9 @@ export function checkedOwlNestConfig(propertyId, config) {
   return config;
 }
 
-async function boundedJson(response) {
+export async function boundedOwlNestJson(response, maxBodyBytes = MAX_BODY_BYTES) {
   const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) throw Error("OWLNEST_RESPONSE_TOO_LARGE");
+  if (Number.isFinite(declared) && declared > maxBodyBytes) throw Error("OWLNEST_RESPONSE_TOO_LARGE");
   if (!response.body) throw Error("OWLNEST_RESPONSE_INVALID");
   const reader = response.body.getReader(), chunks = [];
   let size = 0;
@@ -36,7 +36,7 @@ async function boundedJson(response) {
       const { value, done } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > MAX_BODY_BYTES) {
+      if (size > maxBodyBytes) {
         await reader.cancel();
         throw Error("OWLNEST_RESPONSE_TOO_LARGE");
       }
@@ -98,7 +98,7 @@ export function createOwlNestWebReadback({ propertyConfigs, getAuthorization,
         typeof response.ok !== "boolean") throw Error("OWLNEST_READ_FAILED");
       if ([401, 403].includes(response.status)) throw Error("OWLNEST_AUTH_EXPIRED");
       if (!response.ok) throw Error("OWLNEST_READ_FAILED");
-      const raw = await boundedJson(response);
+      const raw = await boundedOwlNestJson(response);
       if (raw?.status === 30003) throw Error("OWLNEST_AUTH_EXPIRED");
       if (raw?.status !== 0 || !Array.isArray(raw.data)) throw Error("OWLNEST_RESPONSE_INVALID");
       const byExternalId = new Map(Object.entries(config.roomIds).map(([roomId, externalId]) =>
