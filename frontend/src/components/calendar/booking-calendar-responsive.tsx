@@ -117,6 +117,12 @@ type DemoEditState = {
 const EMPTY_EDITS: DemoEditState = { orders: {}, segments: {} };
 
 async function readCalendar(start: string, end: string): Promise<CalendarResponse> {
+  if (process.env.NEXT_PUBLIC_IRON_GATE_FIXED_PREVIEW === "true") {
+    const response = await fetch(`/api/v1/bookings/calendar?start=${start}&end=${end}`,
+      { cache: "no-store" });
+    if (!response.ok) throw Error("無法讀取固定快照，請稍後重試。");
+    return response.json();
+  }
   if (!PAYMENT_SANDBOX) return apiClient.get<CalendarResponse>(`/bookings/calendar?start=${start}&end=${end}`);
   const response = await fetch(`/api/payment-sandbox/calendar?start=${start}&end=${end}`, { cache: "no-store" });
   if (!response.ok) throw Error("無法連接隔離測試服務，請稍後重試。");
@@ -239,7 +245,8 @@ const uiLocale = useIntlLocale();
   const handledNavigationRequest = useRef(navigationRequest?.id ?? 0);
 
   const requestPeriod = useMemo(
-    () => fetchPeriod(anchorDate, query.trim() ? "month" : view),
+    () => fetchPeriod(anchorDate, query.trim() ? "month" : view,
+      process.env.NEXT_PUBLIC_IRON_GATE_FIXED_PREVIEW === "true"),
     [anchorDate, view, query],
   );
   const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess(); }, [setSelectedId, initializeAccess]);
