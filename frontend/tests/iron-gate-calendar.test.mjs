@@ -152,7 +152,7 @@ test('a converted two-room Sheet order reaches the OS snapshot calendar through 
     Object.assign(values, { 0: room, 1: 'Synthetic guest', 2: 'Booking',
       3: '2026/10/25', 4: '2026/10/26', 5: '2026/10/01',
       6: '1000', 8: 'OK', 9: `synthetic-j-${index}`,
-      11: 'synthetic-parent' });
+      11: 'synthetic-parent', 13: 'synthetic-ota-order' });
     return { rowNumber: index + 2, values, notes: Array(19).fill(null) };
   });
   const snapshot = { headers: [...SWEETFUN_HEADERS], rows: sourceRows };
@@ -202,5 +202,8 @@ test('a converted two-room Sheet order reaches the OS snapshot calendar through 
   assert.equal(new Set(result.bookings.map(booking => booking.order_id)).size, 1);
   assert.equal(result.soldRoomNights, 2);
   assert.equal(result.snapshotCapturedAt, snapshotCapturedAt);
+  assert.ok(result.bookings.every(booking => booking.platform === 'booking' &&
+    booking.booked_at === '2026-10-01' &&
+    booking.external_order_no === 'synthetic-ota-order'));
   assert.ok(result.bookings.every(booking => booking.snapshot_only && booking.price_hidden));
 });

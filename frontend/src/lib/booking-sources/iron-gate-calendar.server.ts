@@ -30,6 +30,11 @@ const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const SHA256 = /^[0-9a-f]{64}$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const ROOMS = ['101', '102', '201', '202', '301', '302'];
+const PLATFORM: Record<string, string> = {
+  booking: 'booking', 'booking.com': 'booking', agoda: 'agoda',
+  airbnb: 'airbnb', line: 'direct', ctrip: 'ctrip',
+  owljourney: 'owljourney', owlnest: 'owlnest', '奧丁丁': 'owlnest',
+};
 const DAY_MS = 86_400_000;
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -169,11 +174,19 @@ function calendarBooking(booking: Record<string, unknown>,
   const id = `ig-${booking.id}-${stayIndex}-${roomNumber}`;
   const name = typeof booking.guestName === 'string' && booking.guestName.trim()
     ? booking.guestName.trim() : '姓名待核';
+  const source = object(booking.sourceCalendar) ? booking.sourceCalendar : null;
+  const rawPlatform = typeof source?.platform === 'string' ? source.platform.trim().toLowerCase() : '';
+  const externalOrderNo = typeof source?.externalOrderNo === 'string' &&
+    source.externalOrderNo.trim().length <= 128 ? source.externalOrderNo.trim() || null : null;
+  const bookedAt = typeof source?.bookedAt === 'string' &&
+    DATE.test(source.bookedAt) && date(day(source.bookedAt)) === source.bookedAt
+    ? source.bookedAt : null;
   return { id, sheet_row_id: id, order_id: `IG-${booking.id}`,
-    external_order_no: null, property_id: 'sweetfun', property_name: '水芳 Sweetfun',
+    external_order_no: externalOrderNo, property_id: 'sweetfun', property_name: '水芳 Sweetfun',
     room_id: `sweetfun-${roomNumber}`, room_number: roomNumber,
     guest_name: name, guest_name_kind: name === '姓名待核' ? 'missing' : 'real',
-    platform: 'other', check_in: checkIn, check_out: checkOut, booked_at: null,
+    platform: PLATFORM[rawPlatform] ?? 'other', check_in: checkIn, check_out: checkOut,
+    booked_at: bookedAt,
     room_rate: 0, payment_status: 'unknown', reservation_status: 'confirmed',
     notes: null, payments: [], audit_log: [], extra_guest_count: 0,
     extra_bed_count: 0, pet_count: 0, baby_supplies: [], service_note: null,

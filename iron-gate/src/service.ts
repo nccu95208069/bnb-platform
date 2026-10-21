@@ -149,7 +149,28 @@ function publicBooking(booking: Booking, principal: Principal): Record<string, u
     stays: booking.stays, createdAt: booking.createdAt, source: booking.source,
   };
   // Field grants are server-authenticated. Public website queries use a separate order credential.
-  if (principal.origin === "os" && principal.fields.includes("guest_name")) result.guestName = booking.guestName;
+  if (principal.origin === "os" && principal.fields.includes("guest_name")) {
+    result.guestName = booking.guestName;
+    // The imported rows remain private evidence. Only unambiguous calendar
+    // labels may leave that evidence, under the same OS guest grant.
+    const rows = booking.sweetfunSnapshot?.rows;
+    if (Array.isArray(rows) && rows.length) {
+      const unique = (column: number): string | null => {
+        const values = [...new Set(rows.map((row) => String(row.values?.[column] ?? "").trim()))]
+          .filter(Boolean);
+        return values.length === 1 ? values[0] : null;
+      };
+      const platform = unique(2);
+      const externalOrderNo = unique(13);
+      const rawBookedAt = unique(5);
+      const match = /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/.exec(rawBookedAt ?? "");
+      const bookedAt = match ? `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}` : null;
+      result.sourceCalendar = { platform, externalOrderNo,
+        bookedAt: bookedAt && Number.isFinite(Date.parse(`${bookedAt}T00:00:00Z`)) &&
+          new Date(`${bookedAt}T00:00:00Z`).toISOString().slice(0, 10) === bookedAt
+          ? bookedAt : null };
+    }
+  }
   if (principal.origin === "os" && principal.fields.includes("contact")) result.contact = booking.contact;
   if (principal.origin === "os" && principal.fields.includes("notes")) result.notes = booking.notes;
   if ((principal.origin === "os" || principal.origin === "finance") &&

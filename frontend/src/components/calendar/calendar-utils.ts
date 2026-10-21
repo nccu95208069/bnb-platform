@@ -25,6 +25,7 @@ export const PLATFORM_LABELS: Record<string, string> = {
   airbnb: "Airbnb",
   ctrip: "CTrip",
   owljourney: "OwlJourney",
+  owlnest: "奧丁丁／OwlNest",
   other: "其他",
 };
 
@@ -35,6 +36,7 @@ export const PLATFORM_STYLES: Record<string, string> = {
   airbnb: "calendar-platform calendar-platform-airbnb",
   ctrip: "calendar-platform calendar-platform-ctrip",
   owljourney: "calendar-platform calendar-platform-owljourney",
+  owlnest: "calendar-platform calendar-platform-other",
   other: "calendar-platform calendar-platform-other",
 };
 

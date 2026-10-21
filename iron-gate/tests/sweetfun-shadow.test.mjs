@@ -95,10 +95,15 @@ test("restricted source evidence is absent from booking reads and writes stay cl
     fields: ["guest_name", "contact", "notes", "money"] };
   const read = await service.getBooking(actor, cfg.propertyId, cfg.bookingIds["L:parent1"]);
   assert.equal(read.guestName, null);
+  assert.deepEqual(read.sourceCalendar, { platform: "Synthetic OTA",
+    externalOrderNo: null, bookedAt: "2026-10-01" });
   assert.equal(read.totalCents, 240100);
   assert.equal("sweetfunSnapshot" in read, false);
   assert.equal(JSON.stringify(read).includes("Synthetic status marker"), false);
   assert.equal(JSON.stringify(read).includes("j1"), false);
+  const restricted = await service.getBooking({ ...actor, fields: [] },
+    cfg.propertyId, cfg.bookingIds["L:parent1"]);
+  assert.equal("sourceCalendar" in restricted, false);
   await assert.rejects(service.createBooking(actor, cfg.propertyId, uid(900), {
     expectedInventoryVersion: 1,
     stays: [{ checkIn: "2026-11-03", checkOut: "2026-11-04", roomIds: [rooms["101"]] }],
