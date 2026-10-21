@@ -19,6 +19,7 @@ export type IronGateCalendarConfig = {
   expectedSnapshotHash: string | null;
   grant: ReadGrant;
   roomIds: Record<string, string>;
+  trustedSourceToken?: string;
 };
 
 type Page = { propertyId: string; inventoryVersion: number; authorityEpoch: number;
@@ -126,10 +127,19 @@ async function getJson(url: string, config: IronGateCalendarConfig, principal: P
   send: typeof fetch, maxBytes: number): Promise<unknown> {
   let response: Response;
   try {
-    response = await send(url, { method: 'GET', headers: {
+    const headers: Record<string, string> = {
       authorization: `Bearer ${config.grant.token}`,
       'x-iron-gate-os-proof': proof(url, config, principal),
-    }, cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(5000) });
+    };
+    if (config.trustedSourceToken) {
+      const target = new URL(url);
+      if (target.protocol !== 'https:' ||
+        !/^iron-gate-[a-z0-9]+-sweetfuns-projects\.vercel\.app$/.test(target.hostname))
+        throw Error('IRON_GATE_CALENDAR_TRUSTED_SOURCE_TARGET');
+      headers['x-vercel-trusted-oidc-idp-token'] = config.trustedSourceToken;
+    }
+    response = await send(url, { method: 'GET', headers,
+      cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(5000) });
   } catch { throw Error('IRON_GATE_CALENDAR_UNAVAILABLE'); }
   if (!response.ok) throw Error('IRON_GATE_CALENDAR_UNAVAILABLE');
   const declared = response.headers.get('content-length');

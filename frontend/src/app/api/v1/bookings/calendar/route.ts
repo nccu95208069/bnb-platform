@@ -11,6 +11,7 @@ import { readBookingSnapshot } from "@/lib/booking-sources/snapshot";
 import { activeSources } from "@/lib/booking-sources/config";
 import { ironGateCalendarConfig, readSweetfunIronGateCalendar } from "@/lib/booking-sources/iron-gate-calendar.server";
 import { type NextRequest, NextResponse } from "next/server";
+import { getVercelOidcToken } from "@vercel/oidc";
 
 type PaymentStatus = "paid" | "deposit" | "unpaid";
 type PlatformCode = "a" | "b" | "c" | "d" | "i" | "o" | "x";
@@ -225,8 +226,12 @@ export async function GET(request: NextRequest) {
           process.env.IRON_GATE_SWEETFUN_CALENDAR_PREVIEW_ENABLED === "true") &&
           definitions.some(d => d.key === "sweetfun")) {
         const offland = definitions.filter(d => d.key !== "sweetfun");
+        const igConfig = ironGateCalendarConfig();
+        if (process.env.VERCEL_ENV === "preview" &&
+          process.env.IRON_GATE_PREVIEW_OWNER_ONLY === "true")
+          igConfig.trustedSourceToken = await getVercelOidcToken();
         const [ig, other] = await Promise.all([
-          readSweetfunIronGateCalendar(start, end, principal, ironGateCalendarConfig()),
+          readSweetfunIronGateCalendar(start, end, principal, igConfig),
           offland.length ? readCalendarSources(offland, start, end, principal.viewPrices, {
             cache: configuredPrivateCalendarCache(), startedAt,
             snapshot: readBookingSnapshot, details: readOperationalSheet,

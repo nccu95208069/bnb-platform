@@ -147,6 +147,23 @@ test('fixed snapshot preview reads a pinned shadow and marks every segment non-o
   assert.ok(result.bookings.every(booking => booking.snapshot_only));
 });
 
+test('protected Preview forwards a short-lived Vercel identity only to Iron Gate', async () => {
+  const c = config(true);
+  c.baseUrl = 'https://iron-gate-q15584007-sweetfuns-projects.vercel.app';
+  c.trustedSourceToken = 'synthetic-oidc-token';
+  const send = sender(fixture({ preview: true }), c);
+  const result = await readSweetfunIronGateCalendar('2026-10-25', '2026-10-26',
+    principal, c, async (url, init) => {
+      assert.equal(init.headers['x-vercel-trusted-oidc-idp-token'], 'synthetic-oidc-token');
+      return send(url, init);
+    });
+  assert.equal(result.soldRoomNights, 1);
+  c.baseUrl = 'https://other.example';
+  await assert.rejects(readSweetfunIronGateCalendar('2026-10-25', '2026-10-26',
+    principal, c, async () => { throw Error('must not send identity token'); }),
+  /IRON_GATE_CALENDAR_UNAVAILABLE/);
+});
+
 test('preview refuses a changed version or source hash before showing bookings', async () => {
   const c = config(true);
   for (const changed of [fixture({ preview: true, version: 8 }),
