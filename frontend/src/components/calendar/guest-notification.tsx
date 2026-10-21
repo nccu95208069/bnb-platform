@@ -6,14 +6,14 @@ import type {NotificationState} from '@/lib/guest-notification';
 import type {CalendarBooking} from './calendar-types';
 type PropertyState={states:Record<string,NotificationState>;can_write:boolean};
 const Context=createContext<{data:Record<string,PropertyState>;errors:Record<string,string>;busy:Record<string,boolean>;toggle:(b:CalendarBooking)=>Promise<void>;refresh:(p:string)=>Promise<void>}>({data:{},errors:{},busy:{},toggle:async()=>{},refresh:async()=>{}});
-export function GuestNotificationProvider({children}:{children:ReactNode}){
+export function GuestNotificationProvider({children,disabled=false}:{children:ReactNode;disabled?:boolean}){
  const member=useAccessControl(s=>s.membership),[data,setData]=useState<Record<string,PropertyState>>({}),[errors,setErrors]=useState<Record<string,string>>({}),[busy,setBusy]=useState<Record<string,boolean>>({});
  const properties=(member?.allProperties?['sweetfun','offland']:member?.propertyIds??[]).join(',');
  const refresh=useCallback(async(property:string)=>{
   try{const r=await fetch(`/api/v1/guest-notification?property=${encodeURIComponent(property)}`,{cache:'no-store'});if(!r.ok)throw Error();const value=await r.json();setData(d=>{const states={...value.states};for(const [id,state] of Object.entries(d[property]?.states??{})){if(state.version>(states[id]?.version??0))states[id]=state;}return {...d,[property]:{...value,states}};});setErrors(e=>Object.fromEntries(Object.entries(e).filter(([k])=>k!==property&&!k.startsWith(property+':'))));}
   catch{setErrors(e=>({...e,[property]:'通知狀態讀取失敗，點此重試'}));}
  },[]);
- useEffect(()=>{const load=()=>{for(const p of properties.split(',').filter(Boolean))void refresh(p);};load();window.addEventListener('focus',load);const timer=setInterval(load,60000);return()=>{window.removeEventListener('focus',load);clearInterval(timer);};},[properties,refresh]);
+ useEffect(()=>{if(disabled)return;const load=()=>{for(const p of properties.split(',').filter(Boolean))void refresh(p);};load();window.addEventListener('focus',load);const timer=setInterval(load,60000);return()=>{window.removeEventListener('focus',load);clearInterval(timer);};},[disabled,properties,refresh]);
  async function toggle(booking:CalendarBooking){
   const property=booking.property_id,key=`${property}:${booking.order_id}`,previous=data[property]?.states[booking.order_id];
   if(booking.snapshot_only||busy[key]||!data[property]?.can_write)return;

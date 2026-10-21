@@ -5,6 +5,7 @@ import { RedisWorkspaceStore } from "@/lib/workspace-auth/store";
 import { NextRequest, NextResponse } from "next/server";
 import { OWNER_COOKIE, OWNER_SESSION_SECONDS, createOwnerSession, ownerAccessConfigured } from "@/lib/calendar-owner-session";
 import { RedisOwnerCredentialStore, credentialBinding, credentialMatches, changeOwnerPassword, createPasswordCredential, passwordProblem } from "@/lib/owner-password";
+import { PREVIEW_OWNER_COOKIE, createPreviewOwnerSession, previewOwnerCodeMatches, previewOwnerConfigured, previewOwnerSessionSeconds } from "@/lib/iron-gate-preview-owner";
 const headers = { "Cache-Control": "private, no-store", "Vary": "Cookie", "Referrer-Policy": "no-referrer" };
 const sameOrigin = (request: NextRequest) => request.headers.get("origin") === `${request.nextUrl.protocol}//${request.headers.get("host")}`;
 async function cookieResponse(request: NextRequest, session: string, member = false, accountId = "calendar-owner", mustReset = false) {
@@ -40,6 +41,12 @@ function failure(error: unknown) {
   return NextResponse.json({ detail }, { status, headers });
 }
 export async function GET(request: NextRequest) {
+  if (previewOwnerConfigured()) {
+    const principal = await principalFor(request);
+    return NextResponse.json({ available: true, authenticated: Boolean(principal), has_custom_password: true,
+      membership: principal ? { ...principal, tenantId: "sweetfun-workspace", tenantName: "Sweetfun OS",
+        phone: null, status: "active" } : null }, { headers });
+  }
   if (!ownerAccessConfigured()) return NextResponse.json({ available: false, authenticated: false }, { headers });
   try {
     const limited = await sessionMember(request);
@@ -52,6 +59,16 @@ export async function GET(request: NextRequest) {
 }
 export async function POST(request: NextRequest) {
   if (!sameOrigin(request)) return NextResponse.json({ detail: "請從本站登入。" }, { status: 403, headers });
+  if (previewOwnerConfigured()) {
+    try {
+      const input = await body(request);
+      if (!previewOwnerCodeMatches(normalizedEmail(input.email), input.code)) throw Error("UNAUTHORIZED");
+      const response = NextResponse.json({ authenticated: true, requires_password_reset: false }, { headers });
+      response.cookies.set(PREVIEW_OWNER_COOKIE, createPreviewOwnerSession(), {
+        httpOnly: true, secure: true, sameSite: "strict", path: "/", maxAge: previewOwnerSessionSeconds });
+      return response;
+    } catch (error) { return failure(error); }
+  }
   if (!ownerAccessConfigured()) return NextResponse.json({ detail: "私人檢視尚未啟用。" }, { status: 503, headers });
   try {
     const input = await body(request), email = normalizedEmail(input.email), workspace = new RedisWorkspaceStore();
@@ -97,6 +114,7 @@ export async function PATCH(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   if (!sameOrigin(request)) return NextResponse.json({ detail: "請從本站登出。" }, { status: 403, headers });
   const response = NextResponse.json({ authenticated: false }, { headers });
+  response.cookies.set(PREVIEW_OWNER_COOKIE, "", { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict", path: "/", maxAge: 0 });
   response.cookies.set(MEMBER_COOKIE, "", { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict", path: "/", maxAge: 0 });
   response.cookies.set(OWNER_COOKIE, "", { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict", path: "/", maxAge: 0 });
   return response;

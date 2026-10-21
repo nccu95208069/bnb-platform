@@ -1024,7 +1024,7 @@ export function BookingCalendarResponsive({ snapshotPreviewConfigured = false }:
   if (!ready)
     return <p className="p-4 text-sm text-muted-foreground">{uiText("讀取日曆…")}</p>;
   return (
-    <GuestNotificationProvider><div className={paymentReview && viewPrices && mode === "sold" ? "payment-review" : ""}>
+    <GuestNotificationProvider disabled={snapshotPreviewConfigured}><div className={paymentReview && viewPrices && mode === "sold" ? "payment-review" : ""}>
       {mode === "unsold" && showUnsold ? (
         <>
           <CalendarToolbar showUnsold={showUnsold} paymentReview={paymentReview} onPaymentReview={() => setPaymentReview(v => !v)} />
