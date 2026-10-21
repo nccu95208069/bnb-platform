@@ -6,6 +6,7 @@ import { annotateSweetfunDisappearances, diffSweetfunSnapshots } from
   "../src/sweetfun-sheet-delta.mjs";
 import { prepareSweetfunShadow, verifySweetfunShadow } from "../src/sweetfun-shadow.mjs";
 import { planSweetfunMixedShadow } from "../src/sweetfun-shadow-advance.mjs";
+import { prepareSweetfunSourceLinks } from "../src/sweetfun-source-links.mjs";
 
 function row(rowNumber, sourceId, parentId, room, checkIn, checkOut) {
   const values = Array(19).fill("");
@@ -69,6 +70,20 @@ test("mixed revision adds one booking and cancels two different bookings atomica
     booking.sweetfunSnapshot.groupKey === newKey).id, afterIds[newKey]);
   assert.equal(plan.state.sweetfunImport.cancellationTombstones.length, 2);
   assert.equal(verifySweetfunShadow(after, config, plan.state).matches, true);
+});
+
+test("a verified writer notice can tombstone one vanished row through source linking", () => {
+  const receipt = { ...decisions[1], evidenceType: "gmail_writer_notification",
+    evidenceRef: "gmail:1a15eb365772fde1", receiptHash: "a".repeat(64) };
+  const reviewed = [decisions[0], receipt];
+  const nextConfig = { ...config,
+    cancellationTombstones: annotateSweetfunDisappearances(diff, reviewed).tombstones };
+  const plan = planSweetfunMixedShadow(current, after, nextConfig, reviewed);
+  assert.equal(plan.summary.ownerConfirmedCancelled, 1);
+  assert.equal(plan.summary.writerReceiptVerified, true);
+  const links = prepareSweetfunSourceLinks(plan.state,
+    "sweetfun-calendar-sheet", fixed.sourceId);
+  assert.equal(links.summary.cancelledLinks, 2);
 });
 
 test("mixed revision refuses one unconfirmed cancellation or altered old row", () => {

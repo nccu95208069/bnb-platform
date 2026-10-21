@@ -120,7 +120,16 @@ export function prepareSweetfunSourceLinks(shadow, sourceSystem, sourceAccount) 
   const cancelled = new Map();
   for (const item of shadow.sweetfunImport.cancellationTombstones ?? []) {
     const values = item?.before?.values;
-    if (item?.evidenceType !== "owner_attestation" || !Array.isArray(values) ||
+    if (!["owner_attestation", "gmail_writer_notification"].includes(item?.evidenceType) ||
+      (item.evidenceType === "gmail_writer_notification"
+        ? item.writerReceiptVerified !== true
+        : item.writerReceiptVerified === true) ||
+      (item.evidenceType === "gmail_writer_notification" &&
+        (!/^gmail:[0-9a-f]{12,32}$/i.test(item.evidenceRef ?? "") ||
+          !/^[0-9a-f]{64}$/.test(item.receiptHash ?? ""))) ||
+      (item.evidenceType === "owner_attestation" &&
+        item.receiptHash !== undefined) ||
+      !Array.isArray(values) ||
       values[9] !== item.sourceId || !/^[0-9a-f]{64}$/.test(item.beforeHash ?? "") ||
       !/^[0-9a-f]{64}$/.test(item.afterHash ?? ""))
       throw Error("SWEETFUN_TOMBSTONE_INVALID");

@@ -28,11 +28,18 @@ function validConfig(config) {
         typeof item?.sourceId !== "string" || !item.sourceId ||
         item.before?.values?.[9] !== item.sourceId ||
         !Number.isSafeInteger(item.before?.rowNumber) ||
-        item.evidenceType !== "owner_attestation" ||
+        !["owner_attestation", "gmail_writer_notification"].includes(item.evidenceType) ||
         typeof item.evidenceRef !== "string" || !item.evidenceRef.trim() ||
+        (item.evidenceType === "gmail_writer_notification" &&
+          !/^gmail:[0-9a-f]{12,32}$/i.test(item.evidenceRef)) ||
+        (item.evidenceType === "owner_attestation" &&
+          item.receiptHash !== undefined) ||
         !/^[0-9a-f]{64}$/.test(item.beforeHash ?? "") ||
         !/^[0-9a-f]{64}$/.test(item.afterHash ?? "") ||
-        item.writerReceiptVerified !== false)))
+        item.writerReceiptVerified !==
+          (item.evidenceType === "gmail_writer_notification") ||
+        (item.evidenceType === "gmail_writer_notification" &&
+          !/^[0-9a-f]{64}$/.test(item.receiptHash ?? "")))))
     throw Error("INVALID_SWEETFUN_CANCELLATION_TOMBSTONES");
   if (config.retainedCancellationDecisions !== undefined &&
     (!Array.isArray(config.retainedCancellationDecisions) ||

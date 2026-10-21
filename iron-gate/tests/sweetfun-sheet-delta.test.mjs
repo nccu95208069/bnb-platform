@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { SWEETFUN_HEADERS } from "../src/sweetfun-sheet-audit.mjs";
-import { annotateSweetfunDisappearances, diffSweetfunSnapshots, verifySweetfunDiff } from
+import { annotateSweetfunDisappearances, decisionFromSweetfunCancellationNotice,
+  diffSweetfunSnapshots, verifySweetfunDiff } from
   "../src/sweetfun-sheet-delta.mjs";
 
 function row(rowNumber, id, fee = "1200") {
@@ -79,4 +80,38 @@ test("requires a version-bound owner decision before creating a cancellation mem
     [{ ...decision, afterHash: "wrong" }]), /INVALID_SWEETFUN_CANCELLATION_DECISION/);
   assert.throws(() => annotateSweetfunDisappearances(diff,
     [{ ...decision, sourceIds: ["other"] }]), /CANCELLATION_SOURCE_ID_NOT_UNIQUE_DISAPPEARANCE/);
+});
+
+test("an authenticated writer notification must match the vanished room and night", () => {
+  const before = snapshot([row(2, "synthetic-j")]);
+  before.rows[0].values[11] = "synthetic-order";
+  before.rows[0].values[3] = "2026/11/01";
+  before.rows[0].values[4] = "2026/11/02";
+  const diff = diffSweetfunSnapshots(before, snapshot([]));
+  const body = ["通知時間: 2026-10-21 13:42:55", "處理狀態: ✅ 成功",
+    "通知類型: 訂單取消處理成功",
+    "訊息: 已成功刪除訂單 synthetic-order 的 1 筆資料", "",
+    "詳細資訊:", "  order_id: synthetic-order", "  deleted_count: 1",
+    "  deleted_details: 101 (2026-11-01 → 2026-11-02)"].join("\r\n");
+  const message = { id: "1a15eb365772fde1", internal_date: "1792590175000",
+    payload: { headers: [
+      { name: "From", value: "sweet <owner@example.com>" },
+      { name: "Subject", value: "[Gmail 訂單系統] ✅ 訂單取消處理成功" },
+      { name: "Authentication-Results", value:
+        "mx.google.com; dkim=pass header.i=@gmail.com; spf=pass; dmarc=pass header.from=gmail.com" },
+    ], parts: [{ mime_type: "text/plain", body: { content: body } }] } };
+  const decision = decisionFromSweetfunCancellationNotice(diff, "synthetic-j", message,
+    "owner@example.com");
+  const annotated = annotateSweetfunDisappearances(diff, [decision]);
+  assert.equal(annotated.summary.writerReceiptVerified, 1);
+  assert.equal(annotated.summary.ownerConfirmedCancelled, 0);
+  assert.equal(annotated.unresolved.length, 0);
+  const wrongNight = structuredClone(message);
+  wrongNight.payload.parts[0].body.content = body.replace("2026-11-02", "2026-11-03");
+  assert.throws(() => decisionFromSweetfunCancellationNotice(diff, "synthetic-j",
+    wrongNight, "owner@example.com"), /UNVERIFIED/);
+  const wrongAuth = structuredClone(message);
+  wrongAuth.payload.headers[2].value = "mx.google.com; dkim=fail; spf=pass; dmarc=fail";
+  assert.throws(() => decisionFromSweetfunCancellationNotice(diff, "synthetic-j",
+    wrongAuth, "owner@example.com"), /UNVERIFIED/);
 });

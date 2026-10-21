@@ -235,7 +235,8 @@ export function planSweetfunCancellationShadow(currentState, nextSnapshot,
       removedRows: vanishedIds.size, removedBookings: 1,
       removedRoomNights: removedCells.length,
       sourceNoteRowsChanged: sourceNoteChanges.length,
-      ownerConfirmedCancelled: vanishedIds.size, writerReceiptVerified: false,
+      ownerConfirmedCancelled: annotation.summary.ownerConfirmedCancelled,
+      writerReceiptVerified: annotation.summary.writerReceiptVerified > 0,
       paymentEventsCreated: 0, canCutover: false } };
 }
 
@@ -355,6 +356,7 @@ export function planSweetfunMixedShadow(currentState, nextSnapshot,
       addedRoomNights: addedCells.length, removedRows: disappeared.size,
       removedBookings: removed.length, removedRoomNights: removedCells.length,
       sourceNoteRowsChanged: sourceNoteChanges.length,
-      ownerConfirmedCancelled: disappeared.size, writerReceiptVerified: false,
+      ownerConfirmedCancelled: annotation.summary.ownerConfirmedCancelled,
+      writerReceiptVerified: annotation.summary.writerReceiptVerified > 0,
       paymentEventsCreated: 0, canCutover: false } };
 }
