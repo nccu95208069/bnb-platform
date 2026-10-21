@@ -339,9 +339,14 @@ test("source review keeps every affected night across repeated conflicts", async
 });
 
 test("OwlNest external cancellation stays under review until provider evidence exists", async () => {
-  const { service, repository } = setup("owlnest");
+  const { service, repository } = setup();
   const source = principal("source");
   const first = await service.applySourceEvent(source, key(), sourceInput());
+  await repository.transact(propertyId, (state) => {
+    state.channel.mode = "owlnest";
+    state.channel.ready = true;
+    state.channel.grantId = channelGrantId;
+  });
   const cancellation = await service.applySourceEvent(source, key(), sourceInput(2, {
     kind: "cancel", sourceVersion: "v2", previousSourceVersion: "v1",
   }));
@@ -351,6 +356,46 @@ test("OwlNest external cancellation stays under review until provider evidence e
   assert.equal(state.fences.length, 1);
   await assert.rejects(service.createBooking(principal(), propertyId, key(), bookingInput(state.version)),
     errorCode("ROOM_CONFLICT"));
+});
+
+test("OwlNest source changes fence stock before any booking is marked applied", async () => {
+  const { service, repository } = setup("owlnest");
+  const source = principal("source");
+  const incoming = await service.applySourceEvent(source, key(), sourceInput());
+  assert.equal(incoming.reason, "CHANNEL_UPSERT_REQUIRES_READBACK");
+  let state = await repository.read(propertyId);
+  assert.equal(state.bookings.length, 0);
+  assert.deepEqual(state.fences[0].cells.map((cell) => cell.date).sort(),
+    ["2026-11-10", "2026-11-11"]);
+  const unknownCancel = await service.applySourceEvent(source, key(), sourceInput(2, {
+    externalOrderId: "external-2", kind: "cancel",
+  }));
+  assert.equal(unknownCancel.reason, "CHANNEL_UNKNOWN_CANCEL_REQUIRES_READBACK");
+  state = await repository.read(propertyId);
+  assert.equal(state.bookings.length, 0);
+  assert.equal(state.sourceLinks.length, 0);
+  assert.equal(state.fences.length, 2);
+});
+
+test("OwlNest source date changes hold old and new room nights for review", async () => {
+  const { service, repository } = setup();
+  const source = principal("source");
+  const first = await service.applySourceEvent(source, key(), sourceInput());
+  await repository.transact(propertyId, (state) => {
+    state.channel.mode = "owlnest";
+    state.channel.ready = true;
+    state.channel.grantId = channelGrantId;
+  });
+  const moved = await service.applySourceEvent(source, key(), sourceInput(2, {
+    sourceVersion: "v2", previousSourceVersion: "v1",
+    stays: [{ checkIn: "2026-11-12", checkOut: "2026-11-14", roomIds: [roomId] }],
+  }));
+  assert.equal(moved.reason, "CHANNEL_UPSERT_REQUIRES_READBACK");
+  const state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].id, first.bookingId);
+  assert.equal(state.bookings[0].version, 1);
+  assert.deepEqual(state.fences[0].cells.map((cell) => cell.date).sort(),
+    ["2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13"]);
 });
 
 test("only current channel grant reads operation details and only OS cancels", async () => {

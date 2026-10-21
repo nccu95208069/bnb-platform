@@ -922,6 +922,14 @@ export class IronGateService {
         return review("SOURCE_DIVERGED", [...cells, ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);
       if (input.kind === "upsert" && link && link.tombstoneNights.length)
         return review("SOURCE_TOMBSTONE_REACTIVATION", [...cells, ...link.tombstoneNights]);
+      if (state.channel.mode === "owlnest" && input.kind === "upsert") {
+        const current = linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds).map(keyOf).sort() : [];
+        const requested = cells.map(keyOf).sort();
+        if (current.length !== requested.length ||
+            current.some((cell, index) => cell !== requested[index]))
+          return review("CHANNEL_UPSERT_REQUIRES_READBACK", [...cells,
+            ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);
+      }
       if (input.kind === "cancel" && linkedBooking) {
         const current = nightsFor(linkedBooking.stays, state.roomIds).map(keyOf).sort();
         const supplied = cells.map(keyOf).sort();
@@ -931,6 +939,8 @@ export class IronGateService {
           return review("CHANNEL_CANCEL_REQUIRES_READBACK", cells);
       }
       if (input.kind === "cancel" && !linkedBooking) {
+        if (state.channel.mode === "owlnest")
+          return review("CHANNEL_UNKNOWN_CANCEL_REQUIRES_READBACK", cells);
         if (!link) {
           link = { key: sourceKey, sourceSystem: input.sourceSystem, sourceAccount: input.sourceAccount,
             externalOrderId: input.externalOrderId, bookingId: null, sourceVersion: input.sourceVersion,
