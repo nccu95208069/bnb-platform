@@ -34,6 +34,18 @@ function validConfig(config) {
         !/^[0-9a-f]{64}$/.test(item.afterHash ?? "") ||
         item.writerReceiptVerified !== false)))
     throw Error("INVALID_SWEETFUN_CANCELLATION_TOMBSTONES");
+  if (config.retainedCancellationDecisions !== undefined &&
+    (!Array.isArray(config.retainedCancellationDecisions) ||
+      new Set(config.retainedCancellationDecisions.map((item) => item?.sourceId)).size !==
+        config.retainedCancellationDecisions.length ||
+      config.retainedCancellationDecisions.some((item) =>
+        item?.outcome !== "cancelled" || item.evidenceType !== "owner_attestation" ||
+        typeof item.evidenceRef !== "string" || !item.evidenceRef.trim() ||
+        typeof item.sourceId !== "string" || !item.sourceId ||
+        !Number.isSafeInteger(item.rowNumber) || item.rowNumber < 2 ||
+        !/^[0-9a-f]{64}$/.test(item.sourceHash ?? "") ||
+        !/^[0-9a-f]{64}$/.test(item.rowHash ?? ""))))
+    throw Error("INVALID_SWEETFUN_RETAINED_CANCELLATION_DECISION");
 }
 
 function canonical(value) {
@@ -46,6 +58,11 @@ function canonical(value) {
 
 function cell(values, index) {
   return String(values[index] ?? "").trim();
+}
+
+export function sweetfunRowHash(row) {
+  return createHash("sha256").update(canonical({ rowNumber: row.rowNumber,
+    values: row.values, notes: row.notes })).digest("hex");
 }
 
 /**
@@ -66,6 +83,20 @@ export function prepareSweetfunShadow(snapshot, config) {
   const quarantined = prepared.candidates.filter((group) =>
     group.issues.some((issue) => !reviewOnly.has(issue)));
   const acceptedKeys = new Set(accepted.map((group) => group.key));
+  const retainedDecisions = new Map((config.retainedCancellationDecisions ?? [])
+    .map((decision) => [decision.sourceId, decision]));
+  const matchedDecisions = new Set();
+  for (const group of accepted) for (const row of group.rows) {
+    const decision = retainedDecisions.get(row.values[9]);
+    if (!decision) continue;
+    if (matchedDecisions.has(decision.sourceId) || group.rows.length !== 1 ||
+      (decision.sourceHash === prepared.sourceHash && decision.rowNumber !== row.rowNumber) ||
+      decision.rowHash !== sweetfunRowHash({ ...row, rowNumber: decision.rowNumber }))
+      throw Error("SWEETFUN_RETAINED_CANCELLATION_SOURCE_DRIFT");
+    matchedDecisions.add(decision.sourceId);
+  }
+  if (matchedDecisions.size !== retainedDecisions.size)
+    throw Error("SWEETFUN_RETAINED_CANCELLATION_SOURCE_DRIFT");
   if (Object.keys(config.bookingIds).length !== acceptedKeys.size ||
     Object.keys(config.bookingIds).some((key) => !acceptedKeys.has(key)) ||
     accepted.some((group) => !uuid.test(config.bookingIds[group.key] ?? "")) ||
@@ -85,8 +116,10 @@ export function prepareSweetfunShadow(snapshot, config) {
     if (fee > BigInt(Number.MAX_SAFE_INTEGER)) throw Error("SWEETFUN_FEE_OVERFLOW");
     // Only physical room-night and room fee facts enter the booking projection.
     // H, O:Q and notes remain source evidence, never fabricated payment events.
+    const cancelled = retainedDecisions.has(group.rows[0].values[9]);
     return { id: config.bookingIds[group.key], workspaceId: config.workspaceId,
-      propertyId: config.propertyId, version: 1, status: "confirmed",
+      propertyId: config.propertyId, version: cancelled ? 2 : 1,
+      status: cancelled ? "cancelled" : "confirmed",
       channelSyncState: "not_required", channelOperationKey: null, stays,
       guestName: guestNames.length === 1 && group.fields.guestNames.length === 1
         ? guestNames[0] : null,
@@ -117,7 +150,7 @@ export function prepareSweetfunShadow(snapshot, config) {
       .update(`${prepared.sourceHash}:${key}`).digest("hex").slice(0, 24)}`,
     cells: [cell], reason: "source_review" }));
   const occupied = new Map();
-  for (const booking of bookings) for (const stay of booking.stays) {
+  for (const booking of bookings) if (booking.status !== "cancelled") for (const stay of booking.stays) {
     // Every accepted source row was independently validated as exactly one night.
     const key = `${stay.roomIds[0]}:${stay.checkIn}`;
     if (occupied.has(key)) throw Error("SWEETFUN_SHADOW_ROOM_COLLISION");
@@ -136,7 +169,9 @@ export function prepareSweetfunShadow(snapshot, config) {
       quarantined: structuredClone(quarantined),
       uncontainedReviewRows,
       ...(config.cancellationTombstones?.length ?
-        { cancellationTombstones: structuredClone(config.cancellationTombstones) } : {}) },
+        { cancellationTombstones: structuredClone(config.cancellationTombstones) } : {}),
+      ...(retainedDecisions.size ? { retainedCancellationDecisions:
+        structuredClone(config.retainedCancellationDecisions) } : {}) },
     channel: { mode: "none", ready: false, websiteSalesEnabled: false,
       grantId: null, websiteBindingId: null },
     sourceGrants: [], bookings, sourceLinks: [], operations: [], fences,

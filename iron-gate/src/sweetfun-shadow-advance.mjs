@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { annotateSweetfunDisappearances, diffSweetfunSnapshots, verifySweetfunDiff } from
   "./sweetfun-sheet-delta.mjs";
-import { prepareSweetfunShadow } from "./sweetfun-shadow.mjs";
+import { prepareSweetfunShadow, verifySweetfunShadow } from "./sweetfun-shadow.mjs";
 import { checkPropertyIntegrity } from "./property-integrity.mjs";
 import { nightsFor } from "./service.ts";
 
@@ -13,8 +13,65 @@ function sourceRows(state) {
 }
 
 function occupied(state) {
-  return state.bookings.flatMap((booking) => nightsFor(booking.stays, state.roomIds)
+  return state.bookings.filter((booking) => booking.status !== "cancelled")
+    .flatMap((booking) => nightsFor(booking.stays, state.roomIds)
     .map((cell) => ({ room_id: cell.roomId, night: cell.date, booking_id: booking.id })));
+}
+
+/** Correct a retained, single-row source booking after an exact owner attestation. */
+export function planSweetfunRetainedCancellation(currentState, snapshot, config, decision) {
+  const prior = currentState?.sweetfunImport?.retainedCancellationDecisions ?? [];
+  if (!currentState?.readOnly || currentState.authorityEpoch !== 0 ||
+    currentState.channel?.ready || currentState.channel?.websiteSalesEnabled ||
+    currentState.bookings?.some((booking) => booking.paymentEvents?.length) ||
+    currentState.sourceGrants?.length || currentState.operations?.length ||
+    currentState.sourceLinks?.length || currentState.receipts?.length ||
+    currentState.manualBlocks?.length || !Array.isArray(currentState.bookings) ||
+    config?.sourceId !== currentState.sweetfunImport?.sourceId ||
+    config?.sourceCopyId === config?.sourceId ||
+    config?.capturedAt !== currentState.sweetfunImport?.capturedAt ||
+    config?.capturedAt !== config?.sourceCopyCreatedAt ||
+    config?.workspaceId !== currentState.workspaceId ||
+    config?.propertyId !== currentState.propertyId ||
+    config?.authorityEpoch !== 0 || config?.inventoryVersion !== currentState.version + 1 ||
+    config?.expectedSourceHash !== currentState.sweetfunImport?.sourceHash ||
+    !isDeepStrictEqual(config?.cancellationTombstones ?? [],
+      currentState.sweetfunImport?.cancellationTombstones ?? []) ||
+    !isDeepStrictEqual(config?.retainedCancellationDecisions,
+      [...prior, decision]) || decision?.sourceHash !== config.expectedSourceHash ||
+    decision?.outcome !== "cancelled" || decision?.evidenceType !== "owner_attestation" ||
+    typeof decision?.evidenceRef !== "string" || !decision.evidenceRef.trim())
+    throw Error("UNSAFE_SWEETFUN_RETAINED_CANCELLATION");
+  const beforeConfig = { ...config, inventoryVersion: currentState.version,
+    retainedCancellationDecisions: prior };
+  if (!verifySweetfunShadow(snapshot, beforeConfig, currentState).matches)
+    throw Error("SWEETFUN_RETAINED_CANCELLATION_SOURCE_DRIFT");
+  const cancelled = currentState.bookings.filter((booking) =>
+    booking.sweetfunSnapshot?.rows?.some((row) =>
+      row.values?.[9] === decision.sourceId && row.rowNumber === decision.rowNumber));
+  if (cancelled.length !== 1 || cancelled[0].status !== "confirmed" ||
+    cancelled[0].sweetfunSnapshot.rows.length !== 1)
+    throw Error("SWEETFUN_RETAINED_CANCELLATION_BOOKING_CONFLICT");
+  const next = prepareSweetfunShadow(snapshot, config);
+  const target = next.state.bookings.find((booking) => booking.id === cancelled[0].id);
+  const beforeOthers = currentState.bookings.filter((booking) => booking.id !== cancelled[0].id);
+  const afterOthers = next.state.bookings.filter((booking) => booking.id !== cancelled[0].id);
+  if (!target || target.status !== "cancelled" ||
+    !isDeepStrictEqual(beforeOthers, afterOthers) ||
+    next.state.bookings.length !== currentState.bookings.length ||
+    !isDeepStrictEqual(target.stays, cancelled[0].stays) ||
+    !checkPropertyIntegrity(next.state, occupied(next.state)).ok)
+    throw Error("SWEETFUN_RETAINED_CANCELLATION_BOOKING_CONFLICT");
+  const removedOccupancy = occupied({ ...currentState, bookings: cancelled });
+  const beforeCells = occupied(currentState), afterCells = occupied(next.state);
+  if (removedOccupancy.length !== 1 || beforeCells.length !== afterCells.length + 1 ||
+    afterCells.some((cell) => !beforeCells.some((old) =>
+      isDeepStrictEqual(old, cell))))
+    throw Error("SWEETFUN_RETAINED_CANCELLATION_OCCUPANCY_DRIFT");
+  return { state: next.state, removedOccupancy,
+    summary: { sourceHash: config.expectedSourceHash, cancelledBookings: 1,
+      removedRoomNights: 1, retainedSourceRows: 1,
+      paymentEventsCreated: 0, canCutover: false } };
 }
 
 /**
@@ -38,7 +95,9 @@ export function planSweetfunAdditiveShadow(currentState, nextSnapshot, nextConfi
     nextConfig?.authorityEpoch !== 0 ||
     nextConfig?.inventoryVersion !== currentState.version + 1 ||
     !isDeepStrictEqual(nextConfig?.cancellationTombstones ?? [],
-      currentState.sweetfunImport?.cancellationTombstones ?? []))
+      currentState.sweetfunImport?.cancellationTombstones ?? []) ||
+    !isDeepStrictEqual(nextConfig?.retainedCancellationDecisions ?? [],
+      currentState.sweetfunImport?.retainedCancellationDecisions ?? []))
     throw Error("UNSAFE_SWEETFUN_SHADOW_ADVANCE");
   const oldSnapshot = { headers: currentState.sweetfunImport.headers,
     rows: sourceRows(currentState) };
@@ -55,11 +114,14 @@ export function planSweetfunAdditiveShadow(currentState, nextSnapshot, nextConfi
       booking.paymentEvents?.length) || !checkPropertyIntegrity(next.state, occupied(next.state)).ok)
     throw Error("UNSAFE_SWEETFUN_SHADOW_ADVANCE");
   const oldBookings = new Map(currentState.bookings.map((booking) =>
-    [booking.sweetfunSnapshot?.groupKey, booking.id]));
+    [booking.sweetfunSnapshot?.groupKey, booking]));
   const newBookings = new Map(next.state.bookings.map((booking) =>
-    [booking.sweetfunSnapshot?.groupKey, booking.id]));
+    [booking.sweetfunSnapshot?.groupKey, booking]));
   if (oldBookings.size !== currentState.bookings.length ||
-    [...oldBookings].some(([key, id]) => newBookings.get(key) !== id))
+    [...oldBookings].some(([key, booking]) =>
+      newBookings.get(key)?.id !== booking.id ||
+      newBookings.get(key)?.status !== booking.status ||
+      !isDeepStrictEqual(newBookings.get(key)?.stays, booking.stays)))
     throw Error("SWEETFUN_SHADOW_BOOKING_ID_DRIFT");
   const oldCells = new Map(occupied(currentState).map((row) =>
     [`${row.room_id}:${row.night}`, row.booking_id]));
@@ -103,7 +165,9 @@ export function planSweetfunCancellationShadow(currentState, nextSnapshot,
     nextConfig?.workspaceId !== currentState.workspaceId ||
     nextConfig?.propertyId !== currentState.propertyId ||
     nextConfig?.authorityEpoch !== 0 ||
-    nextConfig?.inventoryVersion !== currentState.version + 1)
+    nextConfig?.inventoryVersion !== currentState.version + 1 ||
+    !isDeepStrictEqual(nextConfig?.retainedCancellationDecisions ?? [],
+      currentState.sweetfunImport?.retainedCancellationDecisions ?? []))
     throw Error("UNSAFE_SWEETFUN_SHADOW_CANCELLATION");
   const oldSnapshot = { headers: currentState.sweetfunImport.headers,
     rows: sourceRows(currentState) };
@@ -141,14 +205,17 @@ export function planSweetfunCancellationShadow(currentState, nextSnapshot,
         occupied(next.state)).ok)
     throw Error("UNSAFE_SWEETFUN_SHADOW_CANCELLATION");
   const oldBookings = new Map(currentState.bookings.map((booking) =>
-    [booking.sweetfunSnapshot?.groupKey, booking.id]));
+    [booking.sweetfunSnapshot?.groupKey, booking]));
   const newBookings = new Map(next.state.bookings.map((booking) =>
-    [booking.sweetfunSnapshot?.groupKey, booking.id]));
+    [booking.sweetfunSnapshot?.groupKey, booking]));
   if (oldBookings.size !== currentState.bookings.length ||
     newBookings.size !== currentState.bookings.length - 1 ||
     newBookings.has(removed[0].sweetfunSnapshot.groupKey) ||
-    [...oldBookings].some(([key, id]) =>
-      key !== removed[0].sweetfunSnapshot.groupKey && newBookings.get(key) !== id))
+    [...oldBookings].some(([key, booking]) =>
+      key !== removed[0].sweetfunSnapshot.groupKey &&
+      (newBookings.get(key)?.id !== booking.id ||
+        newBookings.get(key)?.status !== booking.status ||
+        !isDeepStrictEqual(newBookings.get(key)?.stays, booking.stays))))
     throw Error("SWEETFUN_SHADOW_BOOKING_ID_DRIFT");
   const oldCells = occupied(currentState);
   const nextCells = occupied(next.state);
@@ -191,7 +258,9 @@ export function planSweetfunMixedShadow(currentState, nextSnapshot,
     nextConfig?.workspaceId !== currentState.workspaceId ||
     nextConfig?.propertyId !== currentState.propertyId ||
     nextConfig?.authorityEpoch !== 0 ||
-    nextConfig?.inventoryVersion !== currentState.version + 1)
+    nextConfig?.inventoryVersion !== currentState.version + 1 ||
+    !isDeepStrictEqual(nextConfig?.retainedCancellationDecisions ?? [],
+      currentState.sweetfunImport?.retainedCancellationDecisions ?? []))
     throw Error("UNSAFE_SWEETFUN_SHADOW_MIXED_ADVANCE");
   const oldSnapshot = { headers: currentState.sweetfunImport.headers,
     rows: sourceRows(currentState) };

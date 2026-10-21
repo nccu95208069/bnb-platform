@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { SWEETFUN_HEADERS } from "../src/sweetfun-sheet-audit.mjs";
 import { prepareSweetfunGroups } from "../src/sweetfun-sheet-candidate.mjs";
-import { prepareSweetfunShadow, verifySweetfunShadow } from "../src/sweetfun-shadow.mjs";
+import { prepareSweetfunShadow, sweetfunRowHash, verifySweetfunShadow } from "../src/sweetfun-shadow.mjs";
+import { planSweetfunAdditiveShadow, planSweetfunRetainedCancellation } from
+  "../src/sweetfun-shadow-advance.mjs";
 import { checkPropertyIntegrity } from "../src/property-integrity.mjs";
 import { IronGateService, nightsFor } from "../src/service.ts";
 import { MemoryPropertyRepository } from "../src/memory-repository.ts";
@@ -110,4 +112,56 @@ test("restricted source evidence is absent from booking reads and writes stay cl
     guestName: "Synthetic new guest", contact: null, notes: null,
     totalCents: 10000, bookedAt: "2026-10-20", source: "os",
   }), (error) => error?.code === "PROPERTY_READ_ONLY");
+});
+
+test("owner-attested retained row becomes a cancellation without losing source evidence", () => {
+  const snapshot = { headers: [...SWEETFUN_HEADERS], rows: [
+    row(1567, "synthetic-cancelled", "", "101", "Synthetic guest", "ota-alias"),
+    row(1568, "synthetic-active", "", "102", "Another guest") ] };
+  snapshot.rows[0].values[10] = "Synthetic cancellation note";
+  const groups = prepareSweetfunGroups(snapshot);
+  const bookingIds = Object.fromEntries(groups.candidates.map((group, index) =>
+    [group.key, uid(200 + index)]));
+  const base = { ...config(snapshot), expectedSourceHash: groups.sourceHash,
+    bookingIds, sourceCopyId: "synthetic-private-copy",
+    sourceCopyCreatedAt: "2026-10-20T00:00:00.000Z" };
+  const before = prepareSweetfunShadow(snapshot, base).state;
+  const decision = { outcome: "cancelled", evidenceType: "owner_attestation",
+    evidenceRef: "synthetic-owner-confirmation", sourceHash: groups.sourceHash,
+    sourceId: "synthetic-cancelled", rowNumber: 1567,
+    rowHash: sweetfunRowHash(groups.candidates.find((group) =>
+      group.key === "J:synthetic-cancelled").rows[0]) };
+  const nextConfig = { ...base, inventoryVersion: 2,
+    retainedCancellationDecisions: [decision] };
+  const plan = planSweetfunRetainedCancellation(before, snapshot, nextConfig, decision);
+  assert.equal(plan.state.bookings.length, 2);
+  assert.equal(plan.state.bookings.find((booking) => booking.id ===
+    bookingIds["J:synthetic-cancelled"]).status, "cancelled");
+  assert.equal(plan.state.bookings.find((booking) => booking.id ===
+    bookingIds["J:synthetic-cancelled"]).sweetfunSnapshot.rows[0].values[10],
+    "Synthetic cancellation note");
+  assert.equal(plan.removedOccupancy.length, 1);
+  assert.equal(plan.state.bookings.filter((booking) => booking.paymentEvents.length).length, 0);
+  assert.equal(verifySweetfunShadow(snapshot, nextConfig, plan.state).matches, true);
+  const drift = structuredClone(snapshot);
+  drift.rows[0].values[10] = "Changed note";
+  assert.throws(() => planSweetfunRetainedCancellation(before, drift, nextConfig, decision),
+    /SWEETFUN_RETAINED_CANCELLATION_SOURCE_DRIFT|SWEETFUN_SOURCE_HASH_MISMATCH/);
+  assert.throws(() => planSweetfunRetainedCancellation(before, snapshot,
+    { ...nextConfig, retainedCancellationDecisions: [{ ...decision, rowNumber: 1568 }] },
+    decision), /UNSAFE_SWEETFUN_RETAINED_CANCELLATION/);
+  const later = structuredClone(snapshot);
+  later.rows.push(row(1569, "synthetic-new", "", "201", "New guest"));
+  const laterConfig = { ...nextConfig, inventoryVersion: 3,
+    capturedAt: "2026-10-21T00:00:00.000Z",
+    sourceCopyCreatedAt: "2026-10-21T00:00:00.000Z",
+    expectedSourceHash: prepareSweetfunGroups(later).sourceHash,
+    bookingIds: { ...bookingIds, "J:synthetic-new": uid(203) } };
+  assert.throws(() => planSweetfunAdditiveShadow(plan.state, later,
+    { ...laterConfig, retainedCancellationDecisions: [] }),
+    /UNSAFE_SWEETFUN_SHADOW_ADVANCE/);
+  const advanced = planSweetfunAdditiveShadow(plan.state, later, laterConfig);
+  assert.equal(advanced.state.bookings.find((booking) => booking.id ===
+    bookingIds["J:synthetic-cancelled"]).status, "cancelled");
+  assert.equal(advanced.addedOccupancy.length, 1);
 });

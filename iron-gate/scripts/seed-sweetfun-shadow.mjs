@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 import { prepareSweetfunShadow, verifySweetfunShadow } from "../src/sweetfun-shadow.mjs";
 import { planSweetfunAdditiveShadow, planSweetfunCancellationShadow,
-  planSweetfunMixedShadow } from
+  planSweetfunMixedShadow, planSweetfunRetainedCancellation } from
   "../src/sweetfun-shadow-advance.mjs";
 import { checkPropertyIntegrity } from "../src/property-integrity.mjs";
 import { nightsFor } from "../src/service.ts";
@@ -13,8 +13,70 @@ const targetProjectRef = "brcszrkwkgiwatrxevkf";
 const expectedLogin = "iron_gate_shadow_import";
 
 function occupiedRows(state) {
-  return state.bookings.flatMap((booking) => nightsFor(booking.stays, state.roomIds)
+  return state.bookings.filter((booking) => booking.status !== "cancelled")
+    .flatMap((booking) => nightsFor(booking.stays, state.roomIds)
     .map((cell) => ({ room_id: cell.roomId, night: cell.date, booking_id: booking.id })));
+}
+
+/** Retain one owner-confirmed cancelled source row while freeing its occupied night. */
+export async function cancelRetainedSweetfunShadow(pool, snapshot, config, decision,
+  { expectedDatabaseName = "postgres" } = {}) {
+  if (config?.sourceCopyId === config?.sourceId ||
+    typeof config?.sourceCopyId !== "string" || !config.sourceCopyId ||
+    config?.capturedAt !== config?.sourceCopyCreatedAt || config?.authorityEpoch !== 0)
+    throw Error("INVALID_SHADOW_MANIFEST");
+  await assertRuntimeDatabase(pool);
+  const identity = await pool.query("SELECT current_user AS login, current_database() AS database_name");
+  if (identity.rows[0]?.login !== expectedLogin ||
+    identity.rows[0]?.database_name !== expectedDatabaseName)
+    throw Error("WRONG_SHADOW_DATABASE_LOGIN");
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN ISOLATION LEVEL SERIALIZABLE");
+    await client.query("SELECT set_config('iron_gate.property_id', $1, true)", [config.propertyId]);
+    const existing = await client.query(`SELECT state_json FROM iron_gate.property_state
+      WHERE property_id = $1 FOR UPDATE`, [config.propertyId]);
+    if (existing.rows.length !== 1) throw Error("SHADOW_TARGET_NOT_SEEDED");
+    const current = existing.rows[0].state_json;
+    const actual = await client.query(`SELECT room_id::text, night::text, booking_id::text
+      FROM iron_gate.occupied_room_nights WHERE property_id = $1`, [config.propertyId]);
+    if (!checkPropertyIntegrity(current, actual.rows).ok)
+      throw Error("SHADOW_TARGET_INTEGRITY_CONFLICT");
+    if (current.version === config.inventoryVersion &&
+      verifySweetfunShadow(snapshot, config, current).matches) {
+      await client.query("COMMIT");
+      return { action: "unchanged", sourceHash: config.expectedSourceHash,
+        retainedSourceRows: 1, occupiedRoomNights: actual.rows.length,
+        paymentEventsCreated: 0, canCutover: false };
+    }
+    const plan = planSweetfunRetainedCancellation(current, snapshot, config, decision);
+    const updated = await client.query(`UPDATE iron_gate.property_state SET
+      inventory_version = $2, state_json = $3::jsonb, updated_at = now()
+      WHERE property_id = $1 AND inventory_version = $4 AND authority_epoch = 0`,
+    [config.propertyId, plan.state.version, JSON.stringify(plan.state), current.version]);
+    if (updated.rowCount !== 1) throw Error("SHADOW_TARGET_VERSION_CONFLICT");
+    const deleted = await client.query(`DELETE FROM iron_gate.occupied_room_nights AS occupied
+      USING jsonb_to_recordset($2::jsonb) AS x(room_id uuid, night date, booking_id uuid)
+      WHERE occupied.property_id = $1 AND occupied.room_id = x.room_id
+        AND occupied.night = x.night AND occupied.booking_id = x.booking_id`,
+    [config.propertyId, JSON.stringify(plan.removedOccupancy)]);
+    if (deleted.rowCount !== plan.removedOccupancy.length)
+      throw Error("SHADOW_TARGET_OCCUPANCY_CONFLICT");
+    const readback = await client.query(`SELECT state_json FROM iron_gate.property_state
+      WHERE property_id = $1`, [config.propertyId]);
+    const occupancy = await client.query(`SELECT room_id::text, night::text, booking_id::text
+      FROM iron_gate.occupied_room_nights WHERE property_id = $1`, [config.propertyId]);
+    if (readback.rows.length !== 1 ||
+      !verifySweetfunShadow(snapshot, config, readback.rows[0].state_json).matches ||
+      !checkPropertyIntegrity(readback.rows[0].state_json, occupancy.rows).ok ||
+      occupancy.rows.length !== actual.rows.length - plan.removedOccupancy.length)
+      throw Error("SHADOW_READBACK_MISMATCH");
+    await client.query("COMMIT");
+    return { action: "cancelled_retained", ...plan.summary };
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => {});
+    throw error;
+  } finally { client.release(); }
 }
 
 export function privateJson(path) {
@@ -320,8 +382,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   let pool;
   try {
     if (!["--bookings-only-shadow", "--additive-advance",
-      "--cancellation-advance", "--mixed-advance"].includes(process.argv[2]) ||
-      process.argv.length !== (["--cancellation-advance", "--mixed-advance"]
+      "--cancellation-advance", "--mixed-advance", "--retained-cancellation"].includes(process.argv[2]) ||
+      process.argv.length !== (["--cancellation-advance", "--mixed-advance",
+        "--retained-cancellation"]
         .includes(process.argv[2]) ? 7 : 6))
       throw Error("EXPLICIT_SHADOW_SCOPE_REQUIRED");
     const source = privateJson(process.argv[3]);
@@ -329,7 +392,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const credentials = privateJson(process.argv[5]);
     pool = new Pool({ connectionString: databaseUrl(credentials), max: 1,
       connectionTimeoutMillis: 5000, idleTimeoutMillis: 5000 });
-    const result = process.argv[2] === "--mixed-advance"
+    const result = process.argv[2] === "--retained-cancellation"
+      ? await cancelRetainedSweetfunShadow(pool, source, config, privateJson(process.argv[6]))
+      : process.argv[2] === "--mixed-advance"
       ? await reconcileSweetfunShadow(pool, source, config, privateJson(process.argv[6]))
       : process.argv[2] === "--cancellation-advance"
         ? await cancelSweetfunShadow(pool, source, config, privateJson(process.argv[6]))
@@ -360,7 +425,12 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       "SWEETFUN_SHADOW_MIXED_OCCUPANCY_DRIFT",
       "INVALID_SWEETFUN_CANCELLATION_TOMBSTONES",
       "INVALID_SWEETFUN_CANCELLATION_DECISION",
-      "CANCELLATION_SOURCE_ID_NOT_UNIQUE_DISAPPEARANCE"]);
+      "CANCELLATION_SOURCE_ID_NOT_UNIQUE_DISAPPEARANCE",
+      "INVALID_SWEETFUN_RETAINED_CANCELLATION_DECISION",
+      "UNSAFE_SWEETFUN_RETAINED_CANCELLATION",
+      "SWEETFUN_RETAINED_CANCELLATION_SOURCE_DRIFT",
+      "SWEETFUN_RETAINED_CANCELLATION_BOOKING_CONFLICT",
+      "SWEETFUN_RETAINED_CANCELLATION_OCCUPANCY_DRIFT"]);
     const safeCode = safeErrors.has(error?.message) ? error.message :
       /^[A-Z0-9]{5}$/.test(error?.code ?? "") ? error.code : "REDACTED_ERROR";
     process.stderr.write(`Sweetfun shadow import failed: ${safeCode}\n`);
