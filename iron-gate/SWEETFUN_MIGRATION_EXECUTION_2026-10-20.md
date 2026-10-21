@@ -131,10 +131,14 @@ Supabase 備份頁的瀏覽器檢查因需要透過 ChatGPT 登入而被自動�
 
 為獨立 Supabase 還原預先建立只讀核對基準：正式 `iron_gate` schema 恰有五張表，`property_state` 1 列、`occupied_room_nights` 1,758 列，其餘三表各 0。五表每列所有欄位的排序摘要已由 [`scripts/verify-iron-gate-restore.sql`](scripts/verify-iron-gate-restore.sql) 取得；另用 [`scripts/verify-iron-gate-restore-schema.sql`](scripts/verify-iron-gate-restore-schema.sql) 對專用 schema 的 5 表、25 欄、19 約束、10 索引、4 政策、1 函數及 2 角色計數及摘要。正式館別狀態最後更新於 `2026-10-20 16:23 UTC`，早於待還原備份的 `18:06 UTC`。後續須在新測試專案跑同一組只讀查詢，逐項相同才算通過；這不涵蓋 Supabase 管理的其他 schema 或 Storage 物件。
 
+2026-10-21 約 10:08 台北時間，業主已在 Supabase 表單自行設定密碼並提交「還原至新專案」。測試專案 `iron-gate-restore-drill-20261021` 的復原歷史顯示 `Completed`，且專案狀態為 `ACTIVE_HEALTHY`。在正式庫與測試庫各跑上述兩份唯讀 SQL：五張 `iron_gate` 表的筆數及完整列摘要逐項相同，其中館別狀態 1 列、占房索引 1,758 列、audit／outbox／credential 均為 0；五表、25 欄、19 約束、10 索引、4 政策、1 函數、2 角色的結構摘要也逐項相同。這證明指定的 Iron Gate schema 與資料可從該受管備份還原；沒有驗證 Supabase 管理的其他 schema 或 Storage 物件，也沒有還原到正式專案。
+
+2026-10-21 約 10:14 台北時間，業主明確授權後，透過 Vercel 建立按量計費、未連接應用的新 Upstash 測試庫 `sweetfun-os-restore-drill-20261021`，主區域與來源相同，不加 Prod Pack、關閉自動升級。在**測試庫**的 Backups > Restore 指定正式 `sweetfun-sheet-monitor` 的 `sweetfun-os-migration-20261020-2331` 備份；復原歷史顯示來源、目的地及狀態 `Completed`，測試庫的唯讀 `DBSIZE` 回覆 **18,655**，證明備份內容已寫入獨立測試庫。正式來源目前 `DBSIZE` 為 **19,300**；兩次查詢不是同一時間的快照，且來源持續運作，所以不能拿兩者差額推斷遺失，也不能把測試庫 `Completed` 與鍵數當成逐鍵內容 checksum。正式 Redis 沒有清空或覆寫。兩個臨時付費資源均待瀏覽器永久刪除的即時確認後清理。
+
 ## 下一步可直接執行的工程工作
 
 1. 在不輸出客資的情況下，把固定副本的每個 J 房晚及每個財務事件建立受限核對鍵；全量比對來源→候選和候選→來源，另算逐房晚／逐訂單／逐月金額，例外逐項關閉。
 2. 查正式 Gmail／LINE／OS 服務的版本與寫入設定；針對每條入口設計可觀察且可拒寫的 authority epoch。沒有正式證據的候選程式只能作線索。
-3. Firestore 首份受管備份的指定集合隔離還原已通過；繼續確認 OS 備份可還原性、Iron Gate 專用庫備份可還原性、財務原始事件保存與缺少的來源／財務無損欄位。Supabase 訂單／房晚唯讀影子已存在，財務、正式導流及切換仍未完成。
+3. Firestore 指定集合及 Supabase 專用 `iron_gate` schema 的隔離還原已通過；Upstash 備份已在獨立庫實際讀到 18,655 個鍵，後續仍需內容層核對與臨時資源清理。繼續保存財務原始事件、補足來源／財務無損欄位。Supabase 訂單／房晚唯讀影子已存在，財務、正式導流及切換仍未完成。
 
 本紀錄不含客人姓名、訂單編號、原始帳本、單筆付款資料或私人備份 ID；文中僅列經核對的彙總金額。任何導流、影子寫入或正式切換必須另有實際讀回證據。
