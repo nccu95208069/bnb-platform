@@ -129,6 +129,8 @@ Supabase 備份頁的瀏覽器檢查因需要透過 ChatGPT 登入而被自動�
 
 同時重查正式 OS 專用 Upstash Redis：即時備份仍是 `Completed`／17.36 MB，每日保留 1 天仍開啟。來源備份列上的 `Restore` 明確提示會清空**目前正式 Redis**，因此立即取消，沒有執行。官方隔離流程是另建同帳戶空白測試庫，再在**測試庫**的 `Restore...` 指定正式庫備份。已在 Vercel 建庫確認頁選按量計費、原來源相近主區域、不加 Prod Pack、關閉自動升級及設定專用測試名稱；建立動作被自動審查拒絕，理由是業主此前暫緩付費 Redis 演練，而簡短的授權文字不足以涵蓋這項額外計費資源。沒有建立測試庫，也沒有改動正式 Redis；已另向業主詢問這項具體授權，不繞過審查。
 
+為獨立 Supabase 還原預先建立只讀核對基準：正式 `iron_gate` schema 恰有五張表，`property_state` 1 列、`occupied_room_nights` 1,758 列，其餘三表各 0。五表每列所有欄位的排序摘要已由 [`scripts/verify-iron-gate-restore.sql`](scripts/verify-iron-gate-restore.sql) 取得；另用 [`scripts/verify-iron-gate-restore-schema.sql`](scripts/verify-iron-gate-restore-schema.sql) 對專用 schema 的 5 表、25 欄、19 約束、10 索引、4 政策、1 函數及 2 角色計數及摘要。正式館別狀態最後更新於 `2026-10-20 16:23 UTC`，早於待還原備份的 `18:06 UTC`。後續須在新測試專案跑同一組只讀查詢，逐項相同才算通過；這不涵蓋 Supabase 管理的其他 schema 或 Storage 物件。
+
 ## 下一步可直接執行的工程工作
 
 1. 在不輸出客資的情況下，把固定副本的每個 J 房晚及每個財務事件建立受限核對鍵；全量比對來源→候選和候選→來源，另算逐房晚／逐訂單／逐月金額，例外逐項關閉。
