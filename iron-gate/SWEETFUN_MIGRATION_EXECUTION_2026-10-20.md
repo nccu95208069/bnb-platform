@@ -161,6 +161,12 @@ Supabase 備份頁的瀏覽器檢查因需要透過 ChatGPT 登入而被自動�
 
 另核對正式 OS 收款／財務路徑：`finance-store` 的 `writeFinance` 使用版本 CAS 和 append-only `operations[].event`，日曆收款的 `appendReceipt` 同時保存收據與任務，需待 `finishSheetSync` 對主表回讀後才標示完成。新增只讀差異核對器 `sweetfun-os-writer-delta.mjs`，逐次驗證財務版本、前綴操作鏈、目標快照及不相關資料未變；收據另驗核 audit／mission，主表同步驗證只改動原待核收據並有完成任務。它可拒絕跳版、偽造 audit、額外變更與錯誤收據任務；目前只有合成測試，尚未取得兩個正式 OS 寫入時點的夾擊快照，也未形成持久跨系統回執，不能當作切換水位。
 
+15:22 台北時間再唯讀核對正式狀態：原 Sheet 的 Drive 修改時間仍是 `2026-10-21T04:02:51.318Z`；OS Redis 限定財務／收據／任務的 21 鍵原文排序摘要仍為 `5864c01d78f56c916171fa584f970dd42a9346c32a90cecddad90f86542b7a74`，財務操作 14、收據 10、任務完成 10、待同步 0。正式 Iron Gate 影子仍版本 4、占房 1,759、`readOnly=true`、epoch 0、來源摘要 `1ca42b1f1171d4f075037d781ca7042a3a42a02cc503cea79b37474ea298aa67`。兩個短期匯入角色仍存在，但均為 `NOLOGIN`、密碼期限 2000 年、成員資格及連線各 0；先前刪除操作逾時，尚未把角色清到 0。
+
+私有 Gmail 來源倉庫草稿 [PR #93](https://github.com/nccu95208069/gmail-check-order/pull/93) 依業主對該確切目的地的明確同意建立。審查中發現舊成功通知可能早於見證完成，已在同一 PR 將通知改為主表與 Firestore 見證 `verified`／無變更 `skipped` 後才送，讀回錯誤或未決不送成功通知，通知失敗不重播已確認訂單。更新後完整離線測試 **5,826 通過、11 項環境測試未執行**。從已推送的固定 commit `80bb76e3174878ff31542de07c12a61c5c5503db` 產生不含 `config/` 和測試資料的服務來源包；當時尚未建置映像或部署。正式 Cloud Run 讀回 `unified-assistant-16f32d1` 仍 100% 流量、候選見證開關不存在，原服務 55 個環境設定、12 個 secret 引用及 2 個掛載；切流條件沒有改變。
+
+業主隨後明確同意本次建置和 **0% 流量、功能關閉** 候選。Cloud Build `a4352350-2e33-4d38-bce3-42a62430bc59` 成功，映像固定為 `sha256:afde4c9e6797b8802675e107372912e8be3a231bdc4f57bbc916868d34db4d61`。Cloud Run 候選 `gmail-order-handler-igw80bb76e` 已 Ready、tag 流量 0%；正式 `gmail-order-handler-unified-assistant-16f32d1` 仍唯一 100%。獨立讀回候選的完整 runtime spec 與原版除映像外完全相同，runtime annotations 相同，環境設定 55、volume 2，見證開關仍不存在；無害 health 回 200，未授權通知與錯誤 LINE 簽章各回 403，候選當時 15 分鐘內 ERROR 日誌 0。未呼叫任何會處理真郵件的入口、未寫主表或發通知。詳細非私密證據已在 Gmail 私有 PR #93 的發布紀錄；這只通過零流量候選的設定與權限負向檢查，Firestore 新集合及真實事件水位尚未驗證，沒有正式切流授權。
+
 ## 下一步可直接執行的工程工作
 
 1. 四類財務來源已受限保存、讀回並將 82 筆訂單層級及 2 筆館別層級主張映到固定影子版本；接續補齊逐單／逐月反向核對與正式讀取契約，外部結算維持未驗證，不把來源主張直接當已對帳付款事件。
