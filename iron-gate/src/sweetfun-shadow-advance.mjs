@@ -113,7 +113,7 @@ export function planSweetfunCancellationShadow(currentState, nextSnapshot,
   if (!verifySweetfunDiff(oldSnapshot, nextSnapshot, delta).matches ||
     delta.beforeHash !== currentState.sweetfunImport.sourceHash ||
     delta.afterHash !== nextConfig.expectedSourceHash || !delta.summary.complete ||
-    delta.summary.appeared || delta.summary.disappeared !== 1 ||
+    delta.summary.appeared || delta.summary.disappeared < 1 ||
     sourceNoteChanges.length !== delta.summary.changed ||
     sourceNoteChanges.some((change) => change.kind !== "existing" ||
       change.changedNoteColumns.length ||
@@ -121,15 +121,18 @@ export function planSweetfunCancellationShadow(currentState, nextSnapshot,
     throw Error("SWEETFUN_SHADOW_CANCELLATION_SOURCE_DRIFT");
   const annotation = annotateSweetfunDisappearances(delta, [ownerDecision]);
   const priorTombstones = currentState.sweetfunImport.cancellationTombstones ?? [];
-  if (annotation.unresolved.length || annotation.tombstones.length !== 1 ||
+  if (annotation.unresolved.length ||
+    annotation.tombstones.length !== delta.summary.disappeared ||
     !isDeepStrictEqual(nextConfig.cancellationTombstones,
       [...priorTombstones, ...annotation.tombstones]))
     throw Error("SWEETFUN_SHADOW_CANCELLATION_DECISION_DRIFT");
-  const vanishedId = annotation.tombstones[0].sourceId;
+  const vanishedIds = new Set(annotation.tombstones.map((item) => item.sourceId));
   const removed = currentState.bookings.filter((booking) =>
-    booking.sweetfunSnapshot?.rows?.some((row) => row.values?.[9] === vanishedId));
+    booking.sweetfunSnapshot?.rows?.some((row) => vanishedIds.has(row.values?.[9])));
   if (removed.length !== 1 || removed[0].status !== "confirmed" ||
-    removed[0].sweetfunSnapshot.rows.length !== 1 || removed[0].stays.length !== 1)
+    removed[0].sweetfunSnapshot.rows.length !== vanishedIds.size ||
+    removed[0].sweetfunSnapshot.rows.some((row) => !vanishedIds.has(row.values?.[9])) ||
+    occupied({ ...currentState, bookings: removed }).length !== vanishedIds.size)
     throw Error("SWEETFUN_SHADOW_CANCELLATION_BOOKING_CONFLICT");
   const next = prepareSweetfunShadow(nextSnapshot, nextConfig);
   if (!isDeepStrictEqual(currentState.roomIds, next.state.roomIds) ||
@@ -153,15 +156,18 @@ export function planSweetfunCancellationShadow(currentState, nextSnapshot,
     [`${cell.room_id}:${cell.night}`, cell.booking_id]));
   const removedCells = oldCells.filter((cell) =>
     !remaining.has(`${cell.room_id}:${cell.night}`));
-  if (removedCells.length !== 1 || removedCells[0].booking_id !== removed[0].id ||
-    oldCells.length !== nextCells.length + 1 || remaining.size !== nextCells.length ||
+  if (removedCells.length !== vanishedIds.size ||
+    removedCells.some((cell) => cell.booking_id !== removed[0].id) ||
+    oldCells.length !== nextCells.length + vanishedIds.size ||
+    remaining.size !== nextCells.length ||
     oldCells.some((cell) => cell.booking_id !== removed[0].id &&
       remaining.get(`${cell.room_id}:${cell.night}`) !== cell.booking_id))
     throw Error("SWEETFUN_SHADOW_CANCELLATION_OCCUPANCY_DRIFT");
   return { state: next.state, removedOccupancy: removedCells,
     summary: { beforeHash: delta.beforeHash, afterHash: delta.afterHash,
-      removedRows: 1, removedBookings: 1, removedRoomNights: 1,
+      removedRows: vanishedIds.size, removedBookings: 1,
+      removedRoomNights: removedCells.length,
       sourceNoteRowsChanged: sourceNoteChanges.length,
-      ownerConfirmedCancelled: 1, writerReceiptVerified: false,
+      ownerConfirmedCancelled: vanishedIds.size, writerReceiptVerified: false,
       paymentEventsCreated: 0, canCutover: false } };
 }

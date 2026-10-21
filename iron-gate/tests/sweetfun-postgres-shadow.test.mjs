@@ -80,7 +80,7 @@ test("Sweetfun bookings-only shadow seeds once, reads back exactly, and stays re
     }
   });
 
-test("Sweetfun shadow cancellation transaction deletes one night and retains the tombstone",
+test("Sweetfun shadow cancellation transaction deletes two nights and retains tombstones",
   { skip: !runtimeUrl || !adminUrl }, async () => {
     if (!isLocalTest(runtimeUrl) || !isLocalTest(adminUrl))
       throw Error("SHADOW_TEST_REQUIRES_LOCAL_IRON_GATE_TEST_DATABASE");
@@ -94,10 +94,12 @@ test("Sweetfun shadow cancellation transaction deletes one night and retains the
     const before = { headers: [...SWEETFUN_HEADERS], rows: [
       makeRow(2, "202", "synthetic-cancel-j", "synthetic-cancel-l",
         "2026/10/25", "2026/10/26"),
-      makeRow(3, "101", "synthetic-keep-j", "synthetic-keep-l",
+      makeRow(3, "202", "synthetic-cancel-j-2", "synthetic-cancel-l",
+        "2026/10/26", "2026/10/27"),
+      makeRow(4, "101", "synthetic-keep-j", "synthetic-keep-l",
         "2026/10/26", "2026/10/27") ] };
     const after = { headers: [...SWEETFUN_HEADERS], rows: [
-      { ...structuredClone(before.rows[1]), rowNumber: 2 } ] };
+      { ...structuredClone(before.rows[2]), rowNumber: 2 } ] };
     after.rows[0].values[10] = "Synthetic changed note";
     const groups = prepareSweetfunGroups(before).candidates;
     const cancelKey = groups.find((group) =>
@@ -117,7 +119,8 @@ test("Sweetfun shadow cancellation transaction deletes one night and retains the
     const diff = diffSweetfunSnapshots(before, after);
     const decision = { outcome: "cancelled", evidenceType: "owner_attestation",
       evidenceRef: "synthetic-owner-message", beforeHash: diff.beforeHash,
-      afterHash: diff.afterHash, sourceIds: ["synthetic-cancel-j"] };
+      afterHash: diff.afterHash,
+      sourceIds: ["synthetic-cancel-j", "synthetic-cancel-j-2"] };
     const nextConfig = { ...firstConfig, sourceCopyId: "synthetic-after",
       sourceCopyCreatedAt: "2026-10-21T02:50:00.000Z",
       capturedAt: "2026-10-21T02:50:00.000Z",
@@ -133,7 +136,8 @@ test("Sweetfun shadow cancellation transaction deletes one night and retains the
       const result = await cancelSweetfunShadow(pool, after, nextConfig,
         decision, localDatabase);
       assert.equal(result.action, "cancelled");
-      assert.equal(result.removedRoomNights, 1);
+      assert.equal(result.removedRows, 2);
+      assert.equal(result.removedRoomNights, 2);
       assert.equal(result.sourceNoteRowsChanged, 1);
       assert.equal(result.canCutover, false);
       assert.equal((await cancelSweetfunShadow(pool, after, nextConfig,
@@ -143,7 +147,7 @@ test("Sweetfun shadow cancellation transaction deletes one night and retains the
       assert.equal(stored.readOnly, true);
       assert.equal(stored.bookings.length, 1);
       assert.equal(stored.bookings[0].id, firstConfig.bookingIds[keepKey]);
-      assert.equal(stored.sweetfunImport.cancellationTombstones.length, 1);
+      assert.equal(stored.sweetfunImport.cancellationTombstones.length, 2);
       assert.equal((await admin.query(`SELECT count(*)::int AS n
         FROM iron_gate.occupied_room_nights WHERE property_id=$1`, [propertyId])).rows[0].n, 1);
     } finally {

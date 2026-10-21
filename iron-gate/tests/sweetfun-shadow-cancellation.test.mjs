@@ -85,6 +85,51 @@ test("copies a concurrent plain order-note change without changing occupancy", (
   assert.equal(plan.state.bookings[0].notes, "Synthetic housekeeping note");
 });
 
+test("one attested two-night booking removes both nights together", () => {
+  const twoNightBefore = structuredClone(before);
+  twoNightBefore.rows.splice(1, 0, row(3, "synthetic-cancel-j-2",
+    "synthetic-cancel-l", "202", "2026/10/26", "2026/10/27"));
+  twoNightBefore.rows[2].rowNumber = 4;
+  const twoNightAfter = { headers: [...SWEETFUN_HEADERS], rows: [
+    { ...structuredClone(twoNightBefore.rows[2]), rowNumber: 2 } ] };
+  const groups = prepareSweetfunGroups(twoNightBefore);
+  const twoNightKey = groups.candidates.find((group) =>
+    group.rows.some((source) => source.values[9] === "synthetic-cancel-j")).key;
+  const initial = { ...fixed, expectedSourceHash: groups.sourceHash,
+    bookingIds: { [twoNightKey]: fixed.bookingIds[cancelledKey],
+      [retainedKey]: fixed.bookingIds[retainedKey] } };
+  const current = prepareSweetfunShadow(twoNightBefore, initial).state;
+  const twoNightDiff = diffSweetfunSnapshots(twoNightBefore, twoNightAfter);
+  const twoNightDecision = { ...decision, beforeHash: twoNightDiff.beforeHash,
+    afterHash: twoNightDiff.afterHash,
+    sourceIds: ["synthetic-cancel-j", "synthetic-cancel-j-2"] };
+  const config = { ...nextConfig,
+    expectedSourceHash: twoNightDiff.afterHash,
+    cancellationTombstones: annotateSweetfunDisappearances(twoNightDiff,
+      [twoNightDecision]).tombstones };
+  const plan = planSweetfunCancellationShadow(current, twoNightAfter,
+    config, twoNightDecision);
+  assert.equal(plan.summary.removedRows, 2);
+  assert.equal(plan.summary.removedBookings, 1);
+  assert.equal(plan.summary.removedRoomNights, 2);
+  assert.equal(plan.summary.ownerConfirmedCancelled, 2);
+  assert.equal(plan.removedOccupancy.length, 2);
+  assert.equal(verifySweetfunShadow(twoNightAfter, config, plan.state).matches, true);
+
+  const partial = { headers: [...SWEETFUN_HEADERS], rows: [
+    structuredClone(twoNightBefore.rows[1]), structuredClone(twoNightBefore.rows[2]) ] };
+  const partialDiff = diffSweetfunSnapshots(twoNightBefore, partial);
+  const partialDecision = { ...decision, beforeHash: partialDiff.beforeHash,
+    afterHash: partialDiff.afterHash };
+  const partialConfig = { ...config,
+    expectedSourceHash: partialDiff.afterHash,
+    bookingIds: initial.bookingIds,
+    cancellationTombstones: annotateSweetfunDisappearances(partialDiff,
+      [partialDecision]).tombstones };
+  assert.throws(() => planSweetfunCancellationShadow(current, partial,
+    partialConfig, partialDecision), /SWEETFUN_SHADOW_CANCELLATION_BOOKING_CONFLICT/);
+});
+
 test("cancellation refuses missing decision, altered source, UUID drift and unsafe state", () => {
   const current = prepareSweetfunShadow(before, fixed).state;
   assert.throws(() => planSweetfunCancellationShadow(current, after,

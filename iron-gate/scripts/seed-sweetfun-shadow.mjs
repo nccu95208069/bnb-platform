@@ -168,7 +168,7 @@ export async function advanceSweetfunShadow(pool, snapshot, config,
   } finally { client.release(); }
 }
 
-/** Remove one owner-attested booking/night from the read-only shadow only. */
+/** Remove one owner-attested booking and all of its nights from the read-only shadow only. */
 export async function cancelSweetfunShadow(pool, snapshot, config, ownerDecision,
   { expectedDatabaseName = "postgres" } = {}) {
   if (config?.sourceCopyId === config?.sourceId ||
@@ -211,7 +211,8 @@ export async function cancelSweetfunShadow(pool, snapshot, config, ownerDecision
       WHERE occupied.property_id = $1 AND occupied.room_id = x.room_id
         AND occupied.night = x.night AND occupied.booking_id = x.booking_id`,
     [config.propertyId, JSON.stringify(plan.removedOccupancy)]);
-    if (deleted.rowCount !== 1) throw Error("SHADOW_TARGET_OCCUPANCY_CONFLICT");
+    if (deleted.rowCount !== plan.removedOccupancy.length)
+      throw Error("SHADOW_TARGET_OCCUPANCY_CONFLICT");
     const readback = await client.query(`SELECT state_json FROM iron_gate.property_state
       WHERE property_id = $1`, [config.propertyId]);
     const occupancy = await client.query(`SELECT room_id::text, night::text, booking_id::text
@@ -219,13 +220,16 @@ export async function cancelSweetfunShadow(pool, snapshot, config, ownerDecision
     if (readback.rows.length !== 1 ||
       !verifySweetfunShadow(snapshot, config, readback.rows[0].state_json).matches ||
       !checkPropertyIntegrity(readback.rows[0].state_json, occupancy.rows).ok ||
-      occupancy.rows.length !== actual.rows.length - 1)
+      occupancy.rows.length !== actual.rows.length - plan.removedOccupancy.length)
       throw Error("SHADOW_READBACK_MISMATCH");
     await client.query("COMMIT");
     return { action: "cancelled", sourceHash: plan.summary.afterHash,
-      removedRows: 1, removedBookings: 1, removedRoomNights: 1,
+      removedRows: plan.summary.removedRows,
+      removedBookings: plan.summary.removedBookings,
+      removedRoomNights: plan.summary.removedRoomNights,
       sourceNoteRowsChanged: plan.summary.sourceNoteRowsChanged,
-      ownerConfirmedCancelled: 1, writerReceiptVerified: false,
+      ownerConfirmedCancelled: plan.summary.ownerConfirmedCancelled,
+      writerReceiptVerified: false,
       paymentEventsCreated: 0, canCutover: false };
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
