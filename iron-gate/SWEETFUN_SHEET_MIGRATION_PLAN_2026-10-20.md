@@ -113,3 +113,5 @@ Iron Gate 預計保有**訂單關聯的已核實收退款事件**，但它目前
 Firestore 每日七天受管排程的首份備份已讀回 `READY`，向新命名資料庫隔離還原的 17 個指定集合逐文件一致，測試資料庫已清理。Supabase 每日實體備份已還原至獨立專案，專用 `iron_gate` 五表資料與結構摘要和原專案一致；OS Redis 的原生備份已在獨立庫還原，讀到 18,655 個鍵，但未逐鍵核對內容。**業主指示保留 Supabase 與 Upstash 兩個付費隔離還原測試資源**，因此未清理，保留期間可能持續計費。Iron Gate 候選已部署至受保護 Preview 並通過未授權請求拒絕測試，Production 仍固定 `503`。Gmail／LINE 正式 Cloud Run 為 `unified-assistant-16f32d1`；最新 LINE 訂單確認仍寫正式 Sheet，尚無 Iron Gate 影子事件接線。六個選定 Gmail／LINE Firestore 集合的摘要未變，但原 Sheet 已出現上述取消，證明這六集合不能代表全部入口的正式事件水位。仍缺財務無損對照、三入口持久影子事件／回執、持續增量水位及切換閘門。上述任一項缺失時 `canCutover` 維持 `false`，Iron Gate Production 不接管水芳真實訂單。接續核對財務與 Gmail／OS／LINE 的逐筆事件及水位；完成後才提供具體切換報告供業主決定正式窗口。
 
 12:02 台北時間正式 Sheet 又有 Gmail 服務修訂；唯讀核對只有 215 列位置變動，J 集合、A:S 值／註記及兩個財務投影均未變。影子的業務房晚對這次讀值仍一致，但嚴格來源列號版本與最終 writer 水位尚未追上。
+
+當日下午，正式專用 Supabase 已受限保存四類財務來源原文並回讀，82 筆訂單層級主張及 2 筆館別支出主張已對到固定版本 4 的影子 UUID，未解決連結 0；這些主張未轉成付款事件，外部結算未驗證。另完成 Gmail 主表寫入見證及 LINE `succeeded` journal 的**本地候選**核對器和合成測試。Gmail 候選尚未推送、部署或正式啟用，OS／LINE／Gmail 的共同事件水位和舊 writer 封寫尚未建立；因此 `canCutover=false`，Iron Gate Production 仍不接管真實訂單。
