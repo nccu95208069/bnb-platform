@@ -48,7 +48,7 @@ function fixture(propertyId, workspaceId, captureId) {
       outbox: [doc({ entry, operation_id: operationId, digest: "digest", sequence: 1 })],
       projection_receipts: [doc({ digest: "digest", sequence: 1 })],
     } },
-    { sourceId: "synthetic-sheet-source", rows: [
+    { sourceId: "synthetic-os-source", sheetSourceId: "synthetic-sheet-source", rows: [
       { sourceJ, parentL, markerH: "not_yet", noteH: "" }] },
     { entryId: entry.entry_id, orderId: parentL, kind: "deposit",
       status: "active", version: 1, amountCents: 100000 },
@@ -73,7 +73,8 @@ test("restricted finance evidence stages once and cannot alter booking or paymen
       await admin.query(`INSERT INTO iron_gate.property_state
         (property_id, workspace_id, authority_epoch, inventory_version, state_json)
         VALUES ($1,$2,0,1,$3::jsonb)`, [propertyId, workspaceId, JSON.stringify(state)]);
-      const options = { expectedDatabaseName: "iron_gate_test" };
+      const options = { expectedDatabaseName: "iron_gate_test",
+        expectedOsSourceId: "synthetic-os-source" };
       const first = await stageSweetfunFinanceEvidence(importer, sources, manifest, options);
       assert.equal(first.action, "inserted");
       assert.equal(first.sourceCount, 4);
@@ -93,6 +94,15 @@ test("restricted finance evidence stages once and cannot alter booking or paymen
       await assert.rejects(stageSweetfunFinanceEvidence(importer, changedMap,
         { ...manifest, normalizedSourceHash: changedHash }, options),
       /EVIDENCE_SHADOW_ROW_MISMATCH/);
+      const wrongSheetSource = [...sources];
+      const wrongSheetMap = JSON.parse(wrongSheetSource[2]);
+      wrongSheetMap.sheetSourceId = "another-sheet";
+      wrongSheetSource[2] = JSON.stringify(wrongSheetMap);
+      await assert.rejects(stageSweetfunFinanceEvidence(importer, wrongSheetSource,
+        manifest, options), /EVIDENCE_SHADOW_VERSION_MISMATCH/);
+      await assert.rejects(stageSweetfunFinanceEvidence(importer, sources,
+        manifest, { ...options, expectedOsSourceId: "another-os-source" }),
+      /EVIDENCE_SHADOW_VERSION_MISMATCH/);
       const stored = await admin.query(`SELECT count(*)::int AS n FROM
         iron_gate.migration_source_evidence WHERE capture_id=$1`, [captureId]);
       assert.equal(stored.rows[0].n, 4);

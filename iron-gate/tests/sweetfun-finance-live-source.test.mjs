@@ -62,7 +62,7 @@ function fixture() {
       operation_id: "synthetic-line-operation" })],
     projection_receipts: [doc({ digest: "synthetic-digest", sequence: 1 })],
   } };
-  const sheetMap = { sourceId, rows: [
+  const sheetMap = { sourceId, sheetSourceId: "synthetic-sheet-file", rows: [
     { sourceJ: "synthetic-j1", parentL: "synthetic-l1", markerH: "done",
       noteH: "confirmed synthetic-request" },
     { sourceJ: "synthetic-j2", parentL: lineParent, markerH: "not_yet", noteH: "" },

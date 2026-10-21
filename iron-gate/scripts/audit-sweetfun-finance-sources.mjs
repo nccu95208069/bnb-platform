@@ -64,6 +64,7 @@ export function auditSweetfunFinanceSources(osRaw, lineRaw, sheetMap, lineProjec
   if (osRaw?.schema !== 1 || lineRaw?.schema !== 1 ||
     !Array.isArray(osRaw.records) || !Array.isArray(sheetMap?.rows) ||
     typeof sheetMap.sourceId !== "string" || !sheetMap.sourceId ||
+    typeof sheetMap.sheetSourceId !== "string" || !sheetMap.sheetSourceId ||
     typeof lineProjection?.entryId !== "string")
     throw Error("INVALID_LIVE_FINANCE_EVIDENCE");
   const osRecords = new Map();

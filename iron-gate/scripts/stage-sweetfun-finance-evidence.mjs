@@ -53,13 +53,14 @@ function validateManifest(manifest) {
     throw Error("INVALID_EVIDENCE_MANIFEST");
 }
 
-function checkSheetMapAgainstShadow(sheetMap, state, manifest) {
+function checkSheetMapAgainstShadow(sheetMap, state, manifest, expectedOsSourceId) {
   if (state?.propertyId !== manifest.propertyId || state?.readOnly !== true ||
     state?.authorityEpoch !== 0 || state?.channel?.ready !== false ||
     state?.channel?.websiteSalesEnabled !== false ||
     state?.sweetfunImport?.sourceHash !== manifest.sheetSourceHash ||
     state?.sweetfunImport?.capturedAt !== manifest.sourceCopyCreatedAt ||
-    state?.sweetfunImport?.sourceId !== sheetMap.sourceId ||
+    state?.sweetfunImport?.sourceId !== sheetMap.sheetSourceId ||
+    sheetMap.sourceId !== expectedOsSourceId ||
     !Array.isArray(state.bookings) ||
     state.bookings.some((booking) => !Array.isArray(booking.paymentEvents) ||
       booking.paymentEvents.length))
@@ -82,7 +83,8 @@ function checkSheetMapAgainstShadow(sheetMap, state, manifest) {
 
 /** Append-only, evidence-only shadow. It does not create payment events. */
 export async function stageSweetfunFinanceEvidence(pool, rawSources, manifest,
-  { expectedDatabaseName = "postgres" } = {}) {
+  { expectedDatabaseName = "postgres",
+    expectedOsSourceId = "sweetfun-operations-sheet-v1" } = {}) {
   validateManifest(manifest);
   if (!Array.isArray(rawSources) || rawSources.length !== kinds.length ||
     rawSources.some((value) => typeof value !== "string" ||
@@ -128,7 +130,8 @@ export async function stageSweetfunFinanceEvidence(pool, rawSources, manifest,
     const shadow = await client.query(`SELECT state_json FROM iron_gate.property_state
       WHERE property_id = $1`, [manifest.propertyId]);
     if (shadow.rows.length !== 1) throw Error("EVIDENCE_SHADOW_NOT_FOUND");
-    checkSheetMapAgainstShadow(parsed[2], shadow.rows[0].state_json, manifest);
+    checkSheetMapAgainstShadow(parsed[2], shadow.rows[0].state_json, manifest,
+      expectedOsSourceId);
     const sourceDigests = rawSources.map(digest);
     let inserted = 0;
     for (let i = 0; i < kinds.length; i++) {
