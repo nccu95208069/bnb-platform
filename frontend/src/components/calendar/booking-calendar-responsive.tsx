@@ -1004,7 +1004,9 @@ const uiLocale = useIntlLocale();
   );
 }
 
-export function BookingCalendarResponsive() {
+export function BookingCalendarResponsive({ snapshotPreviewConfigured = false }: {
+  snapshotPreviewConfigured?: boolean;
+}) {
   const uiText = useT();
 
   const [paymentReview, setPaymentReview] = useState(false);
@@ -1015,7 +1017,9 @@ export function BookingCalendarResponsive() {
   const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);
   const membership = useAccessControl((state) => state.membership);
   const supported = ["sweetfun", "offland"];
-  const showUnsold = viewPrices && supported.some(id => (PAYMENT_SANDBOX || membership?.allProperties || membership?.propertyIds.includes(id)) && (selectedPropertyIds.length === 0 || selectedPropertyIds.includes(id)));
+  const previewApplies = snapshotPreviewConfigured &&
+    (selectedPropertyIds.length === 0 || selectedPropertyIds.includes("sweetfun"));
+  const showUnsold = !previewApplies && viewPrices && supported.some(id => (PAYMENT_SANDBOX || membership?.allProperties || membership?.propertyIds.includes(id)) && (selectedPropertyIds.length === 0 || selectedPropertyIds.includes(id)));
   useEffect(() => { if (ready && !showUnsold && mode === "unsold") setMode("sold"); }, [ready, showUnsold, mode, setMode]);
   if (!ready)
     return <p className="p-4 text-sm text-muted-foreground">{uiText("讀取日曆…")}</p>;
