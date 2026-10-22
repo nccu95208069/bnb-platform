@@ -88,7 +88,7 @@ function proof(url: string, config: IronGateCalendarConfig, principal: Principal
     clientId: config.grant.clientId, workspaceId: config.grant.workspaceId,
     propertyId: config.grant.propertyId, subjectId: principal.id,
     actions: ['booking:read'], fields: principal.viewPrices ?
-      ['guest_name', 'payment_status'] : ['guest_name'],
+      ['guest_name', 'payment_status', 'money'] : ['guest_name'],
     issuedAtMs: nowMs, expiresAtMs: nowMs + 5000, method: 'GET',
     pathAndQuery: `${parsed.pathname}${parsed.search}`, idempotencyKey: null,
     bodySha256: createHash('sha256').digest('hex') };
@@ -150,13 +150,21 @@ function calendarBooking(booking: Record<string, unknown>,
     ['sheet_flag', 'payment_events'].includes(String(review.source))
     ? review.status as 'paid' | 'deposit' : 'unknown';
   const paymentSource = paymentStatus !== 'unknown' ? String(review?.source) : 'unknown';
+  const amounts = booking.stayAmountsCents;
+  const priced = viewPrices && Array.isArray(amounts) &&
+    amounts.length === (booking.stays as unknown[]).length &&
+    Number.isSafeInteger(booking.totalCents) && Number(booking.totalCents) >= 0 &&
+    amounts.every(value => Number.isSafeInteger(value) && value >= 0) &&
+    amounts.reduce((sum: number, value: number) => sum + value, 0) === booking.totalCents;
+  const cents = priced ? Number(amounts[stayIndex]) : 0;
   return { id, sheet_row_id: id, order_id: `IG-${booking.id}`,
     external_order_no: null, property_id: 'sweetfun', property_name: '水芳 Sweetfun',
     room_id: `sweetfun-${roomNumber}`, room_number: roomNumber,
     guest_name: name, guest_name_kind: name === '姓名待核' ? 'missing' : 'real',
     platform: sweetfunCalendarPlatform(source?.platform), check_in: checkIn, check_out: checkOut,
     booked_at: null,
-    room_rate: 0, payment_status: paymentStatus, reservation_status: 'confirmed',
+    room_rate: cents / 100,
+    payment_status: paymentStatus, reservation_status: 'confirmed',
     notes: null, payments: [], audit_log: [], extra_guest_count: 0,
     extra_bed_count: 0, pet_count: 0, baby_supplies: [], service_note: null,
     source_read_only: true, requirements_known: false, payment_unconfirmed: true,
@@ -167,7 +175,7 @@ function calendarBooking(booking: Record<string, unknown>,
       : paymentSource === 'payment_events'
         ? '依已核對收款紀錄顯示；實際入帳仍需對帳'
         : '付款資料尚未核對，請勿視為未付款',
-    price_hidden: true };
+    price_hidden: !priced };
 }
 
 function blockedBooking(roomNumber: string, night: string): CalendarBooking {

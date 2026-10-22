@@ -957,11 +957,11 @@ const uiLocale = useIntlLocale();
                     <>
                       <DetailRow
                         label={uiText("本筆房費")}
-                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : formatMoney(booking.room_rate, uiLocale)}
+                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : booking.price_hidden ? uiText("待核對") : formatMoney(booking.room_rate, uiLocale)}
                       />
                       <DetailRow
                         label={booking.source_read_only ? uiText("已串接紀錄合計") : uiText("訂單總額")}
-                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : formatMoney(orderTotal, uiLocale)}
+                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : orderSegments.some(segment => segment.price_hidden) ? uiText("待核對") : formatMoney(orderTotal, uiLocale)}
                       />
                     </>
                   )}

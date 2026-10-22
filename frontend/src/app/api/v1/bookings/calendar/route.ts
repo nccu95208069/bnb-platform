@@ -267,7 +267,7 @@ export async function GET(request: NextRequest) {
           missing_order_id: 0,
           missing_payment_status: missingPaymentNights };
         return NextResponse.json({
-          price_hidden: true,
+          price_hidden: !principal.viewPrices,
           year: startDate.getUTCFullYear(), month: startDate.getUTCMonth() + 1,
           month_start: monthStart(start), month_end: monthEnd(start),
           period_start: start, period_end: end,
@@ -275,7 +275,9 @@ export async function GET(request: NextRequest) {
           rooms: ROOMS.filter(r => definitions.some(d => d.property.id === r.property_id)),
           order_count: new Set(bookings.filter(b => !b.source_conflict).map(b => b.order_id)).size,
           booking_segment_count: bookings.filter(b => !b.source_conflict).length,
-          total_amount: 0, bookings, source, source_summary: sourceSummary,
+          total_amount: bookings.filter(b => !b.source_conflict && !b.price_hidden)
+            .reduce((sum, b) => sum + b.room_rate, 0),
+          bookings, source, source_summary: sourceSummary,
           sources: [{ property_id: "sweetfun", source, summary: sourceSummary },
             ...(other?.snapshots.map(({ definition, snapshot }) => ({
               property_id: definition.property.id, source: snapshot.source,

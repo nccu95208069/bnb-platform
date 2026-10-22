@@ -344,6 +344,7 @@ export function coalesceContiguousBookings(bookings: CalendarBooking[]) {
         guest_name_kind: current.guest_name_kind === "real" && (booking.guest_name_kind !== "real" || comparableGuestName(current.guest_name) !== comparableGuestName(booking.guest_name)) ? "missing" : current.guest_name_kind,
         check_out: booking.check_out > current.check_out ? booking.check_out : current.check_out,
         room_rate: current.room_rate + booking.room_rate,
+        price_hidden: current.price_hidden || booking.price_hidden,
         nightly_amounts: current.nightly_amounts && booking.nightly_amounts
           ? [...current.nightly_amounts, ...booking.nightly_amounts] : undefined,
         source_payment_label: current.source_payment_label === booking.source_payment_label

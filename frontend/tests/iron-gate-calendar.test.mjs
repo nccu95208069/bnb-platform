@@ -53,7 +53,7 @@ function sender(data, configValue, mutate = () => {}, actingPrincipal = principa
     assert.equal(proof?.subjectId, actingPrincipal.id);
     assert.deepEqual(proof?.actions, ['booking:read']);
     assert.deepEqual(proof?.fields, actingPrincipal.viewPrices ?
-      ['guest_name', 'payment_status'] : ['guest_name']);
+      ['guest_name', 'payment_status', 'money'] : ['guest_name']);
     assert.equal(request.headers.get('authorization'), `Bearer ${grant.token}`);
     calls++;
     const value = url.includes('/availability?') ?
@@ -191,11 +191,11 @@ test('one signed snapshot returns calendar bookings and blocks with no paginatio
   /IRON_GATE_CALENDAR_INVENTORY_DRIFT/);
 });
 
-test('calendar exposes a scoped paid marker while keeping room price hidden', async () => {
+test('calendar shows verified stay price to price roles and hides it from no-price roles', async () => {
   const c = config(), data = fixture({ blocked: false });
   const snapshot = { propertyId, workspaceId, from: '2026-10-25', to: '2026-10-26',
     inventoryVersion: 7, authorityEpoch: 1, readOnly: false,
-    bookings: [{ ...data.page.bookings[0], paymentReview: {
+    bookings: [{ ...data.page.bookings[0], totalCents: 360000, stayAmountsCents: [360000], paymentReview: {
       status: 'paid', source: 'sheet_flag' } }],
     cells: data.availability.cells.filter(cell => cell.state === 'sold') };
   const send = async () => Response.json(snapshot);
@@ -203,12 +203,14 @@ test('calendar exposes a scoped paid marker while keeping room price hidden', as
     principal, c, send);
   assert.equal(owner.bookings[0].payment_status, 'paid');
   assert.equal(owner.bookings[0].payment_review_status, 'paid');
-  assert.equal(owner.bookings[0].price_hidden, true);
-  assert.equal(owner.bookings[0].room_rate, 0);
+  assert.equal(owner.bookings[0].price_hidden, false);
+  assert.equal(owner.bookings[0].room_rate, 3600);
   assert.equal(owner.bookings[0].source_payment_flag, 'done');
   const noPrice = await readSweetfunIronGateCalendarSnapshot(snapshot.from, snapshot.to,
     { ...principal, viewPrices: false }, c, send);
   assert.equal(noPrice.bookings[0].payment_status, 'unknown');
   assert.equal(noPrice.bookings[0].payment_review_status, undefined);
   assert.equal(noPrice.bookings[0].source_payment_flag, 'unknown');
+  assert.equal(noPrice.bookings[0].price_hidden, true);
+  assert.equal(noPrice.bookings[0].room_rate, 0);
 });

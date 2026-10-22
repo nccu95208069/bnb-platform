@@ -36,6 +36,7 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
     role: 'viewer', status: 'active', allProperties: false,
     propertyIds: ['sweetfun', 'offland'], credential: { schema: 1, kind: 'password',
       revision: 'd'.repeat(64), salt: 'e'.repeat(32), hash: 'f'.repeat(128) } };
+  const noPriceMember = { ...member, id: 'b'.repeat(32), role: 'viewer_no_price' };
   let inventoryMatches = true;
   let sheetCalls = 0;
   let igCalls = 0;
@@ -45,7 +46,7 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
     if (target === 'https://fixture.invalid') {
       const command = JSON.parse(options.body);
       if (command[1]?.endsWith(':members'))
-        return Response.json({ result: JSON.stringify({ version: 1, members: [member] }) });
+        return Response.json({ result: JSON.stringify({ version: 1, members: [member, noPriceMember] }) });
       return Response.json({ result: null });
     }
     if (target.startsWith('https://sheets.googleapis.com/')) {
@@ -64,6 +65,7 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
       authorityEpoch: 1, readOnly: false, cells,
       bookings: [{ id: '66666666-6666-4666-8666-666666666666',
         workspaceId, propertyId, status: 'confirmed', guestName: 'Sample Guest',
+        totalCents: 179000, stayAmountsCents: [179000],
         paymentReview: { status: 'paid', source: 'sheet_flag' },
         stays: [{ checkIn: '2026-10-25', checkOut: '2026-10-26',
           roomIds: [roomIds['101']] }] }] });
@@ -79,12 +81,24 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
   assert.equal(data.bookings[0].guest_name, 'Sample Guest');
   assert.equal(data.properties.length, 2);
   assert.equal(data.rooms.length, 6);
-  assert.equal(data.price_hidden, true);
+  assert.equal(data.price_hidden, false);
+  assert.equal(data.bookings[0].price_hidden, false);
+  assert.equal(data.bookings[0].room_rate, 1790);
   assert.equal(data.bookings[0].payment_status, 'paid');
   assert.equal(data.bookings[0].payment_review_status, 'paid');
   assert.equal(data.source.availability_authoritative, false);
   assert.equal(sheetCalls, 0);
   assert.equal(igCalls, 1);
+
+  const noPriceRequest = new NextRequest('https://fixture.invalid/api/v1/bookings/calendar?start=2026-10-25&end=2026-10-26&properties=sweetfun', {
+    headers: { cookie: `${MEMBER_COOKIE}=${createMemberSession(noPriceMember)}` },
+  });
+  const noPriceResponse = await GET(noPriceRequest);
+  const noPriceData = await noPriceResponse.json();
+  assert.equal(noPriceResponse.status, 200);
+  assert.equal(noPriceData.price_hidden, true);
+  assert.equal(noPriceData.bookings[0].price_hidden, true);
+  assert.equal(noPriceData.bookings[0].room_rate, 0);
 
   inventoryMatches = false;
   const failed = await GET(request);
