@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { readCalendarSources, calendarReadError, type CalendarReadEvent } from "@/lib/booking-sources/calendar-reader";
 import { readBookingSnapshot } from "@/lib/booking-sources/snapshot";
 import { activeSources } from "@/lib/booking-sources/config";
-import { ironGateCalendarConfig, readSweetfunIronGateCalendar } from "@/lib/booking-sources/iron-gate-calendar.server";
+import { ironGateCalendarConfig, readSweetfunIronGateCalendarSnapshot } from "@/lib/booking-sources/iron-gate-calendar.server";
 import { type NextRequest, NextResponse } from "next/server";
 
 type PaymentStatus = "paid" | "deposit" | "unpaid";
@@ -237,7 +237,7 @@ export async function GET(request: NextRequest) {
           definitions.some(d => d.key === "sweetfun")) {
         const offland = definitions.filter(d => d.key !== "sweetfun");
         const [ig, other] = await Promise.all([
-          readSweetfunIronGateCalendar(start, end, principal, ironGateCalendarConfig()),
+          readSweetfunIronGateCalendarSnapshot(start, end, principal, ironGateCalendarConfig()),
           offland.length ? readCalendarSources(offland, start, end, principal.viewPrices, {
             cache: configuredPrivateCalendarCache(), startedAt,
             snapshot: readBookingSnapshot, details: readOperationalSheet,

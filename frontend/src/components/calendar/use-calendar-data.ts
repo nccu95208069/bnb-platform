@@ -12,12 +12,27 @@ type Input = {
   onProperties: (properties: CalendarProperty[]) => void;
   onAccessLost: () => void;
 };
+type WindowState = { scope: string; reload: number;
+  windows: Map<string, { data: CalendarResponse; at: number }>;
+  pending: Map<string, Promise<CalendarResponse>> };
+
+function readWindow(state: WindowState, from: string, to: string,
+  read: Input['read']): Promise<CalendarResponse> {
+  const key = `${from}:${to}`;
+  const existing = state.pending.get(key);
+  if (existing) return existing;
+  const request = read(from, to);
+  state.pending.set(key, request);
+  void request.then(() => { if (state.pending.get(key) === request) state.pending.delete(key); },
+    () => { if (state.pending.get(key) === request) state.pending.delete(key); });
+  return request;
+}
 
 // Private data is retained only in this mounted view and only for the exact access scope.
 export function useCalendarData({ start, end, visibleStart = start, visibleEnd = end, scope, reload, prefetch = [], read, onProperties, onAccessLost }: Input) {
   const [loaded, setLoaded] = useState<{ scope: string; data: CalendarResponse } | null>(null);
-  const cache = useRef<{ scope: string; reload: number; windows: Map<string, { data: CalendarResponse; at: number }> }>({
-    scope, reload, windows: new Map(),
+  const cache = useRef<WindowState>({
+    scope, reload, windows: new Map(), pending: new Map(),
   });
   const [failed, setFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +50,7 @@ export function useCalendarData({ start, end, visibleStart = start, visibleEnd =
   const prefetchKey = JSON.stringify(prefetch.map(({ start: from, end: to }) => [from, to]));
 
   useEffect(() => {
-    cache.current = { scope, reload: -1, windows: new Map() };
+    cache.current = { scope, reload: -1, windows: new Map(), pending: new Map() };
     setLoaded(null); setLastLoadedAt(null); setFailed(false); setError(null);
     setSettledKey(null);
   }, [scope]);
@@ -47,17 +62,16 @@ export function useCalendarData({ start, end, visibleStart = start, visibleEnd =
       try {
         const state = cache.current;
         const force = state.reload !== reload;
+        if (force) state.pending.clear();
         state.reload = reload;
         const key = `${start}:${end}`;
-        const cached = state.windows.get(key);
-        if (!force && cached && Date.now() - cached.at < 120_000) {
-          const combined = combinedCalendarWindows([...state.windows.values()].map(item => item.data), start, end);
-          if (combined) {
-            setLoaded({ scope, data: combined }); setFailed(false); setError(null);
-            setSettledKey(requestKey); return;
-          }
+        const fresh = [...state.windows.values()].filter(item => Date.now() - item.at < 120_000);
+        const cached = combinedCalendarWindows(fresh.map(item => item.data), start, end);
+        if (!force && cached && hasCalendarCoverage(cached, start, end)) {
+          setLoaded({ scope, data: cached }); setFailed(false); setError(null);
+          setSettledKey(requestKey); return;
         }
-        const response = await read(start, end);
+        const response = await readWindow(state, start, end, read);
         if (!active) return;
         if (!validCalendarResponse(response, start, end)) throw Error('收到的日曆資料不完整，保留上次資料。');
         const priorVersion = state.windows.values().next().value?.data.source?.private_snapshot_version;
@@ -92,10 +106,10 @@ export function useCalendarData({ start, end, visibleStart = start, visibleEnd =
         const state = cache.current;
         if (state.scope !== scope || state.reload !== reload) return;
         const key = `${from}:${to}`;
-        const cached = state.windows.get(key);
-        if (cached && Date.now() - cached.at < 120_000) continue;
+        const fresh = [...state.windows.values()].filter(item => Date.now() - item.at < 120_000);
+        if (hasCalendarCoverage(combinedCalendarWindows(fresh.map(item => item.data), from, to), from, to)) continue;
         try {
-          const response = await read(from, to);
+          const response = await readWindow(state, from, to, read);
           if (!active) return;
           if (!validCalendarResponse(response, from, to) ||
             response.source?.private_snapshot_version !== data.source?.private_snapshot_version) continue;

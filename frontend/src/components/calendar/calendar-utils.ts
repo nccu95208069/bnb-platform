@@ -200,6 +200,18 @@ export function fetchPeriod(anchorDate: string, view: CalendarView): CalendarPer
   };
 }
 
+// Iron Gate can now return one consistent sparse calendar snapshot for a year.
+// Loading each calendar year once restores local month navigation in that year.
+export function sweetfunMonthWindow(anchorDate: string): CalendarPeriod {
+  const month = startOfMonth(anchorDate);
+  const year = Number(month.slice(0, 4));
+  return {
+    start: monthCalendarPeriod(`${year}-01-01`).start,
+    end: monthCalendarPeriod(`${year + 1}-01-01`).end,
+    label: formatMonthLabel(month),
+  };
+}
+
 export function formatDate(value: string | null, locale="zh-TW") {
   if (!value) return "—";
   return new Intl.DateTimeFormat(locale, {

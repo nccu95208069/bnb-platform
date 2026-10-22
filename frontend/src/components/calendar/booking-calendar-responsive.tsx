@@ -70,6 +70,7 @@ import {
   monthStarts,
   overlapNights,
   startOfMonth,
+  sweetfunMonthWindow,
 } from "@/components/calendar/calendar-utils";
 import { WeekCarousel } from "@/components/calendar/week-carousel";
 import { visualCalendarStays } from "@/components/calendar/visual-stays";
@@ -239,9 +240,14 @@ const uiLocale = useIntlLocale();
     return [...valid].sort();
   }, [availableProperties.length, selectedPropertyIds]);
   const propertyScope = requestedPropertyIds.join(',');
-  const prefetchRanges = useMemo(() => view === "month" && propertyScope === "sweetfun"
-    ? [fetchPeriod(addMonths(visibleMonth, 1), "month"), fetchPeriod(addMonths(visibleMonth, -1), "month")]
-    : [], [view, propertyScope, visibleMonth]);
+  const sweetfunWideMonth = view === "month" && propertyScope === "sweetfun";
+  const prefetchRanges = useMemo(() => {
+    if (!sweetfunWideMonth) return [];
+    const month = Number(visibleMonth.slice(5, 7));
+    if (month >= 10) return [sweetfunMonthWindow(addMonths(visibleMonth, 12))];
+    if (month <= 3) return [sweetfunMonthWindow(addMonths(visibleMonth, -12))];
+    return [];
+  }, [sweetfunWideMonth, visibleMonth]);
   const scopedRead = useCallback((start: string, end: string) =>
     readCalendar(start, end, propertyScope ? propertyScope.split(',') : []), [propertyScope]);
   const selectedId = useCalendarPreferences((s) => s.selectedBookingId);
@@ -258,14 +264,17 @@ const uiLocale = useIntlLocale();
   const previousView = useRef<CalendarView>(view);
   const handledNavigationRequest = useRef(navigationRequest?.id ?? 0);
   const requestPeriod = useMemo(
-    () => fetchPeriod(anchorDate, view),
-    [anchorDate, view],
+    () => sweetfunWideMonth ? sweetfunMonthWindow(anchorDate) : fetchPeriod(anchorDate, view),
+    [anchorDate, view, sweetfunWideMonth],
   );
+  const visiblePeriod = view === "month" ? fetchPeriod(visibleMonth, "month") : requestPeriod;
   const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess(); }, [setSelectedId, initializeAccess]);
   const { data, loading, refreshing, error, requestFailed, lastLoadedAt } = useCalendarData({
     start: requestPeriod.start, end: requestPeriod.end,
     scope: `${accessScope}:${propertyScope}`, reload: reloadKey,
     read: scopedRead, onProperties: setProperties, onAccessLost: accessLost,
+    visibleStart: visiblePeriod.start,
+    visibleEnd: visiblePeriod.end,
     prefetch: prefetchRanges,
   });
   const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
@@ -376,7 +385,8 @@ const uiLocale = useIntlLocale();
 
 
   const sourceChanged = useCallback(() => setReloadKey(value => value + 1), []);
-  useCalendarRevision((data?.properties ?? []).map(p => p.id).filter(id => id === 'sweetfun' || id === 'offland').sort().join(','), !PAYMENT_SANDBOX && !!data?.source?.automatic_sync, sourceChanged);
+  useCalendarRevision((data?.properties ?? []).map(p => p.id).filter(id => id === 'sweetfun' || id === 'offland').sort().join(','),
+    !PAYMENT_SANDBOX && data?.data_mode !== "iron_gate_booking_only" && !!data?.source?.automatic_sync, sourceChanged);
 
   const rawEditedBookings = useMemo(
     () =>
@@ -395,7 +405,7 @@ const uiLocale = useIntlLocale();
     if (!membership || membership.allProperties) return null;
     return new Set(membership.propertyIds);
   }, [membership]);
-  const coverageMissing = !hasCalendarCoverage(data, requestPeriod.start, requestPeriod.end);
+  const coverageMissing = !hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end);
   const unavailableSelectedSource = coverageMissing || data?.source_errors?.some(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)));
 
 

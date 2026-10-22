@@ -22,12 +22,12 @@ export function retainedCalendar(data: CalendarResponse | null, failed: boolean)
 // Month grids overlap at their edges. Combine only a contiguous set from the
 // same inventory version, anchored on the month the user is viewing.
 export function combinedCalendarWindows(windows: CalendarResponse[], start: string, end: string): CalendarResponse | null {
-  const anchor = windows.find(window => hasCalendarCoverage(window, start, end));
+  const anchor = windows.find(window => window.period_start <= start && window.period_end > start);
   if (!anchor) return null;
   const version = anchor.source?.private_snapshot_version;
   const peers = windows.filter(window => window.source?.private_snapshot_version === version)
     .sort((left, right) => left.period_start.localeCompare(right.period_start));
-  let first = start, last = end;
+  let first = anchor.period_start, last = anchor.period_end;
   let changed = true;
   while (changed) {
     changed = false;
@@ -37,6 +37,7 @@ export function combinedCalendarWindows(windows: CalendarResponse[], start: stri
       if (window.period_end > last) { last = window.period_end; changed = true; }
     }
   }
+  if (last < end) return null;
   const connected = peers.filter(window => window.period_start <= last && window.period_end >= first);
   const bookings = [...new Map(connected.flatMap(window => window.bookings).map(booking => [booking.id, booking])).values()];
   const properties = [...new Map(connected.flatMap(window => window.properties).map(property => [property.id, property])).values()];

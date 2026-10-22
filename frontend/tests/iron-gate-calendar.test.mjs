@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createOsMemberProofVerifier } from '../../iron-gate/src/os-member-proof.mjs';
-import { ironGateCalendarConfig, readSweetfunIronGateCalendar } from
+import { ironGateCalendarConfig, readSweetfunIronGateCalendar, readSweetfunIronGateCalendarSnapshot } from
   '../src/lib/booking-sources/iron-gate-calendar.server.ts';
 
 const workspaceId = '11111111-1111-4111-8111-111111111111';
@@ -162,4 +162,30 @@ test('calendar refuses a still read-only shadow even when it has bookings', asyn
   data.page.readOnly = true;
   await assert.rejects(readSweetfunIronGateCalendar('2026-10-25', '2026-10-26',
     principal, c, sender(data, c)), /IRON_GATE_CALENDAR_VERSION_DRIFT/);
+});
+
+test('one signed snapshot returns calendar bookings and blocks with no pagination', async () => {
+  const c = config();
+  const data = fixture();
+  const snapshot = { propertyId, workspaceId, from: '2026-10-25', to: '2026-10-26',
+    inventoryVersion: 7, authorityEpoch: 1, readOnly: false,
+    bookings: data.page.bookings,
+    cells: data.availability.cells.filter(cell => cell.state !== 'unsold') };
+  let requests = 0;
+  const verify = createOsMemberProofVerifier(c.proofSecret);
+  const send = async (url, init) => {
+    requests++;
+    assert.match(url, /calendar-snapshot\?from=2026-10-25&to=2026-10-26$/);
+    assert.equal((await verify(new Request(url, init), { ...c.grant, origin: 'os' }))?.subjectId, principal.id);
+    return Response.json(snapshot);
+  };
+  const result = await readSweetfunIronGateCalendarSnapshot(snapshot.from, snapshot.to,
+    principal, c, send);
+  assert.equal(requests, 1);
+  assert.equal(result.soldRoomNights, 1);
+  assert.equal(result.blockedRoomNights, 1);
+  assert.equal(result.bookings[0].platform, 'booking');
+  await assert.rejects(readSweetfunIronGateCalendarSnapshot(snapshot.from, snapshot.to,
+    principal, c, async () => Response.json({ ...snapshot, cells: snapshot.cells.slice(1) })),
+  /IRON_GATE_CALENDAR_INVENTORY_DRIFT/);
 });

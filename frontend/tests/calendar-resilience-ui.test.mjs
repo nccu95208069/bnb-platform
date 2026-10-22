@@ -116,3 +116,29 @@ test('prefetched monthly windows make the next month available without another m
   assert.equal(state.loading, false);
   assert.equal(attempts.filter(item => item.start === props.start && item.end === props.end).length, 1);
 });
+
+test('scrolling October to November keeps the yearly snapshot and makes no network read', async t => {
+  const attempts = [];
+  let state;
+  const read = (start, end) => new Promise(resolve => attempts.push({ start, end, resolve }));
+  const onProperties = () => {}, onAccessLost = () => {};
+  const props = { start: '2025-12-29', end: '2027-02-01',
+    visibleStart: '2026-09-28', visibleEnd: '2026-11-02',
+    scope: 'owner:sweetfun', reload: 0 };
+  function Probe(input) {
+    state = useCalendarData({ ...input, read, onProperties, onAccessLost });
+    return createElement('span', null, state.loading ? 'loading' : 'calendar');
+  }
+  const { root } = await mount(t, Probe, props);
+  await act(async () => { attempts[0].resolve({ ...response(props.start, props.end),
+    source: { private_snapshot_version: '17' } }); await tick(); });
+  assert.equal(document.body.textContent, 'calendar');
+  props.visibleStart = '2026-10-26'; props.visibleEnd = '2026-12-07';
+  await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+  assert.equal(state.loading, false);
+  assert.equal(attempts.length, 1);
+  props.visibleStart = '2026-11-30'; props.visibleEnd = '2027-01-04';
+  await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+  assert.equal(state.loading, false);
+  assert.equal(attempts.length, 1);
+});

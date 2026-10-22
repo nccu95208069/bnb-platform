@@ -97,13 +97,13 @@ function proof(url: string, config: IronGateCalendarConfig, principal: Principal
 }
 
 async function getJson(url: string, config: IronGateCalendarConfig, principal: Principal,
-  send: typeof fetch, maxBytes: number): Promise<unknown> {
+  send: typeof fetch, maxBytes: number, timeoutMs = 5000): Promise<unknown> {
   let response: Response;
   try {
     response = await send(url, { method: 'GET', headers: {
       authorization: `Bearer ${config.grant.token}`,
       'x-iron-gate-os-proof': proof(url, config, principal),
-    }, cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(5000) });
+    }, cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
   } catch { throw Error('IRON_GATE_CALENDAR_UNAVAILABLE'); }
   if (!response.ok) throw Error('IRON_GATE_CALENDAR_UNAVAILABLE');
   const declared = response.headers.get('content-length');
@@ -169,6 +169,87 @@ function blockedBooking(roomNumber: string, night: string): CalendarBooking {
     extra_bed_count: 0, pet_count: 0, baby_supplies: [], service_note: null,
     source_read_only: true, source_conflict: true, requirements_known: false,
     payment_unconfirmed: true, price_hidden: true };
+}
+
+/** A single Iron Gate state read supplies both bookings and sparse occupancy. */
+export async function readSweetfunIronGateCalendarSnapshot(start: string, end: string,
+  principal: Principal, config: IronGateCalendarConfig,
+  send: typeof fetch = fetch): Promise<{ bookings: CalendarBooking[];
+    inventoryVersion: number; authorityEpoch: number; soldRoomNights: number;
+    blockedRoomNights: number; observedAt: string }> {
+  const first = day(start), last = day(end);
+  if (last <= first || last - first > 410) throw Error('IRON_GATE_CALENDAR_INVALID_DATE');
+  if (!(principal.allProperties || principal.propertyIds.includes('sweetfun')))
+    throw Error('IRON_GATE_CALENDAR_FORBIDDEN');
+  const url = new URL(`/v1/properties/${config.grant.propertyId}/calendar-snapshot`,
+    `${baseUrl(config.baseUrl)}/`);
+  url.searchParams.set('from', start);
+  url.searchParams.set('to', end);
+  const raw = await getJson(url.toString(), config, principal, send, 1024 * 1024, 8000);
+  if (!object(raw) || raw.propertyId !== config.grant.propertyId ||
+    raw.workspaceId !== config.grant.workspaceId || raw.from !== start || raw.to !== end ||
+    !Number.isSafeInteger(raw.inventoryVersion) || Number(raw.inventoryVersion) < 0 ||
+    raw.authorityEpoch !== config.expectedAuthorityEpoch || raw.readOnly !== false ||
+    !Array.isArray(raw.bookings) || raw.bookings.length > 2048 ||
+    !Array.isArray(raw.cells) || raw.cells.length > 4096)
+    throw Error('IRON_GATE_CALENDAR_INVALID_SNAPSHOT');
+  const roomById = new Map(Object.entries(config.roomIds).map(([room, id]) => [id, room]));
+  const observed = new Map<string, string>();
+  for (const cell of raw.cells) {
+    if (!object(cell) || !roomById.has(String(cell.roomId)) ||
+      typeof cell.date !== 'string' || day(cell.date) < first || day(cell.date) >= last ||
+      !['sold', 'held', 'blocked'].includes(String(cell.state)))
+      throw Error('IRON_GATE_CALENDAR_INVALID_INVENTORY');
+    const key = `${cell.roomId}:${cell.date}`;
+    if (observed.has(key)) throw Error('IRON_GATE_CALENDAR_INVALID_INVENTORY');
+    observed.set(key, String(cell.state));
+  }
+  const seenBookings = new Set<string>();
+  const sold = new Set<string>();
+  const bookings: CalendarBooking[] = [];
+  for (const item of raw.bookings) {
+    if (!object(item) || !UUID.test(String(item.id)) ||
+      item.propertyId !== config.grant.propertyId ||
+      item.workspaceId !== config.grant.workspaceId ||
+      !['confirmed', 'held'].includes(String(item.status)) ||
+      !Array.isArray(item.stays) || item.stays.length > 32 ||
+      seenBookings.has(String(item.id)))
+      throw Error('IRON_GATE_CALENDAR_INVALID_BOOKING');
+    seenBookings.add(String(item.id));
+    if (item.status === 'held') throw Error('IRON_GATE_CALENDAR_HELD_UNSUPPORTED');
+    for (const [stayIndex, rawStay] of item.stays.entries()) {
+      if (!object(rawStay) || typeof rawStay.checkIn !== 'string' ||
+        typeof rawStay.checkOut !== 'string' || !Array.isArray(rawStay.roomIds) ||
+        rawStay.roomIds.length < 1 || rawStay.roomIds.length > 6)
+        throw Error('IRON_GATE_CALENDAR_INVALID_BOOKING');
+      const from = day(rawStay.checkIn), to = day(rawStay.checkOut);
+      if (to <= from || to - from > 1500) throw Error('IRON_GATE_CALENDAR_INVALID_BOOKING');
+      for (const roomId of rawStay.roomIds) {
+        const roomNumber = roomById.get(String(roomId));
+        if (!roomNumber) throw Error('IRON_GATE_CALENDAR_INVALID_BOOKING');
+        if (to > first && from < last)
+          bookings.push(calendarBooking(item, roomNumber, stayIndex,
+            rawStay.checkIn, rawStay.checkOut));
+        for (let n = Math.max(from, first); n < Math.min(to, last); n++) {
+          const key = `${roomId}:${date(n)}`;
+          if (sold.has(key)) throw Error('IRON_GATE_CALENDAR_COLLISION');
+          sold.add(key);
+        }
+      }
+    }
+  }
+  if (sold.size !== [...observed.values()].filter(state => state === 'sold').length ||
+    [...sold].some(key => observed.get(key) !== 'sold') ||
+    [...observed.values()].some(state => state === 'held'))
+    throw Error('IRON_GATE_CALENDAR_INVENTORY_DRIFT');
+  for (const [key, state] of observed) if (state === 'blocked') {
+    const [roomId, night] = key.split(':');
+    bookings.push(blockedBooking(roomById.get(roomId)!, night));
+  }
+  return { bookings, inventoryVersion: Number(raw.inventoryVersion),
+    authorityEpoch: config.expectedAuthorityEpoch, soldRoomNights: sold.size,
+    blockedRoomNights: [...observed.values()].filter(state => state === 'blocked').length,
+    observedAt: new Date().toISOString() };
 }
 
 /** Authoritative booking and occupancy read; any missing page or version drift fails closed. */

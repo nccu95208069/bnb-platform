@@ -21,3 +21,13 @@ test('month windows join only when their dates and inventory versions agree', ()
   const newer = combinedCalendarWindows([october, window(november.period_start, november.period_end, '18')], october.period_start, october.period_end);
   assert.equal(newer.period_end, october.period_end);
 });
+
+test('overlapping cached windows cover a newly centered month without another read', () => {
+  const first = window('2026-08-31', '2027-01-04');
+  const next = window('2026-11-30', '2027-04-05');
+  const merged = combinedCalendarWindows([first, next], '2026-09-28', '2027-02-01');
+  assert.equal(merged?.period_start, '2026-08-31');
+  assert.equal(merged?.period_end, '2027-04-05');
+  assert.equal(combinedCalendarWindows([first], '2026-09-28', '2027-02-01'), null);
+  assert.equal(combinedCalendarWindows([first, window(next.period_start, next.period_end, '18')], '2026-09-28', '2027-02-01'), null);
+});
