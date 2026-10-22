@@ -145,3 +145,35 @@ test('scrolling October to November keeps the yearly snapshot and makes no netwo
   assert.equal(state.loading, false);
   assert.equal(attempts.length, 1);
 });
+
+test('both adjacent years warm in parallel and stay available across a twelve-month scroll', async t => {
+  const attempts = [];
+  let state;
+  const read = (start, end) => new Promise(resolve => attempts.push({ start, end, resolve }));
+  const onProperties = () => {}, onAccessLost = () => {};
+  const years = [
+    { start: '2024-12-30', end: '2026-02-02' },
+    { start: '2025-12-29', end: '2027-02-01' },
+    { start: '2026-12-28', end: '2028-02-07' },
+  ];
+  const props = { ...years[1], visibleStart: '2026-09-28', visibleEnd: '2026-11-02',
+    scope: 'owner:sweetfun', reload: 0, prefetch: [years[0], years[2]] };
+  const live = ({ start, end }) => ({ ...response(start, end), source: { private_snapshot_version: '17' } });
+  function Probe(input) {
+    const value = useCalendarData({ ...input, read, onProperties, onAccessLost });
+    useEffect(() => { state = value; }, [value]);
+    return createElement('span', null, value.loading ? 'loading' : 'calendar');
+  }
+  const { root } = await mount(t, Probe, props);
+  await act(async () => { attempts[0].resolve(live(years[1])); await tick(); });
+  assert.equal(attempts.length, 3, 'both neighboring year reads start without waiting for each other');
+  await act(async () => {
+    attempts[1].resolve(live(years[0])); attempts[2].resolve(live(years[2])); await tick();
+  });
+  for (const [year, month] of [[years[0], '2025-10-01'], [years[2], '2027-10-01']]) {
+    Object.assign(props, year, { visibleStart: month, visibleEnd: month.replace('-10-', '-11-'), prefetch: [] });
+    await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+    assert.equal(state.loading, false);
+    assert.equal(attempts.length, 3, 'scrolling across years reuses the verified snapshot');
+  }
+});

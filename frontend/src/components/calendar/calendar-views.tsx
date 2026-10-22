@@ -4,7 +4,7 @@ import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 
 import { PaymentBadge } from "./payment-badge";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useMonthPosition } from "./use-month-position";
 import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
@@ -152,14 +152,12 @@ function MonthPanel({
   bookings,
   onSelectBooking,
   onSelectDay,
-  sectionRef,
   viewportHeight,
   fontScale,
   desktop,
 }: CalendarViewProps & {
   monthStart: string;
   covered?: boolean;
-  sectionRef: (node: HTMLElement | null) => void;
   viewportHeight: number;
   fontScale: number;
   desktop: boolean;
@@ -199,7 +197,7 @@ const uiLocale = useIntlLocale();
   }, 0);
 
   if (!covered) return (
-    <section ref={sectionRef} data-month={monthStart} data-position-month={monthStart}
+    <section data-month={monthStart}
       className="scroll-mt-2 bg-card" style={{ minHeight: viewportHeight }}>
       <div className="sticky top-0 z-20 flex h-8 items-center justify-between border-y bg-background/95 px-3 backdrop-blur md:px-4">
         <h2 className="text-base font-semibold">{formatMonthLabel(monthStart, uiLocale)}</h2>
@@ -210,9 +208,7 @@ const uiLocale = useIntlLocale();
 
   return (
     <section
-      ref={sectionRef}
       data-month={monthStart}
-      data-position-month={monthStart}
       className="scroll-mt-2 bg-card"
     >
       <div className="sticky top-0 z-20 flex items-center justify-between h-8 border-y bg-background/95 px-3 backdrop-blur md:px-4">
@@ -342,6 +338,60 @@ const uiLocale = useIntlLocale();
   );
 }
 
+// Keep the scroll track and its measured heights stable while only building
+// the expensive booking grid around the viewport. Native momentum can cross
+// month boundaries without React replacing the scroll container's children.
+const LazyMonthPanel = memo(function LazyMonthPanel({ monthStart, covered,
+  viewportHeight, fontScale, desktop, bookings, rooms, properties,
+  onSelectBooking, onSelectDay, root, initialActive }: CalendarViewProps & {
+  monthStart: string; covered: boolean; viewportHeight: number;
+  fontScale: number; desktop: boolean; initialActive: boolean;
+  root: RefObject<HTMLDivElement | null>;
+}) {
+  const uiLocale = useIntlLocale();
+  const uiText = useT();
+  const ref = useRef<HTMLDivElement>(null);
+  const [near, setNear] = useState(initialActive);
+  const [height, setHeight] = useState(viewportHeight);
+
+  useEffect(() => {
+    const node = ref.current;
+    const container = root.current;
+    if (!node || !container) return;
+    const observer = new IntersectionObserver(entries => {
+      setNear(entries.some(entry => entry.isIntersecting));
+    }, { root: container, rootMargin: '900px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [root]);
+
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || !near || !covered) return;
+    const measure = () => {
+      const next = Math.ceil(node.getBoundingClientRect().height);
+      setHeight(current => Math.abs(current - next) > 1 ? next : current);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [near, covered]);
+
+  return <div ref={ref} data-position-month={monthStart}
+    style={near && covered ? { minHeight: viewportHeight } : { height: Math.max(height, viewportHeight) }}
+    className="bg-card">
+    {near && covered ? <MonthPanel monthStart={monthStart} covered
+      viewportHeight={viewportHeight} fontScale={fontScale} desktop={desktop}
+      bookings={bookings} rooms={rooms} properties={properties}
+      onSelectBooking={onSelectBooking} onSelectDay={onSelectDay} /> :
+      <div className="sticky top-0 flex h-8 items-center justify-between border-y bg-background px-3">
+        <span className="font-semibold">{formatMonthLabel(monthStart, uiLocale)}</span>
+        {near && !covered && <span className="text-xs text-muted-foreground">{uiText('訂單尚未載入')}</span>}
+      </div>}
+  </div>;
+});
+
 export function MonthScroller({
   months,
   coveredMonths,
@@ -365,6 +415,10 @@ export function MonthScroller({
   const [viewportHeight, setViewportHeight] = useState(520);
   const [fontScale, setFontScale] = useState(1);
   const [desktop, setDesktop] = useState(false);
+  const callbacks = useRef({ onSelectBooking, onSelectDay });
+  useLayoutEffect(() => { callbacks.current = { onSelectBooking, onSelectDay }; }, [onSelectBooking, onSelectDay]);
+  const selectBooking = useCallback((booking: CalendarBooking) => callbacks.current.onSelectBooking(booking), []);
+  const selectDay = useCallback((day: string) => callbacks.current.onSelectDay(day), []);
   useLayoutEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
@@ -392,19 +446,20 @@ export function MonthScroller({
       className="overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm"
     >
       {months.map((monthStart) => (
-        <MonthPanel
+        <LazyMonthPanel
           key={monthStart}
           monthStart={monthStart}
           covered={!coveredMonths || coveredMonths.includes(monthStart)}
+          initialActive={monthStart === targetMonth}
+          root={scrollRef}
           viewportHeight={viewportHeight}
           fontScale={fontScale}
           desktop={desktop}
           bookings={bookings}
           rooms={rooms}
           properties={properties}
-          onSelectBooking={onSelectBooking}
-          onSelectDay={onSelectDay}
-          sectionRef={() => {}}
+          onSelectBooking={selectBooking}
+          onSelectDay={selectDay}
         />
       ))}
     </div>

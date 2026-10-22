@@ -227,11 +227,18 @@ const uiLocale = useIntlLocale();
   const [monthTarget, setMonthTarget] = useState(() =>
     startOfMonth(anchorDate),
   );
-  const renderedMonths = useMemo(() => {
-    const index = MONTHS.indexOf(monthTarget);
-    if (index < 0) return [monthTarget];
-    return MONTHS.slice(Math.max(0, index - 1), Math.min(MONTHS.length, index + 2));
-  }, [monthTarget]);
+  const scrollCommit = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelScrollCommit = useCallback(() => {
+    if (scrollCommit.current) clearTimeout(scrollCommit.current);
+    scrollCommit.current = null;
+  }, []);
+  useEffect(() => () => {
+    cancelScrollCommit();
+  }, [cancelScrollCommit]);
+  // Keep every month in the scroll track. MonthScroller mounts the costly
+  // calendar grid only near the viewport, so scrolling never replaces the
+  // previous month or resets native scroll momentum.
+  const renderedMonths = MONTHS.includes(monthTarget) ? MONTHS : [monthTarget];
   const accessScope = JSON.stringify([membership?.id, membership?.role, membership?.allProperties, membership?.propertyIds]);
   const requestedPropertyIds = useMemo(() => {
     const valid = selectedPropertyIds.filter(id => id === 'sweetfun' || id === 'offland');
@@ -243,11 +250,11 @@ const uiLocale = useIntlLocale();
   const sweetfunWideMonth = view === "month" && propertyScope === "sweetfun";
   const prefetchRanges = useMemo(() => {
     if (!sweetfunWideMonth) return [];
-    const month = Number(visibleMonth.slice(5, 7));
-    if (month >= 10) return [sweetfunMonthWindow(addMonths(visibleMonth, 12))];
-    if (month <= 3) return [sweetfunMonthWindow(addMonths(visibleMonth, -12))];
-    return [];
-  }, [sweetfunWideMonth, visibleMonth]);
+    const year = Number(anchorDate.slice(0, 4));
+    return [year - 1, year + 1]
+      .filter(neighbor => MONTHS.some(month => month.startsWith(`${neighbor}-`)))
+      .map(neighbor => sweetfunMonthWindow(`${neighbor}-01-01`));
+  }, [sweetfunWideMonth, anchorDate]);
   const scopedRead = useCallback((start: string, end: string) =>
     readCalendar(start, end, propertyScope ? propertyScope.split(',') : []), [propertyScope]);
   const selectedId = useCalendarPreferences((s) => s.selectedBookingId);
@@ -255,9 +262,10 @@ const uiLocale = useIntlLocale();
   const historyRevision = useCalendarPreferences((s) => s.historyRevision);
   useEffect(() => {
     const month = startOfMonth(useCalendarPreferences.getState().anchorDate);
+    cancelScrollCommit();
     setVisibleMonth(month);
     setMonthTarget(month);
-  }, [historyRevision]);
+  }, [historyRevision, cancelScrollCommit]);
   const [reloadKey, setReloadKey] = useState(0);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
   const [editsHydrated, setEditsHydrated] = useState(false);
@@ -309,6 +317,7 @@ const uiLocale = useIntlLocale();
     handledNavigationRequest.current = navigationRequest.id;
 
     if (navigationRequest.action === "today") {
+      cancelScrollCommit();
       setTodayRequest(value=>value+1);
       const today = localTodayIso();
       setAnchorDate(today);
@@ -322,6 +331,7 @@ const uiLocale = useIntlLocale();
 
     const direction = navigationRequest.action === "previous" ? -1 : 1;
     if (view === "month") {
+      cancelScrollCommit();
       const target = addMonths(visibleMonth, direction);
       setVisibleMonth(target);
       setMonthTarget(target);
@@ -333,7 +343,7 @@ const uiLocale = useIntlLocale();
       return;
     }
     setAnchorDate((value) => addDays(value, direction));
-  }, [navigationRequest, view, visibleMonth, setAnchorDate]);
+  }, [navigationRequest, view, visibleMonth, setAnchorDate, cancelScrollCommit]);
 
   useEffect(() => {
     const oldView = previousView.current;
@@ -534,10 +544,14 @@ const uiLocale = useIntlLocale();
   const handleVisibleMonthChange = useCallback(
     (month: string) => {
       setVisibleMonth(month);
-      // Keep the scroll target in sync when a newly visible month needs a
-      // fresh bounded read and the scroller temporarily remounts.
-      setMonthTarget(month);
-      setAnchorDate((current) => startOfMonth(current) === month ? current : month);
+      // A fast swipe can pass several months in one gesture. Commit the URL
+      // and data anchor only after it settles instead of doing it on every
+      // scroll frame and rebuilding the booking view mid-gesture.
+      if (scrollCommit.current) clearTimeout(scrollCommit.current);
+      scrollCommit.current = setTimeout(() => {
+        scrollCommit.current = null;
+        setAnchorDate((current) => startOfMonth(current) === month ? current : month);
+      }, 180);
     },
     [setAnchorDate],
   );
@@ -554,6 +568,7 @@ const uiLocale = useIntlLocale();
 
   function navigate(direction: -1 | 1) {
     if (view === "month") {
+      cancelScrollCommit();
       const target = addMonths(visibleMonth, direction);
       setVisibleMonth(target);
       setMonthTarget(target);
@@ -568,6 +583,7 @@ const uiLocale = useIntlLocale();
   }
 
   function goToToday() {
+    cancelScrollCommit();
     setTodayRequest(value=>value+1);
     const today = localTodayIso();
     setAnchorDate(today);

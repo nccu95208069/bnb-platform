@@ -65,7 +65,11 @@ export function useCalendarData({ start, end, visibleStart = start, visibleEnd =
         if (force) state.pending.clear();
         state.reload = reload;
         const key = `${start}:${end}`;
-        const fresh = [...state.windows.values()].filter(item => Date.now() - item.at < 120_000);
+        // Iron Gate windows share an inventory version. Keep adjacent years in
+        // memory until a scheduled reload observes a new version; a time-only
+        // eviction would stall scrolling even when nothing changed.
+        const fresh = [...state.windows.values()].filter(item =>
+          item.data.source?.private_snapshot_version || Date.now() - item.at < 120_000);
         const cached = combinedCalendarWindows(fresh.map(item => item.data), start, end);
         if (!force && cached && hasCalendarCoverage(cached, start, end)) {
           setLoaded({ scope, data: cached }); setFailed(false); setError(null);
@@ -101,32 +105,36 @@ export function useCalendarData({ start, end, visibleStart = start, visibleEnd =
     if (settledKey !== requestKey || !mainCovered || failed || !data?.source?.private_snapshot_version) return;
     let active = true;
     void (async () => {
-      for (const [from, to] of JSON.parse(prefetchKey) as [string, string][]) {
-        if (!active) return;
-        const state = cache.current;
-        if (state.scope !== scope || state.reload !== reload) return;
-        const key = `${from}:${to}`;
-        const fresh = [...state.windows.values()].filter(item => Date.now() - item.at < 120_000);
-        if (hasCalendarCoverage(combinedCalendarWindows(fresh.map(item => item.data), from, to), from, to)) continue;
-        try {
-          const response = await readWindow(state, from, to, read);
-          if (!active) return;
-          if (!validCalendarResponse(response, from, to) ||
-            response.source?.private_snapshot_version !== data.source?.private_snapshot_version) continue;
-          state.windows.delete(key);
-          state.windows.set(key, { data: response, at: Date.now() });
-          while (state.windows.size > 7) state.windows.delete(state.windows.keys().next().value!);
-          const combined = combinedCalendarWindows([...state.windows.values()].map(item => item.data), start, end);
-          if (combined) setLoaded({ scope, data: combined });
-        } catch (cause) {
-          if (!active) return;
+      const state = cache.current;
+      if (state.scope !== scope || state.reload !== reload) return;
+      const ranges = (JSON.parse(prefetchKey) as [string, string][]).filter(([from, to]) => {
+        const cached = combinedCalendarWindows([...state.windows.values()].map(item => item.data), from, to);
+        return !hasCalendarCoverage(cached, from, to);
+      });
+      // Both adjacent years start together so either scroll direction is warm.
+      const results = await Promise.allSettled(ranges.map(async ([from, to]) => ({
+        from, to, response: await readWindow(state, from, to, read),
+      })));
+      if (!active || state !== cache.current || state.reload !== reload) return;
+      for (const result of results) {
+        if (result.status === 'rejected') {
+          const cause = result.reason;
           if (cause instanceof ApiError && [401, 403].includes(cause.status)) {
             state.windows.clear(); setLoaded(null); setLastLoadedAt(null);
             setFailed(true); setError(cause.message); onAccessLost(); return;
           }
-          // Current month remains valid; navigation will retry the missing month.
+          continue;
         }
+        const { from, to, response } = result.value;
+        if (!validCalendarResponse(response, from, to) ||
+          response.source?.private_snapshot_version !== data.source?.private_snapshot_version) continue;
+        const key = `${from}:${to}`;
+        state.windows.delete(key);
+        state.windows.set(key, { data: response, at: Date.now() });
       }
+      while (state.windows.size > 7) state.windows.delete(state.windows.keys().next().value!);
+      const combined = combinedCalendarWindows([...state.windows.values()].map(item => item.data), start, end);
+      if (combined) setLoaded({ scope, data: combined });
     })();
     return () => { active = false; };
   }, [prefetchKey, settledKey, requestKey, mainCovered, failed, data?.source?.private_snapshot_version, scope, reload, start, end, read, onAccessLost]);
