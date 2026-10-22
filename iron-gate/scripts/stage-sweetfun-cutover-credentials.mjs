@@ -8,6 +8,7 @@ import { Pool } from "pg";
 import { tokenHash, validateGrant } from "../src/credential-grant.mjs";
 import { checkPropertyIntegrity } from "../src/property-integrity.mjs";
 import { prepareSweetfunSourceLinks } from "../src/sweetfun-source-links.mjs";
+import { sweetfunReviewResolved } from "../src/sweetfun-historical-review.mjs";
 import { validateDatabaseTransport } from "../src/runtime-safety.mjs";
 import { privateJson } from "./seed-sweetfun-shadow.mjs";
 
@@ -31,10 +32,10 @@ export function planSweetfunCutoverCredentials(state, occupancy, manifest) {
     state.sweetfunImport?.sourceHash !== manifest.expectedSourceHash ||
     state.sweetfunImport?.sourceId !== manifest.sourceAccount ||
     state.sweetfunImport?.uncontainedReviewRows !== 0 ||
-    state.sweetfunImport?.quarantined?.length !== 0 ||
+    !sweetfunReviewResolved(state) ||
     !Array.isArray(state.sourceLinks) || !state.sourceLinks.length ||
     state.sourceGrants?.length !== 0 || state.operations?.length !== 0 ||
-    state.receipts?.length !== 0 || state.fences?.length !== 0 ||
+    state.receipts?.length !== 0 ||
     state.manualBlocks?.length !== 0 ||
     !checkPropertyIntegrity(state, occupancy).ok)
     throw Error("SWEETFUN_CREDENTIAL_PREFLIGHT_FAILED");

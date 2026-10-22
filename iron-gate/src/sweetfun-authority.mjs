@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { prepareSweetfunSourceLinks } from "./sweetfun-source-links.mjs";
 import { checkPropertyIntegrity } from "./property-integrity.mjs";
+import { sweetfunReviewResolved } from "./sweetfun-historical-review.mjs";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const sha256 = /^[0-9a-f]{64}$/;
@@ -39,9 +40,9 @@ export function planSweetfunAuthorityActivation(state, occupancyRows, manifest) 
     state.channel?.mode !== "none" || state.channel?.ready !== false ||
     state.channel?.websiteSalesEnabled !== false ||
     state.sweetfunImport?.uncontainedReviewRows !== 0 ||
-    state.sweetfunImport?.quarantined?.length !== 0 ||
+    !sweetfunReviewResolved(state) ||
     state.sourceGrants?.length !== 0 || state.operations?.length !== 0 ||
-    state.receipts?.length !== 0 || state.fences?.length !== 0 ||
+    state.receipts?.length !== 0 ||
     state.manualBlocks?.length !== 0 || state.bookings?.length === 0 ||
     state.bookings?.some((booking) => booking.paymentEvents?.length) ||
     !Array.isArray(state.sourceLinks) || !state.sourceLinks.length ||
