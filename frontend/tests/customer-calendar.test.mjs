@@ -51,12 +51,18 @@ test("selected rooms remain removable when dates or refreshed availability intro
     originalGetComputedStyle = globalThis.getComputedStyle,
     originalMutationObserver = globalThis.MutationObserver,
     originalResizeObserver = globalThis.ResizeObserver,
+    originalIntersectionObserver = globalThis.IntersectionObserver,
+    originalRequestAnimationFrame = globalThis.requestAnimationFrame,
+    originalCancelAnimationFrame = globalThis.cancelAnimationFrame,
     originalEnvironment = globalThis.IS_REACT_ACT_ENVIRONMENT;
   globalThis.window = dom.window;
   globalThis.document = dom.window.document;
   globalThis.getComputedStyle = dom.window.getComputedStyle.bind(dom.window);
   globalThis.MutationObserver = dom.window.MutationObserver;
   globalThis.ResizeObserver = class { observe() {} disconnect() {} };
+  globalThis.IntersectionObserver = class { observe() {} disconnect() {} };
+  globalThis.requestAnimationFrame = callback => setTimeout(callback, 0);
+  globalThis.cancelAnimationFrame = timer => clearTimeout(timer);
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   dom.window.HTMLDialogElement.prototype.showModal = function () {
     this.open = true;
@@ -72,6 +78,9 @@ test("selected rooms remain removable when dates or refreshed availability intro
     globalThis.getComputedStyle = originalGetComputedStyle;
     globalThis.MutationObserver = originalMutationObserver;
     globalThis.ResizeObserver = originalResizeObserver;
+    globalThis.IntersectionObserver = originalIntersectionObserver;
+    globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+    globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
     globalThis.IS_REACT_ACT_ENVIRONMENT = originalEnvironment;
     dom.window.close();
   });
