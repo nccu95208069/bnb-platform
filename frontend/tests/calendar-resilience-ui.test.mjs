@@ -75,8 +75,9 @@ test('a nearby background read keeps the visible month on screen', async t => {
   const onProperties = () => {}, onAccessLost = () => {};
   const props = { start: '2026-09-28', end: '2026-11-02', visibleStart: '2026-09-28', visibleEnd: '2026-11-02', scope: 'owner', reload: 0 };
   function Probe(input) {
-    state = useCalendarData({ ...input, read, onProperties, onAccessLost });
-    return createElement('span', null, state.loading ? 'loading' : 'calendar');
+    const value = useCalendarData({ ...input, read, onProperties, onAccessLost });
+    useEffect(() => { state = value; }, [value]);
+    return createElement('span', null, value.loading ? 'loading' : 'calendar');
   }
   const { root } = await mount(t, Probe, props);
   await act(async () => { attempts[0](response(props.start, props.end)); await tick(); });
@@ -102,8 +103,9 @@ test('prefetched monthly windows make the next month available without another m
     prefetch: [{ start: '2026-10-26', end: '2026-12-07' }] };
   const live = (start, end) => ({ ...response(start, end), source: { private_snapshot_version: '17' } });
   function Probe(input) {
-    state = useCalendarData({ ...input, read, onProperties, onAccessLost });
-    return createElement('span', null, state.loading ? 'loading' : 'calendar');
+    const value = useCalendarData({ ...input, read, onProperties, onAccessLost });
+    useEffect(() => { state = value; }, [value]);
+    return createElement('span', null, value.loading ? 'loading' : 'calendar');
   }
   const { root } = await mount(t, Probe, props);
   await act(async () => { attempts[0].resolve(live(props.start, props.end)); await tick(); });
@@ -126,8 +128,9 @@ test('scrolling October to November keeps the yearly snapshot and makes no netwo
     visibleStart: '2026-09-28', visibleEnd: '2026-11-02',
     scope: 'owner:sweetfun', reload: 0 };
   function Probe(input) {
-    state = useCalendarData({ ...input, read, onProperties, onAccessLost });
-    return createElement('span', null, state.loading ? 'loading' : 'calendar');
+    const value = useCalendarData({ ...input, read, onProperties, onAccessLost });
+    useEffect(() => { state = value; }, [value]);
+    return createElement('span', null, value.loading ? 'loading' : 'calendar');
   }
   const { root } = await mount(t, Probe, props);
   await act(async () => { attempts[0].resolve({ ...response(props.start, props.end),
