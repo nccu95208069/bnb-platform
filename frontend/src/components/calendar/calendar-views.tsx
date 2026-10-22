@@ -148,6 +148,7 @@ function chunkWeeks(days: string[]) {
 
 function MonthPanel({
   monthStart,
+  covered = true,
   bookings,
   onSelectBooking,
   onSelectDay,
@@ -157,6 +158,7 @@ function MonthPanel({
   desktop,
 }: CalendarViewProps & {
   monthStart: string;
+  covered?: boolean;
   sectionRef: (node: HTMLElement | null) => void;
   viewportHeight: number;
   fontScale: number;
@@ -195,6 +197,16 @@ const uiLocale = useIntlLocale();
       )
     );
   }, 0);
+
+  if (!covered) return (
+    <section ref={sectionRef} data-month={monthStart} data-position-month={monthStart}
+      className="scroll-mt-2 bg-card" style={{ minHeight: viewportHeight }}>
+      <div className="sticky top-0 z-20 flex h-8 items-center justify-between border-y bg-background/95 px-3 backdrop-blur md:px-4">
+        <h2 className="text-base font-semibold">{formatMonthLabel(monthStart, uiLocale)}</h2>
+        <span className="text-xs text-muted-foreground">{uiText("訂單尚未載入")}</span>
+      </div>
+    </section>
+  );
 
   return (
     <section
@@ -332,6 +344,7 @@ const uiLocale = useIntlLocale();
 
 export function MonthScroller({
   months,
+  coveredMonths,
   targetMonth,
   targetRevision,
   bookings,
@@ -342,6 +355,7 @@ export function MonthScroller({
   onSelectDay,
 }: CalendarViewProps & {
   months: string[];
+  coveredMonths?: string[];
   targetMonth: string;
   targetDate?: string;
   targetRevision?: number;
@@ -381,6 +395,7 @@ export function MonthScroller({
         <MonthPanel
           key={monthStart}
           monthStart={monthStart}
+          covered={!coveredMonths || coveredMonths.includes(monthStart)}
           viewportHeight={viewportHeight}
           fontScale={fontScale}
           desktop={desktop}

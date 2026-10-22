@@ -30,7 +30,7 @@ test('mounted calendar retains readonly data through retry, blocks unvisited ran
   await rerender({ reload: 4 });
   await act(async () => { attempts[5].resolve(response(props.start, props.end)); await tick(); });
   await act(async () => { attempts[4].resolve(response()); await tick(); });
-  assert.equal(state.data.period_start, '2026-11-01'); assert.equal(state.requestFailed, false);
+  assert.equal(hasCalendarCoverage(state.data, props.start, props.end), true); assert.equal(state.requestFailed, false);
   await rerender({ reload: 5 });
   await act(async () => { attempts[6].reject(new ApiError(401, 'revoked')); await tick(); });
   assert.equal(state.data, null); assert.equal(state.lastLoadedAt, null); assert.equal(denied, 1); assert.equal(document.body.textContent.includes('SYNTHETIC_PRIVATE'), false);
@@ -91,4 +91,28 @@ test('a nearby background read keeps the visible month on screen', async t => {
   await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
   assert.equal(state.loading, false);
   assert.equal(document.body.textContent, 'calendar');
+});
+
+test('prefetched monthly windows make the next month available without another main read', async t => {
+  let state;
+  const attempts = [];
+  const read = (start, end) => new Promise(resolve => attempts.push({ start, end, resolve }));
+  const onProperties = () => {}, onAccessLost = () => {};
+  const props = { start: '2026-09-28', end: '2026-11-02', scope: 'owner', reload: 0,
+    prefetch: [{ start: '2026-10-26', end: '2026-12-07' }] };
+  const live = (start, end) => ({ ...response(start, end), source: { private_snapshot_version: '17' } });
+  function Probe(input) {
+    state = useCalendarData({ ...input, read, onProperties, onAccessLost });
+    return createElement('span', null, state.loading ? 'loading' : 'calendar');
+  }
+  const { root } = await mount(t, Probe, props);
+  await act(async () => { attempts[0].resolve(live(props.start, props.end)); await tick(); });
+  assert.equal(document.body.textContent, 'calendar');
+  assert.deepEqual([attempts[1].start, attempts[1].end], ['2026-10-26', '2026-12-07']);
+  await act(async () => { attempts[1].resolve(live(attempts[1].start, attempts[1].end)); await tick(); });
+  assert.equal(hasCalendarCoverage(state.data, '2026-10-26', '2026-12-07'), true);
+  props.start = '2026-10-26'; props.end = '2026-12-07'; props.prefetch = [];
+  await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+  assert.equal(state.loading, false);
+  assert.equal(attempts.filter(item => item.start === props.start && item.end === props.end).length, 1);
 });

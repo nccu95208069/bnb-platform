@@ -1,20 +1,24 @@
 "use client";
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from '@/lib/api-client';
 import type { CalendarProperty, CalendarResponse } from './calendar-types';
-import { hasCalendarCoverage, retainedCalendar, validCalendarResponse } from './calendar-retention';
+import { combinedCalendarWindows, hasCalendarCoverage, retainedCalendar, validCalendarResponse } from './calendar-retention';
 
 type Input = {
   start: string; end: string; scope: string; reload: number;
   visibleStart?: string; visibleEnd?: string;
+  prefetch?: { start: string; end: string }[];
   read: (start: string, end: string) => Promise<CalendarResponse>;
   onProperties: (properties: CalendarProperty[]) => void;
   onAccessLost: () => void;
 };
 
 // Private data is retained only in this mounted view and only for the exact access scope.
-export function useCalendarData({ start, end, visibleStart = start, visibleEnd = end, scope, reload, read, onProperties, onAccessLost }: Input) {
+export function useCalendarData({ start, end, visibleStart = start, visibleEnd = end, scope, reload, prefetch = [], read, onProperties, onAccessLost }: Input) {
   const [loaded, setLoaded] = useState<{ scope: string; data: CalendarResponse } | null>(null);
+  const cache = useRef<{ scope: string; reload: number; windows: Map<string, { data: CalendarResponse; at: number }> }>({
+    scope, reload, windows: new Map(),
+  });
   const [failed, setFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
@@ -27,8 +31,11 @@ export function useCalendarData({ start, end, visibleStart = start, visibleEnd =
   const covered = hasCalendarCoverage(data, visibleStart, visibleEnd);
   const loading = pending && !covered;
   const refreshing = pending && covered;
+  const mainCovered = hasCalendarCoverage(data, start, end);
+  const prefetchKey = JSON.stringify(prefetch.map(({ start: from, end: to }) => [from, to]));
 
   useEffect(() => {
+    cache.current = { scope, reload: -1, windows: new Map() };
     setLoaded(null); setLastLoadedAt(null); setFailed(false); setError(null);
     setSettledKey(null);
   }, [scope]);
@@ -38,15 +45,35 @@ export function useCalendarData({ start, end, visibleStart = start, visibleEnd =
     setSettledKey(null);
     void (async () => {
       try {
+        const state = cache.current;
+        const force = state.reload !== reload;
+        state.reload = reload;
+        const key = `${start}:${end}`;
+        const cached = state.windows.get(key);
+        if (!force && cached && Date.now() - cached.at < 120_000) {
+          const combined = combinedCalendarWindows([...state.windows.values()].map(item => item.data), start, end);
+          if (combined) {
+            setLoaded({ scope, data: combined }); setFailed(false); setError(null);
+            setSettledKey(requestKey); return;
+          }
+        }
         const response = await read(start, end);
         if (!active) return;
         if (!validCalendarResponse(response, start, end)) throw Error('收到的日曆資料不完整，保留上次資料。');
-        setLoaded({ scope, data: response }); setFailed(false); setError(null);
+        const priorVersion = state.windows.values().next().value?.data.source?.private_snapshot_version;
+        const nextVersion = response.source?.private_snapshot_version;
+        if (priorVersion !== nextVersion) state.windows.clear();
+        state.windows.delete(key);
+        state.windows.set(key, { data: response, at: Date.now() });
+        while (state.windows.size > 7) state.windows.delete(state.windows.keys().next().value!);
+        const combined = combinedCalendarWindows([...state.windows.values()].map(item => item.data), start, end) ?? response;
+        setLoaded({ scope, data: combined }); setFailed(false); setError(null);
         setLastLoadedAt(new Date()); setSettledKey(requestKey); onProperties(response.properties);
       } catch (cause) {
         if (!active) return;
         setFailed(true);
         if (cause instanceof ApiError && [401, 403].includes(cause.status)) {
+          cache.current.windows.clear();
           setLoaded(null); setLastLoadedAt(null); onAccessLost();
         }
         setError(cause instanceof Error ? cause.message : '無法讀取訂單日曆');
@@ -55,5 +82,39 @@ export function useCalendarData({ start, end, visibleStart = start, visibleEnd =
     })();
     return () => { active = false; };
   }, [start, end, scope, reload, requestKey, read, onProperties, onAccessLost]);
+
+  useEffect(() => {
+    if (settledKey !== requestKey || !mainCovered || failed || !data?.source?.private_snapshot_version) return;
+    let active = true;
+    void (async () => {
+      for (const [from, to] of JSON.parse(prefetchKey) as [string, string][]) {
+        if (!active) return;
+        const state = cache.current;
+        if (state.scope !== scope || state.reload !== reload) return;
+        const key = `${from}:${to}`;
+        const cached = state.windows.get(key);
+        if (cached && Date.now() - cached.at < 120_000) continue;
+        try {
+          const response = await read(from, to);
+          if (!active) return;
+          if (!validCalendarResponse(response, from, to) ||
+            response.source?.private_snapshot_version !== data.source?.private_snapshot_version) continue;
+          state.windows.delete(key);
+          state.windows.set(key, { data: response, at: Date.now() });
+          while (state.windows.size > 7) state.windows.delete(state.windows.keys().next().value!);
+          const combined = combinedCalendarWindows([...state.windows.values()].map(item => item.data), start, end);
+          if (combined) setLoaded({ scope, data: combined });
+        } catch (cause) {
+          if (!active) return;
+          if (cause instanceof ApiError && [401, 403].includes(cause.status)) {
+            state.windows.clear(); setLoaded(null); setLastLoadedAt(null);
+            setFailed(true); setError(cause.message); onAccessLost(); return;
+          }
+          // Current month remains valid; navigation will retry the missing month.
+        }
+      }
+    })();
+    return () => { active = false; };
+  }, [prefetchKey, settledKey, requestKey, mainCovered, failed, data?.source?.private_snapshot_version, scope, reload, start, end, read, onAccessLost]);
   return { data, loading, refreshing, error: pending ? null : error, requestFailed: failed, lastLoadedAt };
 }

@@ -67,8 +67,6 @@ import {
   formatMoney,
   formatMonthLabel,
   localTodayIso,
-  monthCalendarPeriod,
-  monthReadWindow,
   monthStarts,
   overlapNights,
   startOfMonth,
@@ -231,7 +229,7 @@ const uiLocale = useIntlLocale();
   const renderedMonths = useMemo(() => {
     const index = MONTHS.indexOf(monthTarget);
     if (index < 0) return [monthTarget];
-    return MONTHS.slice(Math.max(0, index - 2), Math.min(MONTHS.length, index + 3));
+    return MONTHS.slice(Math.max(0, index - 1), Math.min(MONTHS.length, index + 2));
   }, [monthTarget]);
   const accessScope = JSON.stringify([membership?.id, membership?.role, membership?.allProperties, membership?.propertyIds]);
   const requestedPropertyIds = useMemo(() => {
@@ -241,6 +239,9 @@ const uiLocale = useIntlLocale();
     return [...valid].sort();
   }, [availableProperties.length, selectedPropertyIds]);
   const propertyScope = requestedPropertyIds.join(',');
+  const prefetchRanges = useMemo(() => view === "month" && propertyScope === "sweetfun"
+    ? [fetchPeriod(addMonths(visibleMonth, 1), "month"), fetchPeriod(addMonths(visibleMonth, -1), "month")]
+    : [], [view, propertyScope, visibleMonth]);
   const scopedRead = useCallback((start: string, end: string) =>
     readCalendar(start, end, propertyScope ? propertyScope.split(',') : []), [propertyScope]);
   const selectedId = useCalendarPreferences((s) => s.selectedBookingId);
@@ -256,40 +257,17 @@ const uiLocale = useIntlLocale();
   const [editsHydrated, setEditsHydrated] = useState(false);
   const previousView = useRef<CalendarView>(view);
   const handledNavigationRequest = useRef(navigationRequest?.id ?? 0);
-  const [monthWindow, setMonthWindow] = useState(() => monthCalendarPeriod(startOfMonth(anchorDate)));
-  const visibleGrid = useMemo(
-    () => monthCalendarPeriod(visibleMonth),
-    [visibleMonth],
-  );
-
   const requestPeriod = useMemo(
-    () => view === "month" ? monthWindow : fetchPeriod(anchorDate, view),
-    [anchorDate, view, monthWindow],
+    () => fetchPeriod(anchorDate, view),
+    [anchorDate, view],
   );
-  const visibleReadPeriod = view === "month" ? visibleGrid : requestPeriod;
   const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess(); }, [setSelectedId, initializeAccess]);
   const { data, loading, refreshing, error, requestFailed, lastLoadedAt } = useCalendarData({
     start: requestPeriod.start, end: requestPeriod.end,
-    visibleStart: visibleReadPeriod.start, visibleEnd: visibleReadPeriod.end,
     scope: `${accessScope}:${propertyScope}`, reload: reloadKey,
     read: scopedRead, onProperties: setProperties, onAccessLost: accessLost,
+    prefetch: prefetchRanges,
   });
-  useEffect(() => {
-    if (view !== "month") return;
-    // A jump outside the retained window must request the target immediately.
-    if (monthWindow.start > visibleGrid.start || monthWindow.end < visibleGrid.end) {
-      setMonthWindow(monthReadWindow(visibleMonth));
-      return;
-    }
-    // After the first month renders, fetch nearby months in the background.
-    // Extend again while the visible month is still safely inside old data.
-    if (!data || loading || requestFailed ||
-      !hasCalendarCoverage(data, visibleGrid.start, visibleGrid.end)) return;
-    const previous = monthCalendarPeriod(addMonths(visibleMonth, -1));
-    const next = monthCalendarPeriod(addMonths(visibleMonth, 1));
-    if (monthWindow.start > previous.start || monthWindow.end < next.end)
-      setMonthWindow(monthReadWindow(visibleMonth));
-  }, [view, visibleMonth, visibleGrid, monthWindow, data, loading, requestFailed]);
   const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
   const displayPeriod = useMemo(() => {
     if (view === "month") {
@@ -417,7 +395,7 @@ const uiLocale = useIntlLocale();
     if (!membership || membership.allProperties) return null;
     return new Set(membership.propertyIds);
   }, [membership]);
-  const coverageMissing = !hasCalendarCoverage(data, visibleReadPeriod.start, visibleReadPeriod.end);
+  const coverageMissing = !hasCalendarCoverage(data, requestPeriod.start, requestPeriod.end);
   const unavailableSelectedSource = coverageMissing || data?.source_errors?.some(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)));
 
 
@@ -969,6 +947,10 @@ const uiLocale = useIntlLocale();
             <div className="calendar-month-mobile-viewport -mx-2 md:mx-0">
               <MonthScroller
                 months={renderedMonths}
+                coveredMonths={renderedMonths.filter(month => {
+                  const period = fetchPeriod(month, "month");
+                  return hasCalendarCoverage(data, period.start, period.end);
+                })}
                 targetMonth={monthTarget}
                 targetDate={anchorDate}
                 targetRevision={todayRequest + historyRevision}
