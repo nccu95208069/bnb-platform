@@ -19,6 +19,7 @@ type Dependencies = {
 
 export function calendarReadError(error: unknown) {
   if (error instanceof Error && ['TimeoutError', 'AbortError'].includes(error.name)) return 'CALENDAR_READ_TIMEOUT';
+  if (error instanceof Error && /^IRON_GATE_CALENDAR_[A-Z_]+$/.test(error.message)) return error.message;
   if (error instanceof Error && ['STORE_UNAVAILABLE', 'CALENDAR_SOURCES_UNAVAILABLE', 'PAYMENT_DATA_INVALID', 'PRIVATE_SNAPSHOT_INVALID', 'PRIVATE_SNAPSHOT_UNAVAILABLE', 'PRIVATE_SNAPSHOT_WRITE'].includes(error.message)) return error.message;
   return safeError(error);
 }

@@ -299,7 +299,9 @@ export async function GET(request: NextRequest) {
     } catch (error) {
       console.error(JSON.stringify({ event: "calendar_unavailable", request_id: requestId, code: calendarReadError(error) }));
       // Never fall back to fictional bookings when an operational source is configured.
-      return NextResponse.json({ detail: "訂房表快照暫時無法讀取，請稍後重試。", request_id: requestId }, { status: 503, headers });
+      return NextResponse.json({ detail: process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED === "true"
+        ? "訂單日曆暫時無法讀取，請稍後重試。"
+        : "訂房表快照暫時無法讀取，請稍後重試。", request_id: requestId }, { status: 503, headers });
     } finally {
       await recordCalendarHealth(events, requestId, startedAt);
     }

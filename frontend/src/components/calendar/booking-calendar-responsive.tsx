@@ -240,8 +240,8 @@ const uiLocale = useIntlLocale();
   const handledNavigationRequest = useRef(navigationRequest?.id ?? 0);
 
   const requestPeriod = useMemo(
-    () => fetchPeriod(anchorDate, query.trim() ? "month" : view),
-    [anchorDate, view, query],
+    () => fetchPeriod(anchorDate, view),
+    [anchorDate, view],
   );
   const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess(); }, [setSelectedId, initializeAccess]);
   const { data, loading, refreshing, error, requestFailed, lastLoadedAt } = useCalendarData({
@@ -504,6 +504,9 @@ const uiLocale = useIntlLocale();
   const handleVisibleMonthChange = useCallback(
     (month: string) => {
       setVisibleMonth(month);
+      // Keep the scroll target in sync when a newly visible month needs a
+      // fresh bounded read and the scroller temporarily remounts.
+      setMonthTarget(month);
       setAnchorDate((current) => startOfMonth(current) === month ? current : month);
     },
     [setAnchorDate],
@@ -883,7 +886,7 @@ const uiLocale = useIntlLocale();
       {data?.guest_access?.available && <CalendarPrivacy authenticated={data.guest_access.authenticated} />}
 
       {query.trim() && <section className="m-2 rounded-xl border bg-card p-3 md:m-0" aria-label={uiText("搜尋結果")}>
-        <h2 className="text-sm font-semibold">{uiText("搜尋結果 ·")}{filteredBookings.length} {uiText("筆（2025–2027）")}</h2>
+        <h2 className="text-sm font-semibold">{uiText("搜尋結果 ·")}{filteredBookings.length} {uiText("筆（目前畫面日期）")}</h2>
         <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">
           {filteredBookings.slice(0,50).map(booking=><button key={booking.id} className="block w-full rounded border p-2 text-left text-sm hover:bg-muted" onClick={()=>setSelectedId(booking.id)}>
             <span className="block">{booking.check_in}–{booking.check_out} · {booking.room_number} · {booking.guest_name}</span>

@@ -182,11 +182,10 @@ export function currentPeriod(anchorDate: string, view: CalendarView, locale="zh
 
 export function fetchPeriod(anchorDate: string, view: CalendarView): CalendarPeriod {
   if (view === "month") {
-    return {
-      start: "2025-01-01",
-      end: "2028-01-01",
-      label: "2025–2027",
-    };
+    // The month scroller changes the anchor as each month becomes visible.
+    // Fetch only that month's displayed grid; a three-year request exhausts
+    // the live booking source before the first calendar can render.
+    return monthCalendarPeriod(startOfMonth(anchorDate));
   }
 
   if (view === "week") {
