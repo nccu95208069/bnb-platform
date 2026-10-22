@@ -9,6 +9,7 @@ export function useMonthPosition(
   target: string,
   revision: number,
   onMonth: (month: string) => void,
+  firstRenderedMonth?: string,
 ) {
   const callback = useRef(onMonth);
   useLayoutEffect(() => { callback.current = onMonth; }, [onMonth]);
@@ -23,7 +24,8 @@ export function useMonthPosition(
     const month = target.slice(0, 7) + "-01";
     const forced = lastRevision.current !== revision;
     lastRevision.current = revision;
-    if (!forced && published.current === month && saved.current) return;
+    if (!forced && published.current === month && saved.current &&
+      container.contains(saved.current.node)) return;
     const node = container.querySelector<HTMLElement>(`[data-position-month="${month}"]`);
     if (!node) return;
     const day = container.querySelector<HTMLElement>(`[data-position-month="${month}"] [data-position-date="${target}"]`);
@@ -34,7 +36,7 @@ export function useMonthPosition(
     published.current = month;
     container.scrollTo({ top: Math.max(0, node.getBoundingClientRect().top - container.getBoundingClientRect().top + container.scrollTop + offset), behavior: "instant" });
     expectedScroll.current = container.scrollTop;
-  }, [root, target, revision]);
+  }, [root, target, revision, firstRenderedMonth]);
 
   useLayoutEffect(() => {
     const container = root.current;
@@ -69,5 +71,5 @@ export function useMonthPosition(
     };
     container.addEventListener("scroll", scroll, { passive: true });
     return () => { resize.disconnect(); container.removeEventListener("scroll", scroll); };
-  }, [root]);
+  }, [root, firstRenderedMonth]);
 }

@@ -31,7 +31,9 @@ function fixture({ version = 7, sold = true, blocked = true } = {}) {
   const booking = { id: '66666666-6666-4666-8666-666666666666',
     workspaceId, propertyId, version: 1, status: 'confirmed',
     stays: [{ checkIn: '2026-10-25', checkOut: '2026-10-26', roomIds: [roomIds['101']] }],
-    guestName: 'Sample Guest' };
+    guestName: 'Sample Guest', sourceCalendar: {
+      platform: 'Booking.com', externalOrderNo: 'private-source-order', bookedAt: '2026-09-01',
+    } };
   const page = { propertyId, inventoryVersion: version, authorityEpoch: 1,
     readOnly: false, bookings: [booking], nextCursor: null };
   const cells = Object.entries(roomIds).map(([room, roomId]) => ({ roomId,
@@ -84,10 +86,47 @@ test('calendar reads signed booking plus inventory, preserving blocked room nigh
   assert.equal(result.bookings.length, 2);
   assert.equal(result.bookings[0].room_number, '101');
   assert.equal(result.bookings[0].guest_name, 'Sample Guest');
+  assert.equal(result.bookings[0].platform, 'booking');
+  assert.equal(result.bookings[0].external_order_no, null);
   assert.equal(result.bookings[0].price_hidden, true);
   assert.equal(result.bookings[0].payment_status, 'unknown');
   assert.equal(result.bookings[1].room_number, '102');
   assert.equal(result.bookings[1].source_conflict, true);
+});
+
+test('Iron Gate uses the same Sweetfun channel palette as the former Sheet calendar', async () => {
+  for (const [source, expected] of [['Agoda', 'agoda'], ['LINE', 'direct'],
+    ['CTrip', 'ctrip'], ['Airbnb', 'airbnb'], ['OwlJourney', 'owljourney'],
+    ['unknown', 'other']]) {
+    const c = config();
+    const data = fixture({ blocked: false });
+    data.page.bookings[0].sourceCalendar.platform = source;
+    const result = await readSweetfunIronGateCalendar('2026-10-25', '2026-10-26',
+      principal, c, sender(data, c));
+    assert.equal(result.bookings[0].platform, expected, source);
+  }
+});
+
+test('booking and availability requests begin together', async () => {
+  const c = config();
+  const data = fixture();
+  let releaseBooking;
+  let availabilityStarted;
+  const availabilitySeen = new Promise(resolve => { availabilityStarted = resolve; });
+  const senderWithDelay = async (url) => {
+    if (url.includes('/availability?')) {
+      availabilityStarted();
+      return Response.json(data.availability);
+    }
+    if (!releaseBooking) await new Promise(resolve => { releaseBooking = resolve; });
+    return Response.json(data.page);
+  };
+  const read = readSweetfunIronGateCalendar('2026-10-25', '2026-10-26',
+    principal, c, senderWithDelay);
+  await Promise.race([availabilitySeen, new Promise((_, reject) =>
+    setTimeout(() => reject(Error('availability did not start with bookings')), 1000))]);
+  releaseBooking();
+  assert.equal((await read).soldRoomNights, 1);
 });
 
 test('calendar rejects inventory that omits a confirmed sold night', async () => {

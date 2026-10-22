@@ -224,6 +224,11 @@ const uiLocale = useIntlLocale();
   const [monthTarget, setMonthTarget] = useState(() =>
     startOfMonth(anchorDate),
   );
+  const renderedMonths = useMemo(() => {
+    const index = MONTHS.indexOf(monthTarget);
+    if (index < 0) return [monthTarget];
+    return MONTHS.slice(Math.max(0, index - 2), Math.min(MONTHS.length, index + 3));
+  }, [monthTarget]);
   const accessScope = JSON.stringify([membership?.id, membership?.role, membership?.allProperties, membership?.propertyIds]);
   const selectedId = useCalendarPreferences((s) => s.selectedBookingId);
   const setSelectedId = useCalendarPreferences((s) => s.setSelectedBookingId);
@@ -926,7 +931,7 @@ const uiLocale = useIntlLocale();
           {view === "month" && (
             <div className="calendar-month-mobile-viewport -mx-2 md:mx-0">
               <MonthScroller
-                months={MONTHS}
+                months={renderedMonths}
                 targetMonth={monthTarget}
                 targetDate={anchorDate}
                 targetRevision={todayRequest + historyRevision}

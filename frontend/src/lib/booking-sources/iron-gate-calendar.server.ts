@@ -1,6 +1,7 @@
 import { createHash, createHmac } from 'node:crypto';
 import type { CalendarBooking } from '../../components/calendar/calendar-types';
 import type { Principal } from '../workspace-auth/types';
+import { sweetfunCalendarPlatform } from './sweetfun-platform.ts';
 
 type ReadGrant = {
   credentialId: string;
@@ -141,11 +142,13 @@ function calendarBooking(booking: Record<string, unknown>,
   const id = `ig-${booking.id}-${stayIndex}-${roomNumber}`;
   const name = typeof booking.guestName === 'string' && booking.guestName.trim()
     ? booking.guestName.trim() : '姓名待核';
+  const source = object(booking.sourceCalendar) ? booking.sourceCalendar : null;
   return { id, sheet_row_id: id, order_id: `IG-${booking.id}`,
     external_order_no: null, property_id: 'sweetfun', property_name: '水芳 Sweetfun',
     room_id: `sweetfun-${roomNumber}`, room_number: roomNumber,
     guest_name: name, guest_name_kind: name === '姓名待核' ? 'missing' : 'real',
-    platform: 'other', check_in: checkIn, check_out: checkOut, booked_at: null,
+    platform: sweetfunCalendarPlatform(source?.platform), check_in: checkIn, check_out: checkOut,
+    booked_at: null,
     room_rate: 0, payment_status: 'unknown', reservation_status: 'confirmed',
     notes: null, payments: [], audit_log: [], extra_guest_count: 0,
     extra_bed_count: 0, pet_count: 0, baby_supplies: [], service_note: null,
@@ -190,13 +193,52 @@ export async function readSweetfunIronGateCalendar(start: string, end: string,
     if (cursor) url.searchParams.set('cursor', cursor);
     return url.toString();
   };
+  const roomById = new Map(Object.entries(config.roomIds).map(([room, id]) => [id, room]));
+  // Inventory and booking pages are independent read-only requests. Start
+  // them together, then require one inventory version before publishing data.
+  const availabilityRead = (async () => {
+    const ranges: { from: number; to: number }[] = [];
+    for (let from = first; from < last; from += 31)
+      ranges.push({ from, to: Math.min(from + 31, last) });
+    const observed = new Map<string, string>();
+    let inventoryVersion: number | null = null;
+    for (let index = 0; index < ranges.length; index += 4) {
+      const pages = await Promise.all(ranges.slice(index, index + 4).map(async ({ from, to }) => {
+        const url = new URL(`/v1/properties/${config.grant.propertyId}/availability`, `${origin}/`);
+        url.searchParams.set('from', date(from));
+        url.searchParams.set('to', date(to));
+        const raw = await getJson(url.toString(), config, principal, send, 128 * 1024);
+        return { from, to, raw };
+      }));
+      for (const { from, to, raw } of pages) {
+        if (!object(raw) || raw.propertyId !== config.grant.propertyId ||
+          !Number.isSafeInteger(raw.inventoryVersion) ||
+          raw.authorityEpoch !== config.expectedAuthorityEpoch ||
+          !Array.isArray(raw.cells) || raw.cells.length !== ROOMS.length * (to - from) ||
+          inventoryVersion !== null && raw.inventoryVersion !== inventoryVersion)
+          throw Error('IRON_GATE_CALENDAR_VERSION_DRIFT');
+        inventoryVersion = Number(raw.inventoryVersion);
+        for (const cell of raw.cells) {
+          if (!object(cell) || !roomById.has(String(cell.roomId)) ||
+            typeof cell.date !== 'string' || day(cell.date) < from || day(cell.date) >= to ||
+            !['sold', 'blocked', 'unsold', 'held'].includes(String(cell.state)))
+            throw Error('IRON_GATE_CALENDAR_INVALID_INVENTORY');
+          const key = `${cell.roomId}:${cell.date}`;
+          if (observed.has(key)) throw Error('IRON_GATE_CALENDAR_INVALID_INVENTORY');
+          observed.set(key, String(cell.state));
+        }
+      }
+    }
+    return { observed, inventoryVersion };
+  })();
+  // Attach the rejection handler now, even if booking pagination takes longer.
+  const settledAvailability = availabilityRead.then(value => ({ value }), error => ({ error }));
   let cursor: string | null = null;
   let version: number | null = null;
   const seenCursors = new Set<string>();
   const seenBookings = new Set<string>();
   const bookings: CalendarBooking[] = [];
   const sold = new Set<string>();
-  const roomById = new Map(Object.entries(config.roomIds).map(([room, id]) => [id, room]));
   for (let pageNumber = 0; pageNumber < 50; pageNumber++) {
     const raw = await getJson(makePageUrl(cursor), config, principal, send, 256 * 1024);
     if (!validPage(raw, config) || version !== null && raw.inventoryVersion !== version)
@@ -242,28 +284,10 @@ export async function readSweetfunIronGateCalendar(start: string, end: string,
   }
   if (version === null) throw Error('IRON_GATE_CALENDAR_UNAVAILABLE');
 
-  const observed = new Map<string, string>();
-  for (let from = first; from < last; from += 31) {
-    const to = Math.min(from + 31, last);
-    const url = new URL(`/v1/properties/${config.grant.propertyId}/availability`, `${origin}/`);
-    url.searchParams.set('from', date(from));
-    url.searchParams.set('to', date(to));
-    const raw = await getJson(url.toString(), config, principal, send, 128 * 1024);
-    if (!object(raw) || raw.propertyId !== config.grant.propertyId ||
-      raw.inventoryVersion !== version ||
-      raw.authorityEpoch !== config.expectedAuthorityEpoch ||
-      !Array.isArray(raw.cells) || raw.cells.length !== ROOMS.length * (to - from))
-      throw Error('IRON_GATE_CALENDAR_VERSION_DRIFT');
-    for (const cell of raw.cells) {
-      if (!object(cell) || !roomById.has(String(cell.roomId)) ||
-        typeof cell.date !== 'string' || day(cell.date) < from || day(cell.date) >= to ||
-        !['sold', 'blocked', 'unsold', 'held'].includes(String(cell.state)))
-        throw Error('IRON_GATE_CALENDAR_INVALID_INVENTORY');
-      const key = `${cell.roomId}:${cell.date}`;
-      if (observed.has(key)) throw Error('IRON_GATE_CALENDAR_INVALID_INVENTORY');
-      observed.set(key, String(cell.state));
-    }
-  }
+  const inventory = await settledAvailability;
+  if ('error' in inventory) throw inventory.error;
+  const { observed, inventoryVersion } = inventory.value;
+  if (inventoryVersion !== version) throw Error('IRON_GATE_CALENDAR_VERSION_DRIFT');
   if (observed.size !== ROOMS.length * (last - first) ||
     [...sold].some(key => observed.get(key) !== 'sold') ||
     [...observed].some(([key, state]) =>

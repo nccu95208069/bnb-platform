@@ -369,7 +369,7 @@ export function MonthScroller({
     return () => { observer.disconnect(); fontObserver.disconnect(); window.removeEventListener("resize", measure); window.removeEventListener("storage", measure); };
   }, []);
   // Month mode starts at the month header so no week is hidden above today.
-  useMonthPosition(scrollRef, targetMonth, targetRevision ?? 0, onVisibleMonthChange);
+  useMonthPosition(scrollRef, targetMonth, targetRevision ?? 0, onVisibleMonthChange, months[0]);
 
   return (
     <div
