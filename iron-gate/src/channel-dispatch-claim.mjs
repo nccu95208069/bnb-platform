@@ -17,7 +17,8 @@ export function createChannelDispatchClaim(repository) {
         const claimId = crypto.randomUUID();
         await repository.transact(propertyId, (state) => {
           if (state.readOnly !== false || state.channel?.mode !== "owlnest" ||
-            state.channel.ready !== true || !state.channel.grantId)
+            state.channel.ready !== true || state.channel.sourceReadbackEnabled !== true ||
+            !state.channel.grantId)
             throw Error("CHANNEL_NOT_READY");
           if (state.channelDispatch) throw Error("CHANNEL_PROPERTY_CLAIMED");
           if (!state.operations.some((item) => item.key === operationKey &&

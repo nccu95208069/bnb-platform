@@ -30,6 +30,10 @@ claim in place; there is deliberately no timestamp takeover that could overlap
 an OwlNest write. Recovery requires an operator to stop the original worker,
 read OwlNest stock, settle the pending operation and document the evidence
 before clearing the claim. No automatic recovery endpoint is exposed.
+The one-shot worker library selects one pending operation with the channel
+grant, acquires that claim, observes or sets exact OwlNest cells, records the
+server-checked readback and calls an injected PII-free review alert. The
+library has no schedule, token store, network listener or production entrypoint.
 
 An unknown cancellation, an unready channel, or a second source event while
 the prior channel operation is unresolved stays in human review. The existing
@@ -39,10 +43,10 @@ OwlNest inventory has changed.
 
 ## Release gates still required
 
-1. Connect the claim adapter and one-shot runner to an authenticated,
-   scheduled channel worker with provider credentials, alerts and a documented
-   evidence-backed claim recovery procedure. The adapter is tested but no
-   production worker invokes it. An acknowledgement from OwlNest is
+1. Package the one-shot worker in an authenticated scheduled deployment with
+   provider credentials, alert delivery and a documented evidence-backed claim
+   recovery procedure. The worker library is tested but no production schedule
+   invokes it. An acknowledgement from OwlNest is
    insufficient; record a fresh complete observation through
    `recordChannelReadback`.
 2. Reconcile all future occupied nights and manual blocks against real OwlNest

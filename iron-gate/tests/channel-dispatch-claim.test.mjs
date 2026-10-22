@@ -12,7 +12,8 @@ function setup() {
   const repository = new MemoryPropertyRepository();
   repository.seed({ workspaceId: "11111111-1111-4111-8111-111111111111",
     propertyId, roomIds: [roomId], version: 1, authorityEpoch: 1, readOnly: false,
-    channel: { mode: "owlnest", ready: true, websiteSalesEnabled: false,
+    channel: { mode: "owlnest", ready: true, sourceReadbackEnabled: true,
+      websiteSalesEnabled: false,
       grantId: "55555555-5555-4555-8555-555555555555", websiteBindingId: null },
     bookings: [], sourceGrants: [], sourceLinks: [], fences: [], manualBlocks: [], receipts: [],
     operations: [{ key: operationKey, state: "sync_pending", cells: [{ roomId,

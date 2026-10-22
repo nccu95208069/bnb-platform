@@ -1,0 +1,86 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { MemoryPropertyRepository } from "../src/memory-repository.ts";
+import { IronGateService } from "../src/service.ts";
+import { createChannelWorker } from "../src/channel-worker.mjs";
+
+const workspaceId = "11111111-1111-4111-8111-111111111111";
+const propertyId = "22222222-2222-4222-8222-222222222222";
+const roomId = "33333333-3333-4333-8333-333333333333";
+const channelGrant = "44444444-4444-4444-8444-444444444444";
+
+function setup({ providerFails = false } = {}) {
+  const repository = new MemoryPropertyRepository();
+  repository.seed({ workspaceId, propertyId, roomIds: [roomId], version: 1,
+    authorityEpoch: 1, readOnly: false,
+    channel: { mode: "owlnest", ready: true, sourceReadbackEnabled: true,
+      websiteSalesEnabled: false, grantId: channelGrant, websiteBindingId: null },
+    sourceGrants: [], bookings: [], sourceLinks: [], operations: [], fences: [],
+    manualBlocks: [], receipts: [] });
+  const service = new IronGateService(repository);
+  const owner = { clientId: "os-client", subjectId: "os-user", origin: "os",
+    workspaceId, propertyIds: [propertyId], authorityEpoch: 1,
+    actions: ["booking:create"], fields: [], grantId: null };
+  const channel = { clientId: "channel-client", subjectId: "channel-worker", origin: "channel",
+    workspaceId, propertyIds: [propertyId], authorityEpoch: 1,
+    actions: ["channel:verify"], fields: [], grantId: channelGrant };
+  let stock = { count: 1, isLock: false }, writes = 0;
+  const alerts = [];
+  const provider = {
+    observe: async () => ({ observedAt: new Date().toISOString(), providerVersion: "synthetic-v1",
+      cells: [{ roomId, date: "2099-11-10", ...stock }] }),
+    setNight: async () => {
+      writes++;
+      if (providerFails) throw Error("SYNTHETIC_UNKNOWN_WRITE");
+      stock = { count: 0, isLock: true };
+    },
+  };
+  const worker = createChannelWorker({ repository, service, provider,
+    onReview: async (item) => { alerts.push(item); } });
+  return { repository, service, owner, channel, worker, alerts,
+    writes: () => writes };
+}
+
+async function createPending(set) {
+  const result = await set.service.createBooking(set.owner, propertyId, crypto.randomUUID(), {
+    expectedInventoryVersion: 1,
+    stays: [{ checkIn: "2099-11-10", checkOut: "2099-11-11", roomIds: [roomId] }],
+    guestName: "Synthetic Guest", contact: null, notes: null, totalCents: 10000,
+    bookedAt: "2099-01-01", source: "os" });
+  assert.equal(result.operationState, "sync_pending");
+  return result.operationKey;
+}
+
+test("worker commits a fresh exact provider readback before releasing the claim", async () => {
+  const set = setup(), operationKey = await createPending(set);
+  const result = await set.worker.runOne(set.channel, propertyId);
+  assert.deepEqual(result, { state: "sync_verified", propertyId, operationKey });
+  assert.equal(set.writes(), 1);
+  const state = await set.repository.read(propertyId);
+  assert.equal(state.channelDispatch, null);
+  assert.equal(state.operations[0].state, "sync_verified");
+  assert.equal(state.fences.length, 0);
+  assert.deepEqual(set.alerts, []);
+  assert.equal((await set.worker.runOne(set.channel, propertyId)).state, "idle");
+});
+
+test("unknown OwlNest outcome keeps the fence and claim for review", async () => {
+  const set = setup({ providerFails: true }), operationKey = await createPending(set);
+  const result = await set.worker.runOne(set.channel, propertyId);
+  assert.equal(result.state, "review_required");
+  assert.equal(set.writes(), 1);
+  const state = await set.repository.read(propertyId);
+  assert.equal(state.channelDispatch.state, "review_required");
+  assert.equal(state.operations[0].state, "review_required");
+  assert.equal(state.fences.length, 1);
+  assert.deepEqual(set.alerts, [{ propertyId, operationKey, status: "review_required" }]);
+});
+
+test("worker rejects the wrong principal before any provider call", async () => {
+  const set = setup();
+  await createPending(set);
+  await assert.rejects(set.worker.runOne({ ...set.channel, origin: "line" }, propertyId),
+    { message: "CHANNEL_WORKER_PRINCIPAL_INVALID" });
+  assert.equal(set.writes(), 0);
+  assert.equal((await set.repository.read(propertyId)).channelDispatch, undefined);
+});
