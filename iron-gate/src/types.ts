@@ -147,6 +147,9 @@ export type PropertyState = {
     /** Disabled until source events have a durable OwlNest operation dispatcher. */
     sourceReadbackEnabled?: boolean;
     grantId: string | null; websiteBindingId: string | null };
+  /** Private durable dispatcher claim. Never auto-expire across an unknown provider write. */
+  channelDispatch?: { claimId: string; operationKey: string;
+    state: "active" | "review_required"; claimedAt: string } | null;
   sourceGrants: { grantId: string; sourceSystem: string; sourceAccount: string; active: boolean }[];
   bookings: Booking[];
   sourceLinks: SourceLink[];
