@@ -36,3 +36,30 @@ payment-review tests, and a Webpack production build passed. The first local
 Turbopack build was blocked by this worktree's external node_modules symlink;
 the first Webpack attempt could not reach Google Fonts in the sandbox. The
 authorized network build completed successfully.
+
+## Production release and verification
+
+Both existing PR branches passed all GitHub checks before release. The Iron Gate
+API was deployed first to `iron-gate-green.vercel.app` as deployment
+`iron-gate-8wq42bjdg-sweetfuns-projects.vercel.app`. The guarded SQL above
+updated only credential `48c51f52-f4b5-4d0d-a85f-7375715e548a`; a separate
+readback showed `fields=["guest_name","payment_status"]`, active, with the
+existing 2026-11-20 expiry. The OS deployment
+`sweetfun-ou6f01246-sweetfuns-projects.vercel.app` was then aliased to
+`sweetfun-os.vercel.app`.
+
+An authenticated owner browser request to the production October 2026 calendar
+API returned HTTP 200, `data_mode=iron_gate_booking_only`, snapshot version 17,
+149 Sweetfun room nights: 50 marked `payment_review_status=paid`, 99 unknown,
+zero source errors and zero source warnings. The normal OS response still had
+`price_hidden=true` and zero room rates for Sweetfun. In the visible production
+calendar, enabling **檢視付款狀態** changed known paid cards to gray while unknown
+cards retained their channel colors. October to November navigation completed
+in about 0.7 seconds in this desktop browser and did not show the loading state.
+The calendar was returned to October with the review toggle on.
+
+The live check confirms the legacy Sheet's paid flag is visible again, not that
+the underlying payment has been reconciled to a bank or OTA payout. No real new
+Iron Gate payment event was observed during this release; that path was covered
+by the automated tests. A no-price account was covered by the authorization
+tests, not a separate live account session.
