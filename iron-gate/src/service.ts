@@ -576,7 +576,8 @@ export class IronGateService {
       (booking.source !== "line" || booking.sourceKey !== `line:${principal.grantId}`))
       reject("BOOKING_NOT_FOUND", 404);
     const projection = publicBooking(booking, principal);
-    return principal.origin === "line" ? { ...projection, inventoryVersion: state.version } : projection;
+    return principal.origin === "line" ? { ...projection,
+      inventoryVersion: state.version, lineScope: { grantId: principal.grantId } } : projection;
   }
 
   async listBookings(principal: Principal, propertyId: string, options: {
@@ -629,7 +630,8 @@ export class IronGateService {
         sourceHash: state.sweetfunImport.sourceHash } : null;
     return { propertyId, inventoryVersion: state.version,
       authorityEpoch: state.authorityEpoch, readOnly: state.readOnly === true,
-      snapshot, bookings: page.map((booking) => publicBooking(booking, principal)), nextCursor };
+      snapshot, bookings: page.map((booking) => publicBooking(booking, principal)), nextCursor,
+      ...(principal.origin === "line" ? { lineScope: { grantId: principal.grantId } } : {}) };
   }
 
   async listEvents(principal: Principal, propertyId: string, after: number,

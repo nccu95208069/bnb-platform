@@ -4,7 +4,8 @@
  */
 import { validateGrantShape } from "./credential-grant.mjs";
 
-export function createGrantAuthenticator(directory, repository, verifyOsMember = null) {
+export function createGrantAuthenticator(directory, repository, verifyOsMember = null,
+  verifyLineOperator = null) {
   return async (request) => {
     const match = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(request.headers.get("authorization") ?? "");
     if (!match) return null;
@@ -28,6 +29,19 @@ export function createGrantAuthenticator(directory, repository, verifyOsMember =
       subjectId = member.subjectId;
       allowedActions = grant.actions.filter((action) => member.actions?.includes(action));
       allowedFields = grant.fields.filter((field) => member.fields?.includes(field));
+    }
+    if (grant.origin === "line") {
+      if (!verifyLineOperator) return null;
+      const operator = await verifyLineOperator(request, grant);
+      if (!operator || operator.workspaceId !== grant.workspaceId ||
+        operator.groupId !== grant.lineGroupId ||
+        typeof operator.subjectId !== "string" || !operator.subjectId ||
+        !Array.isArray(operator.propertyIds) ||
+        !operator.propertyIds.includes(grant.propertyId) ||
+        !Array.isArray(operator.actions) || !Array.isArray(operator.fields)) return null;
+      subjectId = operator.subjectId;
+      allowedActions = grant.actions.filter((action) => operator.actions.includes(action));
+      allowedFields = grant.fields.filter((field) => operator.fields.includes(field));
     }
     return { clientId: grant.clientId, subjectId, origin: grant.origin,
       workspaceId: grant.workspaceId, propertyIds: [grant.propertyId],

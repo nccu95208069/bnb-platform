@@ -39,13 +39,14 @@ export function createNodeServer(handle) {
  * unless verifyOsMember supplies fresh, independently verified membership.
  */
 export function createPostgresIronGateServer(runtimePool, verifyOsMember = null,
-  databaseUrl) {
-  return createNodeServer(createPostgresIronGateHandler(runtimePool, verifyOsMember, databaseUrl));
+  databaseUrl, verifyLineOperator = null) {
+  return createNodeServer(createPostgresIronGateHandler(runtimePool, verifyOsMember,
+    databaseUrl, verifyLineOperator));
 }
 
 /** Shared request handler for a separate service deployment or the loopback server. */
 export function createPostgresIronGateHandler(runtimePool, verifyOsMember = null,
-  databaseUrl) {
+  databaseUrl, verifyLineOperator = null) {
   validateDatabaseTransport(databaseUrl);
   // The checked URL must be the one used by pg. Separate host/SSL overrides
   // could otherwise make a safe-looking URL validate an unsafe pool.
@@ -56,7 +57,8 @@ export function createPostgresIronGateHandler(runtimePool, verifyOsMember = null
   const repository = new PostgresPropertyRepository(runtimePool);
   const directory = new PostgresCredentialDirectory(runtimePool);
   const service = new IronGateService(repository);
-  const authenticate = createGrantAuthenticator(directory, repository, verifyOsMember);
+  const authenticate = createGrantAuthenticator(directory, repository, verifyOsMember,
+    verifyLineOperator);
   const handle = createHandler(service, authenticate);
   // Every deployment adapter, including a serverless one, must pass the same
   // database role and RLS check before it can authenticate or serve a request.

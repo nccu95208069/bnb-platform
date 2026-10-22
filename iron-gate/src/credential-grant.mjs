@@ -25,9 +25,14 @@ export function validateGrantShape(grant) {
     grant.actions.some((action) => action !== "source:write"))) throw new Error("INVALID_SOURCE_SCOPE");
   if (grant.origin === "channel" && (!grant.grantId ||
     grant.actions.some((action) => action !== "channel:verify"))) throw new Error("INVALID_CHANNEL_SCOPE");
-  if (grant.origin === "line" && (!grant.grantId || grant.actions.some((action) =>
-    !["booking:read", "booking:create", "booking:amend", "booking:cancel"].includes(action)) ||
-    grant.fields.includes("payment_status"))) throw new Error("INVALID_LINE_SCOPE");
+  // The first LINE grant is read-only. Booking mutations need a separate
+  // versioned-confirmation and provider-readback release gate.
+  if (grant.origin === "line" && (!validCredentialId(grant.grantId) ||
+    typeof grant.lineGroupId !== "string" ||
+    !/^[A-Za-z0-9_-]{1,128}$/.test(grant.lineGroupId) ||
+    grant.actions.some((action) => action !== "booking:read") ||
+    grant.fields.some((field) => !["guest_name", "contact", "notes", "money"].includes(field))))
+    throw new Error("INVALID_LINE_SCOPE");
   if (grant.origin === "service" && (grant.fields.length || grant.actions.some((action) =>
     action !== "event:read" && action !== "booking:read" &&
     action !== "occupancy:aggregate" && action !== "housekeeping:read")))

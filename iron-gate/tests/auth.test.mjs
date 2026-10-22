@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +10,7 @@ import { IronGateService } from "../src/service.ts";
 import { MemoryPropertyRepository } from "../src/memory-repository.ts";
 import { createHandler } from "../src/http.ts";
 import { createOsMemberProofVerifier, signOsMemberProof } from "../src/os-member-proof.mjs";
+import { createLineOperatorProofVerifier, signLineOperatorProof } from "../src/line-operator-proof.mjs";
 import { validateGrantShape } from "../src/credential-grant.mjs";
 
 const workspaceId = "11111111-1111-4111-8111-111111111111";
@@ -27,6 +29,83 @@ test("compact payment status field is granted only to the OS origin", () => {
     ["guest_name", "payment_status"])));
   assert.throws(() => validateGrantShape(grant("website", ["booking:read"],
     ["payment_status"])), /INVALID_PAYMENT_STATUS_SCOPE/);
+});
+
+test("LINE grants stay read-only and require one bound group", () => {
+  const base = { ...grant("line", ["booking:read"], ["guest_name"]),
+    grantId: crypto.randomUUID(), lineGroupId: "synthetic-group" };
+  assert.doesNotThrow(() => validateGrantShape(base));
+  assert.throws(() => validateGrantShape({ ...base, lineGroupId: "" }), /INVALID_LINE_SCOPE/);
+  assert.throws(() => validateGrantShape({ ...base, actions: ["booking:create"] }), /INVALID_LINE_SCOPE/);
+  assert.throws(() => validateGrantShape({ ...base, fields: ["payment_status"] }), /INVALID_LINE_SCOPE/);
+});
+
+test("LINE proof wire format matches the Cloud Run signer", async () => {
+  const issued = { origin: "line", credentialId: "55555555-5555-4555-8555-555555555555",
+    workspaceId, propertyId, grantId: "44444444-4444-4444-8444-444444444444",
+    lineGroupId: "synthetic-line-group" };
+  const request = new Request(`https://iron.invalid/v1/properties/${propertyId}/bookings?from=2026-10-24&to=2026-10-25`);
+  const proof = await signLineOperatorProof("b".repeat(43), request, issued,
+    { active: true, actorId: "synthetic-staff", groupId: "synthetic-line-group" }, 1000);
+  assert.equal(createHash("sha256").update(proof).digest("hex"),
+    "a70e4236d7c8d7bce4b67a245f77a684f3236df2d2ff5b867e54e03aeb1e8025");
+  request.headers.set("x-iron-gate-line-proof", proof);
+  assert.equal((await createLineOperatorProofVerifier("b".repeat(43), () => 1001)
+    (request, issued)).subjectId, "synthetic-staff");
+});
+
+test("LINE operator proof binds actor, group, grant and exact short-lived read", async () => {
+  const folder = mkdtempSync(join(tmpdir(), "iron-gate-line-auth-"));
+  const filename = join(folder, "private.sqlite");
+  const repository = new SqlitePropertyRepository(filename);
+  const directory = new SqliteCredentialDirectory(filename);
+  try {
+    await repository.seed(state());
+    const issued = { ...grant("line", ["booking:read"], ["guest_name"]),
+      grantId: crypto.randomUUID(), lineGroupId: "synthetic-group" };
+    const token = directory.issue(issued, new Date(Date.now() + 60_000).toISOString());
+    const secret = Buffer.alloc(32, 11);
+    const now = Date.now();
+    const url = `https://iron.invalid/v1/properties/${propertyId}/bookings?from=2026-11-01&to=2026-11-02`;
+    const request = new Request(url, { headers: { authorization: `Bearer ${token}` } });
+    const denied = createGrantAuthenticator(directory, repository);
+    assert.equal(await denied(request.clone()), null);
+    request.headers.set("x-iron-gate-line-proof", await signLineOperatorProof(secret,
+      request.clone(), issued, { active: true, actorId: "synthetic-staff",
+        groupId: "synthetic-group" }, now));
+    const verifier = createLineOperatorProofVerifier(secret, () => now + 1000);
+    const authenticate = createGrantAuthenticator(directory, repository, null, verifier);
+    const principal = await authenticate(request.clone());
+    assert.equal(principal.subjectId, "synthetic-staff");
+    assert.deepEqual(principal.actions, ["booking:read"]);
+    const handler = createHandler(new IronGateService(repository), authenticate);
+    const response = await handler(request.clone());
+    assert.equal(response.status, 200);
+    assert.deepEqual((await response.json()).lineScope, { grantId: issued.grantId });
+    assert.equal(await authenticate(new Request(`${url}&other=1`,
+      { headers: request.headers })), null);
+    assert.equal(await authenticate(new Request(url, { method: "POST",
+      headers: request.headers, body: "{}" })), null);
+    const tamperedHeaders = new Headers(request.headers);
+    const originalProof = tamperedHeaders.get("x-iron-gate-line-proof");
+    tamperedHeaders.set("x-iron-gate-line-proof",
+      `${originalProof[0] === "A" ? "B" : "A"}${originalProof.slice(1)}`);
+    assert.equal(await authenticate(new Request(url, { headers: tamperedHeaders })), null);
+    assert.equal(await verifier(request.clone(), { ...issued,
+      lineGroupId: "another-group" }), null);
+    assert.equal(await createLineOperatorProofVerifier(secret,
+      () => now + 15001)(request.clone(), issued), null);
+    await assert.rejects(signLineOperatorProof(secret, request.clone(), issued,
+      { active: false, actorId: "synthetic-staff", groupId: "synthetic-group" }, now),
+    /INVALID_LINE_OPERATOR_PROOF/);
+    await assert.rejects(signLineOperatorProof(secret, request.clone(), issued,
+      { active: true, actorId: "synthetic-staff", groupId: "another-group" }, now),
+    /INVALID_LINE_OPERATOR_PROOF/);
+    assert.equal(directory.revoke(issued.credentialId), true);
+    assert.equal(await authenticate(request.clone()), null);
+  } finally {
+    directory.close(); repository.close(); rmSync(folder, { recursive: true, force: true });
+  }
 });
 
 test("opaque credential is stored only as a digest and revocation takes effect on next request", async () => {

@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createPostgresIronGateHandler } from "../dist/node-server.mjs";
 import { createOsMemberProofVerifier } from "../dist/os-member-proof.mjs";
+import { createLineOperatorProofVerifier } from "../dist/line-operator-proof.mjs";
 import { validateDatabaseTransport } from "../dist/runtime-safety.mjs";
 
 function unavailable() {
@@ -53,10 +54,14 @@ export function createVercelFetch(env = process.env) {
           throw Error("MISSING_CONFIGURATION");
         const databaseUrl = databaseUrlForVercel(rawDatabaseUrl);
         const verifyOsMember = createOsMemberProofVerifier(proofSecret);
+        const lineProofSecret = production ? env.IRON_GATE_PRODUCTION_LINE_PROOF_SECRET :
+          env.IRON_GATE_LINE_PROOF_SECRET;
+        const verifyLineOperator = lineProofSecret ?
+          createLineOperatorProofVerifier(lineProofSecret) : null;
         const pool = new Pool({ connectionString: databaseUrl,
           max: 2, connectionTimeoutMillis: 5000, idleTimeoutMillis: 10000 });
         return createPostgresIronGateHandler(pool, verifyOsMember,
-          databaseUrl);
+          databaseUrl, verifyLineOperator);
       })();
       return (await ready)(request);
     } catch {

@@ -189,6 +189,13 @@ components:
         propertyId: { type: string, format: uuid }
         version: { type: integer, minimum: 1 }
         inventoryVersion: { type: integer, minimum: 0, description: Present on LINE inspect responses so a later confirmation can reject changed inventory. }
+        lineScope:
+          type: object
+          additionalProperties: false
+          description: Present only after a LINE operator proof is verified for this grant.
+          required: [grantId]
+          properties:
+            grantId: { type: string, format: uuid }
         status: { type: string, enum: [held, confirmed, cancelled] }
         channelSyncState: { type: string, enum: [not_required, pending, verified, review_required] }
         stays:
@@ -238,6 +245,13 @@ components:
         inventoryVersion: { type: integer, minimum: 0 }
         authorityEpoch: { type: integer, minimum: 0 }
         readOnly: { type: boolean }
+        lineScope:
+          type: object
+          additionalProperties: false
+          description: Present only after a LINE operator proof is verified for this grant.
+          required: [grantId]
+          properties:
+            grantId: { type: string, format: uuid }
         bookings:
           type: array
           items: { $ref: '#/components/schemas/BookingProjection' }
@@ -463,6 +477,9 @@ paths:
       description: >-
         Each page is current at read time; this is not a cross-page snapshot.
         LINE grants see only direct bookings whose sourceKey matches their grantId.
+        A LINE bearer credential also requires a separate short-lived operator proof
+        bound to its configured group, actor and exact request; LINE grants are
+        currently read-only.
         Guest, contact, notes and price require separate field grants; imported
         OTA/Gmail orders are never returned to LINE grants.
       parameters:
@@ -517,6 +534,7 @@ paths:
         Guest and website order reads require an order-bound credential. LINE
         inspect returns only its own grant's direct bookings and includes the
         current inventoryVersion for confirmation; cross-grant IDs return 404.
+        LINE requests require the separate short-lived operator proof.
       parameters:
         - { $ref: '#/components/parameters/PropertyId' }
         - { $ref: '#/components/parameters/BookingId' }

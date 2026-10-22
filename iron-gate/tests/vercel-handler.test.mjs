@@ -42,6 +42,7 @@ test("Production switch uses only separate Production settings", async () => {
     IRON_GATE_PRODUCTION_ENABLED: "true",
     get IRON_GATE_DATABASE_URL() { previewReads++; return "unused"; },
     get IRON_GATE_OS_PROOF_SECRET() { previewReads++; return "unused"; },
+    get IRON_GATE_LINE_PROOF_SECRET() { previewReads++; return "unused"; },
     get IRON_GATE_PRODUCTION_DATABASE_URL() {
       productionReads++;
       return "postgres://runtime@db.example/postgres?sslmode=require";
