@@ -9,6 +9,7 @@ import { IronGateService } from "../src/service.ts";
 import { MemoryPropertyRepository } from "../src/memory-repository.ts";
 import { createHandler } from "../src/http.ts";
 import { createOsMemberProofVerifier, signOsMemberProof } from "../src/os-member-proof.mjs";
+import { validateGrantShape } from "../src/credential-grant.mjs";
 
 const workspaceId = "11111111-1111-4111-8111-111111111111";
 const propertyId = "22222222-2222-4222-8222-222222222222";
@@ -20,6 +21,13 @@ const state = () => ({ workspaceId, propertyId, roomIds: [roomId], version: 1, a
 const grant = (origin, actions, fields = []) => ({ credentialId: crypto.randomUUID(),
   origin, workspaceId, propertyId, clientId: "synthetic-client", subjectId: "service-subject",
   authorityEpoch: 7, actions, fields });
+
+test("compact payment status field is granted only to the OS origin", () => {
+  assert.doesNotThrow(() => validateGrantShape(grant("os", ["booking:read"],
+    ["guest_name", "payment_status"])));
+  assert.throws(() => validateGrantShape(grant("website", ["booking:read"],
+    ["payment_status"])), /INVALID_PAYMENT_STATUS_SCOPE/);
+});
 
 test("opaque credential is stored only as a digest and revocation takes effect on next request", async () => {
   const folder = mkdtempSync(join(tmpdir(), "iron-gate-auth-"));

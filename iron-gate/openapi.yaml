@@ -276,6 +276,14 @@ components:
                   platform: { type: [string, 'null'] }
                   externalOrderNo: { type: [string, 'null'] }
                   bookedAt: { type: [string, 'null'], format: date }
+              paymentReview:
+                type: object
+                additionalProperties: false
+                description: OS payment_status field grant only. Sheet H is a guest-paid claim, not a dated receipt or OTA settlement.
+                required: [status, source]
+                properties:
+                  status: { type: string, enum: [paid, deposit, unknown] }
+                  source: { type: string, enum: [sheet_flag, payment_events, unknown] }
         cells:
           type: array
           maxItems: 4096
@@ -674,7 +682,7 @@ paths:
     get:
       operationId: getCalendarSnapshot
       summary: Read one versioned OS booking-calendar snapshot and sparse occupied cells
-      description: OS booking:read grant only. Maximum 410 days. Guest names require the guest_name field grant. Unsold dates are omitted and do not prove external channel availability.
+      description: OS booking:read grant only. Maximum 410 days. Guest names require guest_name; paymentReview requires the separate payment_status field grant. Unsold dates are omitted and do not prove external channel availability.
       parameters:
         - { $ref: '#/components/parameters/PropertyId' }
         - { name: from, in: query, required: true, schema: { type: string, format: date } }

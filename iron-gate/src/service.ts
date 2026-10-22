@@ -241,6 +241,40 @@ function paymentTotals(booking: Booking): {
     netReceivedCents: Number(received - refunded) };
 }
 
+// The original Sheet H cell is a guest-paid claim, not a cash receipt. Keep
+// it separate from paymentEvents and disclose only a compact calendar status.
+function calendarPaymentStatus(booking: Booking): { status: "paid" | "deposit" | "unknown";
+  source: "sheet_flag" | "payment_events" | "unknown" } {
+  const rows = booking.sweetfunSnapshot?.rows;
+  const events = booking.paymentEvents ?? [];
+  // A later booking-source amendment clears its old imported fee and advances
+  // the booking version. Never reuse the frozen H flag for that changed order.
+  const sourcePaid = booking.totalCents !== null &&
+    booking.version === 1 + events.length &&
+    Array.isArray(rows) && rows.length > 0 && rows.every((row) =>
+      Array.isArray(row?.values) && String(row.values[7] ?? "").trim() === "done");
+  if (events.length) {
+    const totals = paymentTotals(booking);
+    if (totals.refundedCents > 0) {
+      if (booking.totalCents !== null && booking.totalCents > 0 &&
+        totals.netReceivedCents >= booking.totalCents)
+        return { status: "paid", source: "payment_events" };
+      return totals.netReceivedCents > 0
+        ? { status: "deposit", source: "payment_events" }
+        : { status: "unknown", source: "unknown" };
+    }
+    if (booking.totalCents !== null && booking.totalCents > 0 &&
+      totals.netReceivedCents >= booking.totalCents)
+      return { status: "paid", source: "payment_events" };
+    if (sourcePaid) return { status: "paid", source: "sheet_flag" };
+    return totals.netReceivedCents > 0
+      ? { status: "deposit", source: "payment_events" }
+      : { status: "unknown", source: "unknown" };
+  }
+  return sourcePaid ? { status: "paid", source: "sheet_flag" } :
+    { status: "unknown", source: "unknown" };
+}
+
 function changedNights(before: Night[], after: Night[]): boolean {
   const left = before.map(keyOf).sort(), right = after.map(keyOf).sort();
   return left.length !== right.length || left.some((cell, index) => cell !== right[index]);
@@ -706,7 +740,9 @@ export class IronGateService {
         return { id: projected.id, propertyId: projected.propertyId,
           workspaceId: projected.workspaceId, status: projected.status,
           stays: projected.stays, guestName: projected.guestName,
-          sourceCalendar: projected.sourceCalendar };
+          sourceCalendar: projected.sourceCalendar,
+          ...(principal.fields.includes("payment_status") ?
+            { paymentReview: calendarPaymentStatus(booking) } : {}) };
       }), cells };
   }
 

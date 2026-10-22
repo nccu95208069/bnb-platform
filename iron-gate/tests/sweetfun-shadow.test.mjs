@@ -114,6 +114,45 @@ test("restricted source evidence is absent from booking reads and writes stay cl
   }), (error) => error?.code === "PROPERTY_READ_ONLY");
 });
 
+test("calendar payment review projects only a scoped status, not source rows or money", async () => {
+  const cfg = config(), { state } = prepareSweetfunShadow(fixture(), cfg);
+  const actor = { clientId: "synthetic-os", subjectId: "synthetic-owner", origin: "os",
+    workspaceId: cfg.workspaceId, propertyIds: [cfg.propertyId], authorityEpoch: 0,
+    actions: ["booking:read"], fields: ["guest_name", "payment_status"] };
+  const read = async fields => {
+    const repository = new MemoryPropertyRepository();
+    repository.seed(state);
+    return new IronGateService(repository).calendarSnapshot({ ...actor, fields },
+      cfg.propertyId, "2026-11-01", "2026-11-03");
+  };
+  const paid = await read(actor.fields);
+  assert.equal(paid.bookings.length, 2);
+  assert.deepEqual(paid.bookings[0].paymentReview,
+    { status: "paid", source: "sheet_flag" });
+  assert.equal("totalCents" in paid.bookings[0], false);
+  assert.equal(JSON.stringify(paid).includes("Synthetic status marker"), false);
+  assert.equal("paymentReview" in (await read(["guest_name"])).bookings[0], false);
+
+  const booking = state.bookings.find(item => item.id === cfg.bookingIds["L:parent1"]);
+  booking.sweetfunSnapshot.rows[1].values[7] = "not_yet";
+  assert.deepEqual((await read(actor.fields)).bookings[0].paymentReview,
+    { status: "unknown", source: "unknown" });
+
+  booking.paymentEvents.push({ id: uid(500), kind: "received", amountCents: 240100,
+    currency: "TWD", evidenceRef: "synthetic-receipt", actorId: "synthetic-owner",
+    occurredAt: "2026-11-01T00:00:00.000Z",
+    recordedAt: "2026-11-01T00:00:00.000Z" });
+  assert.deepEqual((await read(actor.fields)).bookings[0].paymentReview,
+    { status: "paid", source: "payment_events" });
+
+  booking.paymentEvents = [];
+  booking.sweetfunSnapshot.rows[1].values[7] = "done";
+  booking.version = 2;
+  booking.totalCents = null;
+  assert.deepEqual((await read(actor.fields)).bookings[0].paymentReview,
+    { status: "unknown", source: "unknown" });
+});
+
 test("owner-attested retained row becomes a cancellation without losing source evidence", () => {
   const snapshot = { headers: [...SWEETFUN_HEADERS], rows: [
     row(1567, "synthetic-cancelled", "", "101", "Synthetic guest", "ota-alias"),

@@ -14,7 +14,7 @@ export type Action =
   | "housekeeping:read"
   | "source:write"
   | "channel:verify";
-export type FieldGrant = "guest_name" | "contact" | "notes" | "money";
+export type FieldGrant = "guest_name" | "contact" | "notes" | "money" | "payment_status";
 
 export type Principal = {
   /** Verified by the hosting auth adapter, never taken from a request body. */
