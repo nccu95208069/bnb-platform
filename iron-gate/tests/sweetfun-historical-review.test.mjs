@@ -10,6 +10,8 @@ import { planSweetfunHistoricalReviewWaiver,
 import { planSweetfunAuthorityActivation } from "../src/sweetfun-authority.mjs";
 import { planSweetfunCutoverCredentials } from
   "../scripts/stage-sweetfun-cutover-credentials.mjs";
+import { recordSweetfunHistoricalReviewWaiver } from
+  "../scripts/waive-sweetfun-historical-review.mjs";
 import { nightsFor } from "../src/service.ts";
 
 const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -102,4 +104,39 @@ test("the exception fails closed on a changed source, fence, or current collisio
     expectedVersion: 8, expectedSourceHash: state.sweetfunImport.sourceHash,
     fingerprint: "a".repeat(64), approvalRef: "synthetic-owner-approval",
     approvedAt: "2026-10-20T00:00:01.000Z" }));
+});
+
+test("restricted transaction records only the versioned waiver", async () => {
+  const { state, occupancy } = fixture();
+  const manifest = { propertyId: state.propertyId, expectedVersion: state.version,
+    expectedSourceHash: state.sweetfunImport.sourceHash,
+    fingerprint: sweetfunHistoricalReviewFingerprint(state),
+    approvalRef: "synthetic-owner-approval",
+    approvedAt: "2026-10-20T00:00:01.000Z" };
+  let stored = structuredClone(state), committed = false;
+  const client = { release() {}, async query(sql, args = []) {
+    if (sql.startsWith("SELECT state_json")) return { rows: [{ state_json: stored }] };
+    if (sql.includes("FROM iron_gate.occupied_room_nights"))
+      return { rows: occupancy };
+    if (sql.startsWith("UPDATE iron_gate.property_state")) {
+      assert.equal(args[3], 8);
+      stored = JSON.parse(args[2]);
+      return { rowCount: 1 };
+    }
+    if (sql === "COMMIT") committed = true;
+    return { rows: [] };
+  } };
+  const pool = { async connect() { return client; }, async query(sql) {
+    if (sql.includes("rolsuper")) return { rows: [{ login: "iron_gate_shadow_import",
+      rolsuper: false, rolbypassrls: false, runtime_member: true,
+      schema_ready: true, property_rls: true, occupancy_rls: true,
+      outbox_rls: true, can_change_schema: false, can_change_credentials: false,
+      can_read_or_change_audit: false, can_change_events: false }] };
+    return { rows: [{ login: "iron_gate_shadow_import", database_name: "postgres" }] };
+  } };
+  const summary = await recordSweetfunHistoricalReviewWaiver(pool, manifest);
+  assert.equal(summary.inventoryVersion, 9);
+  assert.equal(committed, true);
+  assert.deepEqual(stored.bookings, state.bookings);
+  assert.deepEqual(stored.fences, state.fences);
 });
