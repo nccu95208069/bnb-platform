@@ -30,6 +30,11 @@ export function validateGrantShape(grant) {
   if (grant.origin === "line" && (!validCredentialId(grant.grantId) ||
     typeof grant.lineGroupId !== "string" ||
     !/^[A-Za-z0-9_-]{1,128}$/.test(grant.lineGroupId) ||
+    !Array.isArray(grant.lineActorIds) || grant.lineActorIds.length < 1 ||
+    grant.lineActorIds.length > 32 ||
+    grant.lineActorIds.some((actor) => typeof actor !== "string" ||
+      !/^[A-Za-z0-9_-]{1,128}$/.test(actor)) ||
+    new Set(grant.lineActorIds).size !== grant.lineActorIds.length ||
     grant.actions.some((action) => action !== "booking:read") ||
     grant.fields.some((field) => !["guest_name", "contact", "notes", "money"].includes(field))))
     throw new Error("INVALID_LINE_SCOPE");

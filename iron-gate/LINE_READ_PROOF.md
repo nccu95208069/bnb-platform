@@ -6,7 +6,8 @@ authorized release. It does not enable LINE booking writes or OwlNest changes.
 ## Credential and proof
 
 - Issue a distinct, expiring credential with `origin: "line"`, one property and
-  workspace, an opaque UUID `grantId`, exact `lineGroupId`, only
+  workspace, an opaque UUID `grantId`, exact `lineGroupId`, an explicit
+  `lineActorIds` allowlist (at most 32), only
   `actions: ["booking:read"]`, and only the fields the group needs. The current
   grant validator rejects LINE create, amend, cancel, payment, source and
   channel permissions. Keep the token hash in the credential directory and the
@@ -22,7 +23,8 @@ authorized release. It does not enable LINE booking writes or OwlNest changes.
   signature over the credential, workspace, property, grant, group, actor,
   issue/expiry time, exact method, path/query, idempotency header and body
   hash. The maximum proof lifetime is 15 seconds. Iron Gate refuses a missing,
-  expired, altered or mismatched proof before constructing the actor principal.
+  expired, altered or mismatched proof, or an actor removed from the current
+  credential allowlist, before constructing the actor principal.
 - The response includes `lineScope.grantId` for LINE reads. The caller rejects
   a different scope. List and inspect expose only `source=line` bookings with
   `sourceKey=line:<grantId>`; OTA/Gmail bookings cannot be enumerated. The
@@ -37,9 +39,9 @@ allowlist, credential, expiry, scope fields and two separate secret mounts have
 been checked. The zero-traffic Cloud Run candidate must pass its protected
 `/internal/iron-gate-line-readiness` probe and an authorized group must pass a
 real read. Cross-group, revoked-token, expired-token and removed-employee
-attempts must fail. A removed employee requires a replacement Cloud Run
-revision because the staff allowlist is revision configuration; credential
-revocation is checked on every Iron Gate request.
+attempts must fail. Removing an employee from the credential's
+`lineActorIds` takes effect on the next Iron Gate request; also remove the
+employee from the Cloud Run revision whitelist at the next rollout.
 
 The proof is short lived but has no durable replay store. The current LINE
 grant is therefore read only. Booking writes need a separate versioned

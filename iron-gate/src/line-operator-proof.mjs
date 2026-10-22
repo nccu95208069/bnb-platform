@@ -47,7 +47,8 @@ export async function signLineOperatorProof(secret, request, grant, operator, no
   if (grant?.origin !== "line" || typeof grant.lineGroupId !== "string" ||
     !grant.lineGroupId || operator?.active !== true ||
     operator.groupId !== grant.lineGroupId ||
-    typeof operator.actorId !== "string" || !operator.actorId ||
+    typeof operator.actorId !== "string" ||
+    !grant.lineActorIds?.includes(operator.actorId) ||
     !Number.isSafeInteger(nowMs) || nowMs < 0) throw Error("INVALID_LINE_OPERATOR_PROOF");
   const claims = { v: 1, aud: "iron-gate-line-v1",
     credentialId: grant.credentialId,
@@ -66,7 +67,8 @@ export function createLineOperatorProofVerifier(secret, clock = Date.now) {
   const key = secretBytes(secret);
   return async (request, grant) => {
     try {
-      if (grant?.origin !== "line" || !grant.lineGroupId || !grant.grantId) return null;
+      if (grant?.origin !== "line" || !grant.lineGroupId || !grant.grantId ||
+        !Array.isArray(grant.lineActorIds)) return null;
       const proof = request.headers.get(HEADER);
       if (!proof || proof.length > MAX_PROOF) return null;
       const parts = /^([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/.exec(proof);
@@ -79,7 +81,8 @@ export function createLineOperatorProofVerifier(secret, clock = Date.now) {
         claims.credentialId !== grant.credentialId ||
         claims.workspaceId !== grant.workspaceId || claims.propertyId !== grant.propertyId ||
         claims.grantId !== grant.grantId || claims.groupId !== grant.lineGroupId ||
-        typeof claims.actorId !== "string" || !claims.actorId ||
+        typeof claims.actorId !== "string" ||
+        !grant.lineActorIds.includes(claims.actorId) ||
         !Number.isSafeInteger(claims.issuedAtMs) ||
         !Number.isSafeInteger(claims.expiresAtMs) ||
         claims.expiresAtMs <= claims.issuedAtMs ||

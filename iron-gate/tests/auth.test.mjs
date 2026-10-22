@@ -33,9 +33,13 @@ test("compact payment status field is granted only to the OS origin", () => {
 
 test("LINE grants stay read-only and require one bound group", () => {
   const base = { ...grant("line", ["booking:read"], ["guest_name"]),
-    grantId: crypto.randomUUID(), lineGroupId: "synthetic-group" };
+    grantId: crypto.randomUUID(), lineGroupId: "synthetic-group",
+    lineActorIds: ["synthetic-staff"] };
   assert.doesNotThrow(() => validateGrantShape(base));
   assert.throws(() => validateGrantShape({ ...base, lineGroupId: "" }), /INVALID_LINE_SCOPE/);
+  assert.throws(() => validateGrantShape({ ...base, lineActorIds: [] }), /INVALID_LINE_SCOPE/);
+  assert.throws(() => validateGrantShape({ ...base,
+    lineActorIds: ["synthetic-staff", "synthetic-staff"] }), /INVALID_LINE_SCOPE/);
   assert.throws(() => validateGrantShape({ ...base, actions: ["booking:create"] }), /INVALID_LINE_SCOPE/);
   assert.throws(() => validateGrantShape({ ...base, fields: ["payment_status"] }), /INVALID_LINE_SCOPE/);
 });
@@ -43,7 +47,7 @@ test("LINE grants stay read-only and require one bound group", () => {
 test("LINE proof wire format matches the Cloud Run signer", async () => {
   const issued = { origin: "line", credentialId: "55555555-5555-4555-8555-555555555555",
     workspaceId, propertyId, grantId: "44444444-4444-4444-8444-444444444444",
-    lineGroupId: "synthetic-line-group" };
+    lineGroupId: "synthetic-line-group", lineActorIds: ["synthetic-staff"] };
   const request = new Request(`https://iron.invalid/v1/properties/${propertyId}/bookings?from=2026-10-24&to=2026-10-25`);
   const proof = await signLineOperatorProof("b".repeat(43), request, issued,
     { active: true, actorId: "synthetic-staff", groupId: "synthetic-line-group" }, 1000);
@@ -62,7 +66,8 @@ test("LINE operator proof binds actor, group, grant and exact short-lived read",
   try {
     await repository.seed(state());
     const issued = { ...grant("line", ["booking:read"], ["guest_name"]),
-      grantId: crypto.randomUUID(), lineGroupId: "synthetic-group" };
+      grantId: crypto.randomUUID(), lineGroupId: "synthetic-group",
+      lineActorIds: ["synthetic-staff"] };
     const token = directory.issue(issued, new Date(Date.now() + 60_000).toISOString());
     const secret = Buffer.alloc(32, 11);
     const now = Date.now();
@@ -93,6 +98,8 @@ test("LINE operator proof binds actor, group, grant and exact short-lived read",
     assert.equal(await authenticate(new Request(url, { headers: tamperedHeaders })), null);
     assert.equal(await verifier(request.clone(), { ...issued,
       lineGroupId: "another-group" }), null);
+    assert.equal(await verifier(request.clone(), { ...issued,
+      lineActorIds: ["new-staff"] }), null);
     assert.equal(await createLineOperatorProofVerifier(secret,
       () => now + 15001)(request.clone(), issued), null);
     await assert.rejects(signLineOperatorProof(secret, request.clone(), issued,
