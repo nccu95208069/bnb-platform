@@ -67,6 +67,8 @@ import {
   formatMoney,
   formatMonthLabel,
   localTodayIso,
+  monthCalendarPeriod,
+  monthReadWindow,
   monthStarts,
   overlapNights,
   startOfMonth,
@@ -254,17 +256,40 @@ const uiLocale = useIntlLocale();
   const [editsHydrated, setEditsHydrated] = useState(false);
   const previousView = useRef<CalendarView>(view);
   const handledNavigationRequest = useRef(navigationRequest?.id ?? 0);
+  const [monthWindow, setMonthWindow] = useState(() => monthCalendarPeriod(startOfMonth(anchorDate)));
+  const visibleGrid = useMemo(
+    () => monthCalendarPeriod(visibleMonth),
+    [visibleMonth],
+  );
 
   const requestPeriod = useMemo(
-    () => fetchPeriod(anchorDate, view),
-    [anchorDate, view],
+    () => view === "month" ? monthWindow : fetchPeriod(anchorDate, view),
+    [anchorDate, view, monthWindow],
   );
+  const visibleReadPeriod = view === "month" ? visibleGrid : requestPeriod;
   const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess(); }, [setSelectedId, initializeAccess]);
   const { data, loading, refreshing, error, requestFailed, lastLoadedAt } = useCalendarData({
     start: requestPeriod.start, end: requestPeriod.end,
+    visibleStart: visibleReadPeriod.start, visibleEnd: visibleReadPeriod.end,
     scope: `${accessScope}:${propertyScope}`, reload: reloadKey,
     read: scopedRead, onProperties: setProperties, onAccessLost: accessLost,
   });
+  useEffect(() => {
+    if (view !== "month") return;
+    // A jump outside the retained window must request the target immediately.
+    if (monthWindow.start > visibleGrid.start || monthWindow.end < visibleGrid.end) {
+      setMonthWindow(monthReadWindow(visibleMonth));
+      return;
+    }
+    // After the first month renders, fetch nearby months in the background.
+    // Extend again while the visible month is still safely inside old data.
+    if (!data || loading || requestFailed ||
+      !hasCalendarCoverage(data, visibleGrid.start, visibleGrid.end)) return;
+    const previous = monthCalendarPeriod(addMonths(visibleMonth, -1));
+    const next = monthCalendarPeriod(addMonths(visibleMonth, 1));
+    if (monthWindow.start > previous.start || monthWindow.end < next.end)
+      setMonthWindow(monthReadWindow(visibleMonth));
+  }, [view, visibleMonth, visibleGrid, monthWindow, data, loading, requestFailed]);
   const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
   const displayPeriod = useMemo(() => {
     if (view === "month") {
@@ -392,7 +417,7 @@ const uiLocale = useIntlLocale();
     if (!membership || membership.allProperties) return null;
     return new Set(membership.propertyIds);
   }, [membership]);
-  const coverageMissing = !hasCalendarCoverage(data, requestPeriod.start, requestPeriod.end);
+  const coverageMissing = !hasCalendarCoverage(data, visibleReadPeriod.start, visibleReadPeriod.end);
   const unavailableSelectedSource = coverageMissing || data?.source_errors?.some(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)));
 
 

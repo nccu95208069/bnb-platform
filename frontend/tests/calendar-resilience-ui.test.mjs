@@ -67,3 +67,28 @@ test('switching to an uncovered date range renders loading immediately, and only
   await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
   assert.equal(document.body.textContent, 'loading');
 });
+
+test('a nearby background read keeps the visible month on screen', async t => {
+  let state;
+  const attempts = [];
+  const read = () => new Promise(resolve => attempts.push(resolve));
+  const onProperties = () => {}, onAccessLost = () => {};
+  const props = { start: '2026-09-28', end: '2026-11-02', visibleStart: '2026-09-28', visibleEnd: '2026-11-02', scope: 'owner', reload: 0 };
+  function Probe(input) {
+    state = useCalendarData({ ...input, read, onProperties, onAccessLost });
+    return createElement('span', null, state.loading ? 'loading' : 'calendar');
+  }
+  const { root } = await mount(t, Probe, props);
+  await act(async () => { attempts[0](response(props.start, props.end)); await tick(); });
+  assert.equal(document.body.textContent, 'calendar');
+  props.start = '2026-07-27'; props.end = '2027-01-04';
+  await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+  assert.equal(state.loading, false);
+  assert.equal(state.refreshing, true);
+  assert.equal(document.body.textContent, 'calendar');
+  await act(async () => { attempts[1](response(props.start, props.end)); await tick(); });
+  props.visibleStart = '2026-10-26'; props.visibleEnd = '2026-12-07';
+  await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+  assert.equal(state.loading, false);
+  assert.equal(document.body.textContent, 'calendar');
+});

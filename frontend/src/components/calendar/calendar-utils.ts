@@ -158,6 +158,12 @@ export function monthCalendarPeriod(monthStart: string): CalendarPeriod {
   };
 }
 
+export function monthReadWindow(monthStart: string, radius = 2): CalendarPeriod {
+  const first = monthCalendarPeriod(addMonths(startOfMonth(monthStart), -radius));
+  const last = monthCalendarPeriod(addMonths(startOfMonth(monthStart), radius));
+  return { start: first.start, end: last.end, label: "month-read-window" };
+}
+
 export function currentPeriod(anchorDate: string, view: CalendarView, locale="zh-TW"): CalendarPeriod {
   if (view === "day") {
     return {

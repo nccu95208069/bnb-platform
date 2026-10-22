@@ -6,13 +6,14 @@ import { hasCalendarCoverage, retainedCalendar, validCalendarResponse } from './
 
 type Input = {
   start: string; end: string; scope: string; reload: number;
+  visibleStart?: string; visibleEnd?: string;
   read: (start: string, end: string) => Promise<CalendarResponse>;
   onProperties: (properties: CalendarProperty[]) => void;
   onAccessLost: () => void;
 };
 
 // Private data is retained only in this mounted view and only for the exact access scope.
-export function useCalendarData({ start, end, scope, reload, read, onProperties, onAccessLost }: Input) {
+export function useCalendarData({ start, end, visibleStart = start, visibleEnd = end, scope, reload, read, onProperties, onAccessLost }: Input) {
   const [loaded, setLoaded] = useState<{ scope: string; data: CalendarResponse } | null>(null);
   const [failed, setFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +24,7 @@ export function useCalendarData({ start, end, scope, reload, read, onProperties,
   // Effects start after the first render for a new date range. Derive pending
   // from the requested range so an uncovered range never flashes as a failure.
   const pending = settledKey !== requestKey;
-  const covered = hasCalendarCoverage(data, start, end);
+  const covered = hasCalendarCoverage(data, visibleStart, visibleEnd);
   const loading = pending && !covered;
   const refreshing = pending && covered;
 
