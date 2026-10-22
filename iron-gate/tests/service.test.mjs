@@ -161,6 +161,13 @@ test("calendar snapshot reads booking and sparse room nights in one authorized s
   assert.equal(result.bookings.length, 1);
   assert.equal(result.bookings[0].guestName, "Synthetic Guest");
   assert.equal(result.bookings[0].contact, undefined);
+  assert.deepEqual(result.bookings[0].stayAmountsCents, undefined);
+  assert.equal(result.bookings[0].totalCents, undefined);
+  const priced = await service.calendarSnapshot(principal("os", {
+    actions: ["booking:read"], fields: ["guest_name", "money"],
+  }), propertyId, "2026-11-01", "2026-12-01");
+  assert.deepEqual(priced.bookings[0].stayAmountsCents, [1200000]);
+  assert.equal(priced.bookings[0].totalCents, 1200000);
   const withoutNames = await service.calendarSnapshot(principal("os", {
     actions: ["booking:read"], fields: [],
   }), propertyId, "2026-11-01", "2026-12-01");
@@ -175,6 +182,29 @@ test("calendar snapshot reads booking and sparse room nights in one authorized s
     "2026-11-01", "2026-12-01"), errorCode("FORBIDDEN"));
   await assert.rejects(service.calendarSnapshot(actor, propertyId,
     "2026-01-01", "2027-03-01"), errorCode("INVALID_DATE_RANGE"));
+});
+
+test("calendar money grant uses reconciled source night amounts only", async () => {
+  const { service, repository } = setup();
+  await service.createBooking(principal(), propertyId, key(), bookingInput());
+  await repository.transact(propertyId, (state) => {
+    state.bookings[0].stays = [
+      { checkIn: "2026-11-10", checkOut: "2026-11-11", roomIds: [roomId] },
+      { checkIn: "2026-11-11", checkOut: "2026-11-12", roomIds: [roomId] },
+    ];
+    state.bookings[0].sweetfunSnapshot = { rows: [
+      { values: ["101", "Guest", "Booking", "2026/11/10", "2026/11/11", "", "5800"] },
+      { values: ["101", "Guest", "Booking", "2026/11/11", "2026/11/12", "", "6200"] },
+    ] };
+  });
+  const actor = principal("os", { actions: ["booking:read"], fields: ["money"] });
+  const first = await service.calendarSnapshot(actor, propertyId, "2026-11-01", "2026-12-01");
+  assert.deepEqual(first.bookings[0].stayAmountsCents, [580000, 620000]);
+  await repository.transact(propertyId, (state) => {
+    state.bookings[0].sweetfunSnapshot.rows[1].values[6] = "6201";
+  });
+  const drifted = await service.calendarSnapshot(actor, propertyId, "2026-11-01", "2026-12-01");
+  assert.equal(drifted.bookings[0].stayAmountsCents, null);
 });
 
 test("OwlNest partial readback holds the fence; exact readback verifies it", async () => {
