@@ -144,6 +144,8 @@ export type PropertyState = {
   /** Restricted source and exception evidence for a read-only Sweetfun Sheet candidate. */
   sweetfunImport?: Record<string, unknown>;
   channel: { mode: "none" | "owlnest"; ready: boolean; websiteSalesEnabled: boolean;
+    /** Disabled until source events have a durable OwlNest operation dispatcher. */
+    sourceReadbackEnabled?: boolean;
     grantId: string | null; websiteBindingId: string | null };
   sourceGrants: { grantId: string; sourceSystem: string; sourceAccount: string; active: boolean }[];
   bookings: Booking[];

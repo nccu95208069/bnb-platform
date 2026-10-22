@@ -466,6 +466,145 @@ test("OwlNest source date changes hold old and new room nights for review", asyn
     ["2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13"]);
 });
 
+test("gated source readback preserves Gmail source version after OwlNest verification", async () => {
+  const { service, repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const source = principal("source"), channel = principal("channel");
+  const first = await service.applySourceEvent(source, key(), sourceInput());
+  assert.equal(first.state, "applied");
+  assert.equal(first.channelSyncState, "pending");
+  let state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].status, "confirmed");
+  assert.equal(state.fences.length, 1);
+  assert.equal(state.operations[0].cells.every((cell) => cell.desired === "closed"), true);
+  const observedAt = new Date(Date.now() + 1000).toISOString();
+  const verified = await service.recordChannelReadback(channel, { propertyId,
+    operationKey: first.operationKey, providerVersion: "synthetic-closed-v1", observedAt,
+    cells: state.operations[0].cells.map((cell) =>
+      ({ roomId: cell.roomId, date: cell.date, count: 0, isLock: true })) });
+  assert.equal(verified.state, "sync_verified");
+  state = await repository.read(propertyId);
+  assert.equal(state.fences.length, 0);
+  assert.equal(state.sourceLinks[0].lastAppliedBookingVersion, state.bookings[0].version);
+  const detailChange = await service.applySourceEvent(source, key(), sourceInput(state.version, {
+    sourceVersion: "v2", previousSourceVersion: "v1", guestName: "Updated Synthetic Guest",
+  }));
+  assert.equal(detailChange.state, "applied");
+  assert.equal(detailChange.channelSyncState, undefined);
+  state = await repository.read(propertyId);
+  assert.equal(state.operations.length, 1);
+  const cancellation = await service.applySourceEvent(source, key(), sourceInput(state.version, {
+    kind: "cancel", sourceVersion: "v3", previousSourceVersion: "v2",
+  }));
+  assert.equal(cancellation.state, "applied");
+  assert.equal(cancellation.channelSyncState, "pending");
+  state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].status, "cancelled");
+  assert.equal(state.fences.length, 1);
+  assert.equal(state.operations[1].cells.every((cell) => cell.desired === "open"), true);
+  await assert.rejects(service.createBooking(principal(), propertyId, key(),
+    bookingInput(state.version)), errorCode("ROOM_CONFLICT"));
+  const reopened = await service.recordChannelReadback(channel, { propertyId,
+    operationKey: cancellation.operationKey, providerVersion: "synthetic-open-v2",
+    observedAt: new Date(Date.now() + 1000).toISOString(),
+    cells: state.operations[1].cells.map((cell) =>
+      ({ roomId: cell.roomId, date: cell.date, count: 1, isLock: false })) });
+  assert.equal(reopened.state, "sync_verified");
+  state = await repository.read(propertyId);
+  assert.equal(state.fences.length, 0);
+  assert.equal(state.sourceLinks[0].lastAppliedBookingVersion, state.bookings[0].version);
+});
+
+test("gated source amendment reads back old opened and new closed nights", async () => {
+  const { service, repository } = setup();
+  const source = principal("source"), channel = principal("channel");
+  const first = await service.applySourceEvent(source, key(), sourceInput());
+  await repository.transact(propertyId, (state) => {
+    state.channel.mode = "owlnest";
+    state.channel.ready = true;
+    state.channel.grantId = channelGrantId;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const moved = await service.applySourceEvent(source, key(), sourceInput(2, {
+    sourceVersion: "v2", previousSourceVersion: "v1",
+    stays: [{ checkIn: "2026-11-12", checkOut: "2026-11-14", roomIds: [roomId] }],
+  }));
+  assert.equal(moved.state, "applied");
+  let state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].id, first.bookingId);
+  assert.deepEqual(state.operations[0].cells.map((cell) => [cell.date, cell.desired]).sort(),
+    [["2026-11-10", "open"], ["2026-11-11", "open"],
+     ["2026-11-12", "closed"], ["2026-11-13", "closed"]]);
+  const verified = await service.recordChannelReadback(channel, { propertyId,
+    operationKey: moved.operationKey, providerVersion: "synthetic-move-v1",
+    observedAt: new Date(Date.now() + 1000).toISOString(),
+    cells: state.operations[0].cells.map((cell) => ({ roomId: cell.roomId, date: cell.date,
+      count: cell.desired === "closed" ? 0 : 1, isLock: cell.desired === "closed" })) });
+  assert.equal(verified.state, "sync_verified");
+  state = await repository.read(propertyId);
+  assert.equal(state.sourceLinks[0].lastAppliedBookingVersion, state.bookings[0].version);
+  assert.equal(state.fences.length, 0);
+});
+
+test("gated source events cannot overtake a pending channel operation", async () => {
+  const { service, repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const source = principal("source");
+  const first = await service.applySourceEvent(source, key(), sourceInput());
+  const attempted = await service.applySourceEvent(source, key(), sourceInput(2, {
+    sourceVersion: "v2", previousSourceVersion: "v1",
+    stays: [{ checkIn: "2026-11-12", checkOut: "2026-11-14", roomIds: [roomId] }],
+  }));
+  assert.equal(attempted.state, "review_required");
+  assert.equal(attempted.reason, "CHANNEL_PREVIOUS_OPERATION_UNRESOLVED");
+  const state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].id, first.bookingId);
+  assert.equal(state.bookings[0].version, 1);
+  assert.equal(state.sourceLinks[0].sourceVersion, "v1");
+  assert.equal(state.fences.length, 2);
+});
+
+test("gated source cancellation keeps manually blocked nights closed", async () => {
+  const { service, repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const source = principal("source"), channel = principal("channel");
+  const first = await service.applySourceEvent(source, key(), sourceInput());
+  let state = await repository.read(propertyId);
+  await service.recordChannelReadback(channel, { propertyId,
+    operationKey: first.operationKey, providerVersion: "synthetic-closed-v1",
+    observedAt: new Date(Date.now() + 1000).toISOString(),
+    cells: state.operations[0].cells.map((cell) =>
+      ({ roomId: cell.roomId, date: cell.date, count: 0, isLock: true })) });
+  state = await repository.read(propertyId);
+  await repository.transact(propertyId, (current) => {
+    current.manualBlocks.push({ roomId, date: "2026-11-10" });
+    current.version++;
+  });
+  state = await repository.read(propertyId);
+  const cancelled = await service.applySourceEvent(source, key(), sourceInput(state.version, {
+    kind: "cancel", sourceVersion: "v2", previousSourceVersion: "v1",
+  }));
+  state = await repository.read(propertyId);
+  assert.deepEqual(state.operations[1].cells.map((cell) => [cell.date, cell.desired]).sort(),
+    [["2026-11-10", "closed"], ["2026-11-11", "open"]]);
+  const verified = await service.recordChannelReadback(channel, { propertyId,
+    operationKey: cancelled.operationKey, providerVersion: "synthetic-mixed-v2",
+    observedAt: new Date(Date.now() + 1000).toISOString(),
+    cells: state.operations[1].cells.map((cell) => ({ roomId: cell.roomId,
+      date: cell.date, count: cell.desired === "closed" ? 0 : 1,
+      isLock: cell.desired === "closed" })) });
+  assert.equal(verified.state, "sync_verified");
+  state = await repository.read(propertyId);
+  assert.deepEqual(state.manualBlocks, [{ roomId, date: "2026-11-10" }]);
+  assert.equal(state.fences.length, 0);
+});
+
 test("only current channel grant reads operation details and only OS cancels", async () => {
   const { service, repository } = setup("owlnest");
   const created = await service.createBooking(principal(), propertyId, key(), bookingInput());

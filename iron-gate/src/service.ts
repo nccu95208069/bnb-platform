@@ -942,12 +942,17 @@ export class IronGateService {
       const providerMatches = complete && input.cells.every((cell) =>
         desiredByCell.get(keyOf(cell)) === "closed" ? cell.count === 0 || cell.isLock :
           cell.count > 0 && !cell.isLock);
-      const currentNights = new Set(nightsFor(booking.stays, state.roomIds).map(keyOf));
+      const currentNights = new Set(booking.status === "confirmed" ?
+        nightsFor(booking.stays, state.roomIds).map(keyOf) : []);
       // Payment or guest-detail edits may advance the booking version while
       // the same channel operation still owns these exact room nights.
       const correctBooking = booking.channelOperationKey === operation.key && operation.cells.every((cell) =>
-        cell.desired === "closed" ? booking.status === "confirmed" && currentNights.has(keyOf(cell)) :
-          booking.status === "cancelled" && !hasConflict(state, [cell], booking.id, operation.key));
+        cell.desired === "closed" ?
+          booking.status === "confirmed" && currentNights.has(keyOf(cell)) ||
+          !currentNights.has(keyOf(cell)) && hasConflict(state, [cell], booking.id, operation.key) :
+          (booking.status === "confirmed" || booking.status === "cancelled") &&
+          !currentNights.has(keyOf(cell)) &&
+          !hasConflict(state, [cell], booking.id, operation.key));
       operation.observations ??= [];
       if (operation.observations.length >= 1000) reject("READBACK_LIMIT_REACHED", 409);
       operation.observations.push({ observedAt: input.observedAt, providerVersion: input.providerVersion,
@@ -960,7 +965,11 @@ export class IronGateService {
         operation.verifiedAt = input.observedAt;
         operation.providerVersion = input.providerVersion;
         booking.channelSyncState = "verified";
+        const sourceLink = state.sourceLinks.find((link) => link.bookingId === booking.id);
+        const sourceVersionCurrent = sourceLink && !sourceLink.diverged &&
+          sourceLink.lastAppliedBookingVersion === booking.version;
         booking.version++;
+        if (sourceVersionCurrent) sourceLink.lastAppliedBookingVersion = booking.version;
         state.fences = state.fences.filter((fence) => fence.key !== operation.key);
       }
       state.version++;
@@ -1024,6 +1033,8 @@ export class IronGateService {
       const sourceKey = sourceOrderKey(input.sourceSystem, input.sourceAccount, input.externalOrderId);
       let link = state.sourceLinks.find((item) => item.key === sourceKey);
       const linkedBooking = link?.bookingId ? state.bookings.find((item) => item.id === link!.bookingId) : null;
+      const channelMode = state.channel.mode === "owlnest";
+      const sourceReadback = channelMode && state.channel.sourceReadbackEnabled === true;
       const review = (reason: string, affected: Night[]): Record<string, unknown> => {
         const key = `review:${sourceKey}`;
         const existing = state.fences.find((fence) => fence.key === key);
@@ -1048,7 +1059,15 @@ export class IronGateService {
         return review("SOURCE_DIVERGED", [...cells, ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);
       if (input.kind === "upsert" && link && link.tombstoneNights.length)
         return review("SOURCE_TOMBSTONE_REACTIVATION", [...cells, ...link.tombstoneNights]);
-      if (state.channel.mode === "owlnest" && input.kind === "upsert") {
+      if (sourceReadback && (!state.channel.ready || !state.channel.grantId))
+        return review("CHANNEL_NOT_READY", [...cells,
+          ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);
+      if (sourceReadback && linkedBooking &&
+        (linkedBooking.channelSyncState === "pending" ||
+          linkedBooking.channelSyncState === "review_required"))
+        return review("CHANNEL_PREVIOUS_OPERATION_UNRESOLVED", [...cells,
+          ...nightsFor(linkedBooking.stays, state.roomIds)]);
+      if (channelMode && !sourceReadback && input.kind === "upsert") {
         const current = linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds).map(keyOf).sort() : [];
         const requested = cells.map(keyOf).sort();
         if (current.length !== requested.length ||
@@ -1061,11 +1080,11 @@ export class IronGateService {
         const supplied = cells.map(keyOf).sort();
         if (current.length !== supplied.length || current.some((cell, index) => cell !== supplied[index]))
           return review("SOURCE_STAY_MISMATCH", [...cells, ...nightsFor(linkedBooking.stays, state.roomIds)]);
-        if (state.channel.mode === "owlnest")
+        if (channelMode && !sourceReadback)
           return review("CHANNEL_CANCEL_REQUIRES_READBACK", cells);
       }
       if (input.kind === "cancel" && !linkedBooking) {
-        if (state.channel.mode === "owlnest")
+        if (channelMode)
           return review("CHANNEL_UNKNOWN_CANCEL_REQUIRES_READBACK", cells);
         if (!link) {
           link = { key: sourceKey, sourceSystem: input.sourceSystem, sourceAccount: input.sourceAccount,
@@ -1084,6 +1103,7 @@ export class IronGateService {
       }
       if (input.kind === "upsert" && hasConflict(state, cells, linkedBooking?.id))
         return review("ROOM_CONFLICT", [...cells, ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);
+      const oldCells = linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [];
       let booking: Booking;
       if (linkedBooking) {
         booking = linkedBooking;
@@ -1117,9 +1137,33 @@ export class IronGateService {
         link.diverged = false;
         if (input.kind === "cancel") link.tombstoneNights = cells;
       }
+      const channelNeeded = sourceReadback && (input.kind === "cancel" || !linkedBooking ||
+        linkedBooking.channelSyncState !== "verified" || changedNights(oldCells, cells));
+      if (channelNeeded) {
+        const currentKeys = new Set(input.kind === "upsert" ? cells.map(keyOf) : []);
+        const removed = oldCells.filter((cell) => !currentKeys.has(keyOf(cell)));
+        // A separate manual block or review fence must stay closed even when
+        // the source booking moves away or is cancelled.
+        const desired: DesiredCell[] = [
+          ...removed.map((cell) => ({ ...cell,
+            desired: hasConflict(state, [cell], booking.id) ? "closed" as const : "open" as const })),
+          ...(input.kind === "upsert" ? cells.map((cell) =>
+            ({ ...cell, desired: "closed" as const })) : []),
+        ];
+        if (!desired.length) reject("CHANNEL_OPERATION_EMPTY", 409);
+        const operationKey = crypto.randomUUID();
+        booking.channelOperationKey = operationKey;
+        booking.channelSyncState = "pending";
+        state.operations.push({ key: operationKey, bookingId: booking.id,
+          bookingVersion: booking.version, state: "sync_pending", cells: desired,
+          createdAt: new Date().toISOString(), verifiedAt: null, providerVersion: null });
+        state.fences.push({ key: operationKey, cells: uniqueNights([...oldCells, ...cells]),
+          reason: "channel_pending" });
+      }
       state.version++;
       const response = { state: "applied", bookingId: booking.id, bookingVersion: booking.version,
-        inventoryVersion: state.version };
+        inventoryVersion: state.version,
+        ...(channelNeeded ? { channelSyncState: "pending", operationKey: booking.channelOperationKey } : {}) };
       saveReceipt(state, principal, requestKey, "source:write", hash, response);
       emit(tx, state, "source.applied", booking, principal, requestKey);
       return response;
