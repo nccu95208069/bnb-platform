@@ -189,6 +189,8 @@ components:
         propertyId: { type: string, format: uuid }
         version: { type: integer, minimum: 1 }
         inventoryVersion: { type: integer, minimum: 0, description: Present on LINE inspect responses so a later confirmation can reject changed inventory. }
+        authorityEpoch: { type: integer, minimum: 0, description: Present on LINE inspect responses; the reader rejects epoch zero. }
+        readOnly: { type: boolean, description: Present on LINE inspect responses; the reader requires the active property authority. }
         lineScope:
           type: object
           additionalProperties: false

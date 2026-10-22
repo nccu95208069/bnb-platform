@@ -272,6 +272,11 @@ test("LINE booking reads stay within the verified grant and its field scope", as
   const listed = await service.listBookings(scope, propertyId, options);
   assert.deepEqual(listed.bookings.map((booking) => booking.id), [ownedId]);
   const booking = await service.getBooking(scope, propertyId, ownedId);
+  assert.equal(booking.propertyId, propertyId);
+  assert.equal(booking.authorityEpoch, 7);
+  assert.equal(booking.readOnly, false);
+  assert.equal(booking.inventoryVersion, listed.inventoryVersion);
+  assert.deepEqual(booking.lineScope, { grantId: ownedGrant });
   assert.equal(booking.guestName, "Synthetic Guest");
   assert.equal(booking.notes, "Synthetic note");
   assert.equal(Object.hasOwn(booking, "contact"), false);
