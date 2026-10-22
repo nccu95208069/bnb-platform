@@ -25,7 +25,10 @@ authorized release. It does not enable LINE booking writes or OwlNest changes.
   expired, altered or mismatched proof before constructing the actor principal.
 - The response includes `lineScope.grantId` for LINE reads. The caller rejects
   a different scope. List and inspect expose only `source=line` bookings with
-  `sourceKey=line:<grantId>`; OTA/Gmail bookings cannot be enumerated.
+  `sourceKey=line:<grantId>`; OTA/Gmail bookings cannot be enumerated. The
+  separate `/availability` read returns local room-night states across all
+  booking sources without guest or order details. An `unsold` cell is never
+  reported as externally sale-ready.
 
 ## Release gate
 

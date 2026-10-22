@@ -701,7 +701,8 @@ export class IronGateService {
     const state = await this.repository.read(propertyId);
     if (!state) reject("PROPERTY_NOT_FOUND", 404);
     authorize(principal, state, "booking:read");
-    if (principal.origin !== "os" && principal.origin !== "service" && principal.origin !== "website")
+    if (principal.origin !== "os" && principal.origin !== "service" &&
+      principal.origin !== "website" && principal.origin !== "line")
       reject("FORBIDDEN", 403);
     if (principal.origin === "website" &&
       (!principal.bindingId || principal.bindingId !== state.channel.websiteBindingId))
@@ -715,7 +716,9 @@ export class IronGateService {
         blocked.has(keyOf(cell)) ? "blocked" : "unsold",
         saleReady: false });
     }
-    return { propertyId, inventoryVersion: state.version, authorityEpoch: state.authorityEpoch, cells,
+    return { propertyId, inventoryVersion: state.version, authorityEpoch: state.authorityEpoch,
+      readOnly: state.readOnly === true, cells,
+      ...(principal.origin === "line" ? { lineScope: { grantId: principal.grantId } } : {}),
       note: "unsold means no local occupancy; it does not prove external channel stock" };
   }
 

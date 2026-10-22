@@ -479,6 +479,23 @@ test("guest order credentials cannot enumerate availability and website sale rea
   assert.equal(cells.cells[0].saleReady, false);
 });
 
+test("LINE local room-night read sees OTA occupancy without exposing its booking", async () => {
+  const { service } = setup();
+  await service.applySourceEvent(principal("source"), key(), sourceInput());
+  const grantId = key();
+  const line = principal("line", { grantId, actions: ["booking:read"], fields: [] });
+  const local = await service.availability(line, propertyId,
+    "2026-11-10", "2026-11-11");
+  assert.deepEqual(local.lineScope, { grantId });
+  assert.equal(local.readOnly, false);
+  assert.equal(local.cells[0].state, "sold");
+  assert.equal(local.cells[0].saleReady, false);
+  assert.equal(JSON.stringify(local).includes("External Guest"), false);
+  const direct = await service.listBookings(line, propertyId,
+    { limit: 20, cursor: null, status: null, from: null, to: null });
+  assert.deepEqual(direct.bookings, []);
+});
+
 test("availability caps the response before expanding a large property calendar", async () => {
   const { service, repository } = setup();
   await repository.transact(propertyId, (state) => {

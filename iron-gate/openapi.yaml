@@ -698,6 +698,10 @@ paths:
     get:
       operationId: getAvailability
       summary: Read local room-night state; unsold is not external sale permission
+      description: >-
+        A verified LINE read grant may inspect local room-night cells without
+        booking or guest details. Its response includes lineScope.grantId and
+        readOnly; unsold never proves OwlNest sale readiness.
       parameters:
         - { $ref: '#/components/parameters/PropertyId' }
         - { name: from, in: query, required: true, schema: { type: string, format: date } }
