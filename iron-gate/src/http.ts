@@ -59,6 +59,12 @@ export function createHandler(service: IronGateService, authenticate: Authentica
       const principal = await authenticate(request);
       if (!principal) return json({ error: { code: "UNAUTHORIZED" } }, 401);
 
+      if (parts[1] === "properties" && parts[2] && parts[3] === "line-create-previews" &&
+        parts.length === 4 && request.method === "POST") {
+        const value = await body(request);
+        exact(value, ["expectedInventoryVersion", "stays", "guestName", "contact", "notes", "totalCents", "bookedAt", "source"]);
+        return json(await service.previewLineCreate(principal, parts[2], value as CreateBookingInput));
+      }
       if (parts[1] === "properties" && parts[2] && parts[3] === "bookings") {
         const propertyId = parts[2];
         if (parts.length === 4 && request.method === "GET") {
@@ -72,7 +78,8 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         if (parts.length === 4 && request.method === "POST") {
           const value = await body(request);
           exact(value, ["expectedInventoryVersion", "stays", "guestName", "contact", "notes", "totalCents", "bookedAt", "source"]);
-          const result = await service.createBooking(principal, propertyId, requestKey(request), value as CreateBookingInput);
+          const result = await service.createBooking(principal, propertyId, requestKey(request),
+            value as CreateBookingInput, request.headers.get("x-iron-gate-line-preview"));
           return json(result, result.operationState === "sync_pending" ? 202 : 201);
         }
         if (parts.length === 5 && request.method === "GET") {

@@ -25,8 +25,8 @@ export function validateGrantShape(grant) {
     grant.actions.some((action) => action !== "source:write"))) throw new Error("INVALID_SOURCE_SCOPE");
   if (grant.origin === "channel" && (!grant.grantId ||
     grant.actions.some((action) => action !== "channel:verify"))) throw new Error("INVALID_CHANNEL_SCOPE");
-  // The first LINE grant is read-only. Booking mutations need a separate
-  // versioned-confirmation and provider-readback release gate.
+  // A later, separately issued create grant requires an explicit marker and
+  // the server-issued versioned preview. Amend/cancel remain closed.
   if (grant.origin === "line" && (!validCredentialId(grant.grantId) ||
     typeof grant.lineGroupId !== "string" ||
     !/^[A-Za-z0-9_-]{1,128}$/.test(grant.lineGroupId) ||
@@ -35,7 +35,12 @@ export function validateGrantShape(grant) {
     grant.lineActorIds.some((actor) => typeof actor !== "string" ||
       !/^[A-Za-z0-9_-]{1,128}$/.test(actor)) ||
     new Set(grant.lineActorIds).size !== grant.lineActorIds.length ||
-    grant.actions.some((action) => action !== "booking:read") ||
+    grant.actions.some((action) => action !== "booking:read" &&
+      !(action === "booking:create" && grant.lineCreateEnabled === true)) ||
+    (grant.actions.includes("booking:create") &&
+      !grant.actions.includes("booking:read")) ||
+    (grant.lineCreateEnabled === true &&
+      !grant.actions.includes("booking:create")) ||
     grant.fields.some((field) => !["guest_name", "contact", "notes", "money"].includes(field))))
     throw new Error("INVALID_LINE_SCOPE");
   if (grant.origin === "service" && (grant.fields.length || grant.actions.some((action) =>

@@ -44,4 +44,11 @@ OwlNest inventory has changed.
    is `sync_verified`.
 
 The current LINE credential remains `booking:read` only. This candidate does
-not authorize LINE create, amend, cancel, or manual stock changes.
+not authorize LINE create, amend, cancel, or manual stock changes. The backend
+now has a separate, dormant LINE create protocol: an explicitly marked create
+grant can request a 15-minute private preview bound to the verified actor,
+grant, exact booking input and inventory version. The commit route checks that
+preview and the current channel/source-readback gates before atomically writing
+one local booking and a fenced channel operation. No create grant has been
+issued, and GCO does not yet persist or submit these preview tokens; no LINE
+create operation is enabled in production.

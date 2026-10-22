@@ -13,6 +13,8 @@ const DAY = 86_400_000;
 const MAX_NIGHTS = 366;
 const MAX_READ_DAYS = 31;
 const MAX_CALENDAR_DAYS = 410;
+const LINE_PREVIEW_LIFETIME_MS = 15 * 60_000;
+const LINE_PREVIEW_SECRET = /^[A-Za-z0-9_-]{43}$/;
 
 function reject(code: string, status = 400): never { throw new GateError(code, status); }
 function uuid(value: unknown): string {
@@ -66,6 +68,67 @@ async function digest(value: unknown): Promise<string> {
   const bytes = new TextEncoder().encode(canonical(value));
   const hash = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function base64url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function decodeBase64url(value: string): Uint8Array<ArrayBuffer> {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) throw Error("INVALID_LINE_PREVIEW");
+  const binary = atob(value.replace(/-/g, "+").replace(/_/g, "/"));
+  const bytes = new Uint8Array(new ArrayBuffer(binary.length));
+  for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+async function linePreviewKey(secret: string): Promise<CryptoKey> {
+  return crypto.subtle.importKey("raw", new TextEncoder().encode(secret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign", "verify"]);
+}
+async function signLinePreview(secret: string, principal: Principal,
+  propertyId: string, inventoryVersion: number, inputHash: string): Promise<{
+    token: string; expiresAt: string;
+  }> {
+  const issuedAtMs = Date.now(), expiresAtMs = issuedAtMs + LINE_PREVIEW_LIFETIME_MS;
+  const claims = { v: 1, aud: "iron-gate-line-create-preview-v1",
+    workspaceId: principal.workspaceId, propertyId,
+    actorId: principal.subjectId, clientId: principal.clientId,
+    grantId: principal.grantId, authorityEpoch: principal.authorityEpoch,
+    inventoryVersion, inputHash, issuedAtMs, expiresAtMs,
+    nonce: crypto.randomUUID() };
+  const encoded = base64url(new TextEncoder().encode(JSON.stringify(claims)));
+  const signature = new Uint8Array(await crypto.subtle.sign("HMAC",
+    await linePreviewKey(secret), new TextEncoder().encode(encoded)));
+  return { token: `${encoded}.${base64url(signature)}`,
+    expiresAt: new Date(expiresAtMs).toISOString() };
+}
+async function verifyLinePreview(secret: string, token: string | null | undefined,
+  principal: Principal, propertyId: string, inventoryVersion: number,
+  inputHash: string): Promise<number | null> {
+  try {
+    if (typeof token !== "string" || token.length > 2048) return null;
+    const parts = /^([A-Za-z0-9_-]+)\.([A-Za-z0-9_-]+)$/.exec(token);
+    if (!parts) return null;
+    const key = await linePreviewKey(secret);
+    if (!await crypto.subtle.verify("HMAC", key, decodeBase64url(parts[2]),
+      new TextEncoder().encode(parts[1]))) return null;
+    const claims = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(
+      decodeBase64url(parts[1])));
+    const now = Date.now();
+    const valid = claims?.v === 1 && claims.aud === "iron-gate-line-create-preview-v1" &&
+      claims.workspaceId === principal.workspaceId && claims.propertyId === propertyId &&
+      claims.actorId === principal.subjectId && claims.clientId === principal.clientId &&
+      claims.grantId === principal.grantId &&
+      claims.authorityEpoch === principal.authorityEpoch &&
+      claims.inventoryVersion === inventoryVersion && claims.inputHash === inputHash &&
+      typeof claims.nonce === "string" && UUID.test(claims.nonce) &&
+      Number.isSafeInteger(claims.issuedAtMs) &&
+      Number.isSafeInteger(claims.expiresAtMs) &&
+      claims.expiresAtMs - claims.issuedAtMs === LINE_PREVIEW_LIFETIME_MS &&
+      claims.issuedAtMs <= now + 2_000 && claims.expiresAtMs > now;
+    return valid ? claims.expiresAtMs : null;
+  } catch { return null; }
 }
 
 export function nightsFor(stays: Stay[], roomIds: string[]): Night[] {
@@ -204,9 +267,6 @@ function verifyCreate(input: CreateBookingInput, principal: Principal): void {
   if (principal.origin !== input.source || !["os", "line", "website"].includes(input.source))
     reject("FORBIDDEN", 403);
   if (principal.origin === "line" && !principal.grantId) reject("FORBIDDEN", 403);
-  // LINE v1 requires the existing owner-action preview/commit protocol and a
-  // complete verified inspect snapshot. The generic create route cannot bypass it.
-  if (principal.origin === "line") reject("LINE_PREVIEW_REQUIRED", 409);
   if (!Number.isSafeInteger(input.expectedInventoryVersion) || input.expectedInventoryVersion < 0)
     reject("INVALID_VERSION");
   nullableText(input.guestName, 200);
@@ -304,16 +364,54 @@ function emit(tx: TransactionContext, state: PropertyState, type: EventType,
 
 export class IronGateService {
   private readonly repository: PropertyRepository;
-  constructor(repository: PropertyRepository) { this.repository = repository; }
+  private readonly linePreviewSecret: string | null;
+  constructor(repository: PropertyRepository, linePreviewSecret: string | null = null) {
+    if (linePreviewSecret !== null && !LINE_PREVIEW_SECRET.test(linePreviewSecret))
+      throw Error("LINE_PREVIEW_SECRET_INVALID");
+    this.repository = repository;
+    this.linePreviewSecret = linePreviewSecret;
+  }
+
+  async previewLineCreate(principal: Principal, propertyId: string,
+    input: CreateBookingInput): Promise<Record<string, unknown>> {
+    uuid(propertyId); verifyCreate(input, principal);
+    if (principal.origin !== "line" || !this.linePreviewSecret)
+      reject("LINE_PREVIEW_UNAVAILABLE", 503);
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    authorize(principal, state, "booking:create");
+    if (state.readOnly !== false || principal.authorityEpoch !== state.authorityEpoch ||
+      state.channel.mode !== "owlnest" || !state.channel.ready ||
+      state.channel.sourceReadbackEnabled !== true || !state.channel.grantId)
+      reject("LINE_CHANNEL_NOT_READY", 409);
+    if (state.version !== input.expectedInventoryVersion) reject("VERSION_CONFLICT", 409);
+    if (hasConflict(state, nightsFor(input.stays, state.roomIds))) reject("ROOM_CONFLICT", 409);
+    const hash = await digest({ action: "booking:create", input });
+    const signed = await signLinePreview(this.linePreviewSecret, principal,
+      propertyId, state.version, hash);
+    return { propertyId, inventoryVersion: state.version,
+      authorityEpoch: state.authorityEpoch, expiresAt: signed.expiresAt,
+      previewToken: signed.token, channelSyncState: "preview_only" };
+  }
 
   async createBooking(principal: Principal, propertyId: string, requestKey: string,
-    input: CreateBookingInput): Promise<BookingReceipt> {
+    input: CreateBookingInput, linePreviewToken: string | null = null): Promise<BookingReceipt> {
     uuid(propertyId); uuid(requestKey); verifyCreate(input, principal);
     const hash = await digest({ action: "booking:create", input });
+    const linePreviewExpiry = principal.origin === "line" && this.linePreviewSecret !== null ?
+      await verifyLinePreview(this.linePreviewSecret, linePreviewToken, principal,
+        propertyId, input.expectedInventoryVersion, hash) : null;
     return this.repository.transact(propertyId, (state, tx) => {
       authorize(principal, state, "booking:create", true);
       const prior = receiptFor(state, principal, requestKey, hash);
       if (prior) return prior.response as BookingReceipt;
+      if (principal.origin === "line") {
+        if (linePreviewExpiry === null || Date.now() >= linePreviewExpiry)
+          reject("LINE_PREVIEW_REQUIRED", 409);
+        if (state.readOnly !== false || state.channel.mode !== "owlnest" || !state.channel.ready ||
+          state.channel.sourceReadbackEnabled !== true || !state.channel.grantId)
+          reject("LINE_CHANNEL_NOT_READY", 409);
+      }
       if (state.version !== input.expectedInventoryVersion) reject("VERSION_CONFLICT", 409);
       // Direct website writes require a one-use server-issued quote, including
       // local-only properties. A binding alone is never sale authorization.

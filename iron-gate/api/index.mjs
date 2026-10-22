@@ -61,7 +61,7 @@ export function createVercelFetch(env = process.env) {
         const pool = new Pool({ connectionString: databaseUrl,
           max: 2, connectionTimeoutMillis: 5000, idleTimeoutMillis: 10000 });
         return createPostgresIronGateHandler(pool, verifyOsMember,
-          databaseUrl, verifyLineOperator);
+          databaseUrl, verifyLineOperator, lineProofSecret || null);
       })();
       return (await ready)(request);
     } catch {

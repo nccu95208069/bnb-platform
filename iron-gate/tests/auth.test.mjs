@@ -40,6 +40,12 @@ test("LINE grants stay read-only and require one bound group", () => {
   assert.throws(() => validateGrantShape({ ...base, lineActorIds: [] }), /INVALID_LINE_SCOPE/);
   assert.throws(() => validateGrantShape({ ...base,
     lineActorIds: ["synthetic-staff", "synthetic-staff"] }), /INVALID_LINE_SCOPE/);
+  assert.throws(() => validateGrantShape({ ...base,
+    actions: ["booking:read", "booking:create"] }), /INVALID_LINE_SCOPE/);
+  assert.doesNotThrow(() => validateGrantShape({ ...base, lineCreateEnabled: true,
+    actions: ["booking:read", "booking:create"] }));
+  assert.throws(() => validateGrantShape({ ...base, lineCreateEnabled: true,
+    actions: ["booking:read", "booking:amend"] }), /INVALID_LINE_SCOPE/);
   assert.throws(() => validateGrantShape({ ...base, actions: ["booking:create"] }), /INVALID_LINE_SCOPE/);
   assert.throws(() => validateGrantShape({ ...base, fields: ["payment_status"] }), /INVALID_LINE_SCOPE/);
 });

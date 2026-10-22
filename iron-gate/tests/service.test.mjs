@@ -291,6 +291,81 @@ test("LINE booking reads stay within the verified grant and its field scope", as
   assert.equal(Object.hasOwn(full, "paymentSummary"), false);
 });
 
+test("LINE direct create requires a fresh actor-bound preview and one inventory version", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const service = new IronGateService(repository, "p".repeat(43));
+  const actor = principal("line", { grantId: key(), subjectId: "synthetic-staff",
+    actions: ["booking:read", "booking:create"] });
+  const input = bookingInput(1, { source: "line" });
+  const preview = await service.previewLineCreate(actor, propertyId, input);
+  assert.equal(preview.inventoryVersion, 1);
+  assert.equal(preview.channelSyncState, "preview_only");
+  assert.equal(JSON.stringify(preview).includes("Synthetic Guest"), false);
+  const requestKey = key();
+  const created = await service.createBooking(actor, propertyId, requestKey, input,
+    preview.previewToken);
+  assert.equal(created.operationState, "sync_pending");
+  assert.equal((await repository.read(propertyId)).bookings[0].sourceKey,
+    `line:${actor.grantId}`);
+  assert.deepEqual(await service.createBooking(actor, propertyId, requestKey, input,
+    preview.previewToken), created);
+  await assert.rejects(service.createBooking(actor, propertyId, key(), input,
+    preview.previewToken), errorCode("VERSION_CONFLICT"));
+  await assert.rejects(service.createBooking({ ...actor, subjectId: "other-staff" },
+    propertyId, key(), input, preview.previewToken), errorCode("LINE_PREVIEW_REQUIRED"));
+});
+
+test("LINE preview rejects altered payload, stale authority, and a disabled channel", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const service = new IronGateService(repository, "p".repeat(43));
+  const actor = principal("line", { grantId: key(), actions: ["booking:read", "booking:create"] });
+  const input = bookingInput(1, { source: "line" });
+  const preview = await service.previewLineCreate(actor, propertyId, input);
+  await assert.rejects(service.createBooking(actor, propertyId, key(),
+    { ...input, totalCents: 1 }, preview.previewToken), errorCode("LINE_PREVIEW_REQUIRED"));
+  await assert.rejects(service.createBooking(actor, propertyId, key(), input,
+    preview.previewToken + "x"), errorCode("LINE_PREVIEW_REQUIRED"));
+  await repository.transact(propertyId, (state) => {
+    state.channel.sourceReadbackEnabled = false;
+  });
+  await assert.rejects(service.createBooking(actor, propertyId, key(), input,
+    preview.previewToken), errorCode("LINE_CHANNEL_NOT_READY"));
+  await assert.rejects(service.previewLineCreate(actor, propertyId, input),
+    errorCode("LINE_CHANNEL_NOT_READY"));
+  await assert.rejects(service.previewLineCreate({ ...actor, authorityEpoch: 8 },
+    propertyId, input), errorCode("LINE_CHANNEL_NOT_READY"));
+  assert.equal((await repository.read(propertyId)).bookings.length, 0);
+});
+
+test("LINE preview expires before a booking can be committed", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const service = new IronGateService(repository, "p".repeat(43));
+  const actor = principal("line", { grantId: key(), actions: ["booking:read", "booking:create"] });
+  const input = bookingInput(1, { source: "line" });
+  const originalNow = Date.now;
+  let now = originalNow();
+  try {
+    Date.now = () => now;
+    const preview = await service.previewLineCreate(actor, propertyId, input);
+    now += 15 * 60_000 + 1;
+    await assert.rejects(service.createBooking(actor, propertyId, key(), input,
+      preview.previewToken), errorCode("LINE_PREVIEW_REQUIRED"));
+  } finally { Date.now = originalNow; }
+  assert.equal((await repository.read(propertyId)).bookings.length, 0);
+});
+
 test("source version and booking divergence stop an external overwrite", async () => {
   const { service, repository } = setup();
   const source = principal("source");
@@ -811,6 +886,34 @@ test("HTTP pending-operation poll is channel-only and returns no guest data", as
   assert.equal(JSON.stringify(body).includes("Synthetic Guest"), false);
   const other = createHandler(service, async () => principal());
   assert.equal((await other(new Request(url))).status, 403);
+});
+
+test("HTTP LINE create route requires the server preview header", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const actor = principal("line", { grantId: key(), actions: ["booking:read", "booking:create"] });
+  const handler = createHandler(new IronGateService(repository, "p".repeat(43)),
+    async () => actor);
+  const input = bookingInput(1, { source: "line" });
+  const previewUrl = `https://iron.invalid/v1/properties/${propertyId}/line-create-previews`;
+  const bookingUrl = `https://iron.invalid/v1/properties/${propertyId}/bookings`;
+  const previewResponse = await handler(new Request(previewUrl, { method: "POST",
+    headers: { "content-type": "application/json" }, body: JSON.stringify(input) }));
+  assert.equal(previewResponse.status, 200);
+  const preview = await previewResponse.json();
+  const missing = await handler(new Request(bookingUrl, { method: "POST",
+    headers: { "content-type": "application/json", "idempotency-key": key() },
+    body: JSON.stringify(input) }));
+  assert.equal(missing.status, 409);
+  assert.equal((await missing.json()).error.code, "LINE_PREVIEW_REQUIRED");
+  const created = await handler(new Request(bookingUrl, { method: "POST",
+    headers: { "content-type": "application/json", "idempotency-key": key(),
+      "x-iron-gate-line-preview": preview.previewToken }, body: JSON.stringify(input) }));
+  assert.equal(created.status, 202);
+  assert.equal((await created.json()).operationState, "sync_pending");
 });
 
 test("hold occupies inventory until explicit release, even after expiry", async () => {

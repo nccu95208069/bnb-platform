@@ -39,14 +39,14 @@ export function createNodeServer(handle) {
  * unless verifyOsMember supplies fresh, independently verified membership.
  */
 export function createPostgresIronGateServer(runtimePool, verifyOsMember = null,
-  databaseUrl, verifyLineOperator = null) {
+  databaseUrl, verifyLineOperator = null, linePreviewSecret = null) {
   return createNodeServer(createPostgresIronGateHandler(runtimePool, verifyOsMember,
-    databaseUrl, verifyLineOperator));
+    databaseUrl, verifyLineOperator, linePreviewSecret));
 }
 
 /** Shared request handler for a separate service deployment or the loopback server. */
 export function createPostgresIronGateHandler(runtimePool, verifyOsMember = null,
-  databaseUrl, verifyLineOperator = null) {
+  databaseUrl, verifyLineOperator = null, linePreviewSecret = null) {
   validateDatabaseTransport(databaseUrl);
   // The checked URL must be the one used by pg. Separate host/SSL overrides
   // could otherwise make a safe-looking URL validate an unsafe pool.
@@ -56,7 +56,7 @@ export function createPostgresIronGateHandler(runtimePool, verifyOsMember = null
       Object.hasOwn(poolOptions, key))) throw Error("UNSAFE_DATABASE_TRANSPORT");
   const repository = new PostgresPropertyRepository(runtimePool);
   const directory = new PostgresCredentialDirectory(runtimePool);
-  const service = new IronGateService(repository);
+  const service = new IronGateService(repository, linePreviewSecret);
   const authenticate = createGrantAuthenticator(directory, repository, verifyOsMember,
     verifyLineOperator);
   const handle = createHandler(service, authenticate);

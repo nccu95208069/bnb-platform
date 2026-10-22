@@ -472,6 +472,27 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
 paths:
+  /v1/properties/{propertyId}/line-create-previews:
+    post:
+      operationId: previewLineCreate
+      summary: Check one LINE direct-booking proposal and issue a short-lived private preview
+      description: >-
+        Read-only preflight for a separately issued LINE create grant. It binds
+        the verified operator, grant, exact input body and current inventory
+        version for 15 minutes. The property must have a ready OwlNest channel
+        and the source readback release gate. The preview token stays in the
+        server-side confirmation journal, never in a LINE message.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateBooking' }
+      responses:
+        '200': { description: Local room-night preflight and signed private preview token }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /v1/properties/{propertyId}/bookings:
     get:
       operationId: listBookings
@@ -480,8 +501,8 @@ paths:
         Each page is current at read time; this is not a cross-page snapshot.
         LINE grants see only direct bookings whose sourceKey matches their grantId.
         A LINE bearer credential also requires a separate short-lived operator proof
-        bound to its configured group, actor and exact request; LINE grants are
-        currently read-only.
+        bound to its configured group, actor and exact request. The production
+        LINE read credential remains read-only.
         Guest, contact, notes and price require separate field grants; imported
         OTA/Gmail orders are never returned to LINE grants.
       parameters:
@@ -504,10 +525,15 @@ paths:
       description: >-
         An OwlNest property returns sync_pending after atomic local write and fence;
         this does not claim provider closure. Every website create requires the
-        future one-use quote flow; generic LINE creates require owner-action preview.
+        future one-use quote flow. LINE creates require a separately issued
+        create grant, the exact actor-bound preview header, an unchanged
+        inventory version and ready OwlNest/source-readback gates. The current
+        production LINE read grant cannot create bookings.
       parameters:
         - { $ref: '#/components/parameters/PropertyId' }
         - { $ref: '#/components/parameters/RequestKey' }
+        - { name: X-Iron-Gate-Line-Preview, in: header, required: false,
+            schema: { type: string }, description: Required only for a LINE create; never send to the LINE client }
       requestBody:
         required: true
         content:
