@@ -52,6 +52,11 @@ export const PAYMENT_DOT_STYLES: Record<PaymentStatus, string> = {
   unpaid: "bg-rose-500",
 };
 
+export function paymentStateForReview(booking: CalendarBooking): PaymentStatus | undefined {
+  if (booking.source_conflict) return undefined;
+  return booking.payment_review_status ?? (booking.price_hidden ? undefined : booking.payment_status);
+}
+
 export const PROPERTY_DOT_STYLES: Record<CalendarProperty["color"], string> = {
   emerald: "bg-emerald-500",
   violet: "bg-violet-500",
@@ -331,6 +336,8 @@ export function coalesceContiguousBookings(bookings: CalendarBooking[]) {
         payment_unconfirmed: current.payment_unconfirmed || booking.payment_unconfirmed,
         source_notes_unconfirmed: current.source_notes_unconfirmed || booking.source_notes_unconfirmed || current.source_notes === undefined || booking.source_notes === undefined,
         payment_status: current.payment_status === booking.payment_status ? current.payment_status : "unknown",
+        payment_review_status: current.payment_review_status === booking.payment_review_status
+          ? current.payment_review_status : undefined,
         guest_name_sources: [...new Set([...(current.guest_name_sources ?? (current.guest_name_kind === "real" ? [current.guest_name] : [])), ...(booking.guest_name_sources ?? (booking.guest_name_kind === "real" ? [booking.guest_name] : []))])],
         guest_remarks: mergeGuestRemarks([...(current.guest_remarks ?? (current.guest_name_kind === "real" ? parseGuestRemarks(current.guest_name) : [])), ...(booking.guest_remarks ?? (booking.guest_name_kind === "real" ? parseGuestRemarks(booking.guest_name) : []))]),
         guest_name: current.guest_name_kind === "real" && booking.guest_name_kind === "real" && comparableGuestName(current.guest_name) !== comparableGuestName(booking.guest_name) ? "連住姓名待核對" : current.guest_name,

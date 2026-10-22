@@ -44,15 +44,16 @@ function fixture({ version = 7, sold = true, blocked = true } = {}) {
   return { page, availability };
 }
 
-function sender(data, configValue, mutate = () => {}) {
+function sender(data, configValue, mutate = () => {}, actingPrincipal = principal) {
   const verify = createOsMemberProofVerifier(configValue.proofSecret);
   let calls = 0;
   return async (url, init) => {
     const request = new Request(url, init);
     const proof = await verify(request, { ...configValue.grant, origin: 'os' });
-    assert.equal(proof?.subjectId, principal.id);
+    assert.equal(proof?.subjectId, actingPrincipal.id);
     assert.deepEqual(proof?.actions, ['booking:read']);
-    assert.deepEqual(proof?.fields, ['guest_name']);
+    assert.deepEqual(proof?.fields, actingPrincipal.viewPrices ?
+      ['guest_name', 'payment_status'] : ['guest_name']);
     assert.equal(request.headers.get('authorization'), `Bearer ${grant.token}`);
     calls++;
     const value = url.includes('/availability?') ?
@@ -188,4 +189,26 @@ test('one signed snapshot returns calendar bookings and blocks with no paginatio
   await assert.rejects(readSweetfunIronGateCalendarSnapshot(snapshot.from, snapshot.to,
     principal, c, async () => Response.json({ ...snapshot, cells: snapshot.cells.slice(1) })),
   /IRON_GATE_CALENDAR_INVENTORY_DRIFT/);
+});
+
+test('calendar exposes a scoped paid marker while keeping room price hidden', async () => {
+  const c = config(), data = fixture({ blocked: false });
+  const snapshot = { propertyId, workspaceId, from: '2026-10-25', to: '2026-10-26',
+    inventoryVersion: 7, authorityEpoch: 1, readOnly: false,
+    bookings: [{ ...data.page.bookings[0], paymentReview: {
+      status: 'paid', source: 'sheet_flag' } }],
+    cells: data.availability.cells.filter(cell => cell.state === 'sold') };
+  const send = async () => Response.json(snapshot);
+  const owner = await readSweetfunIronGateCalendarSnapshot(snapshot.from, snapshot.to,
+    principal, c, send);
+  assert.equal(owner.bookings[0].payment_status, 'paid');
+  assert.equal(owner.bookings[0].payment_review_status, 'paid');
+  assert.equal(owner.bookings[0].price_hidden, true);
+  assert.equal(owner.bookings[0].room_rate, 0);
+  assert.equal(owner.bookings[0].source_payment_flag, 'done');
+  const noPrice = await readSweetfunIronGateCalendarSnapshot(snapshot.from, snapshot.to,
+    { ...principal, viewPrices: false }, c, send);
+  assert.equal(noPrice.bookings[0].payment_status, 'unknown');
+  assert.equal(noPrice.bookings[0].payment_review_status, undefined);
+  assert.equal(noPrice.bookings[0].source_payment_flag, 'unknown');
 });

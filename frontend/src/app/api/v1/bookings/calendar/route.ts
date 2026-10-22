@@ -255,11 +255,17 @@ export async function GET(request: NextRequest) {
             last_successful_check_at: ig.observedAt, last_published_at: ig.observedAt,
             cutoff: ig.observedAt, interval_seconds: 0,
             error_code: "OWLNEST_STOCK_NOT_VERIFIED" } };
+        const missingPaymentNights = ig.bookings.filter(booking =>
+          !booking.source_conflict && booking.payment_status === 'unknown').reduce((sum, booking) => {
+          const from = Math.max(Date.parse(`${booking.check_in}T00:00:00Z`), startDate.getTime());
+          const to = Math.min(Date.parse(`${booking.check_out}T00:00:00Z`), endDate.getTime());
+          return sum + Math.max(0, Math.round((to - from) / DAY_MS));
+        }, 0);
         const sourceSummary = { rows: ig.soldRoomNights,
           accepted_rows: ig.soldRoomNights,
           quarantined_rows: 0, blocked_room_nights: ig.blockedRoomNights,
           missing_order_id: 0,
-          missing_payment_status: ig.soldRoomNights };
+          missing_payment_status: missingPaymentNights };
         return NextResponse.json({
           price_hidden: true,
           year: startDate.getUTCFullYear(), month: startDate.getUTCMonth() + 1,

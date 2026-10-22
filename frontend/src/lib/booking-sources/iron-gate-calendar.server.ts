@@ -87,7 +87,8 @@ function proof(url: string, config: IronGateCalendarConfig, principal: Principal
   const claims = { v: 1, aud: 'iron-gate-v1', credentialId: config.grant.credentialId,
     clientId: config.grant.clientId, workspaceId: config.grant.workspaceId,
     propertyId: config.grant.propertyId, subjectId: principal.id,
-    actions: ['booking:read'], fields: ['guest_name'],
+    actions: ['booking:read'], fields: principal.viewPrices ?
+      ['guest_name', 'payment_status'] : ['guest_name'],
     issuedAtMs: nowMs, expiresAtMs: nowMs + 5000, method: 'GET',
     pathAndQuery: `${parsed.pathname}${parsed.search}`, idempotencyKey: null,
     bodySha256: createHash('sha256').digest('hex') };
@@ -138,22 +139,34 @@ function validPage(value: unknown, config: IronGateCalendarConfig): value is Pag
 }
 
 function calendarBooking(booking: Record<string, unknown>,
-  roomNumber: string, stayIndex: number, checkIn: string, checkOut: string): CalendarBooking {
+  roomNumber: string, stayIndex: number, checkIn: string, checkOut: string,
+  viewPrices: boolean): CalendarBooking {
   const id = `ig-${booking.id}-${stayIndex}-${roomNumber}`;
   const name = typeof booking.guestName === 'string' && booking.guestName.trim()
     ? booking.guestName.trim() : '姓名待核';
   const source = object(booking.sourceCalendar) ? booking.sourceCalendar : null;
+  const review = viewPrices && object(booking.paymentReview) ? booking.paymentReview : null;
+  const paymentStatus = review && ['paid', 'deposit'].includes(String(review.status)) &&
+    ['sheet_flag', 'payment_events'].includes(String(review.source))
+    ? review.status as 'paid' | 'deposit' : 'unknown';
+  const paymentSource = paymentStatus !== 'unknown' ? String(review?.source) : 'unknown';
   return { id, sheet_row_id: id, order_id: `IG-${booking.id}`,
     external_order_no: null, property_id: 'sweetfun', property_name: '水芳 Sweetfun',
     room_id: `sweetfun-${roomNumber}`, room_number: roomNumber,
     guest_name: name, guest_name_kind: name === '姓名待核' ? 'missing' : 'real',
     platform: sweetfunCalendarPlatform(source?.platform), check_in: checkIn, check_out: checkOut,
     booked_at: null,
-    room_rate: 0, payment_status: 'unknown', reservation_status: 'confirmed',
+    room_rate: 0, payment_status: paymentStatus, reservation_status: 'confirmed',
     notes: null, payments: [], audit_log: [], extra_guest_count: 0,
     extra_bed_count: 0, pet_count: 0, baby_supplies: [], service_note: null,
     source_read_only: true, requirements_known: false, payment_unconfirmed: true,
-    source_payment_label: '財務仍以原帳本為準，未遷入此訂房檢視',
+    payment_review_status: paymentStatus !== 'unknown' ? paymentStatus : undefined,
+    source_payment_flag: paymentSource === 'sheet_flag' ? 'done' : 'unknown',
+    source_payment_label: paymentSource === 'sheet_flag'
+      ? '原始訂房表標記客人已付清；這不是實際收款或 OTA 入帳紀錄'
+      : paymentSource === 'payment_events'
+        ? '依已核對收款紀錄顯示；實際入帳仍需對帳'
+        : '付款資料尚未核對，請勿視為未付款',
     price_hidden: true };
 }
 
@@ -229,7 +242,7 @@ export async function readSweetfunIronGateCalendarSnapshot(start: string, end: s
         if (!roomNumber) throw Error('IRON_GATE_CALENDAR_INVALID_BOOKING');
         if (to > first && from < last)
           bookings.push(calendarBooking(item, roomNumber, stayIndex,
-            rawStay.checkIn, rawStay.checkOut));
+            rawStay.checkIn, rawStay.checkOut, principal.viewPrices));
         for (let n = Math.max(from, first); n < Math.min(to, last); n++) {
           const key = `${roomId}:${date(n)}`;
           if (sold.has(key)) throw Error('IRON_GATE_CALENDAR_COLLISION');
@@ -348,7 +361,7 @@ export async function readSweetfunIronGateCalendar(start: string, end: string,
           if (!roomNumber) throw Error('IRON_GATE_CALENDAR_INVALID_BOOKING');
           if (to > first && from < last)
             bookings.push(calendarBooking(item, roomNumber,
-              stayIndex, rawStay.checkIn, rawStay.checkOut));
+              stayIndex, rawStay.checkIn, rawStay.checkOut, principal.viewPrices));
           for (let n = Math.max(from, first); n < Math.min(to, last); n++) {
             const key = `${roomId}:${date(n)}`;
             if (sold.has(key)) throw Error('IRON_GATE_CALENDAR_COLLISION');

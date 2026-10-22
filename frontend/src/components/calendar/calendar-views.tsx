@@ -21,6 +21,7 @@ import type {
 import {
   PLATFORM_LABELS,
   PLATFORM_STYLES,
+  paymentStateForReview,
   PROPERTY_DOT_STYLES,
   WEEKDAY_LABELS,
   addDays,
@@ -83,7 +84,7 @@ function BookingChip({
   return (
     <div className="flex min-w-0 items-center gap-1"><button
       type="button"
-      data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
+      data-payment-state={paymentStateForReview(booking)}
       onClick={() => onSelect(booking)}
       className={cn(
         "group flex w-full min-w-0 items-center gap-1.5 border text-left shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -286,7 +287,7 @@ const uiLocale = useIntlLocale();
                 const label = `${PLATFORM_LABELS[booking.platform] ?? "其他"}｜${guestName || "姓名尚未開放"}｜${booking.property_name}｜${booking.room_number}｜${booking.check_in}–${booking.check_out}${nights > 1 ? `｜連住 ${nights} 晚` : ""}`;
                 return <button key={booking.id} type="button" title={uiText(label)} aria-label={uiText(label)}
                   data-stay-id={booking.id} data-stay-start={segment.start} data-stay-end={segment.end}
-                  data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
+                  data-payment-state={paymentStateForReview(booking)}
                   onClick={() => onSelectBooking(booking)}
                   style={{ gridColumn: `${segment.start + 1} / ${segment.end + 1}`, gridRow: segment.lane + 2, fontSize: monthBookingFontSize(fontScale, desktop), WebkitTextSizeAdjust: "none", textSizeAdjust: "none" }}
                   className={cn("relative z-10 mx-0.5 flex min-w-0 items-center gap-0.5 overflow-hidden rounded-[3px] px-0.5 text-left leading-none font-medium focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:mx-1 md:px-1",

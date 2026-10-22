@@ -67,6 +67,8 @@ export type CalendarBooking = {
   booked_at: string | null;
   room_rate: number;
   payment_status: PaymentStatus;
+  /** Verified server projection for payment review while room prices remain hidden. */
+  payment_review_status?: "paid" | "deposit";
   reservation_status: ReservationStatus;
   notes: string | null;
   payments: PaymentRecord[];

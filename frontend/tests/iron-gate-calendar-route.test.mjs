@@ -56,19 +56,15 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
     assert.equal(options.headers.authorization, `Bearer ${grant.token}`);
     assert.ok(options.headers['x-iron-gate-os-proof']);
     igCalls++;
-    if (target.includes('/availability?')) {
-      const cells = Object.entries(roomIds).map(([room, roomId]) => ({
-        roomId, date: '2026-10-25',
-        state: room === '101' && inventoryMatches ? 'sold' : 'unsold',
-        saleReady: false,
-      }));
-      return Response.json({ propertyId, inventoryVersion: 7,
-        authorityEpoch: 1, cells });
-    }
-    return Response.json({ propertyId, inventoryVersion: 7,
-      authorityEpoch: 1, readOnly: false, nextCursor: null,
+    assert.ok(target.includes('/calendar-snapshot?'));
+    const cells = inventoryMatches ? [{ roomId: roomIds['101'],
+      date: '2026-10-25', state: 'sold' }] : [];
+    return Response.json({ propertyId, workspaceId, from: '2026-10-25',
+      to: '2026-10-26', inventoryVersion: 7,
+      authorityEpoch: 1, readOnly: false, cells,
       bookings: [{ id: '66666666-6666-4666-8666-666666666666',
         workspaceId, propertyId, status: 'confirmed', guestName: 'Sample Guest',
+        paymentReview: { status: 'paid', source: 'sheet_flag' },
         stays: [{ checkIn: '2026-10-25', checkOut: '2026-10-26',
           roomIds: [roomIds['101']] }] }] });
   });
@@ -84,9 +80,11 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
   assert.equal(data.properties.length, 2);
   assert.equal(data.rooms.length, 6);
   assert.equal(data.price_hidden, true);
+  assert.equal(data.bookings[0].payment_status, 'paid');
+  assert.equal(data.bookings[0].payment_review_status, 'paid');
   assert.equal(data.source.availability_authoritative, false);
   assert.equal(sheetCalls, 0);
-  assert.equal(igCalls, 3);
+  assert.equal(igCalls, 1);
 
   inventoryMatches = false;
   const failed = await GET(request);
