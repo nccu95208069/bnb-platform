@@ -192,6 +192,29 @@ function publicBooking(booking: Booking, principal: Principal): Record<string, u
   }
   return result;
 }
+// A calendar stay is a priced segment. Imported multi-night orders retain
+// their original per-night amounts; expose them only when they still reconcile
+// exactly to the authoritative booking total.
+function calendarStayAmounts(booking: Booking): number[] | null {
+  if (booking.totalCents === null || !Number.isSafeInteger(booking.totalCents) ||
+    booking.totalCents < 0 || booking.stays.some((stay) => stay.roomIds.length !== 1)) return null;
+  if (booking.stays.length === 1) return [booking.totalCents];
+  const rows = booking.sweetfunSnapshot?.rows;
+  if (!Array.isArray(rows) || rows.length !== booking.stays.length ||
+    new Set(booking.stays.map((stay) => stay.checkIn)).size !== booking.stays.length) return null;
+  const amounts: number[] = [];
+  for (const [index, stay] of booking.stays.entries()) {
+    const values = rows[index]?.values;
+    if (!Array.isArray(values)) return null;
+    const date = (value: unknown) => String(value ?? "").replaceAll("/", "-")
+      .replace(/-(\d)(?=-|$)/g, "-0$1");
+    const amount = String(values[6] ?? "");
+    if (date(values[3]) !== stay.checkIn || date(values[4]) !== stay.checkOut ||
+      !/^\d{1,10}$/.test(amount)) return null;
+    amounts.push(Number(amount) * 100);
+  }
+  return amounts.reduce((sum, amount) => sum + amount, 0) === booking.totalCents ? amounts : null;
+}
 function verifyCreate(input: CreateBookingInput, principal: Principal): void {
   if (principal.origin !== input.source || !["os", "line", "website"].includes(input.source))
     reject("FORBIDDEN", 403);
@@ -742,7 +765,10 @@ export class IronGateService {
           stays: projected.stays, guestName: projected.guestName,
           sourceCalendar: projected.sourceCalendar,
           ...(principal.fields.includes("payment_status") ?
-            { paymentReview: calendarPaymentStatus(booking) } : {}) };
+            { paymentReview: calendarPaymentStatus(booking) } : {}),
+          ...(principal.fields.includes("money") ?
+            { totalCents: booking.totalCents,
+              stayAmountsCents: calendarStayAmounts(booking) } : {}) };
       }), cells };
   }
 

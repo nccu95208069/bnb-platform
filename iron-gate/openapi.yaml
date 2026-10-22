@@ -269,6 +269,11 @@ components:
                 type: array
                 items: { $ref: '#/components/schemas/Stay' }
               guestName: { type: [string, 'null'] }
+              totalCents: { type: [integer, 'null'], minimum: 0, description: Money field grant only. }
+              stayAmountsCents:
+                type: [array, 'null']
+                description: One amount per stay, present only with the money field grant; null when source amounts cannot be reconciled.
+                items: { type: integer, minimum: 0 }
               sourceCalendar:
                 type: object
                 additionalProperties: false
@@ -682,7 +687,7 @@ paths:
     get:
       operationId: getCalendarSnapshot
       summary: Read one versioned OS booking-calendar snapshot and sparse occupied cells
-      description: OS booking:read grant only. Maximum 410 days. Guest names require guest_name; paymentReview requires the separate payment_status field grant. Unsold dates are omitted and do not prove external channel availability.
+      description: OS booking:read grant only. Maximum 410 days. Guest names require guest_name; paymentReview requires payment_status; reconciled stay prices require money. Unsold dates are omitted and do not prove external channel availability.
       parameters:
         - { $ref: '#/components/parameters/PropertyId' }
         - { name: from, in: query, required: true, schema: { type: string, format: date } }
