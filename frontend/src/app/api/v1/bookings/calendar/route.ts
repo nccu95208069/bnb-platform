@@ -184,11 +184,13 @@ export async function GET(request: NextRequest) {
   const startedAt = Date.now();
   const events: CalendarReadEvent[] = [];
   const headers = { "Cache-Control": "private, no-store", Vary: "Cookie", "X-Request-ID": requestId };
+  let authenticatedPrincipal: Awaited<ReturnType<typeof principalFor>> = null;
   // Authenticate before reading snapshots or returning any calendar metadata.
   if (process.env.NODE_ENV === "production" || process.env.CALENDAR_SOURCE === "sheet_snapshot") {
     try {
       if ((await sessionMember(request))?.mustResetPassword) return NextResponse.json({detail:"請先重設密碼。",requires_password_reset:true},{status:403,headers:{"Cache-Control":"private, no-store"}});
-      if (!await principalFor(request)) return NextResponse.json({detail:"請先登入。"},{status:401,headers:{"Cache-Control":"private, no-store",Vary:"Cookie"}});
+      authenticatedPrincipal = await principalFor(request);
+      if (!authenticatedPrincipal) return NextResponse.json({detail:"請先登入。"},{status:401,headers:{"Cache-Control":"private, no-store",Vary:"Cookie"}});
     } catch {
       return NextResponse.json({detail:"暫時無法確認登入，請稍後再試。"},{status:503,headers:{"Cache-Control":"private, no-store"}});
     }
@@ -217,10 +219,20 @@ export async function GET(request: NextRequest) {
 
   if (process.env.CALENDAR_SOURCE === "sheet_snapshot") {
     try {
-      if((await sessionMember(request))?.mustResetPassword) return NextResponse.json({detail:"請先重設密碼。",requires_password_reset:true},{status:403,headers:{"Cache-Control":"private, no-store"}});
-      const principal = await principalFor(request);
-      if (!principal) return NextResponse.json({detail:"請先登入。"},{status:401,headers:{"Cache-Control":"private, no-store",Vary:"Cookie"}});
-      const definitions = activeSources().filter(d => allowedProperty(principal, d.property.id));
+      const principal = authenticatedPrincipal;
+      if (!principal) return NextResponse.json({detail:"請先登入。"},{status:401,headers});
+      const authorized = activeSources().filter(d => allowedProperty(principal, d.property.id));
+      const requested = request.nextUrl.searchParams.get('properties');
+      const selected = requested === null ? null : requested.split(',');
+      if (selected && (selected.length < 1 || selected.length > 2 ||
+          new Set(selected).size !== selected.length ||
+          selected.some(id => id !== 'sweetfun' && id !== 'offland')))
+        return NextResponse.json({ detail: '館別篩選無效。' }, { status: 400, headers });
+      const chosen = selected ? authorized.filter(d => selected.includes(d.property.id)) : authorized;
+      // A saved filter may name a property whose membership was removed.
+      // Hydrate the remaining authorized properties so the client can recover.
+      const definitions = chosen.length ? chosen : authorized;
+      if (!definitions.length) return NextResponse.json({ detail: '無法讀取此館別。' }, { status: 403, headers });
       if (process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED === "true" &&
           definitions.some(d => d.key === "sweetfun")) {
         const offland = definitions.filter(d => d.key !== "sweetfun");
@@ -253,7 +265,7 @@ export async function GET(request: NextRequest) {
           year: startDate.getUTCFullYear(), month: startDate.getUTCMonth() + 1,
           month_start: monthStart(start), month_end: monthEnd(start),
           period_start: start, period_end: end,
-          properties: PROPERTIES.filter(p => definitions.some(d => d.property.id === p.id)),
+          properties: PROPERTIES.filter(p => authorized.some(d => d.property.id === p.id)),
           rooms: ROOMS.filter(r => definitions.some(d => d.property.id === r.property_id)),
           order_count: new Set(bookings.filter(b => !b.source_conflict).map(b => b.order_id)).size,
           booking_segment_count: bookings.filter(b => !b.source_conflict).length,
@@ -282,7 +294,7 @@ export async function GET(request: NextRequest) {
         price_hidden: !principal?.viewPrices,
         year: startDate.getUTCFullYear(), month: startDate.getUTCMonth() + 1,
         month_start: monthStart(start), month_end: monthEnd(start), period_start: start, period_end: end,
-        properties: PROPERTIES.filter(p => definitions.some(d => d.property.id === p.id)), rooms: ROOMS.filter(r => loadedProperties.has(r.property_id)),
+        properties: PROPERTIES.filter(p => authorized.some(d => d.property.id === p.id)), rooms: ROOMS.filter(r => loadedProperties.has(r.property_id)),
         order_count: new Set(bookings.filter(b => !b.source_conflict).map(b => b.order_id)).size,
         booking_segment_count: bookings.filter(b => !b.source_conflict).length,
         total_amount: bookings.filter(b => !b.source_conflict).reduce((sum, b) => sum + b.room_rate, 0),

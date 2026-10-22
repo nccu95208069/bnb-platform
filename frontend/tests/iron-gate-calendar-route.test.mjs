@@ -19,7 +19,7 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
     Object.assign(process.env, original);
   });
   Object.assign(process.env, {
-    CALENDAR_SOURCE: 'sheet_snapshot', BOOKING_SHEET_SOURCES: 'sweetfun',
+    CALENDAR_SOURCE: 'sheet_snapshot', BOOKING_SHEET_SOURCES: 'sweetfun,offland',
     CALENDAR_OWNER_CODE_HASH: 'a'.repeat(64),
     CALENDAR_OWNER_SESSION_SECRET: 'b'.repeat(64),
     KV_REST_API_URL: 'https://fixture.invalid', KV_REST_API_TOKEN: 'synthetic',
@@ -34,7 +34,7 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
   const member = { id: 'c'.repeat(32), displayName: 'Synthetic viewer',
     role: 'viewer', status: 'active', allProperties: false,
-    propertyIds: ['sweetfun'], credential: { schema: 1, kind: 'password',
+    propertyIds: ['sweetfun', 'offland'], credential: { schema: 1, kind: 'password',
       revision: 'd'.repeat(64), salt: 'e'.repeat(32), hash: 'f'.repeat(128) } };
   let inventoryMatches = true;
   let sheetCalls = 0;
@@ -72,7 +72,7 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
         stays: [{ checkIn: '2026-10-25', checkOut: '2026-10-26',
           roomIds: [roomIds['101']] }] }] });
   });
-  const request = new NextRequest('https://fixture.invalid/api/v1/bookings/calendar?start=2026-10-25&end=2026-10-26', {
+  const request = new NextRequest('https://fixture.invalid/api/v1/bookings/calendar?start=2026-10-25&end=2026-10-26&properties=sweetfun', {
     headers: { cookie: `${MEMBER_COOKIE}=${createMemberSession(member)}` },
   });
   const first = await GET(request);
@@ -81,6 +81,8 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
   assert.equal(data.data_mode, 'iron_gate_booking_only');
   assert.equal(data.bookings.length, 1);
   assert.equal(data.bookings[0].guest_name, 'Sample Guest');
+  assert.equal(data.properties.length, 2);
+  assert.equal(data.rooms.length, 6);
   assert.equal(data.price_hidden, true);
   assert.equal(data.source.availability_authoritative, false);
   assert.equal(sheetCalls, 0);

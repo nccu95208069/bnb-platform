@@ -117,8 +117,9 @@ type DemoEditState = {
 
 const EMPTY_EDITS: DemoEditState = { orders: {}, segments: {} };
 
-async function readCalendar(start: string, end: string): Promise<CalendarResponse> {
-  if (!PAYMENT_SANDBOX) return apiClient.get<CalendarResponse>(`/bookings/calendar?start=${start}&end=${end}`);
+async function readCalendar(start: string, end: string, propertyIds: string[]): Promise<CalendarResponse> {
+  const selected = propertyIds.length ? `&properties=${encodeURIComponent(propertyIds.join(','))}` : '';
+  if (!PAYMENT_SANDBOX) return apiClient.get<CalendarResponse>(`/bookings/calendar?start=${start}&end=${end}${selected}`);
   const response = await fetch(`/api/payment-sandbox/calendar?start=${start}&end=${end}`, { cache: "no-store" });
   if (!response.ok) throw Error("無法連接隔離測試服務，請稍後重試。");
   return response.json();
@@ -208,6 +209,7 @@ const uiLocale = useIntlLocale();
   const selectedPropertyIds = useCalendarPreferences(
     (state) => state.selectedPropertyIds,
   );
+  const availableProperties = useCalendarPreferences((state) => state.properties);
   const setProperties = useCalendarPreferences((state) => state.setProperties);
 
   const initializeAccess = useAccessControl((state) => state.initialize);
@@ -230,6 +232,15 @@ const uiLocale = useIntlLocale();
     return MONTHS.slice(Math.max(0, index - 2), Math.min(MONTHS.length, index + 3));
   }, [monthTarget]);
   const accessScope = JSON.stringify([membership?.id, membership?.role, membership?.allProperties, membership?.propertyIds]);
+  const requestedPropertyIds = useMemo(() => {
+    const valid = selectedPropertyIds.filter(id => id === 'sweetfun' || id === 'offland');
+    if (!valid.length || valid.length === 2 || availableProperties.length > 0 &&
+      valid.length === availableProperties.length) return [];
+    return [...valid].sort();
+  }, [availableProperties.length, selectedPropertyIds]);
+  const propertyScope = requestedPropertyIds.join(',');
+  const scopedRead = useCallback((start: string, end: string) =>
+    readCalendar(start, end, propertyScope ? propertyScope.split(',') : []), [propertyScope]);
   const selectedId = useCalendarPreferences((s) => s.selectedBookingId);
   const setSelectedId = useCalendarPreferences((s) => s.setSelectedBookingId);
   const historyRevision = useCalendarPreferences((s) => s.historyRevision);
@@ -250,8 +261,9 @@ const uiLocale = useIntlLocale();
   );
   const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess(); }, [setSelectedId, initializeAccess]);
   const { data, loading, refreshing, error, requestFailed, lastLoadedAt } = useCalendarData({
-    start: requestPeriod.start, end: requestPeriod.end, scope: accessScope, reload: reloadKey,
-    read: readCalendar, onProperties: setProperties, onAccessLost: accessLost,
+    start: requestPeriod.start, end: requestPeriod.end,
+    scope: `${accessScope}:${propertyScope}`, reload: reloadKey,
+    read: scopedRead, onProperties: setProperties, onAccessLost: accessLost,
   });
   const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
   const displayPeriod = useMemo(() => {
