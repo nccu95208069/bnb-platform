@@ -833,6 +833,21 @@ paths:
       responses:
         '200': { description: Current scoped source order state }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/inventory-operations:
+    get:
+      operationId: listPendingChannelOperations
+      summary: List pending inventory operations for the current channel grant
+      description: >-
+        Bounded PII-free poll for a durable per-property worker. Only the active
+        channel credential can read it; hasMore requires another poll after
+        the oldest operations are resolved. Listing is not a lease or proof of
+        provider completion.
+      parameters:
+        - { name: propertyId, in: query, required: true, schema: { type: string, format: uuid } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+      responses:
+        '200': { description: Ordered pending operation keys and exact desired cells }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/inventory-operations/{operationKey}:
     get:
       operationId: getChannelOperation

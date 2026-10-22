@@ -18,6 +18,10 @@ pending channel state. The email source version remains linked to the booking
 version after a successful channel readback, so the next Gmail amendment does
 not falsely appear to diverge.
 
+The active channel grant can poll `GET /v1/inventory-operations` for bounded,
+PII-free pending operations. Polling does not claim a lease, trigger a provider
+write, or clear a fence.
+
 An unknown cancellation, an unready channel, or a second source event while
 the prior channel operation is unresolved stays in human review. The existing
 review behavior remains the default when the internal flag is false. This is

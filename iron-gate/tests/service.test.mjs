@@ -615,6 +615,31 @@ test("only current channel grant reads operation details and only OS cancels", a
   assert.equal((await repository.read(propertyId)).bookings[0].status, "confirmed");
 });
 
+test("channel worker can discover only its own pending operations", async () => {
+  const { service, repository } = setup("owlnest");
+  const created = await service.createBooking(principal(), propertyId, key(), bookingInput());
+  const channel = principal("channel");
+  const pending = await service.pendingChannelOperations(channel, propertyId, 1);
+  assert.equal(pending.operations.length, 1);
+  assert.equal(pending.operations[0].key, created.operationKey);
+  assert.equal(pending.operations[0].state, "sync_pending");
+  assert.equal(pending.hasMore, false);
+  await assert.rejects(service.pendingChannelOperations(principal("channel", {
+    grantId: key() }), propertyId, 1), errorCode("FORBIDDEN"));
+  await assert.rejects(service.pendingChannelOperations(principal("source"), propertyId, 1),
+    errorCode("FORBIDDEN"));
+  await assert.rejects(service.pendingChannelOperations(channel, propertyId, 101),
+    errorCode("INVALID_LIMIT"));
+  const operation = (await repository.read(propertyId)).operations[0];
+  await service.recordChannelReadback(channel, { propertyId, operationKey: operation.key,
+    providerVersion: "synthetic-closed-v1",
+    observedAt: new Date(Date.now() + 1000).toISOString(),
+    cells: operation.cells.map((cell) => ({ roomId: cell.roomId, date: cell.date,
+      count: 0, isLock: true })) });
+  const after = await service.pendingChannelOperations(channel, propertyId, 1);
+  assert.deepEqual(after.operations, []);
+});
+
 test("guest order credentials cannot enumerate availability and website sale readiness stays closed", async () => {
   const { service } = setup();
   await assert.rejects(service.availability(principal("guest"), propertyId,
@@ -772,6 +797,20 @@ test("HTTP create and read use the same scoped booking", async () => {
   assert.equal(booking.id, receipt.bookingId);
   assert.equal(booking.totalCents, 1200000);
   assert.equal(read.headers.get("cache-control"), "private, no-store");
+});
+
+test("HTTP pending-operation poll is channel-only and returns no guest data", async () => {
+  const { service } = setup("owlnest");
+  const created = await service.createBooking(principal(), propertyId, key(), bookingInput());
+  const url = `https://iron.invalid/v1/inventory-operations?propertyId=${propertyId}&limit=1`;
+  const channel = createHandler(service, async () => principal("channel"));
+  const result = await channel(new Request(url));
+  assert.equal(result.status, 200);
+  const body = await result.json();
+  assert.equal(body.operations[0].key, created.operationKey);
+  assert.equal(JSON.stringify(body).includes("Synthetic Guest"), false);
+  const other = createHandler(service, async () => principal());
+  assert.equal((await other(new Request(url))).status, 403);
 });
 
 test("hold occupies inventory until explicit release, even after expiry", async () => {

@@ -176,6 +176,10 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         exact(value, ["propertyId", "sourceSystem", "sourceAccount", "externalOrderId"]);
         return json(await service.sourceOrderLookup(principal, value as SourceOrderLookupInput));
       }
+      if (parts[1] === "inventory-operations" && parts.length === 2 && request.method === "GET") {
+        return json(await service.pendingChannelOperations(principal,
+          url.searchParams.get("propertyId") ?? "", Number(url.searchParams.get("limit") ?? "50")));
+      }
       if (parts[1] === "inventory-operations" && parts[2] && parts.length === 3 && request.method === "GET") {
         const propertyId = url.searchParams.get("propertyId") ?? "";
         return json(await service.channelOperation(principal, propertyId, parts[2]));

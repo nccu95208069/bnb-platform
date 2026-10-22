@@ -911,6 +911,26 @@ export class IronGateService {
       cells: operation.cells, verifiedAt: operation.verifiedAt, providerVersion: operation.providerVersion };
   }
 
+  async pendingChannelOperations(principal: Principal, propertyId: string,
+    limit: number): Promise<Record<string, unknown>> {
+    uuid(propertyId);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) reject("INVALID_LIMIT");
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    authorize(principal, state, "channel:verify");
+    if (principal.origin !== "channel" || !principal.grantId ||
+      principal.grantId !== state.channel.grantId) reject("FORBIDDEN", 403);
+    const pending = state.operations.filter((operation) => operation.state === "sync_pending")
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt) ||
+        left.key.localeCompare(right.key));
+    return { propertyId, inventoryVersion: state.version,
+      operations: pending.slice(0, limit).map((operation) => ({
+        key: operation.key, bookingId: operation.bookingId,
+        bookingVersion: operation.bookingVersion, state: operation.state,
+        createdAt: operation.createdAt, cells: operation.cells,
+      })), hasMore: pending.length > limit };
+  }
+
   async recordChannelReadback(principal: Principal, input: ReadbackInput): Promise<Record<string, unknown>> {
     uuid(input.propertyId); uuid(input.operationKey); nonempty(input.providerVersion, 128);
     const observed = timestamp(input.observedAt), now = Date.now();
