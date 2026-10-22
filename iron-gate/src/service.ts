@@ -97,6 +97,7 @@ function authorize(principal: Principal, state: PropertyState, action: Action, w
     !state.sourceGrants.some((grant) => grant.active && grant.grantId === principal.grantId &&
       grant.sourceSystem === principal.sourceSystem && grant.sourceAccount === principal.sourceAccount)))
     reject("FORBIDDEN", 403);
+  if (principal.origin === "line" && !principal.grantId) reject("FORBIDDEN", 403);
   if (principal.origin === "channel" && (!principal.grantId ||
     principal.grantId !== state.channel.grantId)) reject("FORBIDDEN", 403);
   if (principal.origin === "website" && (!principal.bindingId ||
@@ -150,11 +151,12 @@ function publicBooking(booking: Booking, principal: Principal): Record<string, u
     stays: booking.stays, createdAt: booking.createdAt, source: booking.source,
   };
   // Field grants are server-authenticated. Public website queries use a separate order credential.
-  if (principal.origin === "os" && principal.fields.includes("guest_name")) {
+  if ((principal.origin === "os" || principal.origin === "line") &&
+    principal.fields.includes("guest_name")) {
     result.guestName = booking.guestName;
     // The imported rows remain private evidence. Only unambiguous calendar
     // labels may leave that evidence, under the same OS guest grant.
-    const rows = booking.sweetfunSnapshot?.rows;
+    const rows = principal.origin === "os" ? booking.sweetfunSnapshot?.rows : null;
     if (Array.isArray(rows) && rows.length) {
       const unique = (column: number): string | null => {
         const values = [...new Set(rows.map((row) => String(row.values?.[column] ?? "").trim()))]
@@ -172,13 +174,19 @@ function publicBooking(booking: Booking, principal: Principal): Record<string, u
           ? bookedAt : null };
     }
   }
-  if (principal.origin === "os" && principal.fields.includes("contact")) result.contact = booking.contact;
-  if (principal.origin === "os" && principal.fields.includes("notes")) result.notes = booking.notes;
+  if ((principal.origin === "os" || principal.origin === "line") &&
+    principal.fields.includes("contact")) result.contact = booking.contact;
+  if ((principal.origin === "os" || principal.origin === "line") &&
+    principal.fields.includes("notes")) result.notes = booking.notes;
   if ((principal.origin === "os" || principal.origin === "finance") &&
     principal.fields.includes("money")) {
     result.totalCents = booking.totalCents;
     result.currency = booking.currency;
     result.paymentSummary = paymentTotals(booking);
+  }
+  if (principal.origin === "line" && principal.fields.includes("money")) {
+    result.totalCents = booking.totalCents;
+    result.currency = booking.currency;
   }
   if (principal.origin === "os" && booking.hold) {
     const hold = booking.status === "held" && booking.hold.state === "active" &&
@@ -556,7 +564,6 @@ export class IronGateService {
     const state = await this.repository.read(propertyId);
     if (!state) reject("PROPERTY_NOT_FOUND", 404);
     authorize(principal, state, "booking:read");
-    if (principal.origin === "line") reject("LINE_INSPECT_UNIMPLEMENTED", 409);
     if (principal.origin === "source" || principal.origin === "channel") reject("FORBIDDEN", 403);
     if (principal.origin === "website" &&
       (!principal.bindingId || principal.bindingId !== state.channel.websiteBindingId))
@@ -565,7 +572,11 @@ export class IronGateService {
       principal.bookingIdScope !== bookingId) reject("FORBIDDEN", 403);
     const booking = state.bookings.find((item) => item.id === bookingId);
     if (!booking) reject("BOOKING_NOT_FOUND", 404);
-    return publicBooking(booking, principal);
+    if (principal.origin === "line" &&
+      (booking.source !== "line" || booking.sourceKey !== `line:${principal.grantId}`))
+      reject("BOOKING_NOT_FOUND", 404);
+    const projection = publicBooking(booking, principal);
+    return principal.origin === "line" ? { ...projection, inventoryVersion: state.version } : projection;
   }
 
   async listBookings(principal: Principal, propertyId: string, options: {
@@ -595,8 +606,10 @@ export class IronGateService {
     const state = await this.repository.read(propertyId);
     if (!state) reject("PROPERTY_NOT_FOUND", 404);
     authorize(principal, state, "booking:read");
-    if (principal.origin !== "os") reject("FORBIDDEN", 403);
+    if (principal.origin !== "os" && principal.origin !== "line") reject("FORBIDDEN", 403);
     const result = state.bookings.filter((booking) =>
+      (principal.origin !== "line" || booking.source === "line" &&
+        booking.sourceKey === `line:${principal.grantId}`) &&
       (options.status === null || booking.status === options.status) &&
       (options.from === null || options.to === null || booking.stays.some((stay) =>
         stay.checkIn < options.to! && stay.checkOut > options.from!)) &&

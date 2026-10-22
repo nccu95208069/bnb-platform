@@ -188,6 +188,7 @@ components:
         workspaceId: { type: string, format: uuid }
         propertyId: { type: string, format: uuid }
         version: { type: integer, minimum: 1 }
+        inventoryVersion: { type: integer, minimum: 0, description: Present on LINE inspect responses so a later confirmation can reject changed inventory. }
         status: { type: string, enum: [held, confirmed, cancelled] }
         channelSyncState: { type: string, enum: [not_required, pending, verified, review_required] }
         stays:
@@ -458,8 +459,12 @@ paths:
   /v1/properties/{propertyId}/bookings:
     get:
       operationId: listBookings
-      summary: Seek-page through authorized OS booking projections
-      description: Each page is current at read time; this is not a cross-page snapshot.
+      summary: Seek-page through authorized OS or LINE booking projections
+      description: >-
+        Each page is current at read time; this is not a cross-page snapshot.
+        LINE grants see only direct bookings whose sourceKey matches their grantId.
+        Guest, contact, notes and price require separate field grants; imported
+        OTA/Gmail orders are never returned to LINE grants.
       parameters:
         - { $ref: '#/components/parameters/PropertyId' }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
@@ -508,7 +513,10 @@ paths:
     get:
       operationId: getBooking
       summary: Read a scoped booking projection
-      description: Guest and website order reads require an order-bound credential.
+      description: >-
+        Guest and website order reads require an order-bound credential. LINE
+        inspect returns only its own grant's direct bookings and includes the
+        current inventoryVersion for confirmation; cross-grant IDs return 404.
       parameters:
         - { $ref: '#/components/parameters/PropertyId' }
         - { $ref: '#/components/parameters/BookingId' }

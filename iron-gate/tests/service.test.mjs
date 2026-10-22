@@ -249,6 +249,43 @@ test("website + OwlNest sale and generic LINE commands stay closed", async () =>
     bookingInput(1, { source: "website" })), errorCode("WEBSITE_QUOTE_REQUIRED"));
 });
 
+test("LINE booking reads stay within the verified grant and its field scope", async () => {
+  const { service, repository } = setup();
+  const ownedId = key(), otherId = key(), otaId = key();
+  const ownedGrant = key(), otherGrant = key();
+  const base = { workspaceId, propertyId, version: 1, status: "confirmed",
+    channelSyncState: "not_required", channelOperationKey: null,
+    stays: bookingInput().stays, guestName: "Synthetic Guest",
+    contact: "synthetic@example.invalid", notes: "Synthetic note", totalCents: 1200000,
+    currency: "TWD", bookedAt: null, createdAt: "2026-10-22T00:00:00.000Z",
+    paymentEvents: [] };
+  await repository.transact(propertyId, (state) => {
+    state.bookings.push(
+      { ...base, id: ownedId, source: "line", sourceKey: `line:${ownedGrant}` },
+      { ...base, id: otherId, source: "line", sourceKey: `line:${otherGrant}`,
+        stays: [{ checkIn: "2026-11-12", checkOut: "2026-11-14", roomIds: [roomId] }] },
+      { ...base, id: otaId, source: "external", sourceKey: null,
+        stays: [{ checkIn: "2026-11-14", checkOut: "2026-11-15", roomIds: [roomId] }] });
+  });
+  const scope = principal("line", { grantId: ownedGrant, fields: ["guest_name", "notes"] });
+  const options = { limit: 20, cursor: null, status: null, from: null, to: null };
+  const listed = await service.listBookings(scope, propertyId, options);
+  assert.deepEqual(listed.bookings.map((booking) => booking.id), [ownedId]);
+  const booking = await service.getBooking(scope, propertyId, ownedId);
+  assert.equal(booking.guestName, "Synthetic Guest");
+  assert.equal(booking.notes, "Synthetic note");
+  assert.equal(Object.hasOwn(booking, "contact"), false);
+  assert.equal(Object.hasOwn(booking, "totalCents"), false);
+  await assert.rejects(service.getBooking(scope, propertyId, otherId), errorCode("BOOKING_NOT_FOUND"));
+  await assert.rejects(service.getBooking(scope, propertyId, otaId), errorCode("BOOKING_NOT_FOUND"));
+  await assert.rejects(service.listBookings(principal("line"), propertyId, options), errorCode("FORBIDDEN"));
+  const full = await service.getBooking(principal("line", { grantId: ownedGrant,
+    fields: ["guest_name", "contact", "notes", "money"] }), propertyId, ownedId);
+  assert.equal(full.totalCents, 1200000);
+  assert.equal(full.contact, "synthetic@example.invalid");
+  assert.equal(Object.hasOwn(full, "paymentSummary"), false);
+});
+
 test("source version and booking divergence stop an external overwrite", async () => {
   const { service, repository } = setup();
   const source = principal("source");
