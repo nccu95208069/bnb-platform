@@ -241,6 +241,52 @@ components:
           type: array
           items: { $ref: '#/components/schemas/BookingProjection' }
         nextCursor: { type: [string, 'null'] }
+    CalendarSnapshot:
+      type: object
+      additionalProperties: false
+      required: [propertyId, workspaceId, from, to, inventoryVersion, authorityEpoch, readOnly, bookings, cells]
+      properties:
+        propertyId: { type: string, format: uuid }
+        workspaceId: { type: string, format: uuid }
+        from: { type: string, format: date }
+        to: { type: string, format: date, description: Exclusive }
+        inventoryVersion: { type: integer, minimum: 0 }
+        authorityEpoch: { type: integer, minimum: 0 }
+        readOnly: { type: boolean }
+        bookings:
+          type: array
+          maxItems: 2048
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, propertyId, workspaceId, status, stays]
+            properties:
+              id: { type: string, format: uuid }
+              propertyId: { type: string, format: uuid }
+              workspaceId: { type: string, format: uuid }
+              status: { type: string, enum: [confirmed, held] }
+              stays:
+                type: array
+                items: { $ref: '#/components/schemas/Stay' }
+              guestName: { type: [string, 'null'] }
+              sourceCalendar:
+                type: object
+                additionalProperties: false
+                properties:
+                  platform: { type: [string, 'null'] }
+                  externalOrderNo: { type: [string, 'null'] }
+                  bookedAt: { type: [string, 'null'], format: date }
+        cells:
+          type: array
+          maxItems: 4096
+          items:
+            type: object
+            additionalProperties: false
+            required: [roomId, date, state]
+            properties:
+              roomId: { type: string, format: uuid }
+              date: { type: string, format: date }
+              state: { type: string, enum: [sold, held, blocked] }
     OccupancySummary:
       type: object
       additionalProperties: false
@@ -624,6 +670,22 @@ paths:
         - { name: to, in: query, required: true, schema: { type: string, format: date }, description: Exclusive }
       responses:
         '200': { description: Property-scoped cells and inventory version }
+  /v1/properties/{propertyId}/calendar-snapshot:
+    get:
+      operationId: getCalendarSnapshot
+      summary: Read one versioned OS booking-calendar snapshot and sparse occupied cells
+      description: OS booking:read grant only. Maximum 410 days. Guest names require the guest_name field grant. Unsold dates are omitted and do not prove external channel availability.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { name: from, in: query, required: true, schema: { type: string, format: date } }
+        - { name: to, in: query, required: true, schema: { type: string, format: date }, description: Exclusive }
+      responses:
+        '200':
+          description: Single-state calendar snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CalendarSnapshot' }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/properties/{propertyId}/occupancy-summary:
     get:
       operationId: getOccupancySummary

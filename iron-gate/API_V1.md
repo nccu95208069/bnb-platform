@@ -3,6 +3,8 @@
 日期：2026-10-13（Asia/Taipei）
 狀態：**可執行的合成驗證版本；已有受保護的 Preview 與固定 503 的 Production 空殼，未接真實訂單或 OwlNest 寫入**。產品權威與遷移決策仍以 [Iron Gate v1](IRON_GATE_V1.md) 為準；機器可讀路徑及請求格式見 [OpenAPI](openapi.yaml)。
 
+2026-10-22 更新：Sweetfun 訂房來源已切到正式 Iron Gate；上方為初始設計狀態，現況見 [正式狀態](PRODUCTION_STATUS_2026-10-22.md)。日曆新增 `GET /v1/properties/{propertyId}/calendar-snapshot`：OS 專用、最多 410 天，以單一版本回傳必要訂單欄位與稀疏 sold／held／blocked 房晚；姓名仍受原有欄位權限控制，未售不代表通路可售。
+
 ## 1. 第一個可執行切片
 
 | API | 現有程式 | 正式接線前仍需 |

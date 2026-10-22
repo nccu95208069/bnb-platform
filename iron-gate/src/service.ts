@@ -12,6 +12,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const DAY = 86_400_000;
 const MAX_NIGHTS = 366;
 const MAX_READ_DAYS = 31;
+const MAX_CALENDAR_DAYS = 410;
 
 function reject(code: string, status = 400): never { throw new GateError(code, status); }
 function uuid(value: unknown): string {
@@ -667,6 +668,46 @@ export class IronGateService {
     }
     return { propertyId, inventoryVersion: state.version, authorityEpoch: state.authorityEpoch, cells,
       note: "unsold means no local occupancy; it does not prove external channel stock" };
+  }
+
+  // One versioned read supplies the OS booking calendar. The sparse cells are
+  // derived from the same state as the bookings, so navigation does not need
+  // repeated full-property reads for every booking page and 31-day segment.
+  async calendarSnapshot(principal: Principal, propertyId: string, from: string,
+    to: string): Promise<Record<string, unknown>> {
+    uuid(propertyId);
+    const first = dayNumber(from), end = dayNumber(to);
+    if (end <= first || end - first > MAX_CALENDAR_DAYS) reject("INVALID_DATE_RANGE");
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    authorize(principal, state, "booking:read");
+    if (principal.origin !== "os") reject("FORBIDDEN", 403);
+    const { occupied, blocked } = readInventoryIndex(state, first, end);
+    const bookings = state.bookings.filter((booking) =>
+      booking.status !== "cancelled" && booking.stays.some((stay) =>
+        stay.checkIn < to && stay.checkOut > from));
+    if (bookings.length > 2048) reject("READ_CAPACITY_LIMIT", 409);
+    const cells: { roomId: string; date: string; state: "sold" | "held" | "blocked" }[] = [];
+    for (const [key, status] of occupied) {
+      const [roomId, date] = key.split(":");
+      cells.push({ roomId, date, state: status === "held" ? "held" : "sold" });
+    }
+    for (const key of blocked) {
+      if (occupied.has(key)) continue;
+      const [roomId, date] = key.split(":");
+      if (!state.roomIds.includes(roomId) || date < from || date >= to) continue;
+      cells.push({ roomId, date, state: "blocked" });
+    }
+    return { propertyId, workspaceId: state.workspaceId, from, to,
+      inventoryVersion: state.version, authorityEpoch: state.authorityEpoch,
+      readOnly: state.readOnly === true,
+      bookings: bookings.map((booking) => {
+        const projected = publicBooking(booking, principal);
+        return { id: projected.id, propertyId: projected.propertyId,
+          workspaceId: projected.workspaceId, status: projected.status,
+          stays: projected.stays, guestName: projected.guestName,
+          sourceCalendar: projected.sourceCalendar };
+      }), cells };
   }
 
   async occupancySummary(principal: Principal, propertyId: string, from: string,

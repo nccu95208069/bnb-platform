@@ -152,6 +152,31 @@ test("cancellation retains the order and frees local-only inventory", async () =
   assert.equal(availability.cells[0].state, "unsold");
 });
 
+test("calendar snapshot reads booking and sparse room nights in one authorized state", async () => {
+  const { service } = setup();
+  await service.createBooking(principal(), propertyId, key(), bookingInput());
+  const actor = principal("os", { actions: ["booking:read"], fields: ["guest_name"] });
+  const result = await service.calendarSnapshot(actor, propertyId, "2026-11-01", "2026-12-01");
+  assert.equal(result.inventoryVersion, 2);
+  assert.equal(result.bookings.length, 1);
+  assert.equal(result.bookings[0].guestName, "Synthetic Guest");
+  assert.equal(result.bookings[0].contact, undefined);
+  const withoutNames = await service.calendarSnapshot(principal("os", {
+    actions: ["booking:read"], fields: [],
+  }), propertyId, "2026-11-01", "2026-12-01");
+  assert.equal(withoutNames.bookings[0].guestName, undefined);
+  assert.deepEqual(result.cells.map(cell => [cell.date, cell.state]),
+    [["2026-11-10", "sold"], ["2026-11-11", "sold"]]);
+  const handle = createHandler(service, async () => actor);
+  const response = await handle(new Request(`https://example.test/v1/properties/${propertyId}/calendar-snapshot?from=2026-11-01&to=2026-12-01`));
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).cells.length, 2);
+  await assert.rejects(service.calendarSnapshot(principal("website"), propertyId,
+    "2026-11-01", "2026-12-01"), errorCode("FORBIDDEN"));
+  await assert.rejects(service.calendarSnapshot(actor, propertyId,
+    "2026-01-01", "2027-03-01"), errorCode("INVALID_DATE_RANGE"));
+});
+
 test("OwlNest partial readback holds the fence; exact readback verifies it", async () => {
   const { service, repository } = setup("owlnest");
   const actor = principal();

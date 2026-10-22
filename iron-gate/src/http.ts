@@ -144,6 +144,11 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         return json(await service.availability(principal, parts[2], url.searchParams.get("from") ?? "",
           url.searchParams.get("to") ?? ""));
       }
+      if (parts[1] === "properties" && parts[2] && parts[3] === "calendar-snapshot" &&
+        parts.length === 4 && request.method === "GET") {
+        return json(await service.calendarSnapshot(principal, parts[2],
+          url.searchParams.get("from") ?? "", url.searchParams.get("to") ?? ""));
+      }
       if (parts[1] === "properties" && parts[2] && parts[3] === "occupancy-summary" &&
         parts.length === 4 && request.method === "GET") {
         return json(await service.occupancySummary(principal, parts[2],
