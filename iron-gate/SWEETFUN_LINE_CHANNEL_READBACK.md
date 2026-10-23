@@ -45,11 +45,16 @@ server-checked readback and calls an injected PII-free review alert. The
 library has a fail-closed Vercel cron entrypoint at `/api/channel-worker`, scheduled
 every five minutes. The entrypoint remains disabled unless the Production-only
 `IRON_GATE_PRODUCTION_CHANNEL_WORKER_ENABLED=true`, `CRON_SECRET`, database URL,
-property/grant IDs, OwlNest room map and OwlNest bearer credential are all
+property/grant IDs, OwlNest room map, OwlNest bearer credential and a dedicated
+`IRON_GATE_CHANNEL_ALERT_URL` / `IRON_GATE_CHANNEL_ALERT_TOKEN` pair are all
 configured. It handles one operation per tick. The bearer credential is supplied
 as a secret environment variable; its expiry or revocation stops dispatch and
-leaves the durable claim/fence for review. The entrypoint logs PII-free review
-identifiers but no external alert receiver is connected yet. Manual
+leaves the durable claim/fence for review. On a review result or unknown dispatch,
+the entrypoint sends only property ID, operation ID and status to the GCO
+`/internal/iron-gate-channel-alert` route. That route requires its own token
+and delivers to configured LINE administrators. A failed delivery keeps the
+claim/fence and is logged without guest data. No production alert endpoint or
+credential has been provisioned yet. Manual
 `scripts/recover-channel-claim.mjs` observes the exact cells before clearing a
 claim and never issues another OwlNest write.
 
@@ -62,8 +67,8 @@ OwlNest inventory has changed.
 ## Release gates still required
 
 1. Provision and test the disabled scheduled entrypoint with a current provider
-   credential and an alert receiver. Verify a deliberate failed tick reaches the
-   operator; the current PII-free log alone is not an alert. An acknowledgement from OwlNest is
+   credential and the dedicated GCO alert token. Verify a deliberate failed tick reaches the
+   administrator; a PII-free log alone is not an alert. An acknowledgement from OwlNest is
    insufficient; record a fresh complete observation through
    `recordChannelReadback`.
 2. Reconcile all future occupied nights and manual blocks against real OwlNest

@@ -13,6 +13,8 @@ const env = () => ({ VERCEL_ENV: "production",
   IRON_GATE_CHANNEL_PROPERTY_ID: propertyId, IRON_GATE_CHANNEL_GRANT_ID: grantId,
   IRON_GATE_PRODUCTION_DATABASE_URL: "postgres://runtime:synthetic@localhost:5432/postgres",
   IRON_GATE_CHANNEL_AUTHORIZATION: "Bearer " + "a".repeat(32),
+  IRON_GATE_CHANNEL_ALERT_URL: "https://alerts.example.invalid/internal/iron-gate-channel-alert",
+  IRON_GATE_CHANNEL_ALERT_TOKEN: "z".repeat(43),
   IRON_GATE_CHANNEL_OWLNEST_CONFIG_JSON: JSON.stringify({
     [propertyId]: { hotelId: 1, roomIds: { [roomId]: 11 } },
   }) });
@@ -25,6 +27,10 @@ test("channel cron denies missing token and stays disabled without explicit flag
   assert.equal((await disabled(call())).status, 503);
   const enabled = createChannelWorkerFetch(env());
   assert.equal((await enabled(call("wrong"))).status, 401);
+  const missingAlert = createChannelWorkerFetch({ ...env(),
+    IRON_GATE_CHANNEL_ALERT_TOKEN: "" }, { pool: {},
+    assertRuntimeDatabase: async () => {} });
+  assert.equal((await missingAlert(call())).status, 503);
 });
 
 test("one authorized cron tick records exact provider readback and releases the claim", async () => {
@@ -60,4 +66,40 @@ test("one authorized cron tick records exact provider readback and releases the 
   assert.equal(state.channelDispatch, null);
   assert.equal(state.fences.length, 0);
   assert.deepEqual(await (await handler(call())).json(), { state: "idle" });
+});
+
+test("channel review sends only scoped identifiers to the configured alert receiver", async () => {
+  const repository = new MemoryPropertyRepository();
+  const operationKey = crypto.randomUUID();
+  repository.seed({ workspaceId: "11111111-1111-4111-8111-111111111111",
+    propertyId, roomIds: [roomId], version: 1, authorityEpoch: 1, readOnly: false,
+    channel: { mode: "owlnest", ready: true, sourceReadbackEnabled: true,
+      websiteSalesEnabled: false, grantId, websiteBindingId: null },
+    sourceGrants: [], bookings: [], sourceLinks: [], manualBlocks: [], receipts: [],
+    operations: [{ key: operationKey, bookingId: null, bookingVersion: 0,
+      state: "sync_pending", cells: [{ roomId, date: "2026-11-10", desired: "closed" }],
+      createdAt: new Date(Date.now() - 1000).toISOString(), verifiedAt: null,
+      providerVersion: null }],
+    fences: [{ key: operationKey, cells: [{ roomId, date: "2026-11-10" }],
+      reason: "channel_pending" }] });
+  const alerts = [];
+  const handler = createChannelWorkerFetch(env(), { repository,
+    service: new IronGateService(repository), pool: {},
+    assertRuntimeDatabase: async () => {},
+    provider: { async observe() { throw Error("synthetic_provider_failure"); },
+      async setNight() { throw Error("must_not_write"); } },
+    alertFetch: async (url, init) => {
+      alerts.push({ url: String(url), method: init.method,
+        authorization: init.headers.authorization, body: JSON.parse(init.body) });
+      return { ok: true };
+    } });
+  assert.equal((await handler(call())).status, 503);
+  assert.deepEqual(alerts, [{
+    url: env().IRON_GATE_CHANNEL_ALERT_URL, method: "POST",
+    authorization: "Bearer " + env().IRON_GATE_CHANNEL_ALERT_TOKEN,
+    body: { propertyId, operationKey, status: "dispatch_unknown" },
+  }]);
+  const state = await repository.read(propertyId);
+  assert.equal(state.channelDispatch.state, "review_required");
+  assert.equal(state.fences.length, 1);
 });
