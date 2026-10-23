@@ -58,10 +58,13 @@ export async function recoverChannelClaim({ repository, service, provider,
   await repository.transact(propertyId, (current) => {
     const active = current.channelDispatch;
     const completed = current.operations.find((item) => item.key === operation.key);
-    const booking = current.bookings.find((item) => item.id === completed?.bookingId);
+    const booking = completed?.bookingId === null ? null :
+      current.bookings.find((item) => item.id === completed?.bookingId);
     if (active?.claimId !== expectedClaimId || active.operationKey !== operation.key ||
-      completed?.state !== "sync_verified" || booking?.channelOperationKey !== operation.key ||
-      booking.channelSyncState !== "verified" ||
+      completed?.state !== "sync_verified" ||
+      (completed.bookingId !== null &&
+        (booking?.channelOperationKey !== operation.key ||
+          booking.channelSyncState !== "verified")) ||
       current.fences.some((fence) => fence.key === operation.key))
       throw Error("CHANNEL_RECOVERY_CLAIM_MOVED");
     current.channelDispatch = null;

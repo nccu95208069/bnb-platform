@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-const actions = new Set(["booking:read", "booking:create", "booking:amend", "booking:cancel", "booking:manage_all",
+const actions = new Set(["booking:read", "booking:create", "booking:amend", "booking:cancel", "booking:manage_all", "inventory:write",
   "hold:write", "payment:write", "finance:ledger", "event:read", "occupancy:aggregate",
   "housekeeping:read", "source:write", "channel:verify"]);
 const fields = new Set(["guest_name", "contact", "notes", "money", "payment_status"]);
@@ -19,7 +19,8 @@ export function validateGrantShape(grant) {
     throw new Error("INVALID_CREDENTIAL_GRANT");
   if (!["os", "line", "website", "guest", "source", "channel", "service", "finance"].includes(grant.origin))
     throw new Error("INVALID_CREDENTIAL_ORIGIN");
-  if (grant.origin !== "line" && grant.actions.includes("booking:manage_all"))
+  if (grant.origin !== "line" && grant.actions.some((action) =>
+    ["booking:manage_all", "inventory:write"].includes(action)))
     throw new Error("INVALID_CREDENTIAL_GRANT");
   if (grant.origin === "guest" && (!validCredentialId(grant.bookingIdScope) ||
     grant.actions.some((action) => action !== "booking:read"))) throw new Error("INVALID_GUEST_SCOPE");
@@ -39,7 +40,8 @@ export function validateGrantShape(grant) {
     grant.actions.some((action) => action !== "booking:read" &&
       !(action === "booking:create" && grant.lineCreateEnabled === true) &&
       !(["booking:amend", "booking:cancel", "booking:manage_all"].includes(action) &&
-        grant.lineManageAllEnabled === true)) ||
+        grant.lineManageAllEnabled === true) &&
+      !(action === "inventory:write" && grant.lineInventoryEnabled === true)) ||
     (grant.actions.includes("booking:create") &&
       !grant.actions.includes("booking:read")) ||
     (grant.lineCreateEnabled === true &&
@@ -47,6 +49,8 @@ export function validateGrantShape(grant) {
     (grant.lineManageAllEnabled === true &&
       ["booking:read", "booking:amend", "booking:cancel", "booking:manage_all"].some(
         (action) => !grant.actions.includes(action))) ||
+    (grant.lineInventoryEnabled === true &&
+      (!grant.lineManageAllEnabled || !grant.actions.includes("inventory:write"))) ||
     grant.fields.some((field) => !["guest_name", "contact", "notes", "money"].includes(field))))
     throw new Error("INVALID_LINE_SCOPE");
   if (grant.origin === "service" && (grant.fields.length || grant.actions.some((action) =>

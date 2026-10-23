@@ -1,6 +1,6 @@
 import type {
   Action, AmendBookingInput, Booking, BookingReceipt, CreateBookingInput, CreateHoldInput,
-  ExtendHoldInput,
+  ExtendHoldInput, LineInventoryInput,
   DesiredCell, Night, PaymentEventInput, Principal, PropertyRepository, PropertyState,
   ReadbackInput, RequestReceipt, SourceEventInput, SourceFactsInput, SourceOrderLookupInput, Stay,
   TransactionContext, EventType,
@@ -88,7 +88,7 @@ async function linePreviewKey(secret: string): Promise<CryptoKey> {
 }
 async function signLinePreview(secret: string, principal: Principal,
   propertyId: string, inventoryVersion: number, inputHash: string,
-  action: "create" | "amend" | "cancel" = "create", bookingId: string | null = null,
+  action: "create" | "amend" | "cancel" | "inventory" = "create", bookingId: string | null = null,
   bookingVersion: number | null = null): Promise<{
     token: string; expiresAt: string;
   }> {
@@ -107,7 +107,7 @@ async function signLinePreview(secret: string, principal: Principal,
 }
 async function verifyLinePreview(secret: string, token: string | null | undefined,
   principal: Principal, propertyId: string, inventoryVersion: number,
-  inputHash: string, action: "create" | "amend" | "cancel" = "create",
+  inputHash: string, action: "create" | "amend" | "cancel" | "inventory" = "create",
   bookingId: string | null = null, bookingVersion: number | null = null): Promise<number | null> {
   try {
     if (typeof token !== "string" || token.length > 2048) return null;
@@ -360,6 +360,33 @@ function requireLineMutation(principal: Principal, state: PropertyState, booking
       !(booking.source === "external" && booking.channelSyncState === "not_required")))
     reject("LINE_BOOKING_NOT_READY", 409);
   if (netReceived(booking) !== 0) reject("LINE_PAYMENT_REQUIRES_REVIEW", 409);
+}
+function verifyLineInventoryInput(input: LineInventoryInput): Night {
+  if (!input || !Number.isSafeInteger(input.expectedInventoryVersion) ||
+    input.expectedInventoryVersion < 0 || !["closed", "open"].includes(input.desired))
+    reject("INVALID_INPUT");
+  uuid(input.roomId); dayNumber(input.date);
+  return { roomId: input.roomId, date: input.date };
+}
+function requireLineInventory(principal: Principal, state: PropertyState,
+  input: LineInventoryInput): Night {
+  authorize(principal, state, "inventory:write", true);
+  if (!lineManagesAll(principal) || !principal.grantId ||
+    state.channel.mode !== "owlnest" || !state.channel.ready ||
+    state.channel.sourceReadbackEnabled !== true || !state.channel.grantId)
+    reject("LINE_CHANNEL_NOT_READY", 409);
+  const cell = verifyLineInventoryInput(input);
+  if (!state.roomIds.includes(cell.roomId)) reject("ROOM_NOT_FOUND", 404);
+  const existing = state.manualBlocks.some((item) => keyOf(item) === keyOf(cell));
+  if (input.desired === "closed") {
+    if (existing || hasConflict(state, [cell])) reject("ROOM_CONFLICT", 409);
+  } else {
+    if (!existing) reject("MANUAL_BLOCK_NOT_FOUND", 409);
+    const withoutBlock = { ...state,
+      manualBlocks: state.manualBlocks.filter((item) => keyOf(item) !== keyOf(cell)) };
+    if (hasConflict(withoutBlock, [cell])) reject("ROOM_CONFLICT", 409);
+  }
+  return cell;
 }
 function requireLineChangeFields(principal: Principal, changes: AmendBookingInput["changes"]): void {
   if (principal.origin !== "line") return;
@@ -981,12 +1008,81 @@ export class IronGateService {
       const status = occupied.get(keyOf(cell));
       cells.push({ ...cell, state: status ? (status === "held" ? "held" : "sold") :
         blocked.has(keyOf(cell)) ? "blocked" : "unsold",
-        saleReady: false });
+        saleReady: false,
+        ...(lineManagesAll(principal) ? { manualBlocked:
+          state.manualBlocks.some((item) => keyOf(item) === keyOf(cell)) } : {}) });
     }
     return { propertyId, inventoryVersion: state.version, authorityEpoch: state.authorityEpoch,
       readOnly: state.readOnly === true, cells,
       ...(principal.origin === "line" ? { lineScope: lineScope(principal) } : {}),
       note: "unsold means no local occupancy; it does not prove external channel stock" };
+  }
+
+  async lineCapabilities(principal: Principal, propertyId: string): Promise<Record<string, unknown>> {
+    uuid(propertyId);
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    authorize(principal, state, "booking:read");
+    if (principal.origin !== "line" || !principal.grantId) reject("FORBIDDEN", 403);
+    return { propertyId, inventoryVersion: state.version,
+      authorityEpoch: state.authorityEpoch, readOnly: state.readOnly === true,
+      lineScope: lineScope(principal),
+      channelReady: state.channel.mode === "owlnest" && state.channel.ready === true &&
+        state.channel.sourceReadbackEnabled === true && Boolean(state.channel.grantId),
+      canCreate: principal.actions.includes("booking:create"),
+      canAmend: lineManagesAll(principal) && principal.actions.includes("booking:amend"),
+      canCancel: lineManagesAll(principal) && principal.actions.includes("booking:cancel"),
+      canInventory: lineManagesAll(principal) && principal.actions.includes("inventory:write") };
+  }
+
+  async previewLineInventory(principal: Principal, propertyId: string,
+    input: LineInventoryInput): Promise<Record<string, unknown>> {
+    uuid(propertyId); verifyLineInventoryInput(input);
+    if (principal.origin !== "line" || !this.linePreviewSecret)
+      reject("LINE_PREVIEW_UNAVAILABLE", 503);
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    requireLineInventory(principal, state, input);
+    if (state.version !== input.expectedInventoryVersion) reject("VERSION_CONFLICT", 409);
+    const hash = await digest({ action: "inventory:write", input });
+    const signed = await signLinePreview(this.linePreviewSecret, principal, propertyId,
+      state.version, hash, "inventory");
+    return { propertyId, roomId: input.roomId, date: input.date,
+      desired: input.desired, inventoryVersion: state.version,
+      authorityEpoch: state.authorityEpoch, expiresAt: signed.expiresAt,
+      previewToken: signed.token, channelSyncState: "preview_only" };
+  }
+
+  async setLineInventory(principal: Principal, propertyId: string, requestKey: string,
+    input: LineInventoryInput, linePreviewToken: string | null): Promise<Record<string, unknown>> {
+    uuid(propertyId); uuid(requestKey); verifyLineInventoryInput(input);
+    const hash = await digest({ action: "inventory:write", input });
+    const expiry = principal.origin === "line" && this.linePreviewSecret !== null ?
+      await verifyLinePreview(this.linePreviewSecret, linePreviewToken, principal, propertyId,
+        input.expectedInventoryVersion, hash, "inventory") : null;
+    return this.repository.transact(propertyId, (state, tx) => {
+      authorize(principal, state, "inventory:write", true);
+      const prior = receiptFor(state, principal, requestKey, hash);
+      if (prior) return prior.response;
+      if (expiry === null || Date.now() >= expiry) reject("LINE_PREVIEW_REQUIRED", 409);
+      if (state.version !== input.expectedInventoryVersion) reject("VERSION_CONFLICT", 409);
+      const cell = requireLineInventory(principal, state, input);
+      if (input.desired === "closed") state.manualBlocks.push(cell);
+      else state.manualBlocks = state.manualBlocks.filter((item) => keyOf(item) !== keyOf(cell));
+      const operationKey = crypto.randomUUID();
+      state.operations.push({ key: operationKey, bookingId: null, bookingVersion: 0,
+        state: "sync_pending", cells: [{ ...cell, desired: input.desired }],
+        createdAt: new Date().toISOString(), verifiedAt: null, providerVersion: null });
+      state.fences.push({ key: operationKey, cells: [cell], reason: "channel_pending" });
+      state.version++;
+      const response = { propertyId, roomId: cell.roomId, date: cell.date,
+        desired: input.desired, inventoryVersion: state.version,
+        operationState: "sync_pending", operationKey };
+      saveReceipt(state, principal, requestKey, "inventory:write", hash, response);
+      emit(tx, state, input.desired === "closed" ? "inventory.blocked" : "inventory.opened",
+        null, principal, requestKey);
+      return response;
+    });
   }
 
   // One versioned read supplies the OS booking calendar. The sparse cells are
@@ -1232,10 +1328,12 @@ export class IronGateService {
       const operation = state.operations.find((item) => item.key === input.operationKey);
       if (!operation) reject("OPERATION_NOT_FOUND", 404);
       if (observed < timestamp(operation.createdAt)) reject("STALE_READBACK", 409);
-      const booking = state.bookings.find((item) => item.id === operation.bookingId);
-      if (!booking) reject("BOOKING_NOT_FOUND", 404);
+      const booking = operation.bookingId === null ? null :
+        state.bookings.find((item) => item.id === operation.bookingId) ?? null;
+      if (operation.bookingId !== null && !booking) reject("BOOKING_NOT_FOUND", 404);
       if (operation.state === "sync_verified") return { operationKey: operation.key, state: operation.state,
-        bookingId: booking.id, bookingVersion: booking.version, inventoryVersion: state.version };
+        bookingId: booking?.id ?? null, bookingVersion: booking?.version ?? null,
+        inventoryVersion: state.version };
       const expected = operation.cells.map(keyOf).sort();
       const actual = input.cells.map(keyOf).sort();
       const complete = actual.length === expected.length &&
@@ -1244,41 +1342,49 @@ export class IronGateService {
       const providerMatches = complete && input.cells.every((cell) =>
         desiredByCell.get(keyOf(cell)) === "closed" ? cell.count === 0 || cell.isLock :
           cell.count > 0 && !cell.isLock);
-      const currentNights = new Set(booking.status === "confirmed" ?
+      const currentNights = new Set(booking?.status === "confirmed" ?
         nightsFor(booking.stays, state.roomIds).map(keyOf) : []);
       // Payment or guest-detail edits may advance the booking version while
       // the same channel operation still owns these exact room nights.
-      const correctBooking = booking.channelOperationKey === operation.key && operation.cells.every((cell) =>
-        cell.desired === "closed" ?
+      const correctBooking = booking ? booking.channelOperationKey === operation.key &&
+        operation.cells.every((cell) => cell.desired === "closed" ?
           booking.status === "confirmed" && currentNights.has(keyOf(cell)) ||
           !currentNights.has(keyOf(cell)) && hasConflict(state, [cell], booking.id, operation.key) :
           (booking.status === "confirmed" || booking.status === "cancelled") &&
           !currentNights.has(keyOf(cell)) &&
-          !hasConflict(state, [cell], booking.id, operation.key));
+          !hasConflict(state, [cell], booking.id, operation.key)) :
+        operation.bookingId === null && operation.bookingVersion === 0 &&
+        operation.cells.length === 1 && operation.cells.every((cell) =>
+          cell.desired === "closed" ?
+            state.manualBlocks.some((item) => keyOf(item) === keyOf(cell)) :
+            !state.manualBlocks.some((item) => keyOf(item) === keyOf(cell)) &&
+            !hasConflict(state, [cell], undefined, operation.key));
       operation.observations ??= [];
       if (operation.observations.length >= 1000) reject("READBACK_LIMIT_REACHED", 409);
       operation.observations.push({ observedAt: input.observedAt, providerVersion: input.providerVersion,
         cells: structuredClone(input.cells), exact: providerMatches, accepted: providerMatches && correctBooking });
       if (!providerMatches || !correctBooking) {
         operation.state = "review_required";
-        booking.channelSyncState = "review_required";
+        if (booking) booking.channelSyncState = "review_required";
       } else {
         operation.state = "sync_verified";
         operation.verifiedAt = input.observedAt;
         operation.providerVersion = input.providerVersion;
-        booking.channelSyncState = "verified";
-        const sourceLink = state.sourceLinks.find((link) => link.bookingId === booking.id);
-        const sourceVersionCurrent = sourceLink && !sourceLink.diverged &&
-          sourceLink.lastAppliedBookingVersion === booking.version;
-        booking.version++;
-        if (sourceVersionCurrent) sourceLink.lastAppliedBookingVersion = booking.version;
+        if (booking) {
+          booking.channelSyncState = "verified";
+          const sourceLink = state.sourceLinks.find((link) => link.bookingId === booking.id);
+          const sourceVersionCurrent = sourceLink && !sourceLink.diverged &&
+            sourceLink.lastAppliedBookingVersion === booking.version;
+          booking.version++;
+          if (sourceVersionCurrent) sourceLink.lastAppliedBookingVersion = booking.version;
+        }
         state.fences = state.fences.filter((fence) => fence.key !== operation.key);
       }
       state.version++;
       emit(tx, state, operation.state === "sync_verified" ? "channel.verified" :
         "channel.review_required", booking, principal, operation.key);
-      return { operationKey: operation.key, state: operation.state, bookingId: booking.id,
-        bookingVersion: booking.version, inventoryVersion: state.version };
+      return { operationKey: operation.key, state: operation.state, bookingId: booking?.id ?? null,
+        bookingVersion: booking?.version ?? null, inventoryVersion: state.version };
     });
   }
 

@@ -7,6 +7,7 @@ export type Action =
   | "booking:amend"
   | "booking:cancel"
   | "booking:manage_all"
+  | "inventory:write"
   | "hold:write"
   | "payment:write"
   | "finance:ledger"
@@ -105,7 +106,7 @@ export type SourceLink = {
 
 export type ChannelOperation = {
   key: string;
-  bookingId: string;
+  bookingId: string | null;
   bookingVersion: number;
   state: OperationState;
   cells: DesiredCell[];
@@ -175,6 +176,13 @@ export type CreateBookingInput = {
   totalCents: number | null;
   bookedAt: string | null;
   source: "os" | "line" | "website";
+};
+
+export type LineInventoryInput = {
+  expectedInventoryVersion: number;
+  roomId: string;
+  date: string;
+  desired: "closed" | "open";
 };
 
 export type CreateHoldInput = Omit<CreateBookingInput, "source">;
@@ -255,6 +263,7 @@ export type EventType =
   | "booking.created" | "booking.amended" | "booking.cancelled"
   | "hold.created" | "hold.extended" | "hold.converted" | "hold.released"
   | "payment.recorded" | "source.applied" | "source.review_required"
+  | "inventory.blocked" | "inventory.opened"
   | "source.facts_enriched"
   | "channel.verified" | "channel.review_required";
 

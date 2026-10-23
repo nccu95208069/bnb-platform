@@ -31,6 +31,12 @@ test("manage-all LINE grant requires current channel and only allows booking act
     "booking:cancel", "booking:manage_all"]);
   assert.equal(planned.grant.lineManageAllEnabled, true);
   assert.equal(planned.grant.origin, "line");
+  const withInventory = planSweetfunLineManageGrant(state(),
+    { ...manifest(), inventoryEnabled: true });
+  assert.equal(withInventory.grant.lineInventoryEnabled, true);
+  assert.equal(withInventory.grant.actions.includes("inventory:write"), true);
+  assert.throws(() => planSweetfunLineManageGrant(state(),
+    { ...manifest(), inventoryEnabled: "yes" }), /PREFLIGHT_FAILED/);
   for (const change of [
     { version: 18 }, { readOnly: true }, { authorityEpoch: 0 },
     { sourceGrants: [] }, { channel: { ...state().channel, mode: "none" } },

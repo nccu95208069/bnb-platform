@@ -31,15 +31,19 @@ export function planSweetfunLineManageGrant(state, manifest) {
     !state.roomIds.every((roomId) => UUID.test(roomId)) ||
     !Array.isArray(manifest.actorIds))
     throw Error("SWEETFUN_LINE_MANAGE_PREFLIGHT_FAILED");
+  if (manifest.inventoryEnabled !== undefined && typeof manifest.inventoryEnabled !== "boolean")
+    throw Error("SWEETFUN_LINE_MANAGE_PREFLIGHT_FAILED");
   const grant = { credentialId: manifest.credentialId,
     workspaceId: manifest.workspaceId, propertyId: manifest.propertyId,
     authorityEpoch: 1, clientId: manifest.clientId, subjectId: "line-staff-manage-all",
     origin: "line", actions: ["booking:read", "booking:create", "booking:amend",
-      "booking:cancel", "booking:manage_all"],
+      "booking:cancel", "booking:manage_all",
+      ...(manifest.inventoryEnabled === true ? ["inventory:write"] : [])],
     fields: ["guest_name", "contact", "notes", "money"],
     grantId: manifest.grantId, lineGroupId: manifest.groupId,
     lineActorIds: manifest.actorIds,
-    lineCreateEnabled: true, lineManageAllEnabled: true };
+    lineCreateEnabled: true, lineManageAllEnabled: true,
+    ...(manifest.inventoryEnabled === true ? { lineInventoryEnabled: true } : {}) };
   validateGrant(grant, manifest.expiresAt);
   return { grant, expiresAt: manifest.expiresAt };
 }

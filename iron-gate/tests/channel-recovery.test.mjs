@@ -57,3 +57,24 @@ test("manual recovery only clears a claim after fresh exact provider readback", 
     provider: observed(true), principal, propertyId, expectedClaimId: claimId }),
   /CHANNEL_RECOVERY_CLAIM_MOVED/);
 });
+
+test("manual recovery clears a bookingless inventory claim only after exact observation", async () => {
+  const { repository, service, claimId, operationKey } = await setup();
+  await repository.transact(propertyId, (state) => {
+    state.bookings = [];
+    state.manualBlocks = [{ roomId, date: "2026-11-10" }];
+    state.operations[0].bookingId = null;
+    state.operations[0].bookingVersion = 0;
+  });
+  const observed = { async observe() {
+    return { observedAt: new Date().toISOString(), providerVersion: "manual-close-readback",
+      cells: [{ roomId, date: "2026-11-10", count: 0, isLock: true }] };
+  } };
+  const recovered = await recoverChannelClaim({ repository, service,
+    provider: observed, principal, propertyId, expectedClaimId: claimId });
+  assert.equal(recovered.state, "sync_verified");
+  const state = await repository.read(propertyId);
+  assert.equal(state.channelDispatch, null);
+  assert.equal(state.fences.length, 0);
+  assert.equal(state.operations[0].state, "sync_verified");
+});

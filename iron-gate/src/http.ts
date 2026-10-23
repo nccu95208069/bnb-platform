@@ -1,5 +1,5 @@
 import { GateError, IronGateService } from "./service.ts";
-import type { AmendBookingInput, CreateBookingInput, CreateHoldInput, ExtendHoldInput, PaymentEventInput,
+import type { AmendBookingInput, CreateBookingInput, CreateHoldInput, ExtendHoldInput, LineInventoryInput, PaymentEventInput,
   Principal, ReadbackInput, SourceEventInput, SourceFactsInput, SourceOrderLookupInput } from "./types.ts";
 
 export type Authenticate = (request: Request) => Promise<Principal | null>;
@@ -64,6 +64,24 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         const value = await body(request);
         exact(value, ["expectedInventoryVersion", "stays", "guestName", "contact", "notes", "totalCents", "bookedAt", "source"]);
         return json(await service.previewLineCreate(principal, parts[2], value as CreateBookingInput));
+      }
+      if (parts[1] === "properties" && parts[2] && parts.length === 4 &&
+        parts[3] === "inventory-previews" && request.method === "POST") {
+        const value = await body(request);
+        exact(value, ["expectedInventoryVersion", "roomId", "date", "desired"]);
+        return json(await service.previewLineInventory(principal, parts[2],
+          value as LineInventoryInput));
+      }
+      if (parts[1] === "properties" && parts[2] && parts.length === 4 &&
+        parts[3] === "inventory" && request.method === "POST") {
+        const value = await body(request);
+        exact(value, ["expectedInventoryVersion", "roomId", "date", "desired"]);
+        return json(await service.setLineInventory(principal, parts[2], requestKey(request),
+          value as LineInventoryInput, request.headers.get("x-iron-gate-line-preview")), 202);
+      }
+      if (parts[1] === "properties" && parts[2] && parts.length === 4 &&
+        parts[3] === "line-capabilities" && request.method === "GET") {
+        return json(await service.lineCapabilities(principal, parts[2]));
       }
       if (parts[1] === "properties" && parts[2] && parts[3] === "bookings") {
         const propertyId = parts[2];

@@ -22,6 +22,15 @@ The active channel grant can poll `GET /v1/inventory-operations` for bounded,
 PII-free pending operations. Polling does not claim a lease, trigger a provider
 write, or clear a fence.
 
+The optional LINE `inventory:write` grant can close or open one canonical
+manual block through a signed, versioned preview and idempotent commit. It is
+separate from booking amend/cancel. Each commit makes a bookingless channel
+operation with the same durable claim, fence and fresh readback rules. Opening
+is rejected while another booking, manual block or unresolved fence controls
+that night. The GCO cutover flag blocks the old Sweetfun OwlNest card, queue
+and execute endpoint; any old queued tasks must be drained or quarantined
+before this flag is enabled. OFFLAND uses the old path.
+
 The channel runner now has a per-property claim adapter that stores the active
 operation in the canonical property transaction. Only an exact `sync_verified`
 readback releases it. An error, partial observation, or unknown provider write
@@ -65,6 +74,10 @@ OwlNest inventory has changed.
    block, ambiguous provider outcome, and a second Gmail email before expanding
    LINE writes. No guest messages may say “通路已同步” until the channel operation
    is `sync_verified`.
+4. Check `/v1/properties/{propertyId}/line-capabilities` with the actual
+   zero-traffic candidate grant and compare every enabled LINE write flag to
+   `canCreate`, `canAmend`, `canCancel` and `canInventory`. Verify
+   `channelReady`, authority epoch and inventory version as well.
 
 The current production LINE credential remains unissued; the candidate code
 has separate dormant read, create and manage-all grants. The backend has a

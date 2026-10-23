@@ -57,6 +57,14 @@ test("LINE booking scopes require explicit markers and one bound group", () => {
   /INVALID_LINE_SCOPE/);
   assert.throws(() => validateGrantShape({ ...base, actions: ["booking:create"] }), /INVALID_LINE_SCOPE/);
   assert.throws(() => validateGrantShape({ ...base, fields: ["payment_status"] }), /INVALID_LINE_SCOPE/);
+  assert.throws(() => validateGrantShape({ ...manage,
+    actions: [...manage.actions, "inventory:write"] }), /INVALID_LINE_SCOPE/);
+  assert.doesNotThrow(() => validateGrantShape({ ...manage, lineInventoryEnabled: true,
+    actions: [...manage.actions, "inventory:write"] }));
+  assert.throws(() => validateGrantShape({ ...manage, lineInventoryEnabled: true }),
+    /INVALID_LINE_SCOPE/);
+  assert.throws(() => validateGrantShape({ ...base, lineInventoryEnabled: true,
+    actions: ["booking:read", "inventory:write"] }), /INVALID_LINE_SCOPE/);
 });
 
 test("LINE proof wire format matches the Cloud Run signer", async () => {

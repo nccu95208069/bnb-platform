@@ -3,9 +3,9 @@ info:
   title: Iron Gate internal booking API
   version: 0.3.0
   description: >-
-    Executable contract for synthetic validation. SQLite and PostgreSQL
-    transactional adapters are tested. No production OS member verifier,
-    OwlNest connector, live tenant, or deployment is connected.
+    Property-scoped booking and inventory contract. LINE write routes require
+    a separate operator proof, scoped grant and signed confirmation preview.
+    Channel completion requires an exact, fresh OwlNest readback.
 security:
   - serviceBearer: []
 components:
@@ -66,6 +66,15 @@ components:
         totalCents: { type: [integer, 'null'], minimum: 0 }
         bookedAt: { type: [string, 'null'], format: date }
         source: { type: string, enum: [os, line, website] }
+    LineInventory:
+      type: object
+      additionalProperties: false
+      required: [expectedInventoryVersion, roomId, date, desired]
+      properties:
+        expectedInventoryVersion: { type: integer, minimum: 0 }
+        roomId: { type: string, format: uuid }
+        date: { type: string, format: date }
+        desired: { type: string, enum: [closed, open] }
     BookingReceipt:
       type: object
       additionalProperties: false
@@ -503,6 +512,64 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
 paths:
+  /v1/properties/{propertyId}/line-capabilities:
+    get:
+      operationId: getLineCapabilities
+      summary: Probe the current LINE grant and source/channel release gates
+      description: >-
+        PII-free. A LINE operator proof is required. Returns propertyId,
+        inventoryVersion, authorityEpoch, readOnly, lineScope, channelReady,
+        canCreate, canAmend, canCancel and canInventory. A candidate Cloud Run
+        revision checks these values before receiving traffic.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+      responses:
+        '200': { description: Current grant capabilities and channel gate }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/properties/{propertyId}/inventory-previews:
+    post:
+      operationId: previewLineInventory
+      summary: Preview one LINE manual room-night close or open
+      description: >-
+        Requires a marked manage-all LINE grant with inventory:write and a
+        ready OwlNest channel. Returns a private 15-minute token bound to the
+        actor, grant, exact cell, desired state and inventory version. The token
+        stays in the server-side journal and is never sent in a LINE message.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LineInventory' }
+      responses:
+        '200': { description: Local preflight and signed preview token }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/inventory:
+    post:
+      operationId: setLineInventory
+      summary: Apply one confirmed canonical manual block and fence its channel operation
+      description: >-
+        Requires Idempotency-Key and X-Iron-Gate-Line-Preview. The response
+        records a local change and sync_pending operation; it never claims the
+        OwlNest change is complete. Opening rechecks bookings, other blocks and
+        unresolved fences. An uncertain request must be reconciled by its
+        original key rather than submitted again under a new key.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { $ref: '#/components/parameters/RequestKey' }
+        - { name: X-Iron-Gate-Line-Preview, in: header, required: true,
+            schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LineInventory' }
+      responses:
+        '202': { description: Canonical block changed; OwlNest readback pending }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
   /v1/properties/{propertyId}/line-create-previews:
     post:
       operationId: previewLineCreate
@@ -802,7 +869,8 @@ paths:
       description: >-
         A verified LINE read grant may inspect local room-night cells without
         booking or guest details. Its response includes lineScope.grantId and
-        readOnly; unsold never proves OwlNest sale readiness.
+        readOnly; a manage-all grant also receives manualBlocked per cell.
+        Unsold never proves OwlNest sale readiness.
       parameters:
         - { $ref: '#/components/parameters/PropertyId' }
         - { name: from, in: query, required: true, schema: { type: string, format: date } }
