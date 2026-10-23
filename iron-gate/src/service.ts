@@ -1008,7 +1008,7 @@ export class IronGateService {
       bookingStatus: booking?.status ?? null,
       stays: booking ? structuredClone(booking.stays) : [],
       bookedAt: booking?.bookedAt ?? null,
-      ...(booking ? { sourceFacts: { totalCents: booking.totalCents,
+      ...(booking && !booking.sweetfunSnapshot ? { sourceFacts: { totalCents: booking.totalCents,
         currency: booking.currency, platform: booking.sourceCalendar?.platform ?? null,
         externalOrderNo: booking.sourceCalendar?.externalOrderNo ?? null } } : {}),
       diverged: link?.diverged ?? false,
@@ -1193,7 +1193,7 @@ export class IronGateService {
       const key = sourceOrderKey(input.sourceSystem, input.sourceAccount, input.externalOrderId);
       const link = state.sourceLinks.find((item) => item.key === key);
       const booking = link?.bookingId ? state.bookings.find((item) => item.id === link.bookingId) : null;
-      if (!link || !booking || link.diverged || link.tombstoneNights.length ||
+      if (!link || !booking || booking.sweetfunSnapshot || link.diverged || link.tombstoneNights.length ||
         link.sourceVersion !== input.sourceVersion ||
         link.lastAppliedBookingVersion !== input.expectedBookingVersion ||
         booking.version !== input.expectedBookingVersion || booking.status !== "confirmed")
