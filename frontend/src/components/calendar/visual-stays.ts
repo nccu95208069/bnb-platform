@@ -213,6 +213,9 @@ export function visualCalendarStays(bookings: CalendarBooking[]): CalendarBookin
       nightly_amounts: linked.flatMap((booking) => booking.nightly_amounts ?? []),
       payment_status: linked.every((booking) => booking.payment_status === first.payment_status)
         ? first.payment_status : "unknown",
+      payment_review_status: linked.every((booking) =>
+        booking.payment_review_status === first.payment_review_status)
+        ? first.payment_review_status : undefined,
       stay_nights: linked.length,
       visual_source_ids: ids,
     };

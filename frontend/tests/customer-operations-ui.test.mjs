@@ -312,8 +312,8 @@ test("format helper recognizes explicit totals and preserves source paid without
     initialBatches: [],
     initialVersion: 1,
   });
-  await click(button("下一步：查看匯入預覽"));
-  await click(button("檢查必要欄位與房間"));
+  await click(button("檢查並匯入訂房 →"));
+  await click(button("確認欄位與房間"));
   await click(button("採用欄位與房間建議，再由我核對"));
   assert.equal(control("入住日期").value, "0");
   assert.equal(control("房費欄位的意思").value, "order");

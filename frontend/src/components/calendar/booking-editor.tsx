@@ -840,6 +840,12 @@ const uiLocale = useIntlLocale();
     () => orderSegments.reduce((sum, segment) => sum + segment.room_rate, 0),
     [orderSegments],
   );
+  const sourceOrderTotalCents = booking?.source_read_only &&
+    Number.isSafeInteger(booking.source_order_total_cents) &&
+    orderSegments.length > 0 && orderSegments.every(segment =>
+      segment.order_id === booking.order_id &&
+      segment.source_order_total_cents === booking.source_order_total_cents)
+    ? booking.source_order_total_cents : undefined;
   const recordedPayments = booking?.payments ?? [];
   const recordedAmount = recordedPayments.reduce(
     (sum, payment) => sum + payment.amount,
@@ -957,11 +963,11 @@ const uiLocale = useIntlLocale();
                     <>
                       <DetailRow
                         label={uiText("本筆房費")}
-                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : formatMoney(booking.room_rate, uiLocale)}
+                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : booking.price_hidden ? uiText("待核對") : formatMoney(booking.room_rate, uiLocale)}
                       />
                       <DetailRow
-                        label={booking.source_read_only ? uiText("已串接紀錄合計") : uiText("訂單總額")}
-                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : formatMoney(orderTotal, uiLocale)}
+                        label={booking.source_read_only && sourceOrderTotalCents !== undefined ? uiText("已串接訂單總額") : booking.source_read_only ? uiText("已串接紀錄合計") : uiText("訂單總額")}
+                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : sourceOrderTotalCents !== undefined ? formatMoney(sourceOrderTotalCents / 100, uiLocale) : orderSegments.some(segment => segment.price_hidden) ? uiText("待核對") : formatMoney(orderTotal, uiLocale)}
                       />
                     </>
                   )}

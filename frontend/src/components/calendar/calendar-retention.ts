@@ -18,3 +18,31 @@ export function retainedCalendar(data: CalendarResponse | null, failed: boolean)
   if (!data || !failed) return data;
   return { ...data, bookings: data.bookings.map(b => ({ ...b, snapshot_only: true })) };
 }
+
+// Month grids overlap at their edges. Combine only a contiguous set from the
+// same inventory version, anchored on the month the user is viewing.
+export function combinedCalendarWindows(windows: CalendarResponse[], start: string, end: string): CalendarResponse | null {
+  const anchor = windows.find(window => window.period_start <= start && window.period_end > start);
+  if (!anchor) return null;
+  const version = anchor.source?.private_snapshot_version;
+  const peers = windows.filter(window => window.source?.private_snapshot_version === version)
+    .sort((left, right) => left.period_start.localeCompare(right.period_start));
+  let first = anchor.period_start, last = anchor.period_end;
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const window of peers) {
+      if (window.period_start > last || window.period_end < first) continue;
+      if (window.period_start < first) { first = window.period_start; changed = true; }
+      if (window.period_end > last) { last = window.period_end; changed = true; }
+    }
+  }
+  if (last < end) return null;
+  const connected = peers.filter(window => window.period_start <= last && window.period_end >= first);
+  const bookings = [...new Map(connected.flatMap(window => window.bookings).map(booking => [booking.id, booking])).values()];
+  const properties = [...new Map(connected.flatMap(window => window.properties).map(property => [property.id, property])).values()];
+  const rooms = [...new Map(connected.flatMap(window => window.rooms).map(room => [room.id, room])).values()];
+  return { ...anchor, period_start: first, period_end: last, properties, rooms, bookings,
+    order_count: new Set(bookings.map(booking => booking.order_id)).size,
+    booking_segment_count: bookings.length };
+}

@@ -4,7 +4,7 @@ import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 
 import { PaymentBadge } from "./payment-badge";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useMonthPosition } from "./use-month-position";
 import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
 
@@ -21,6 +21,7 @@ import type {
 import {
   PLATFORM_LABELS,
   PLATFORM_STYLES,
+  paymentStateForReview,
   PROPERTY_DOT_STYLES,
   WEEKDAY_LABELS,
   addDays,
@@ -83,7 +84,7 @@ function BookingChip({
   return (
     <div className="flex min-w-0 items-center gap-1"><button
       type="button"
-      data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
+      data-payment-state={paymentStateForReview(booking)}
       onClick={() => onSelect(booking)}
       className={cn(
         "group flex w-full min-w-0 items-center gap-1.5 border text-left shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -148,16 +149,16 @@ function chunkWeeks(days: string[]) {
 
 function MonthPanel({
   monthStart,
+  covered = true,
   bookings,
   onSelectBooking,
   onSelectDay,
-  sectionRef,
   viewportHeight,
   fontScale,
   desktop,
 }: CalendarViewProps & {
   monthStart: string;
-  sectionRef: (node: HTMLElement | null) => void;
+  covered?: boolean;
   viewportHeight: number;
   fontScale: number;
   desktop: boolean;
@@ -196,11 +197,19 @@ const uiLocale = useIntlLocale();
     );
   }, 0);
 
+  if (!covered) return (
+    <section data-month={monthStart}
+      className="scroll-mt-2 bg-card" style={{ minHeight: viewportHeight }}>
+      <div className="sticky top-0 z-20 flex h-8 items-center justify-between border-y bg-background/95 px-3 backdrop-blur md:px-4">
+        <h2 className="text-base font-semibold">{formatMonthLabel(monthStart, uiLocale)}</h2>
+        <span className="text-xs text-muted-foreground">{uiText("訂單尚未載入")}</span>
+      </div>
+    </section>
+  );
+
   return (
     <section
-      ref={sectionRef}
       data-month={monthStart}
-      data-position-month={monthStart}
       className="scroll-mt-2 bg-card"
     >
       <div className="sticky top-0 z-20 flex items-center justify-between h-8 border-y bg-background/95 px-3 backdrop-blur md:px-4">
@@ -278,7 +287,7 @@ const uiLocale = useIntlLocale();
                 const label = `${PLATFORM_LABELS[booking.platform] ?? "其他"}｜${guestName || "姓名尚未開放"}｜${booking.property_name}｜${booking.room_number}｜${booking.check_in}–${booking.check_out}${nights > 1 ? `｜連住 ${nights} 晚` : ""}`;
                 return <button key={booking.id} type="button" title={uiText(label)} aria-label={uiText(label)}
                   data-stay-id={booking.id} data-stay-start={segment.start} data-stay-end={segment.end}
-                  data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
+                  data-payment-state={paymentStateForReview(booking)}
                   onClick={() => onSelectBooking(booking)}
                   style={{ gridColumn: `${segment.start + 1} / ${segment.end + 1}`, gridRow: segment.lane + 2, fontSize: monthBookingFontSize(fontScale, desktop), WebkitTextSizeAdjust: "none", textSizeAdjust: "none" }}
                   className={cn("relative z-10 mx-0.5 flex min-w-0 items-center gap-0.5 overflow-hidden rounded-[3px] px-0.5 text-left leading-none font-medium focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:mx-1 md:px-1",
@@ -330,8 +339,63 @@ const uiLocale = useIntlLocale();
   );
 }
 
+// Keep the scroll track and its measured heights stable while only building
+// the expensive booking grid around the viewport. Native momentum can cross
+// month boundaries without React replacing the scroll container's children.
+const LazyMonthPanel = memo(function LazyMonthPanel({ monthStart, covered,
+  viewportHeight, fontScale, desktop, bookings, rooms, properties,
+  onSelectBooking, onSelectDay, root, initialActive }: CalendarViewProps & {
+  monthStart: string; covered: boolean; viewportHeight: number;
+  fontScale: number; desktop: boolean; initialActive: boolean;
+  root: RefObject<HTMLDivElement | null>;
+}) {
+  const uiLocale = useIntlLocale();
+  const uiText = useT();
+  const ref = useRef<HTMLDivElement>(null);
+  const [near, setNear] = useState(initialActive);
+  const [height, setHeight] = useState(viewportHeight);
+
+  useEffect(() => {
+    const node = ref.current;
+    const container = root.current;
+    if (!node || !container) return;
+    const observer = new IntersectionObserver(entries => {
+      setNear(entries.some(entry => entry.isIntersecting));
+    }, { root: container, rootMargin: '900px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [root]);
+
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || !near || !covered) return;
+    const measure = () => {
+      const next = Math.ceil(node.getBoundingClientRect().height);
+      setHeight(current => Math.abs(current - next) > 1 ? next : current);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [near, covered]);
+
+  return <div ref={ref} data-position-month={monthStart}
+    style={near && covered ? { minHeight: viewportHeight } : { height: Math.max(height, viewportHeight) }}
+    className="bg-card">
+    {near && covered ? <MonthPanel monthStart={monthStart} covered
+      viewportHeight={viewportHeight} fontScale={fontScale} desktop={desktop}
+      bookings={bookings} rooms={rooms} properties={properties}
+      onSelectBooking={onSelectBooking} onSelectDay={onSelectDay} /> :
+      <div className="sticky top-0 flex h-8 items-center justify-between border-y bg-background px-3">
+        <span className="font-semibold">{formatMonthLabel(monthStart, uiLocale)}</span>
+        {near && !covered && <span className="text-xs text-muted-foreground">{uiText('訂單尚未載入')}</span>}
+      </div>}
+  </div>;
+});
+
 export function MonthScroller({
   months,
+  coveredMonths,
   targetMonth,
   targetRevision,
   bookings,
@@ -342,6 +406,7 @@ export function MonthScroller({
   onSelectDay,
 }: CalendarViewProps & {
   months: string[];
+  coveredMonths?: string[];
   targetMonth: string;
   targetDate?: string;
   targetRevision?: number;
@@ -351,6 +416,10 @@ export function MonthScroller({
   const [viewportHeight, setViewportHeight] = useState(520);
   const [fontScale, setFontScale] = useState(1);
   const [desktop, setDesktop] = useState(false);
+  const callbacks = useRef({ onSelectBooking, onSelectDay });
+  useLayoutEffect(() => { callbacks.current = { onSelectBooking, onSelectDay }; }, [onSelectBooking, onSelectDay]);
+  const selectBooking = useCallback((booking: CalendarBooking) => callbacks.current.onSelectBooking(booking), []);
+  const selectDay = useCallback((day: string) => callbacks.current.onSelectDay(day), []);
   useLayoutEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
@@ -369,7 +438,7 @@ export function MonthScroller({
     return () => { observer.disconnect(); fontObserver.disconnect(); window.removeEventListener("resize", measure); window.removeEventListener("storage", measure); };
   }, []);
   // Month mode starts at the month header so no week is hidden above today.
-  useMonthPosition(scrollRef, targetMonth, targetRevision ?? 0, onVisibleMonthChange);
+  useMonthPosition(scrollRef, targetMonth, targetRevision ?? 0, onVisibleMonthChange, months[0]);
 
   return (
     <div
@@ -378,18 +447,20 @@ export function MonthScroller({
       className="overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm"
     >
       {months.map((monthStart) => (
-        <MonthPanel
+        <LazyMonthPanel
           key={monthStart}
           monthStart={monthStart}
+          covered={!coveredMonths || coveredMonths.includes(monthStart)}
+          initialActive={monthStart === targetMonth}
+          root={scrollRef}
           viewportHeight={viewportHeight}
           fontScale={fontScale}
           desktop={desktop}
           bookings={bookings}
           rooms={rooms}
           properties={properties}
-          onSelectBooking={onSelectBooking}
-          onSelectDay={onSelectDay}
-          sectionRef={() => {}}
+          onSelectBooking={selectBooking}
+          onSelectDay={selectDay}
         />
       ))}
     </div>

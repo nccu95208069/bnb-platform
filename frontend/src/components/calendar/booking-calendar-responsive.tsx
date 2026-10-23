@@ -70,6 +70,7 @@ import {
   monthStarts,
   overlapNights,
   startOfMonth,
+  sweetfunMonthWindow,
 } from "@/components/calendar/calendar-utils";
 import { WeekCarousel } from "@/components/calendar/week-carousel";
 import { visualCalendarStays } from "@/components/calendar/visual-stays";
@@ -117,8 +118,9 @@ type DemoEditState = {
 
 const EMPTY_EDITS: DemoEditState = { orders: {}, segments: {} };
 
-async function readCalendar(start: string, end: string): Promise<CalendarResponse> {
-  if (!PAYMENT_SANDBOX) return apiClient.get<CalendarResponse>(`/bookings/calendar?start=${start}&end=${end}`);
+async function readCalendar(start: string, end: string, propertyIds: string[]): Promise<CalendarResponse> {
+  const selected = propertyIds.length ? `&properties=${encodeURIComponent(propertyIds.join(','))}` : '';
+  if (!PAYMENT_SANDBOX) return apiClient.get<CalendarResponse>(`/bookings/calendar?start=${start}&end=${end}${selected}`);
   const response = await fetch(`/api/payment-sandbox/calendar?start=${start}&end=${end}`, { cache: "no-store" });
   if (!response.ok) throw Error("無法連接隔離測試服務，請稍後重試。");
   return response.json();
@@ -208,6 +210,7 @@ const uiLocale = useIntlLocale();
   const selectedPropertyIds = useCalendarPreferences(
     (state) => state.selectedPropertyIds,
   );
+  const availableProperties = useCalendarPreferences((state) => state.properties);
   const setProperties = useCalendarPreferences((state) => state.setProperties);
 
   const initializeAccess = useAccessControl((state) => state.initialize);
@@ -224,29 +227,63 @@ const uiLocale = useIntlLocale();
   const [monthTarget, setMonthTarget] = useState(() =>
     startOfMonth(anchorDate),
   );
+  const scrollCommit = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelScrollCommit = useCallback(() => {
+    if (scrollCommit.current) clearTimeout(scrollCommit.current);
+    scrollCommit.current = null;
+  }, []);
+  useEffect(() => () => {
+    cancelScrollCommit();
+  }, [cancelScrollCommit]);
+  // Keep every month in the scroll track. MonthScroller mounts the costly
+  // calendar grid only near the viewport, so scrolling never replaces the
+  // previous month or resets native scroll momentum.
+  const renderedMonths = MONTHS.includes(monthTarget) ? MONTHS : [monthTarget];
   const accessScope = JSON.stringify([membership?.id, membership?.role, membership?.allProperties, membership?.propertyIds]);
+  const requestedPropertyIds = useMemo(() => {
+    const valid = selectedPropertyIds.filter(id => id === 'sweetfun' || id === 'offland');
+    if (!valid.length || valid.length === 2 || availableProperties.length > 0 &&
+      valid.length === availableProperties.length) return [];
+    return [...valid].sort();
+  }, [availableProperties.length, selectedPropertyIds]);
+  const propertyScope = requestedPropertyIds.join(',');
+  const sweetfunWideMonth = view === "month" && propertyScope === "sweetfun";
+  const prefetchRanges = useMemo(() => {
+    if (!sweetfunWideMonth) return [];
+    const year = Number(anchorDate.slice(0, 4));
+    return [year - 1, year + 1]
+      .filter(neighbor => MONTHS.some(month => month.startsWith(`${neighbor}-`)))
+      .map(neighbor => sweetfunMonthWindow(`${neighbor}-01-01`));
+  }, [sweetfunWideMonth, anchorDate]);
+  const scopedRead = useCallback((start: string, end: string) =>
+    readCalendar(start, end, propertyScope ? propertyScope.split(',') : []), [propertyScope]);
   const selectedId = useCalendarPreferences((s) => s.selectedBookingId);
   const setSelectedId = useCalendarPreferences((s) => s.setSelectedBookingId);
   const historyRevision = useCalendarPreferences((s) => s.historyRevision);
   useEffect(() => {
     const month = startOfMonth(useCalendarPreferences.getState().anchorDate);
+    cancelScrollCommit();
     setVisibleMonth(month);
     setMonthTarget(month);
-  }, [historyRevision]);
+  }, [historyRevision, cancelScrollCommit]);
   const [reloadKey, setReloadKey] = useState(0);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
   const [editsHydrated, setEditsHydrated] = useState(false);
   const previousView = useRef<CalendarView>(view);
   const handledNavigationRequest = useRef(navigationRequest?.id ?? 0);
-
   const requestPeriod = useMemo(
-    () => fetchPeriod(anchorDate, query.trim() ? "month" : view),
-    [anchorDate, view, query],
+    () => sweetfunWideMonth ? sweetfunMonthWindow(anchorDate) : fetchPeriod(anchorDate, view),
+    [anchorDate, view, sweetfunWideMonth],
   );
+  const visiblePeriod = view === "month" ? fetchPeriod(visibleMonth, "month") : requestPeriod;
   const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess(); }, [setSelectedId, initializeAccess]);
   const { data, loading, refreshing, error, requestFailed, lastLoadedAt } = useCalendarData({
-    start: requestPeriod.start, end: requestPeriod.end, scope: accessScope, reload: reloadKey,
-    read: readCalendar, onProperties: setProperties, onAccessLost: accessLost,
+    start: requestPeriod.start, end: requestPeriod.end,
+    scope: `${accessScope}:${propertyScope}`, reload: reloadKey,
+    read: scopedRead, onProperties: setProperties, onAccessLost: accessLost,
+    visibleStart: visiblePeriod.start,
+    visibleEnd: visiblePeriod.end,
+    prefetch: prefetchRanges,
   });
   const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
   const displayPeriod = useMemo(() => {
@@ -280,6 +317,7 @@ const uiLocale = useIntlLocale();
     handledNavigationRequest.current = navigationRequest.id;
 
     if (navigationRequest.action === "today") {
+      cancelScrollCommit();
       setTodayRequest(value=>value+1);
       const today = localTodayIso();
       setAnchorDate(today);
@@ -293,6 +331,7 @@ const uiLocale = useIntlLocale();
 
     const direction = navigationRequest.action === "previous" ? -1 : 1;
     if (view === "month") {
+      cancelScrollCommit();
       const target = addMonths(visibleMonth, direction);
       setVisibleMonth(target);
       setMonthTarget(target);
@@ -304,7 +343,7 @@ const uiLocale = useIntlLocale();
       return;
     }
     setAnchorDate((value) => addDays(value, direction));
-  }, [navigationRequest, view, visibleMonth, setAnchorDate]);
+  }, [navigationRequest, view, visibleMonth, setAnchorDate, cancelScrollCommit]);
 
   useEffect(() => {
     const oldView = previousView.current;
@@ -356,7 +395,8 @@ const uiLocale = useIntlLocale();
 
 
   const sourceChanged = useCallback(() => setReloadKey(value => value + 1), []);
-  useCalendarRevision((data?.properties ?? []).map(p => p.id).filter(id => id === 'sweetfun' || id === 'offland').sort().join(','), !PAYMENT_SANDBOX && !!data?.source?.automatic_sync, sourceChanged);
+  useCalendarRevision((data?.properties ?? []).map(p => p.id).filter(id => id === 'sweetfun' || id === 'offland').sort().join(','),
+    !PAYMENT_SANDBOX && data?.data_mode !== "iron_gate_booking_only" && !!data?.source?.automatic_sync, sourceChanged);
 
   const rawEditedBookings = useMemo(
     () =>
@@ -375,7 +415,7 @@ const uiLocale = useIntlLocale();
     if (!membership || membership.allProperties) return null;
     return new Set(membership.propertyIds);
   }, [membership]);
-  const coverageMissing = !hasCalendarCoverage(data, requestPeriod.start, requestPeriod.end);
+  const coverageMissing = !hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end);
   const unavailableSelectedSource = coverageMissing || data?.source_errors?.some(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)));
 
 
@@ -504,7 +544,14 @@ const uiLocale = useIntlLocale();
   const handleVisibleMonthChange = useCallback(
     (month: string) => {
       setVisibleMonth(month);
-      setAnchorDate((current) => startOfMonth(current) === month ? current : month);
+      // A fast swipe can pass several months in one gesture. Commit the URL
+      // and data anchor only after it settles instead of doing it on every
+      // scroll frame and rebuilding the booking view mid-gesture.
+      if (scrollCommit.current) clearTimeout(scrollCommit.current);
+      scrollCommit.current = setTimeout(() => {
+        scrollCommit.current = null;
+        setAnchorDate((current) => startOfMonth(current) === month ? current : month);
+      }, 180);
     },
     [setAnchorDate],
   );
@@ -521,6 +568,7 @@ const uiLocale = useIntlLocale();
 
   function navigate(direction: -1 | 1) {
     if (view === "month") {
+      cancelScrollCommit();
       const target = addMonths(visibleMonth, direction);
       setVisibleMonth(target);
       setMonthTarget(target);
@@ -535,6 +583,7 @@ const uiLocale = useIntlLocale();
   }
 
   function goToToday() {
+    cancelScrollCommit();
     setTodayRequest(value=>value+1);
     const today = localTodayIso();
     setAnchorDate(today);
@@ -883,7 +932,7 @@ const uiLocale = useIntlLocale();
       {data?.guest_access?.available && <CalendarPrivacy authenticated={data.guest_access.authenticated} />}
 
       {query.trim() && <section className="m-2 rounded-xl border bg-card p-3 md:m-0" aria-label={uiText("搜尋結果")}>
-        <h2 className="text-sm font-semibold">{uiText("搜尋結果 ·")}{filteredBookings.length} {uiText("筆（2025–2027）")}</h2>
+        <h2 className="text-sm font-semibold">{uiText("搜尋結果 ·")}{filteredBookings.length} {uiText("筆（目前畫面日期）")}</h2>
         <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">
           {filteredBookings.slice(0,50).map(booking=><button key={booking.id} className="block w-full rounded border p-2 text-left text-sm hover:bg-muted" onClick={()=>setSelectedId(booking.id)}>
             <span className="block">{booking.check_in}–{booking.check_out} · {booking.room_number} · {booking.guest_name}</span>
@@ -923,7 +972,11 @@ const uiLocale = useIntlLocale();
           {view === "month" && (
             <div className="calendar-month-mobile-viewport -mx-2 md:mx-0">
               <MonthScroller
-                months={MONTHS}
+                months={renderedMonths}
+                coveredMonths={renderedMonths.filter(month => {
+                  const period = fetchPeriod(month, "month");
+                  return hasCalendarCoverage(data, period.start, period.end);
+                })}
                 targetMonth={monthTarget}
                 targetDate={anchorDate}
                 targetRevision={todayRequest + historyRevision}
@@ -993,7 +1046,7 @@ const uiLocale = useIntlLocale();
           data?.source?.read_only && selectedBooking?.snapshot_only ? (
             <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">目前為唯讀快照。請重新載入並確認最新訂單後，再登錄付款。</p>
           ) : data?.source?.read_only && selectedBooking && permissions.viewPrices && !selectedBooking.source_conflict ? (
-            <OsPaymentPanel key={selectedBooking.order_id} property={selectedBooking.property_id} order={selectedBooking.order_id} canRecord={permissions.recordPayments} onChange={() => setReloadKey(v=>v+1)} />
+            <OsPaymentPanel key={selectedBooking.payment_order_id??selectedBooking.order_id} property={selectedBooking.property_id} order={selectedBooking.payment_order_id??selectedBooking.order_id} sourceBookingId={selectedBooking.order_id.startsWith('IG-')?selectedBooking.order_id:undefined} canRecord={permissions.recordPayments} onChange={() => setReloadKey(v=>v+1)} />
           ) : PAYMENT_SANDBOX && selectedBooking && permissions.viewPrices ? (
             <PaymentWorkspace
               key={selectedBooking.order_id}

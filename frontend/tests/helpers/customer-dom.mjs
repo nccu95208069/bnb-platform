@@ -16,6 +16,9 @@ export async function mount(t, component, props = {}, hash = "") {
     "getComputedStyle",
     "MutationObserver",
     "ResizeObserver",
+    "IntersectionObserver",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
     original[key] = globalThis[key];
@@ -31,6 +34,12 @@ export async function mount(t, component, props = {}, hash = "") {
       observe() {}
       disconnect() {}
     },
+    IntersectionObserver: class {
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: (callback) => setTimeout(callback, 0),
+    cancelAnimationFrame: (timer) => clearTimeout(timer),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   dom.window.HTMLDialogElement.prototype.showModal = function () {

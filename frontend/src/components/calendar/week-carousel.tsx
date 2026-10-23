@@ -16,6 +16,7 @@ import type {
 } from "./calendar-types";
 import {
   PAYMENT_DOT_STYLES,
+  paymentStateForReview,
   PLATFORM_STYLES,
   PROPERTY_DOT_STYLES,
   addDays,
@@ -65,7 +66,7 @@ function MobileBookingChip({
   return (
     <div className="flex min-w-0 items-center gap-1"><button
       type="button"
-      data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
+      data-payment-state={paymentStateForReview(booking)}
       onClick={() => onSelect(booking)}
       className={cn(
         "flex min-h-10 w-full min-w-0 items-center gap-1.5 rounded-md border px-2 py-1.5 text-left text-xs shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
@@ -309,7 +310,7 @@ const uiLocale = useIntlLocale();
                   return (
                     <div
                       key={booking.id}
-                      data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
+                      data-payment-state={paymentStateForReview(booking)}
                       className={cn(
                         "z-20 mx-1 my-2 flex min-h-10 py-2 min-w-0 self-center rounded-lg border px-2.5 text-left text-xs shadow-sm transition hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,

@@ -497,6 +497,11 @@ export const messages:Record<string,{en:string;th:string;vi:string}>= {
     "th": "ข้อมูลการจองมาจากชีตต้นทาง หากต้องการแก้ไขให้ใช้ชีตนั้น",
     "vi": "Dữ liệu đặt phòng lấy từ bảng nguồn. Hãy chỉnh sửa đặt phòng tại bảng đó."
   },
+  "水芳訂單來自 Iron Gate；遺忘無際仍使用訂房表。日曆目前供查看，修改訂單請使用現有作業流程。": {
+    "en": "Sweetfun bookings come from Iron Gate; Offland still uses its booking sheet. This calendar is for viewing. Use the current workflow to change bookings.",
+    "th": "การจอง Sweetfun มาจาก Iron Gate ส่วน Offland ยังใช้ชีตการจอง ปฏิทินนี้ใช้ดูข้อมูลเท่านั้น ให้แก้ไขการจองผ่านขั้นตอนปัจจุบัน",
+    "vi": "Đơn đặt phòng Sweetfun đến từ Iron Gate; Offland vẫn dùng bảng đặt phòng. Lịch này chỉ để xem. Hãy dùng quy trình hiện tại để sửa đơn."
+  },
   "匿名資料 · 編輯僅儲存在此瀏覽器": {
     "en": "Anonymous data · Edits are saved only in this browser",
     "th": "ข้อมูลไม่ระบุตัวตน · บันทึกการแก้ไขเฉพาะเบราว์เซอร์นี้",
@@ -1217,6 +1222,11 @@ export const messages:Record<string,{en:string;th:string;vi:string}>= {
     "en": "results (2025–2027)",
     "th": "รายการ (2025–2027)",
     "vi": "kết quả (2025–2027)"
+  },
+  "筆（目前畫面日期）": {
+    "en": "results (dates shown)",
+    "th": "รายการ (ช่วงวันที่แสดง)",
+    "vi": "kết quả (ngày đang hiển thị)"
   },
   "沒有符合的訂單。": {
     "en": "No matching bookings.",
