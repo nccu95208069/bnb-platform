@@ -6,6 +6,7 @@ export type Action =
   | "booking:create"
   | "booking:amend"
   | "booking:cancel"
+  | "booking:manage_all"
   | "hold:write"
   | "payment:write"
   | "finance:ledger"
@@ -63,6 +64,10 @@ export type Booking = {
   createdAt: string;
   source: "os" | "line" | "website" | "external";
   sourceKey: string | null;
+  /** A LINE override of an external source awaits upstream reconciliation. */
+  lineOverridePending?: boolean;
+  /** Contact and notes cannot be proven by the source event protocol. */
+  lineOverrideUnverifiable?: boolean;
   /** Current source-event labels. Absent on legacy imports, whose immutable snapshot supplies labels. */
   sourceCalendar?: { platform: string | null; externalOrderNo: string | null };
   hold?: { schema: 1; scope: "platform_only"; startedAt: string; expiresAt: string;
@@ -243,6 +248,7 @@ export type BookingReceipt = {
   operationState: OperationState | "local_only";
   operationKey: string | null;
   refundReviewRequired: boolean;
+  sourceReviewRequired?: boolean;
 };
 
 export type EventType =

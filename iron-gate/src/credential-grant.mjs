@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-const actions = new Set(["booking:read", "booking:create", "booking:amend", "booking:cancel",
+const actions = new Set(["booking:read", "booking:create", "booking:amend", "booking:cancel", "booking:manage_all",
   "hold:write", "payment:write", "finance:ledger", "event:read", "occupancy:aggregate",
   "housekeeping:read", "source:write", "channel:verify"]);
 const fields = new Set(["guest_name", "contact", "notes", "money", "payment_status"]);
@@ -19,14 +19,15 @@ export function validateGrantShape(grant) {
     throw new Error("INVALID_CREDENTIAL_GRANT");
   if (!["os", "line", "website", "guest", "source", "channel", "service", "finance"].includes(grant.origin))
     throw new Error("INVALID_CREDENTIAL_ORIGIN");
+  if (grant.origin !== "line" && grant.actions.includes("booking:manage_all"))
+    throw new Error("INVALID_CREDENTIAL_GRANT");
   if (grant.origin === "guest" && (!validCredentialId(grant.bookingIdScope) ||
     grant.actions.some((action) => action !== "booking:read"))) throw new Error("INVALID_GUEST_SCOPE");
   if (grant.origin === "source" && (!grant.grantId || !grant.sourceSystem || !grant.sourceAccount ||
     grant.actions.some((action) => action !== "source:write"))) throw new Error("INVALID_SOURCE_SCOPE");
   if (grant.origin === "channel" && (!grant.grantId ||
     grant.actions.some((action) => action !== "channel:verify"))) throw new Error("INVALID_CHANNEL_SCOPE");
-  // A later, separately issued create grant requires an explicit marker and
-  // the server-issued versioned preview. Amend/cancel remain closed.
+  // Every LINE capability requires an explicit marker on its dedicated grant.
   if (grant.origin === "line" && (!validCredentialId(grant.grantId) ||
     typeof grant.lineGroupId !== "string" ||
     !/^[A-Za-z0-9_-]{1,128}$/.test(grant.lineGroupId) ||
@@ -36,11 +37,16 @@ export function validateGrantShape(grant) {
       !/^[A-Za-z0-9_-]{1,128}$/.test(actor)) ||
     new Set(grant.lineActorIds).size !== grant.lineActorIds.length ||
     grant.actions.some((action) => action !== "booking:read" &&
-      !(action === "booking:create" && grant.lineCreateEnabled === true)) ||
+      !(action === "booking:create" && grant.lineCreateEnabled === true) &&
+      !(["booking:amend", "booking:cancel", "booking:manage_all"].includes(action) &&
+        grant.lineManageAllEnabled === true)) ||
     (grant.actions.includes("booking:create") &&
       !grant.actions.includes("booking:read")) ||
     (grant.lineCreateEnabled === true &&
       !grant.actions.includes("booking:create")) ||
+    (grant.lineManageAllEnabled === true &&
+      ["booking:read", "booking:amend", "booking:cancel", "booking:manage_all"].some(
+        (action) => !grant.actions.includes(action))) ||
     grant.fields.some((field) => !["guest_name", "contact", "notes", "money"].includes(field))))
     throw new Error("INVALID_LINE_SCOPE");
   if (grant.origin === "service" && (grant.fields.length || grant.actions.some((action) =>

@@ -33,7 +33,16 @@ before clearing the claim. No automatic recovery endpoint is exposed.
 The one-shot worker library selects one pending operation with the channel
 grant, acquires that claim, observes or sets exact OwlNest cells, records the
 server-checked readback and calls an injected PII-free review alert. The
-library has no schedule, token store, network listener or production entrypoint.
+library has a fail-closed Vercel cron entrypoint at `/api/channel-worker`, scheduled
+every five minutes. The entrypoint remains disabled unless the Production-only
+`IRON_GATE_PRODUCTION_CHANNEL_WORKER_ENABLED=true`, `CRON_SECRET`, database URL,
+property/grant IDs, OwlNest room map and OwlNest bearer credential are all
+configured. It handles one operation per tick. The bearer credential is supplied
+as a secret environment variable; its expiry or revocation stops dispatch and
+leaves the durable claim/fence for review. The entrypoint logs PII-free review
+identifiers but no external alert receiver is connected yet. Manual
+`scripts/recover-channel-claim.mjs` observes the exact cells before clearing a
+claim and never issues another OwlNest write.
 
 An unknown cancellation, an unready channel, or a second source event while
 the prior channel operation is unresolved stays in human review. The existing
@@ -43,10 +52,9 @@ OwlNest inventory has changed.
 
 ## Release gates still required
 
-1. Package the one-shot worker in an authenticated scheduled deployment with
-   provider credentials, alert delivery and a documented evidence-backed claim
-   recovery procedure. The worker library is tested but no production schedule
-   invokes it. An acknowledgement from OwlNest is
+1. Provision and test the disabled scheduled entrypoint with a current provider
+   credential and an alert receiver. Verify a deliberate failed tick reaches the
+   operator; the current PII-free log alone is not an alert. An acknowledgement from OwlNest is
    insufficient; record a fresh complete observation through
    `recordChannelReadback`.
 2. Reconcile all future occupied nights and manual blocks against real OwlNest
@@ -58,12 +66,18 @@ OwlNest inventory has changed.
    LINE writes. No guest messages may say “通路已同步” until the channel operation
    is `sync_verified`.
 
-The current LINE credential remains `booking:read` only. This candidate does
-not authorize LINE create, amend, cancel, or manual stock changes. The backend
-has a separate, dormant LINE create protocol: an explicitly marked create
+The current production LINE credential remains unissued; the candidate code
+has separate dormant read, create and manage-all grants. The backend has a
+LINE create protocol: an explicitly marked create
 grant can request a 15-minute private preview bound to the verified actor,
 grant, exact booking input and inventory version. The commit route checks that
 preview and the current channel/source-readback gates before atomically writing
 one local booking and a fenced channel operation. GCO PR #93 now has a gated
 durable confirmation journal and result readback for this protocol. No create
 grant has been issued, so no LINE create operation is enabled in production.
+The manage-all grant additionally permits confirmed orders from every source to
+be amended or cancelled through a versioned, actor-bound preview. External
+source changes remain marked for reconciliation; removed nights stay closed
+until source acknowledgment and another exact channel readback. Contact and
+notes cannot be proven by the current source event schema and remain in review
+after a LINE edit. Paid and channel-pending bookings reject LINE mutation.

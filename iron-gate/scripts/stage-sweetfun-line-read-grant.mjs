@@ -42,7 +42,7 @@ export function planSweetfunLineReadGrant(state, manifest) {
   return { grant, expiresAt: manifest.expiresAt };
 }
 
-function adminDatabaseUrl(config) {
+export function adminDatabaseUrl(config) {
   if (config?.projectRef !== PROJECT_REF || typeof config.url !== "string")
     throw Error("INVALID_SWEETFUN_ADMIN_DATABASE");
   validateDatabaseTransport(config.url);

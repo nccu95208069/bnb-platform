@@ -88,14 +88,31 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         if (parts.length === 5 && request.method === "PATCH") {
           const value = await body(request);
           exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "changes"]);
-          return json(await service.amendBooking(principal, propertyId, parts[4], requestKey(request),
-            value as AmendBookingInput));
+          const result = await service.amendBooking(principal, propertyId, parts[4], requestKey(request),
+            value as AmendBookingInput, request.headers.get("x-iron-gate-line-preview"));
+          return json(result, result.operationState === "sync_pending" ? 202 : 200);
+        }
+        if (parts.length === 6 && parts[5] === "line-action-previews" && request.method === "POST") {
+          const value = await body(request);
+          exact(value, ["action", "input"]);
+          if (value.action !== "amend" && value.action !== "cancel")
+            throw new GateError("INVALID_INPUT", 400);
+          const input = value.input;
+          if (!input || typeof input !== "object" || Array.isArray(input))
+            throw new GateError("INVALID_INPUT", 400);
+          exact(input as Record<string, unknown>, ["expectedBookingVersion", "expectedInventoryVersion"],
+            value.action === "amend" ? ["changes"] : []);
+          if (value.action === "amend" && !("changes" in input))
+            throw new GateError("INVALID_INPUT", 400);
+          return json(await service.previewLineAction(principal, propertyId, parts[4],
+            value.action, input as AmendBookingInput));
         }
         if (parts.length === 6 && parts[5] === "cancel" && request.method === "POST") {
           const value = await body(request);
           exact(value, ["expectedBookingVersion", "expectedInventoryVersion"]);
           const result = await service.cancelBooking(principal, propertyId, parts[4], requestKey(request),
-            value.expectedBookingVersion as number, value.expectedInventoryVersion as number);
+            value.expectedBookingVersion as number, value.expectedInventoryVersion as number,
+            request.headers.get("x-iron-gate-line-preview"));
           return json(result, result.operationState === "sync_pending" ? 202 : 200);
         }
         if (parts.length === 6 && parts[5] === "payment-events" && request.method === "POST") {

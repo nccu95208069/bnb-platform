@@ -4,5 +4,8 @@
   "outputDirectory": "public",
   "rewrites": [
     { "source": "/v1/(.*)", "destination": "/api/index" }
+  ],
+  "crons": [
+    { "path": "/api/channel-worker", "schedule": "*/5 * * * *" }
   ]
 }

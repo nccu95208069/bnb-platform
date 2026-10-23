@@ -31,7 +31,7 @@ test("compact payment status field is granted only to the OS origin", () => {
     ["payment_status"])), /INVALID_PAYMENT_STATUS_SCOPE/);
 });
 
-test("LINE grants stay read-only and require one bound group", () => {
+test("LINE booking scopes require explicit markers and one bound group", () => {
   const base = { ...grant("line", ["booking:read"], ["guest_name"]),
     grantId: crypto.randomUUID(), lineGroupId: "synthetic-group",
     lineActorIds: ["synthetic-staff"] };
@@ -46,6 +46,15 @@ test("LINE grants stay read-only and require one bound group", () => {
     actions: ["booking:read", "booking:create"] }));
   assert.throws(() => validateGrantShape({ ...base, lineCreateEnabled: true,
     actions: ["booking:read", "booking:amend"] }), /INVALID_LINE_SCOPE/);
+  const manage = { ...base, lineCreateEnabled: true, lineManageAllEnabled: true,
+    actions: ["booking:read", "booking:create", "booking:amend", "booking:cancel",
+      "booking:manage_all"] };
+  assert.doesNotThrow(() => validateGrantShape(manage));
+  assert.throws(() => validateGrantShape({ ...manage, lineManageAllEnabled: false }),
+    /INVALID_LINE_SCOPE/);
+  assert.throws(() => validateGrantShape({ ...manage,
+    actions: manage.actions.filter((action) => action !== "booking:cancel") }),
+  /INVALID_LINE_SCOPE/);
   assert.throws(() => validateGrantShape({ ...base, actions: ["booking:create"] }), /INVALID_LINE_SCOPE/);
   assert.throws(() => validateGrantShape({ ...base, fields: ["payment_status"] }), /INVALID_LINE_SCOPE/);
 });
