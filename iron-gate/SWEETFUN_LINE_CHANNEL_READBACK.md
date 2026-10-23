@@ -41,7 +41,11 @@ read OwlNest stock, settle the pending operation and document the evidence
 before clearing the claim. No automatic recovery endpoint is exposed.
 The one-shot worker library selects one pending operation with the channel
 grant, acquires that claim, observes or sets exact OwlNest cells, records the
-server-checked readback and calls an injected PII-free review alert. The
+server-checked readback and calls an injected PII-free review alert. A real
+stock correction on 2026-10-23 showed a successful PUT can precede calendar
+visibility by several seconds. After one PUT per unsatisfied cell, the runner
+now waits for bounded fresh GETs (3, 5, 8 and 12 seconds); it never repeats
+the PUT. An unresolved final observation retains the review claim and fence. The
 library has a fail-closed Vercel cron entrypoint at `/api/channel-worker`, scheduled
 every five minutes. The entrypoint remains disabled unless the Production-only
 `IRON_GATE_PRODUCTION_CHANNEL_WORKER_ENABLED=true`, `CRON_SECRET`, database URL,
@@ -57,8 +61,10 @@ write keeps the durable claim and fence for review. On a review result or unknow
 the entrypoint sends only property ID, operation ID and status to the GCO
 `/internal/iron-gate-channel-alert` route. That route requires its own token
 and delivers to configured LINE administrators. A failed delivery keeps the
-claim/fence and is logged without guest data. No production alert endpoint or
-credential has been provisioned yet. Manual
+claim/fence and is logged without guest data. GCO's zero-traffic candidate
+has pinned Secret Manager auth/alert credentials; its fresh login probe and a
+clearly labeled LINE administrator alert test both passed. The Vercel worker
+has not yet received production configuration. Manual
 `scripts/recover-channel-claim.mjs` observes the exact cells before clearing a
 claim and never issues another OwlNest write.
 
@@ -84,7 +90,9 @@ commands reject nights past that date; a source event outside that horizon
 remains subject to channel review and cannot be reported as synchronized. OwlNest
 currently returns null inventory from 2027-07-01 onward, so a 410-day
 snapshot is unavailable. The switch cannot be
-used with the two currently observed booked-but-open cells. Its
+used while any booked future cell is open. The three discovered booked-but-open
+cells were closed once each and freshly verified on 2026-10-23; a new full
+snapshot is required immediately before activation. Its
 `--rollback-before-write` action only succeeds at the exact activated version
 with no new operation and retains the imported blocks conservatively. An
 unknown commit outcome must be checked with a read-only state query.
@@ -107,8 +115,9 @@ unknown commit outcome must be checked with a read-only state query.
    `canCreate`, `canAmend`, `canCancel` and `canInventory`. Verify
    `channelReady`, authority epoch and inventory version as well.
 
-The current production LINE credential remains unissued; the candidate code
-has separate dormant read, create and manage-all grants. The backend has a
+One read-only LINE grant has been staged but no production LINE flag is active;
+the create/manage-all grant remains unissued. The candidate code has separate
+read and create/manage-all credentials. The backend has a
 LINE create protocol: an explicitly marked create
 grant can request a 15-minute private preview bound to the verified actor,
 grant, exact booking input and inventory version. The commit route checks that

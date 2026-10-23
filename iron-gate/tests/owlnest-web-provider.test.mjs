@@ -74,8 +74,8 @@ test("unknown PUT outcome is never retried and remains subject to GET", async ()
     withPropertyLease: async (_property, run) => run(),
     loadOperation: async () => ({ key: operationKey, state: "sync_pending",
       cells: [{ roomId, date: "2026-11-10", desired: "closed" }] }),
-    recordReadback: async (value) => value, provider });
+    recordReadback: async (value) => value, provider, wait: async () => {} });
   assert.equal(puts, 1);
-  assert.equal(gets, 2);
+  assert.equal(gets, 6);
   assert.equal(recorded.cells[0].count, 1);
 });

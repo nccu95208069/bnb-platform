@@ -10,6 +10,7 @@ function harness({ failFirstWrite = false } = {}) {
   const stock = new Map(rooms.map((roomId) => [roomId, { count: 1, isLock: false }]));
   const writes = [], readbacks = [];
   const adapter = {
+    wait: async () => {},
     withPropertyLease: async (_propertyId, fn) => fn(),
     loadOperation: async () => ({ key: operationKey, state: "sync_pending", cells }),
     recordReadback: async (evidence) => { readbacks.push(evidence); return evidence; },
@@ -55,4 +56,24 @@ test("incomplete provider observation prevents writes and readback submission", 
     { message: "PROVIDER_SNAPSHOT_INCOMPLETE" });
   assert.equal(writes.length, 0);
   assert.equal(readbacks.length, 0);
+});
+
+test("delayed OwlNest visibility is resolved by fresh GETs without a second PUT", async () => {
+  const { adapter, writes, readbacks } = harness();
+  const originalObserve = adapter.provider.observe;
+  let postWriteReads = 0;
+  adapter.provider.observe = async (...args) => {
+    const snapshot = await originalObserve(...args);
+    if (writes.length && ++postWriteReads === 1)
+      return { ...snapshot, cells: snapshot.cells.map((cell) => ({ ...cell,
+        count: 1, isLock: false })) };
+    return snapshot;
+  };
+  const delays = [];
+  adapter.wait = async (ms) => { delays.push(ms); };
+  await reconcileChannelOperation({ propertyId, operationKey, ...adapter });
+  assert.equal(writes.length, 2);
+  assert.deepEqual(delays, [3000]);
+  assert.equal(postWriteReads, 2);
+  assert.ok(readbacks[0].cells.every((cell) => cell.count === 0 && cell.isLock));
 });

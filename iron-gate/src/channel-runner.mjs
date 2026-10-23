@@ -5,10 +5,12 @@
  * whose setNight is an absolute, idempotent state change.
  */
 export async function reconcileChannelOperation({ propertyId, operationKey,
-  withPropertyLease, loadOperation, recordReadback, provider }) {
+  withPropertyLease, loadOperation, recordReadback, provider,
+  wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
   if (typeof withPropertyLease !== "function" || typeof loadOperation !== "function" ||
     typeof recordReadback !== "function" || typeof provider?.observe !== "function" ||
-    typeof provider?.setNight !== "function") throw Error("CHANNEL_RUNNER_NOT_CONFIGURED");
+    typeof provider?.setNight !== "function" || typeof wait !== "function")
+    throw Error("CHANNEL_RUNNER_NOT_CONFIGURED");
   return withPropertyLease(propertyId, async () => {
     const operation = await loadOperation(propertyId, operationKey);
     if (!operation || operation.key !== operationKey || operation.state !== "sync_pending" ||
@@ -51,7 +53,16 @@ export async function reconcileChannelOperation({ propertyId, operationKey,
         break;
       }
     }
-    const after = unsatisfied.length ? await inspect() : before;
+    let after = unsatisfied.length ? await inspect() : before;
+    // OwlNest acknowledges a stock PUT before its calendar GET always reflects
+    // the new cell. Wait only for fresh observations; never issue a second PUT.
+    if (unsatisfied.length && !after.cells.every(matches)) {
+      for (const delay of [3000, 5000, 8000, 12000]) {
+        await wait(delay);
+        after = await inspect();
+        if (after.cells.every(matches)) break;
+      }
+    }
     return recordReadback({ propertyId, operationKey, providerVersion: after.providerVersion,
       observedAt: after.observedAt, cells: after.cells });
   });
