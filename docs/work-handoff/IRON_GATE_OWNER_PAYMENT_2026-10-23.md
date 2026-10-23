@@ -35,3 +35,22 @@ Local verification: Iron Gate `npm run check` and `npm test`; OS TypeScript,
 ESLint, focused calendar/payment API and UI tests. Local `next build` needs a
 physical `node_modules` directory for Turbopack and outbound Google Fonts for
 webpack; CI validates the release build.
+
+## Production verification (2026-10-23)
+
+The approved release was deployed in source order. Iron Gate deployment
+`dpl_3sDrFbgJvquSRmZ7HdBjTPSaGg1X` and OS deployment
+`dpl_2ZAu9ckpXSoxcR6pay2issdNGiCV` both built successfully and were
+promoted to `iron-gate-green.vercel.app` and `sweetfun-os.vercel.app`.
+Production alias inspection pointed to these deployments. Rollback targets
+are `dpl_9NLScatWrBoRLhF7811SiMYm74Af` and
+`dpl_BGzYjgKLqHrjignvtzswpV7987ty`, respectively.
+
+In the authenticated owner calendar, the screenshot's Booking.com 102
+stay for 2026-12-31 through 2027-01-01 showed room and whole-order total
+NT$2,257, booking date 2026-06-27, and both payment actions. Its payment
+panel loaded with NT$0 recorded receipts and displayed the source review
+status. A newer Gmail order with no independently verified booking date showed
+its known total and both payment actions, while leaving booking date empty.
+No production receipt was submitted. Recent error-level runtime log queries
+for both new deployments returned no entries at verification time.
