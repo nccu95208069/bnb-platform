@@ -208,7 +208,7 @@ components:
         guestName: { type: [string, 'null'] }
         sourceCalendar:
           type: object
-          description: Unambiguous historical Sweetfun calendar labels, available only to OS readers with the guest_name field grant; raw source rows and IDs are never returned.
+          description: Current source-event labels, or unambiguous historical Sweetfun labels for legacy imports. Available only to OS readers with the guest_name field grant; raw source rows are never returned.
           additionalProperties: false
           required: [platform, externalOrderNo, bookedAt]
           properties:
@@ -287,6 +287,7 @@ components:
                 items: { $ref: '#/components/schemas/Stay' }
               guestName: { type: [string, 'null'] }
               totalCents: { type: [integer, 'null'], minimum: 0, description: Money field grant only. }
+              currency: { type: string, enum: [TWD], description: Money field grant only. }
               stayAmountsCents:
                 type: [array, 'null']
                 description: One amount per stay, present only with the money field grant; null when source amounts cannot be reconciled.
@@ -407,6 +408,10 @@ components:
           items: { $ref: '#/components/schemas/Stay' }
         guestName: { type: [string, 'null'], maxLength: 200 }
         bookedAt: { type: [string, 'null'], format: date, description: Original source booking date or unknown }
+        totalCents: { type: [integer, 'null'], minimum: 0, maximum: 1000000000000, description: Explicit whole-order amount from the source, in cents; omitted or null means unknown. }
+        currency: { type: string, enum: [TWD], description: Required when totalCents is an integer. }
+        platform: { type: [string, 'null'], enum: [booking, agoda, airbnb, ctrip, owlnest, owljourney, owlting, null] }
+        externalOrderNo: { type: [string, 'null'], maxLength: 64, pattern: '^[A-Za-z0-9-]+$' }
     SourceOrderLookup:
       type: object
       additionalProperties: false
@@ -416,6 +421,22 @@ components:
         sourceSystem: { type: string, minLength: 1, maxLength: 64 }
         sourceAccount: { type: string, minLength: 1, maxLength: 128 }
         externalOrderId: { type: string, minLength: 1, maxLength: 256 }
+    SourceFacts:
+      type: object
+      additionalProperties: false
+      required: [propertyId, sourceSystem, sourceAccount, externalOrderId, sourceVersion, expectedInventoryVersion, expectedBookingVersion, totalCents, currency, platform, externalOrderNo]
+      properties:
+        propertyId: { type: string, format: uuid }
+        sourceSystem: { type: string, minLength: 1, maxLength: 64 }
+        sourceAccount: { type: string, minLength: 1, maxLength: 128 }
+        externalOrderId: { type: string, minLength: 1, maxLength: 256 }
+        sourceVersion: { type: string, minLength: 1, maxLength: 128 }
+        expectedInventoryVersion: { type: integer, minimum: 0 }
+        expectedBookingVersion: { type: integer, minimum: 1 }
+        totalCents: { type: integer, minimum: 0, maximum: 1000000000000 }
+        currency: { type: string, enum: [TWD] }
+        platform: { type: string, enum: [booking, agoda, airbnb, ctrip, owlnest, owljourney, owlting] }
+        externalOrderNo: { type: [string, 'null'], maxLength: 64, pattern: '^[A-Za-z0-9-]+$' }
     DesiredCell:
       type: object
       additionalProperties: false
@@ -854,8 +875,9 @@ paths:
       summary: Read one order identity for the same scoped source grant
       description: >-
         Returns the current source version, booking ID/version/status, stays,
-        original bookedAt date or null, inventory version and review flags. It works while the property remains
-        read-only and never returns guest, contact or payment fields.
+        original bookedAt date or null, inventory version and review flags. Linked
+        bookings also return their current source amount and labels for a same-grant
+        metadata repair readback. It never returns guest or contact fields.
       requestBody:
         required: true
         content:
@@ -879,6 +901,24 @@ paths:
       responses:
         '200': { description: Ordered pending operation keys and exact desired cells }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/source-orders/facts:
+    post:
+      operationId: enrichSourceFacts
+      summary: Add verified facts to an already applied, still-current source order
+      description: >-
+        Changes no stay, occupancy or source version. Requires the same source grant,
+        exact source and booking versions, a current property inventory version and
+        an idempotency key. Conflicting existing facts fail closed.
+      parameters:
+        - { $ref: '#/components/parameters/RequestKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SourceFacts' }
+      responses:
+        '200': { description: Facts applied or already current }
+        '409': { description: Stale source, version conflict or contradictory facts }
   /v1/inventory-operations/{operationKey}:
     get:
       operationId: getChannelOperation

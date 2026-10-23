@@ -1,6 +1,6 @@
 import { GateError, IronGateService } from "./service.ts";
 import type { AmendBookingInput, CreateBookingInput, CreateHoldInput, ExtendHoldInput, PaymentEventInput,
-  Principal, ReadbackInput, SourceEventInput, SourceOrderLookupInput } from "./types.ts";
+  Principal, ReadbackInput, SourceEventInput, SourceFactsInput, SourceOrderLookupInput } from "./types.ts";
 
 export type Authenticate = (request: Request) => Promise<Principal | null>;
 const MAX_BODY_BYTES = 64 * 1024;
@@ -173,9 +173,19 @@ export function createHandler(service: IronGateService, authenticate: Authentica
       if (parts[1] === "source-events" && parts.length === 2 && request.method === "POST") {
         const value = await body(request);
         exact(value, ["propertyId", "sourceSystem", "sourceAccount", "externalOrderId", "sourceVersion",
-          "previousSourceVersion", "kind", "expectedInventoryVersion", "stays", "guestName", "bookedAt"]);
+          "previousSourceVersion", "kind", "expectedInventoryVersion", "stays", "guestName", "bookedAt"],
+          ["totalCents", "currency", "platform", "externalOrderNo"]);
         const result = await service.applySourceEvent(principal, requestKey(request), value as SourceEventInput);
         return json(result, result.state === "review_required" ? 409 : 200);
+      }
+      if (parts[1] === "source-orders" && parts[2] === "facts" &&
+        parts.length === 3 && request.method === "POST") {
+        const value = await body(request);
+        exact(value, ["propertyId", "sourceSystem", "sourceAccount", "externalOrderId",
+          "sourceVersion", "expectedInventoryVersion", "expectedBookingVersion",
+          "totalCents", "currency", "platform", "externalOrderNo"]);
+        return json(await service.enrichSourceFacts(principal, requestKey(request),
+          value as SourceFactsInput));
       }
       if (parts[1] === "source-orders" && parts[2] === "lookup" &&
         parts.length === 3 && request.method === "POST") {

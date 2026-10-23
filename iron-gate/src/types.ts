@@ -63,6 +63,8 @@ export type Booking = {
   createdAt: string;
   source: "os" | "line" | "website" | "external";
   sourceKey: string | null;
+  /** Current source-event labels. Absent on legacy imports, whose immutable snapshot supplies labels. */
+  sourceCalendar?: { platform: string | null; externalOrderNo: string | null };
   hold?: { schema: 1; scope: "platform_only"; startedAt: string; expiresAt: string;
     state: "active" | "converted" | "released"; convertedAt?: string; releasedAt?: string;
     latePaymentReview?: boolean };
@@ -205,10 +207,26 @@ export type SourceEventInput = {
   stays: Stay[];
   guestName: string | null;
   bookedAt: string | null;
+  /** Optional for older writers; a missing value is unknown, never zero. */
+  totalCents?: number | null;
+  currency?: "TWD";
+  platform?: string | null;
+  externalOrderNo?: string | null;
 };
 
 export type SourceOrderLookupInput = Pick<SourceEventInput,
   "propertyId" | "sourceSystem" | "sourceAccount" | "externalOrderId">;
+
+/** Metadata-only repair for an already applied, still-current source email. */
+export type SourceFactsInput = SourceOrderLookupInput & {
+  sourceVersion: string;
+  expectedInventoryVersion: number;
+  expectedBookingVersion: number;
+  totalCents: number;
+  currency: "TWD";
+  platform: string;
+  externalOrderNo: string | null;
+};
 
 export type ReadbackInput = {
   propertyId: string;
@@ -231,6 +249,7 @@ export type EventType =
   | "booking.created" | "booking.amended" | "booking.cancelled"
   | "hold.created" | "hold.extended" | "hold.converted" | "hold.released"
   | "payment.recorded" | "source.applied" | "source.review_required"
+  | "source.facts_enriched"
   | "channel.verified" | "channel.review_required";
 
 export type PendingEvent = {
