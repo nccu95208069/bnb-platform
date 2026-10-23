@@ -58,6 +58,8 @@ test("prepares a lossless read-only shadow, fences conflicts, and creates no pay
   assert.deepEqual(state.sourceLinks, []);
   assert.equal(state.bookings[0].guestName, null);
   assert.equal(state.bookings[0].totalCents, 240100);
+  assert.equal(state.bookings[0].bookedAt, "2026-10-01");
+  assert.equal(state.bookings[1].bookedAt, "2026-10-01");
   assert.equal(state.bookings[0].sweetfunSnapshot.rows[0].notes[7],
     "Synthetic status marker, no cash");
   assert.equal(state.bookings[0].sweetfunSnapshot.rows[1].values[1], "Synthetic guest B");

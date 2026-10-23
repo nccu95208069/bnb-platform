@@ -115,7 +115,9 @@ export function prepareSweetfunShadow(snapshot, config) {
 
   const bookings = accepted.map((group) => {
     const guestNames = group.fields.guestNames.filter(Boolean);
-    const bookedDates = group.fields.bookedDates.filter(Boolean);
+    // Keep original cell text in sweetfunSnapshot, but project the audited
+    // date-only value into the booking API's YYYY-MM-DD field.
+    const bookedDates = [...new Set(group.rows.map((row) => row.bookedAt).filter(Boolean))];
     const notes = [...new Set(group.rows.map((row) => cell(row.values, 10)))].filter(Boolean);
     const stays = group.rows.map((row) => ({ checkIn: row.checkIn,
       checkOut: row.checkOut, roomIds: [config.roomIds[row.room]] }));
