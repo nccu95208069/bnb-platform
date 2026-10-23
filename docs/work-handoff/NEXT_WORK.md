@@ -1,5 +1,7 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
+2026-10-13 Iron Gate 對接準備：已增加[只讀 OS 會員證明與影子訂單入口](IRON_GATE_OS_PROOF_2026-10-13.md)，在合成資料上驗證短效簽章、館別／角色範圍與轉發；未部署、未導流訂單，既有 OS 仍是原生訂單 writer。
+
 2026-10-11 OS-04: owner-approved OS and LINE rollout is complete. Sweetfun and OFFLAND reminders are enabled for Taipei 09:00, with separately labeled unconfirmed room-night summaries. The new scheduler returned HTTP 200; one authorized synthetic LINE message has a persisted provider receipt and was visibly received in LINE desktop. First automatic arrival-note dispatch is due October 12 and has not yet been observed; physical-phone and external-customer acceptance remain open. See [release evidence](OS_READINESS_2026-10-10.md#正式-line-啟用--2026-10-11).
 
 2026-10-10 release: [OS readiness production acceptance](OS_READINESS_2026-10-10.md) is live at runtime `5e80ee3`. Workspace entry and both legacy arrival-source views are verified using normal owner login; partial notes remain visible and explicitly unconfirmed. This October 10 checkpoint is superseded by the October 11 reminder activation above; broader INT-03 mapping remains open.

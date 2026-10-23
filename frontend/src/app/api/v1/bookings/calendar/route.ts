@@ -9,7 +9,9 @@ import { randomUUID } from "node:crypto";
 import { readCalendarSources, calendarReadError, type CalendarReadEvent } from "@/lib/booking-sources/calendar-reader";
 import { readBookingSnapshot } from "@/lib/booking-sources/snapshot";
 import { activeSources } from "@/lib/booking-sources/config";
+import { ironGateCalendarConfig, readSweetfunIronGateCalendar } from "@/lib/booking-sources/iron-gate-calendar.server";
 import { type NextRequest, NextResponse } from "next/server";
+import { getVercelOidcToken } from "@vercel/oidc";
 
 type PaymentStatus = "paid" | "deposit" | "unpaid";
 type PlatformCode = "a" | "b" | "c" | "d" | "i" | "o" | "x";
@@ -220,6 +222,64 @@ export async function GET(request: NextRequest) {
       const principal = await principalFor(request);
       if (!principal) return NextResponse.json({detail:"請先登入。"},{status:401,headers:{"Cache-Control":"private, no-store",Vary:"Cookie"}});
       const definitions = activeSources().filter(d => allowedProperty(principal, d.property.id));
+      if ((process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED === "true" ||
+          process.env.IRON_GATE_SWEETFUN_CALENDAR_PREVIEW_ENABLED === "true") &&
+          definitions.some(d => d.key === "sweetfun")) {
+        const offland = definitions.filter(d => d.key !== "sweetfun");
+        const igConfig = ironGateCalendarConfig();
+        if (process.env.VERCEL_ENV === "preview" &&
+          process.env.IRON_GATE_PREVIEW_OWNER_ONLY === "true")
+          igConfig.trustedSourceToken = await getVercelOidcToken();
+        const [ig, other] = await Promise.all([
+          readSweetfunIronGateCalendar(start, end, principal, igConfig),
+          offland.length ? readCalendarSources(offland, start, end, principal.viewPrices, {
+            cache: configuredPrivateCalendarCache(), startedAt,
+            snapshot: readBookingSnapshot, details: readOperationalSheet,
+            payments: overlayPayments,
+            report: event => { events.push(event); },
+          }) : Promise.resolve(null),
+        ]);
+        const bookings = projectBookings([
+          ...ig.bookings, ...(other?.bookings ?? []),
+        ], principal);
+        const preview = ig.mode === "snapshot_preview";
+        const source = preview ? {
+          label: "Iron Gate 固定快照預覽", observed_at: ig.observedAt,
+          private_snapshot_at: ig.snapshotCapturedAt!,
+          private_snapshot_version: String(ig.inventoryVersion),
+          read_only: true, automatic_sync: false, availability_authoritative: false,
+        } : { label: "Iron Gate 訂房紀錄", observed_at: ig.observedAt,
+          read_only: true, automatic_sync: true, availability_authoritative: false,
+          private_snapshot_version: String(ig.inventoryVersion),
+          sync: { status: "confirming" as const, last_checked_at: ig.observedAt,
+            last_successful_check_at: ig.observedAt, last_published_at: ig.observedAt,
+            cutoff: ig.observedAt, interval_seconds: 0,
+            error_code: "OWLNEST_STOCK_NOT_VERIFIED" } };
+        const sourceSummary = { rows: ig.soldRoomNights,
+          accepted_rows: ig.soldRoomNights,
+          quarantined_rows: 0, blocked_room_nights: ig.blockedRoomNights,
+          missing_order_id: 0,
+          missing_payment_status: ig.soldRoomNights };
+        return NextResponse.json({
+          price_hidden: true,
+          year: startDate.getUTCFullYear(), month: startDate.getUTCMonth() + 1,
+          month_start: monthStart(start), month_end: monthEnd(start),
+          period_start: start, period_end: end,
+          properties: PROPERTIES.filter(p => definitions.some(d => d.property.id === p.id)),
+          rooms: ROOMS.filter(r => definitions.some(d => d.property.id === r.property_id)),
+          order_count: new Set(bookings.filter(b => !b.source_conflict).map(b => b.order_id)).size,
+          booking_segment_count: bookings.filter(b => !b.source_conflict).length,
+          total_amount: 0, bookings, source, source_summary: sourceSummary,
+          sources: [{ property_id: "sweetfun", source, summary: sourceSummary },
+            ...(other?.snapshots.map(({ definition, snapshot }) => ({
+              property_id: definition.property.id, source: snapshot.source,
+              summary: snapshot.summary })) ?? [])],
+          request_id: requestId,
+          source_errors: other?.errors ?? [], source_warnings: other?.warnings ?? [],
+          guest_access: { available: ownerAccessConfigured(), authenticated: true },
+          data_mode: preview ? "iron_gate_snapshot_preview" : "iron_gate_booking_only",
+        }, { headers });
+      }
       const result = await readCalendarSources(definitions, start, end, principal.viewPrices, {
         cache: configuredPrivateCalendarCache(), startedAt,
         snapshot: readBookingSnapshot, details: readOperationalSheet, payments: overlayPayments,
@@ -251,7 +311,7 @@ export async function GET(request: NextRequest) {
     } catch (error) {
       console.error(JSON.stringify({ event: "calendar_unavailable", request_id: requestId, code: calendarReadError(error) }));
       // Never fall back to fictional bookings when an operational source is configured.
-      return NextResponse.json({ detail: "訂房表快照暫時無法讀取，請稍後重試。", request_id: requestId }, { status: 503, headers });
+      return NextResponse.json({ detail: "訂房日曆資料暫時無法讀取，請稍後重試。", request_id: requestId }, { status: 503, headers });
     } finally {
       await recordCalendarHealth(events, requestId, startedAt);
     }

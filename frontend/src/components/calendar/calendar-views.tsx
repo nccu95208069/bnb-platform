@@ -132,7 +132,7 @@ function BookingChip({
 
 // Full channel names remain in accessible labels and booking details.
 const MONTH_PLATFORM_LABELS: Record<string, string> = {
-  direct: "直訂", booking: "Bkg", agoda: "Ago", airbnb: "Air", ctrip: "Trip", owljourney: "Owl", other: "其他",
+  direct: "直訂", booking: "Bkg", agoda: "Ago", airbnb: "Air", ctrip: "Trip", owljourney: "Owl", owlnest: "奧丁丁", other: "其他",
 };
 
 function chunkWeeks(days: string[]) {

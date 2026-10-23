@@ -871,6 +871,15 @@ const uiLocale = useIntlLocale();
                 <p className="mt-2 text-xs text-muted-foreground">{uiText("姓名欄原文（需求不代表已安排完成）")}</p>
                 <p className="mt-1 whitespace-pre-wrap break-words text-sm">{(booking.guest_name_sources ?? [booking.guest_name]).join("\n")}</p>
               </section>}
+              {orderSegments.length > 1 && <section className="rounded-xl border p-3" aria-label={uiText("同一訂單的住宿安排")}>
+                <h3 className="font-semibold">{uiText("同一訂單的住宿安排")}</h3>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {orderSegments.map(segment => <li key={segment.id} className={segment.id === booking.id ? "font-semibold" : ""}>
+                    {segment.room_number} · {formatDate(segment.check_in, uiLocale)}–{formatDate(segment.check_out, uiLocale)}
+                    {segment.id === booking.id && ` · ${uiText("目前選取")}`}
+                  </li>)}
+                </ul>
+              </section>}
               <div
                 className={cn(
                   "rounded-xl border px-3 py-2.5 text-sm font-semibold",
