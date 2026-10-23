@@ -44,6 +44,20 @@ function date(number: number): string {
   return new Date(number * DAY_MS).toISOString().slice(0, 10);
 }
 
+function optionalDate(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  try { day(value); return value; } catch { return null; }
+}
+
+function paymentOrderId(bookingId: string, ref: unknown, viewPrices: boolean): string {
+  if (!viewPrices || typeof ref !== 'string' ||
+    !/^(?:L:[A-Za-z0-9-]{8,64}|J:[A-Za-z0-9_-]{8,100})$/.test(ref))
+    return `IG-${bookingId}`;
+  const original = ref.startsWith('L:') ? ref.slice(2) : `ungrouped:${ref.slice(2)}`;
+  return `SF-${createHash('sha256').update(`sweetfun-operations-sheet-v1:order:${original}`)
+    .digest('hex').slice(0, 20)}`;
+}
+
 function baseUrl(value: string): string {
   const url = new URL(value);
   if (url.username || url.password || url.search || url.hash || url.pathname !== '/' ||
@@ -145,6 +159,10 @@ function calendarBooking(booking: Record<string, unknown>,
   const name = typeof booking.guestName === 'string' && booking.guestName.trim()
     ? booking.guestName.trim() : '姓名待核';
   const source = object(booking.sourceCalendar) ? booking.sourceCalendar : null;
+  const sourceOrderRef = viewPrices && typeof source?.sourceOrderRef === 'string' &&
+    /^(?:L:[A-Za-z0-9-]{8,64}|J:[A-Za-z0-9_-]{8,100})$/.test(source.sourceOrderRef)
+    ? source.sourceOrderRef : null;
+  const paymentId = paymentOrderId(String(booking.id), sourceOrderRef, viewPrices);
   const review = viewPrices && object(booking.paymentReview) ? booking.paymentReview : null;
   const paymentStatus = review && ['paid', 'deposit'].includes(String(review.status)) &&
     ['sheet_flag', 'payment_events'].includes(String(review.source))
@@ -162,13 +180,18 @@ function calendarBooking(booking: Record<string, unknown>,
     Number(booking.totalCents) <= 1_000_000_000_000
     ? Number(booking.totalCents) : undefined;
   return { id, sheet_row_id: id, order_id: `IG-${booking.id}`,
+    payment_order_id: paymentId,
+    source_booking_version: Number.isSafeInteger(booking.version) && Number(booking.version) >= 1
+      ? Number(booking.version) : undefined,
+    source_legacy_payment: !!sourceOrderRef,
+    owlnest_order_no: sourceOrderRef?.startsWith('L:') ? sourceOrderRef.slice(2) : null,
     external_order_no: typeof source?.externalOrderNo === 'string'
       ? source.externalOrderNo : null,
     property_id: 'sweetfun', property_name: '水芳 Sweetfun',
     room_id: `sweetfun-${roomNumber}`, room_number: roomNumber,
     guest_name: name, guest_name_kind: name === '姓名待核' ? 'missing' : 'real',
     platform: sweetfunCalendarPlatform(source?.platform), check_in: checkIn, check_out: checkOut,
-    booked_at: null,
+    booked_at: optionalDate(source?.bookedAt),
     room_rate: cents / 100,
     source_order_total_cents: orderTotalCents,
     payment_status: paymentStatus, reservation_status: 'confirmed',
@@ -197,6 +220,68 @@ function blockedBooking(roomNumber: string, night: string): CalendarBooking {
     extra_bed_count: 0, pet_count: 0, baby_supplies: [], service_note: null,
     source_read_only: true, source_conflict: true, requirements_known: false,
     payment_unconfirmed: true, price_hidden: true };
+}
+
+export type IronGatePaymentOrder = {
+  bookingId: string;
+  paymentOrderId: string;
+  version: number;
+  totalCents: number;
+  rooms: string[];
+  nights: number;
+  sourcePaid: boolean;
+  legacyImported: boolean;
+};
+
+/** Re-read the exact Iron Gate booking before any OS receipt is recorded. */
+export async function readSweetfunIronGatePaymentOrder(bookingId: string,
+  principal: Principal, config: IronGateCalendarConfig,
+  send: typeof fetch = fetch): Promise<IronGatePaymentOrder> {
+  if (!UUID.test(bookingId) || !principal.viewPrices)
+    throw Error('IRON_GATE_PAYMENT_FORBIDDEN');
+  const url = new URL(`/v1/properties/${config.grant.propertyId}/bookings/${bookingId}`,
+    `${baseUrl(config.baseUrl)}/`);
+  const raw = await getJson(url.toString(), config, principal, send, 64 * 1024, 8000);
+  if (!object(raw) || raw.id !== bookingId ||
+    raw.propertyId !== config.grant.propertyId || raw.workspaceId !== config.grant.workspaceId ||
+    raw.status !== 'confirmed' || !Number.isSafeInteger(raw.version) || Number(raw.version) < 1 ||
+    raw.currency !== 'TWD' || !Number.isSafeInteger(raw.totalCents) ||
+    Number(raw.totalCents) < 0 || Number(raw.totalCents) > 1_000_000_000_000 ||
+    !Array.isArray(raw.stays) || raw.stays.length < 1 || raw.stays.length > 32)
+    throw Error('IRON_GATE_PAYMENT_SOURCE_INVALID');
+  const roomById = new Map(Object.entries(config.roomIds).map(([room, id]) => [id, room]));
+  const rooms = new Set<string>(), occupied = new Set<string>();
+  for (const stay of raw.stays) {
+    if (!object(stay) || typeof stay.checkIn !== 'string' ||
+      typeof stay.checkOut !== 'string' || !Array.isArray(stay.roomIds) ||
+      stay.roomIds.length < 1 || stay.roomIds.length > ROOMS.length)
+      throw Error('IRON_GATE_PAYMENT_SOURCE_INVALID');
+    const from = day(stay.checkIn), to = day(stay.checkOut);
+    if (to <= from || to - from > 366) throw Error('IRON_GATE_PAYMENT_SOURCE_INVALID');
+    for (const rawId of stay.roomIds) {
+      const room = roomById.get(String(rawId));
+      if (!room) throw Error('IRON_GATE_PAYMENT_SOURCE_INVALID');
+      rooms.add(room);
+      for (let n = from; n < to; n++) {
+        const slot = `${room}:${n}`;
+        if (occupied.has(slot)) throw Error('IRON_GATE_PAYMENT_SOURCE_INVALID');
+        occupied.add(slot);
+      }
+    }
+  }
+  const review = object(raw.paymentReview) ? raw.paymentReview : null;
+  if (review && (!['paid', 'deposit', 'unknown'].includes(String(review.status)) ||
+    !['sheet_flag', 'payment_events', 'unknown'].includes(String(review.source))))
+    throw Error('IRON_GATE_PAYMENT_SOURCE_INVALID');
+  const source = object(raw.sourceCalendar) ? raw.sourceCalendar : null;
+  const ref = source?.sourceOrderRef;
+  const paymentId = paymentOrderId(bookingId, ref, true);
+  if (ref !== undefined && raw.version !== 1) throw Error('SOURCE_CHANGED');
+  if (ref !== undefined && paymentId === `IG-${bookingId}`)
+    throw Error('IRON_GATE_PAYMENT_SOURCE_INVALID');
+  return { bookingId, paymentOrderId: paymentId, version: Number(raw.version),
+    totalCents: Number(raw.totalCents), rooms: [...rooms].sort(), nights: occupied.size,
+    sourcePaid: review?.status === 'paid', legacyImported: paymentId.startsWith('SF-') };
 }
 
 /** A single Iron Gate state read supplies both bookings and sparse occupancy. */

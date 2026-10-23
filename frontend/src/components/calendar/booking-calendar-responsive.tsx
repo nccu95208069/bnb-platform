@@ -1046,7 +1046,7 @@ const uiLocale = useIntlLocale();
           data?.source?.read_only && selectedBooking?.snapshot_only ? (
             <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">目前為唯讀快照。請重新載入並確認最新訂單後，再登錄付款。</p>
           ) : data?.source?.read_only && selectedBooking && permissions.viewPrices && !selectedBooking.source_conflict ? (
-            <OsPaymentPanel key={selectedBooking.order_id} property={selectedBooking.property_id} order={selectedBooking.order_id} canRecord={permissions.recordPayments} onChange={() => setReloadKey(v=>v+1)} />
+            <OsPaymentPanel key={selectedBooking.payment_order_id??selectedBooking.order_id} property={selectedBooking.property_id} order={selectedBooking.payment_order_id??selectedBooking.order_id} sourceBookingId={selectedBooking.order_id.startsWith('IG-')?selectedBooking.order_id:undefined} canRecord={permissions.recordPayments} onChange={() => setReloadKey(v=>v+1)} />
           ) : PAYMENT_SANDBOX && selectedBooking && permissions.viewPrices ? (
             <PaymentWorkspace
               key={selectedBooking.order_id}

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { createHash } from 'node:crypto';
 import { createOsMemberProofVerifier } from '../../iron-gate/src/os-member-proof.mjs';
-import { ironGateCalendarConfig, readSweetfunIronGateCalendar, readSweetfunIronGateCalendarSnapshot } from
+import { ironGateCalendarConfig, readSweetfunIronGateCalendar, readSweetfunIronGateCalendarSnapshot, readSweetfunIronGatePaymentOrder } from
   '../src/lib/booking-sources/iron-gate-calendar.server.ts';
 
 const workspaceId = '11111111-1111-4111-8111-111111111111';
@@ -89,10 +90,60 @@ test('calendar reads signed booking plus inventory, preserving blocked room nigh
   assert.equal(result.bookings[0].guest_name, 'Sample Guest');
   assert.equal(result.bookings[0].platform, 'booking');
   assert.equal(result.bookings[0].external_order_no, 'private-source-order');
+  assert.equal(result.bookings[0].booked_at, '2026-09-01');
   assert.equal(result.bookings[0].price_hidden, true);
   assert.equal(result.bookings[0].payment_status, 'unknown');
   assert.equal(result.bookings[1].room_number, '102');
   assert.equal(result.bookings[1].source_conflict, true);
+});
+
+test('calendar leaves an unproven source booking date blank', async () => {
+  const c = config(), data = fixture({ blocked: false });
+  data.page.bookings[0].sourceCalendar.bookedAt = '2026-02-30';
+  const result = await readSweetfunIronGateCalendar('2026-10-25', '2026-10-26',
+    principal, c, sender(data, c));
+  assert.equal(result.bookings[0].booked_at, null);
+});
+
+test('unchanged imported order keeps its existing OS payment identity only for price roles', async () => {
+  const c = config(), data = fixture({ blocked: false });
+  data.page.bookings[0].sourceCalendar.sourceOrderRef = 'L:OBE12345678901234567890';
+  const owner = await readSweetfunIronGateCalendar('2026-10-25', '2026-10-26',
+    principal, c, sender(data, c));
+  const expected = 'SF-' + createHash('sha256').update(
+    'sweetfun-operations-sheet-v1:order:OBE12345678901234567890').digest('hex').slice(0, 20);
+  assert.equal(owner.bookings[0].payment_order_id, expected);
+  assert.equal(owner.bookings[0].source_booking_version, 1);
+  assert.equal(owner.bookings[0].owlnest_order_no, 'OBE12345678901234567890');
+  const viewer = { ...principal, viewPrices: false };
+  const withoutMoney = await readSweetfunIronGateCalendar('2026-10-25', '2026-10-26',
+    viewer, c, sender(data, c, () => {}, viewer));
+  assert.equal(withoutMoney.bookings[0].payment_order_id, 'IG-66666666-6666-4666-8666-666666666666');
+  assert.equal(withoutMoney.bookings[0].owlnest_order_no, null);
+});
+
+test('payment preflight checks the exact booking identity, total and current room nights', async () => {
+  const c = config(), data = fixture({ blocked: false });
+  const booking = { ...data.page.bookings[0], totalCents: 225700, currency: 'TWD',
+    sourceCalendar: { ...data.page.bookings[0].sourceCalendar,
+      sourceOrderRef: 'L:OBE12345678901234567890' },
+    paymentReview: { status: 'unknown', source: 'unknown' } };
+  const send = async (url, init) => {
+    assert.match(url, /\/bookings\/66666666-6666-4666-8666-666666666666$/);
+    assert.equal((await createOsMemberProofVerifier(c.proofSecret)(
+      new Request(url, init), { ...c.grant, origin: 'os' }))?.subjectId, principal.id);
+    return Response.json(booking);
+  };
+  const read = await readSweetfunIronGatePaymentOrder(booking.id, principal, c, send);
+  assert.equal(read.totalCents, 225700);
+  assert.equal(read.legacyImported, true);
+  assert.equal(read.nights, 1);
+  assert.match(read.paymentOrderId, /^SF-[a-f0-9]{20}$/);
+  await assert.rejects(readSweetfunIronGatePaymentOrder(booking.id,
+    { ...principal, viewPrices: false }, c, send), /IRON_GATE_PAYMENT_FORBIDDEN/);
+  await assert.rejects(readSweetfunIronGatePaymentOrder(booking.id,
+    principal, c, async () => Response.json({ ...booking, status: 'cancelled' })),
+  /IRON_GATE_PAYMENT_SOURCE_INVALID/);
 });
 
 test('Iron Gate uses the same Sweetfun channel palette as the former Sheet calendar', async () => {

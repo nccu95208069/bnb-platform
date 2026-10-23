@@ -47,6 +47,10 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
       const command = JSON.parse(options.body);
       if (command[1]?.endsWith(':members'))
         return Response.json({ result: JSON.stringify({ version: 1, members: [member, noPriceMember] }) });
+      if (command[0] === 'MGET')
+        return Response.json({ result: command.slice(1).map(() => null) });
+      if (command[0] === 'SCAN')
+        return Response.json({ result: ['0', []] });
       return Response.json({ result: null });
     }
     if (target.startsWith('https://sheets.googleapis.com/')) {
@@ -65,7 +69,7 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
       authorityEpoch: 1, readOnly: false, cells,
       bookings: [{ id: '66666666-6666-4666-8666-666666666666',
         workspaceId, propertyId, status: 'confirmed', guestName: 'Sample Guest',
-        totalCents: 179000, stayAmountsCents: [179000],
+        version: 1, currency: 'TWD', totalCents: 179000, stayAmountsCents: [179000],
         paymentReview: { status: 'paid', source: 'sheet_flag' },
         stays: [{ checkIn: '2026-10-25', checkOut: '2026-10-26',
           roomIds: [roomIds['101']] }] }] });

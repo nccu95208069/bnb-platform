@@ -20,7 +20,7 @@ function setup(t){
  const grid=values.map(row=>row.map(v=>({formattedValue:v,userEnteredValue:{stringValue:v}})));
  const normalized=normalizeRows(values,source),snapshot=adaptSheetBookings([HEADERS,...normalized.map(r=>r.cells)],source.sourceId,new Date().toISOString(),[],normalized.map(r=>r.sourceRow),source.property);
  const db=new Map([['sweetfun-os:owner-auth:v1:credential',JSON.stringify({schema:1,kind:'bootstrap',hash:process.env.CALENDAR_OWNER_CODE_HASH})],['sweetfun:sheet-monitor:v1:sweetfun-operations-sheet-v1:state','gz1:'+gzipSync(JSON.stringify(initialState(snapshot))).toString('base64')],[financeKey('sweetfun',2026),JSON.stringify({version:1,entries:[],operations:[],payment_accounts:[account]})]]);
- const state={db,grid,writes:0,loseResponse:false,rejectWrites:false,skipApply:false,rejectReads:false,probeReply:{},scopes:[]};
+ const state={db,grid,writes:0,loseResponse:false,rejectWrites:false,skipApply:false,rejectReads:false,probeReply:{},scopes:[],igBooking:null};
  t.mock.method(globalThis,'fetch',async(url,options={})=>{
   const u=String(url);
   if(u==='https://redis.invalid'){
@@ -39,6 +39,10 @@ function setup(t){
    return Response.json({result});
   }
   if(u==='https://oauth2.googleapis.com/token'){const payload=String(options.body.get('assertion')).split('.')[1];state.scopes.push(JSON.parse(Buffer.from(payload,'base64url')).scope);return Response.json({access_token:'synthetic'});}
+  if(u.startsWith('https://iron-gate.example/v1/properties/') && state.igBooking){
+   assert.equal(options.method,'GET');assert.ok(options.headers['x-iron-gate-os-proof']);
+   return Response.json(state.igBooking);
+  }
   if(!u.startsWith(`https://sheets.googleapis.com/v4/spreadsheets/${source.spreadsheetId}`))throw Error('Unexpected external request');
   if(u.endsWith(':batchUpdate')){
    state.writes++;if(state.rejectWrites)return Response.json({}, {status:403});
@@ -61,7 +65,7 @@ function setup(t){
   return Response.json({properties:{timeZone:'Asia/Taipei'},sheets:[{properties:{sheetId:source.sheetId,title:source.sheetTitle,gridProperties:{rowCount:100,columnCount:38}}}]});
  });
  const cookie=`${OWNER_COOKIE}=${createOwnerSession()}`;
- state.request=(input,authenticated=true)=>new NextRequest(`https://os.test/api/v1/order-payments?property=sweetfun&order=${order}`,{method:input?'POST':'GET',headers:{origin:'https://os.test',host:'os.test',...(authenticated?{cookie}:{})},...(input?{body:JSON.stringify(input)}:{})});
+ state.request=(input,authenticated=true,paymentOrder=order,igBookingId=null)=>new NextRequest(`https://os.test/api/v1/order-payments?property=sweetfun&order=${paymentOrder}${igBookingId?`&ig_booking=${igBookingId}`:''}`,{method:input?'POST':'GET',headers:{origin:'https://os.test',host:'os.test',...(authenticated?{cookie}:{})},...(input?{body:JSON.stringify(input)}:{})});
  return state;
 }
 const receiptInput=(check,patch={})=>({property_id:'sweetfun',order_id:order,amount:1000,payment_type:'deposit',payment_method:'bank_transfer',payment_account_id:account.id,received_at:new Date().toISOString(),note:'測試收款',settles_room:false,request_id:randomUUID(),source_version:check.source_version,expected_version:check.ledger.version,...patch});
@@ -141,4 +145,60 @@ test('connection probe rejects an unexpected changed-cell reply and a wrong paym
  f.probeReply={valuesChanged:1};const changed=await json(await POST(f.request(input)),503);assert.equal(changed.code,'WRITE_UNCONFIRMED');
  f.grid[0][7].formattedValue='wrong';const before=f.writes;await json(await POST(f.request(input)),503);assert.equal(f.writes,before);
  assert.equal((await readLedger('sweetfun',order)).ledger.receipts.length,0);
+});
+
+function setupIronGate(t,sourceOrderRef){
+ const f=setup(t);
+ const bookingId='66666666-6666-4666-8666-666666666666';
+ const propertyId='22222222-2222-4222-8222-222222222222';
+ const workspaceId='11111111-1111-4111-8111-111111111111';
+ const roomIds=Object.fromEntries(['101','102','201','202','301','302']
+  .map((room,index)=>[room,`55555555-5555-4555-8555-55555555555${index}`]));
+ Object.assign(process.env,{
+  IRON_GATE_SWEETFUN_CALENDAR_ENABLED:'true',
+  IRON_GATE_SWEETFUN_CALENDAR_GRANT:JSON.stringify({credentialId:'33333333-3333-4333-8333-333333333333',clientId:'44444444-4444-4444-8444-444444444444',workspaceId,propertyId,token:'a'.repeat(43)}),
+  IRON_GATE_SWEETFUN_ROOM_IDS:JSON.stringify(roomIds),
+  IRON_GATE_SWEETFUN_OS_PROOF_SECRET:'private-test-proof-secret-32-bytes-long',
+  IRON_GATE_SWEETFUN_BASE_URL:'https://iron-gate.example/',
+  IRON_GATE_SWEETFUN_AUTHORITY_EPOCH:'1',
+ });
+ f.igBooking={id:bookingId,propertyId,workspaceId,status:'confirmed',version:1,
+  currency:'TWD',totalCents:400000,paymentReview:{status:'unknown',source:'unknown'},
+  stays:[{checkIn:'2026-11-01',checkOut:'2026-11-02',roomIds:[roomIds['101']]}],
+  ...(sourceOrderRef?{sourceCalendar:{sourceOrderRef}}:{})};
+ return {f,bookingId};
+}
+
+test('Iron Gate order records and reads an OS receipt without touching the frozen Sheet',async t=>{
+ const {f,bookingId}=setupIronGate(t);
+ const displayId=`IG-${bookingId}`;
+ const oldProbe=await json(await POST(f.request({property_id:'sweetfun',action:'check_sheet_access'})),400);
+ assert.equal(oldProbe.code,'SHEET_PAYMENT_UNSUPPORTED');
+ const check=await json(await GET(f.request(undefined,true,displayId,displayId)));
+ assert.equal(check.total,4000);assert.equal(check.sheet_write_enabled,false);
+ const input=receiptInput(check,{order_id:displayId,ig_booking_id:displayId});
+ await json(await POST(f.request(input)));
+ const after=await json(await GET(f.request(undefined,true,displayId,displayId)));
+ assert.equal(after.ledger.receipts.length,1);
+ assert.equal(after.payment_status,'deposit');
+ assert.equal(f.writes,0);
+});
+
+test('unchanged imported order keeps its existing SF ledger identity with Iron Gate source verification',async t=>{
+ const {f,bookingId}=setupIronGate(t,'L:synthetic-http');
+ const displayId=`IG-${bookingId}`;
+ const check=await json(await GET(f.request(undefined,true,order,displayId)));
+ assert.equal(check.order_id,order);assert.equal(check.sheet_write_enabled,false);
+ const input=receiptInput(check,{order_id:order,ig_booking_id:displayId,
+  status_only:true,amount:0,payment_type:'full',payment_method:'other',
+  payment_account_id:undefined,settles_room:true});
+ await json(await POST(f.request(input)));
+ const after=await json(await GET(f.request(undefined,true,order,displayId)));
+ assert.equal(after.ledger.receipts.length,1);
+ assert.equal(after.payment_status,'paid');
+ assert.equal(f.writes,0);
+ f.igBooking.version=2;
+ const drift=await json(await GET(f.request(undefined,true,order,displayId)));
+ assert.equal(drift.recovery.can_record,false);
+ assert.equal(drift.recovery.ledger.receipts.length,1);
 });

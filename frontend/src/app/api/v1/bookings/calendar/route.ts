@@ -6,8 +6,9 @@ import { ownerAccessConfigured } from "@/lib/calendar-owner-session";
 import { readOperationalSheet } from "@/lib/sheet-monitor/google";
 import { recordCalendarHealth } from "@/lib/booking-sources/calendar-diagnostics";
 import { randomUUID } from "node:crypto";
-import { readCalendarSources, calendarReadError, type CalendarReadEvent } from "@/lib/booking-sources/calendar-reader";
+import { readCalendarSources, calendarReadError, unconfirmedPayment, type CalendarReadEvent } from "@/lib/booking-sources/calendar-reader";
 import { readBookingSnapshot } from "@/lib/booking-sources/snapshot";
+import type { CalendarResponse } from "@/components/calendar/calendar-types";
 import { activeSources } from "@/lib/booking-sources/config";
 import { ironGateCalendarConfig, readSweetfunIronGateCalendarSnapshot } from "@/lib/booking-sources/iron-gate-calendar.server";
 import { type NextRequest, NextResponse } from "next/server";
@@ -245,9 +246,14 @@ export async function GET(request: NextRequest) {
             report: event => { events.push(event); },
           }) : Promise.resolve(null),
         ]);
-        const bookings = projectBookings([
-          ...ig.bookings, ...(other?.bookings ?? []),
-        ], principal);
+        let igPayments = ig.bookings;
+        let paymentWarning: CalendarResponse['source_warnings'] = [];
+        if (principal.viewPrices) {
+          try { igPayments = await overlayPayments(ig.bookings); }
+          catch { igPayments = ig.bookings.map(unconfirmedPayment);
+            paymentWarning = [{ property_id: 'sweetfun', label: 'Iron Gate 訂房紀錄', phase: 'payments' }]; }
+        }
+        const bookings = projectBookings([...igPayments, ...(other?.bookings ?? [])], principal);
         const source = { label: "Iron Gate 訂房紀錄", observed_at: ig.observedAt,
           read_only: true, automatic_sync: true, availability_authoritative: false,
           private_snapshot_version: String(ig.inventoryVersion),
@@ -255,7 +261,7 @@ export async function GET(request: NextRequest) {
             last_successful_check_at: ig.observedAt, last_published_at: ig.observedAt,
             cutoff: ig.observedAt, interval_seconds: 0,
             error_code: "OWLNEST_STOCK_NOT_VERIFIED" } };
-        const missingPaymentNights = ig.bookings.filter(booking =>
+        const missingPaymentNights = igPayments.filter(booking =>
           !booking.source_conflict && booking.payment_status === 'unknown').reduce((sum, booking) => {
           const from = Math.max(Date.parse(`${booking.check_in}T00:00:00Z`), startDate.getTime());
           const to = Math.min(Date.parse(`${booking.check_out}T00:00:00Z`), endDate.getTime());
@@ -283,7 +289,7 @@ export async function GET(request: NextRequest) {
               property_id: definition.property.id, source: snapshot.source,
               summary: snapshot.summary })) ?? [])],
           request_id: requestId,
-          source_errors: other?.errors ?? [], source_warnings: other?.warnings ?? [],
+          source_errors: other?.errors ?? [], source_warnings: [...paymentWarning, ...(other?.warnings ?? [])],
           guest_access: { available: ownerAccessConfigured(), authenticated: true },
           data_mode: "iron_gate_booking_only",
         }, { headers });

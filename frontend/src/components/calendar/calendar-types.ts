@@ -47,6 +47,10 @@ export type CalendarBooking = {
   id: string;
   sheet_row_id: string;
   order_id: string;
+  /** Existing OS payment ledger identity for an unchanged imported Iron Gate order. */
+  payment_order_id?: string;
+  source_booking_version?: number;
+  source_legacy_payment?: boolean;
   external_order_no: string | null;
   owlnest_order_no?: string | null;
   property_id: string;

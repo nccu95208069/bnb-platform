@@ -10,15 +10,31 @@ import { adaptSheetBookings } from '@/lib/booking-sources/sweetfun-sheet';
 import { financeAllocated, readLedger, checkRows, prepareReceipt, appendReceipt, canRecord, paymentStatus, finishSheetSync, ledgerView, recordSheetSyncFailure, sheetSyncFailure, type Receipt } from '@/lib/os-payments';
 import {supportsSheetPayment,prepareSheetSync,syncReceiptToSheet,checkSheetPaymentAccess} from '@/lib/os-payment-sheet';
 import {manualFinanceEntries,paymentAccountsForProperty} from '@/lib/finance-store';
+import {ironGateCalendarConfig,readSweetfunIronGatePaymentOrder} from '@/lib/booking-sources/iron-gate-calendar.server';
+import {checkIronGatePaymentOrder} from '@/lib/os-payments';
 import { randomUUID } from 'node:crypto';
 import { RedisWorkspaceStore, redisCommand } from '@/lib/workspace-auth/store';
 
 async function authorized(request:NextRequest,property:unknown,order:unknown) {
   const actor=await principalFor(request); if(!actor)throw new Error('UNAUTHORIZED');
-  if(typeof property!=='string'||typeof order!=='string'||!/^SF-[a-f0-9]{20}$/.test(order))throw new Error('INVALID_INPUT');
+  if(typeof property!=='string'||typeof order!=='string'||
+    !/^(?:SF-[a-f0-9]{20}|IG-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i.test(order))throw new Error('INVALID_INPUT');
   if(!actor.viewPrices||!allowedProperty(actor,property))throw new Error('FORBIDDEN');
   const source=activeSources().find(s=>s.property.id===property);if(!source)throw new Error('NOT_FOUND');
   return {actor,source,property,order};
+}
+async function ironGateContext(property:string,order:string,bookingId:string,
+  actor:NonNullable<Awaited<ReturnType<typeof principalFor>>>,
+  previous:Awaited<ReturnType<typeof readLedger>>) {
+  if(property!=='sweetfun'||process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED!=='true'||
+    !/^IG-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(bookingId))
+    throw new Error('INVALID_INPUT');
+  const source=await readSweetfunIronGatePaymentOrder(bookingId.slice(3),actor,
+    ironGateCalendarConfig());
+  if(source.paymentOrderId!==order)throw new Error('SOURCE_CHANGED');
+  const check=checkIronGatePaymentOrder(source,previous.ledger);
+  check.finance_received=financeAllocated(await manualFinanceEntries(property),order);
+  return {check,raw:previous.raw};
 }
 async function context(source:ReturnType<typeof activeSources>[number],property:string,order:string,previous:Awaited<ReturnType<typeof readLedger>>) {
   const snapshot=await readBookingSnapshot(source);
@@ -38,18 +54,27 @@ const failures:Record<string,[number,string]>={ORDER_SYNC_PENDING:[409,'請先�
 function failure(e:unknown){const code=e instanceof Error?e.message:'';const [status,detail]=failures[code]??[503,'付款服務暫時無法確認，請保留原內容重試。'];return NextResponse.json({code:failures[code]?code:'UNAVAILABLE',detail},{status,headers:privateHeaders});}
 export async function GET(request:NextRequest){try{
  const {actor,source,property,order}=await authorized(request,request.nextUrl.searchParams.get('property'),request.nextUrl.searchParams.get('order'));
+ const igBooking=request.nextUrl.searchParams.get('ig_booking');
+ if((order.startsWith('IG-')||property==='sweetfun'&&
+   process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED==='true')&&!igBooking)
+   throw new Error('SOURCE_CHANGED');
  const previous=await readLedger(property,order);
- const can_record=canRecord(actor,property),sheet_write_enabled=supportsSheetPayment(source);
+ const can_record=canRecord(actor,property),sheet_write_enabled=!igBooking&&supportsSheetPayment(source);
  try{
-  const {check}=await context(source,property,order,previous);
+  const {check}=igBooking?await ironGateContext(property,order,igBooking,actor,previous):
+    await context(source,property,order,previous);
   const payment_accounts=can_record?await paymentAccountsForProperty(property):[];
   return NextResponse.json({...check,ledger:ledgerView(check.ledger),payment_accounts,can_record,sheet_write_enabled,payment_status:paymentStatus(check)},{headers:privateHeaders});
  }catch(error){
   // Saved receipts remain recoverable even when the order/source cannot be read.
   // Do not return fabricated order totals or enable another payment in this state.
-  if(!previous.ledger.receipts.some(r=>r.sheet_sync?.state==='pending'))throw error;
+  if(!previous.ledger.receipts.some(r=>r.sheet_sync?.state==='pending')&&
+    !(igBooking&&previous.ledger.receipts.length))throw error;
   const code=sheetSyncFailure(error instanceof Error?error.message:'').code;
-  return NextResponse.json({recovery:{ledger:ledgerView(previous.ledger),can_record,sheet_write_enabled,code,detail:'訂單來源暫時無法核對。已保存的收款仍保留，請核對主表後繼續同步。'}},{headers:privateHeaders});
+  return NextResponse.json({recovery:{ledger:ledgerView(previous.ledger),
+    can_record:!igBooking&&can_record,sheet_write_enabled,code,
+    detail:igBooking?'目前無法核對最新訂單；已保存的收款紀錄仍保留，請先核對來源。':
+      '訂單來源暫時無法核對。已保存的收款仍保留，請核對主表後繼續同步。'}},{headers:privateHeaders});
  }
 }catch(e){return failure(e);}}
 async function complete(source:ReturnType<typeof activeSources>[number],property:string,order:string,receipt:Receipt,lock:{key:string;token:string}){
@@ -75,10 +100,16 @@ export async function POST(request:NextRequest){
   const source=activeSources().find(s=>s.property.id===input.property_id);
   if(!source)throw new Error('NOT_FOUND');
   if(input.action==='check_sheet_access'){
+    if(input.property_id==='sweetfun'&&process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED==='true')
+      throw new Error('SHEET_PAYMENT_UNSUPPORTED');
     await checkSheetPaymentAccess(source);
     return NextResponse.json({verified:true,sheet_write_enabled:true},{headers:privateHeaders});
   }
-  if(typeof input.order_id!=='string'||!/^SF-[a-f0-9]{20}$/.test(input.order_id))throw new Error('INVALID_INPUT');
+  if(typeof input.order_id!=='string'||!/^(?:SF-[a-f0-9]{20}|IG-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i.test(input.order_id))throw new Error('INVALID_INPUT');
+  const igBooking=typeof input.ig_booking_id==='string'?input.ig_booking_id:null;
+  if((input.order_id.startsWith('IG-')||input.property_id==='sweetfun'&&
+    process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED==='true')&&!igBooking)
+    throw new Error('SOURCE_CHANGED');
   const key=`sweetfun-os:payments:v1:${input.property_id}:lock`,token=randomUUID();
   if(await redisCommand(['SET',key,token,'NX','EX',120])!=='OK')throw new Error('VERSION_CONFLICT');
   lock={key,token};
@@ -97,7 +128,8 @@ export async function POST(request:NextRequest){
   if(previous.ledger.receipts.some(r=>r.sheet_sync?.state==='pending'))throw new Error('ORDER_SYNC_PENDING');
 
   let resolved;
-  try {resolved=await context(source,input.property_id,input.order_id,previous);} catch(error) {
+  try {resolved=igBooking?await ironGateContext(input.property_id,input.order_id,igBooking,actor,previous):
+    await context(source,input.property_id,input.order_id,previous);} catch(error) {
     const code=error instanceof Error?error.message:'';
     if(['SOURCE_CONFLICT','SOURCE_CHANGED','NOT_FOUND'].includes(code)) {
       const missionId=randomUUID(),childId=randomUUID();
@@ -108,7 +140,7 @@ export async function POST(request:NextRequest){
   const {check,raw}=resolved;
   const accounts=await paymentAccountsForProperty(check.property_id);
   const receipt=prepareReceipt(input,check,actor,new Date().toISOString(),accounts);
-  if(supportsSheetPayment(source)){
+  if(!igBooking&&supportsSheetPayment(source)){
     receipt.sheet_sync=await prepareSheetSync(source,input.order_id,check,receipt);
   }
   const ledger=await appendReceipt(check,raw,receipt,lock);
