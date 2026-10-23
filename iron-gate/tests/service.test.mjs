@@ -213,6 +213,36 @@ test("calendar money grant uses reconciled source night amounts only", async () 
   assert.equal(drifted.bookings[0].stayAmountsCents, null);
 });
 
+test("unchanged imported order exposes a scoped legacy payment link and booking date", async () => {
+  const { service, repository } = setup();
+  const created = await service.createBooking(principal(), propertyId, key(), bookingInput());
+  await repository.transact(propertyId, (state) => {
+    const booking = state.bookings.find(item => item.id === created.bookingId);
+    booking.source = "external";
+    booking.sweetfunSnapshot = { groupKey: "L:OBE12345678901234567890", rows: [{
+      roomFeeCents: 1200000,
+      values: ["101", "Guest", "Booking", "2026/11/10", "2026/11/12",
+        "2026/10/13", "12000", "not_yet", "OK", "uid-12345678", "",
+        "OBE12345678901234567890", "", "OTA123"] }] };
+  });
+  const owner = principal("os", { fields: ["guest_name", "money", "payment_status"] });
+  const result = await service.getBooking(owner, propertyId, created.bookingId);
+  assert.equal(result.sourceCalendar.bookedAt, "2026-10-13");
+  assert.equal(result.sourceCalendar.sourceOrderRef, "L:OBE12345678901234567890");
+  assert.deepEqual(result.paymentReview, { status: "unknown", source: "unknown" });
+  const snapshot = await service.calendarSnapshot(owner, propertyId,
+    "2026-11-01", "2026-12-01");
+  assert.equal(snapshot.bookings[0].version, 1);
+  assert.equal(snapshot.bookings[0].sourceCalendar.sourceOrderRef,
+    "L:OBE12345678901234567890");
+  const noMoney = await service.getBooking(principal("os", { fields: ["guest_name"] }),
+    propertyId, created.bookingId);
+  assert.equal("sourceOrderRef" in noMoney.sourceCalendar, false);
+  await repository.transact(propertyId, (state) => { state.bookings[0].version++; });
+  const changed = await service.getBooking(owner, propertyId, created.bookingId);
+  assert.equal("sourceOrderRef" in changed.sourceCalendar, false);
+});
+
 test("OwlNest partial readback holds the fence; exact readback verifies it", async () => {
   const { service, repository } = setup("owlnest");
   const actor = principal();

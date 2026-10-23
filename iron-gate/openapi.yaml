@@ -69,13 +69,14 @@ components:
     BookingReceipt:
       type: object
       additionalProperties: false
-      required: [bookingId, bookingVersion, inventoryVersion, operationState, operationKey, refundReviewRequired]
+      required: [bookingId, bookingVersion, inventoryVersion, operationState, operationKey, sourceReviewRequired, refundReviewRequired]
       properties:
         bookingId: { type: string, format: uuid }
         bookingVersion: { type: integer, minimum: 1 }
         inventoryVersion: { type: integer, minimum: 0 }
         operationState: { type: string, enum: [local_only, sync_pending, sync_verified, review_required] }
         operationKey: { type: [string, 'null'], format: uuid }
+        sourceReviewRequired: { type: boolean, description: External source facts still need reconciliation after a LINE edit. }
         refundReviewRequired: { type: boolean }
     CreateHold:
       type: object
@@ -198,6 +199,7 @@ components:
           required: [grantId]
           properties:
             grantId: { type: string, format: uuid }
+            manageAll: { type: boolean, description: Present only on a separately marked all-bookings LINE grant. }
         status: { type: string, enum: [held, confirmed, cancelled] }
         channelSyncState: { type: string, enum: [not_required, pending, verified, review_required] }
         stays:
@@ -205,6 +207,7 @@ components:
           items: { $ref: '#/components/schemas/Stay' }
         createdAt: { type: string, format: date-time }
         source: { type: string, enum: [os, line, website, external] }
+        sourceReviewRequired: { type: boolean, description: Present on LINE manage-all reads. }
         guestName: { type: [string, 'null'] }
         sourceCalendar:
           type: object
@@ -215,6 +218,7 @@ components:
             platform: { type: [string, 'null'] }
             externalOrderNo: { type: [string, 'null'] }
             bookedAt: { type: [string, 'null'], format: date }
+            sourceOrderRef: { type: string, description: Scoped legacy payment link on an unchanged imported order. }
         contact: { type: [string, 'null'] }
         notes: { type: [string, 'null'] }
         totalCents: { type: [integer, 'null'] }
@@ -254,6 +258,7 @@ components:
           required: [grantId]
           properties:
             grantId: { type: string, format: uuid }
+            manageAll: { type: boolean, description: Present only on a separately marked all-bookings LINE grant. }
         bookings:
           type: array
           items: { $ref: '#/components/schemas/BookingProjection' }
@@ -525,12 +530,12 @@ paths:
       summary: Seek-page through authorized OS or LINE booking projections
       description: >-
         Each page is current at read time; this is not a cross-page snapshot.
-        LINE grants see only direct bookings whose sourceKey matches their grantId.
+        A read-only LINE grant sees only direct bookings whose sourceKey matches its
+        grantId. A separately marked manage-all grant sees all booking sources.
         A LINE bearer credential also requires a separate short-lived operator proof
         bound to its configured group, actor and exact request. The production
         LINE read credential remains read-only.
-        Guest, contact, notes and price require separate field grants; imported
-        OTA/Gmail orders are never returned to LINE grants.
+        Guest, contact, notes and price require separate field grants.
       parameters:
         - { $ref: '#/components/parameters/PropertyId' }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
@@ -586,8 +591,9 @@ paths:
       summary: Read a scoped booking projection
       description: >-
         Guest and website order reads require an order-bound credential. LINE
-        inspect returns only its own grant's direct bookings and includes the
-        current inventoryVersion for confirmation; cross-grant IDs return 404.
+        inspect on a read-only grant returns only its own direct bookings;
+        the manage-all grant can inspect every source. Both include the current
+        inventoryVersion for confirmation; out-of-scope IDs return 404.
         LINE requests require the separate short-lived operator proof.
       parameters:
         - { $ref: '#/components/parameters/PropertyId' }
@@ -603,11 +609,18 @@ paths:
     patch:
       operationId: amendBooking
       summary: Amend allowlisted fields under booking and inventory versions
-      description: Room-night changes on an OwlNest property remain closed.
+      description: >-
+        OS room-night changes on an OwlNest property remain closed. LINE manage-all
+        amendments require a 15-minute actor-bound preview, the exact current
+        booking and inventory versions, a ready channel, no recorded net payment
+        and an exact request key. External source orders retain a source review
+        marker and removed room nights stay closed until source reconciliation.
       parameters:
         - { $ref: '#/components/parameters/PropertyId' }
         - { $ref: '#/components/parameters/BookingId' }
         - { $ref: '#/components/parameters/RequestKey' }
+        - { name: X-Iron-Gate-Line-Preview, in: header, required: false,
+            schema: { type: string }, description: Required only for LINE amendment; never send to the LINE client }
       requestBody:
         required: true
         content:
@@ -619,6 +632,34 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/BookingReceipt' }
+        '202': { description: Local amendment accepted; provider readback pending }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/bookings/{bookingId}/line-action-previews:
+    post:
+      operationId: previewLineBookingAction
+      summary: Issue a private signed LINE amendment or cancellation preview
+      description: >-
+        Binds the verified LINE actor and manage-all grant to the booking ID,
+        action, exact request body, booking version, inventory version and
+        authority epoch for 15 minutes. This route makes no booking change.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { $ref: '#/components/parameters/BookingId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [action, input]
+              properties:
+                action: { type: string, enum: [amend, cancel] }
+                input: { oneOf: [{ $ref: '#/components/schemas/AmendBooking' },
+                                 { $ref: '#/components/schemas/CancelBooking' }] }
+      responses:
+        '200': { description: Signed private preview token and bound versions }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
   /v1/properties/{propertyId}/bookings/{bookingId}/payment-events:
     post:
@@ -726,11 +767,17 @@ paths:
     post:
       operationId: cancelBooking
       summary: Cancel without deleting the audit trail
-      description: OS native confirmed orders only. Holds use release; external orders require source coordination; unsettled receipts block cancellation.
+      description: >-
+        OS native confirmed orders or LINE manage-all orders with a signed preview.
+        Holds use release. External source orders retain a source review marker and
+        old nights stay closed until source confirmation. Net received payments
+        block LINE cancellation; no refund is recorded automatically.
       parameters:
         - { $ref: '#/components/parameters/PropertyId' }
         - { $ref: '#/components/parameters/BookingId' }
         - { $ref: '#/components/parameters/RequestKey' }
+        - { name: X-Iron-Gate-Line-Preview, in: header, required: false,
+            schema: { type: string }, description: Required only for LINE cancellation; never send to the LINE client }
       requestBody:
         required: true
         content:

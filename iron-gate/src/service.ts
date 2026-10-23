@@ -234,7 +234,9 @@ function publicBooking(booking: Booking, principal: Principal): Record<string, u
     }
     // The imported rows remain private evidence. Only unambiguous calendar
     // labels may leave that evidence, under the same OS guest grant.
-    const rows = principal.origin === "os" ? booking.sweetfunSnapshot?.rows : null;
+    const snapshot = principal.origin === "os" ? booking.sweetfunSnapshot : undefined;
+    const rows = snapshot?.rows;
+    const groupKey = typeof snapshot?.groupKey === "string" ? snapshot.groupKey : null;
     if (!booking.sourceCalendar && Array.isArray(rows) && rows.length) {
       const unique = (column: number): string | null => {
         const values = [...new Set(rows.map((row) => String(row.values?.[column] ?? "").trim()))]
@@ -249,13 +251,29 @@ function publicBooking(booking: Booking, principal: Principal): Record<string, u
       result.sourceCalendar = { platform, externalOrderNo,
         bookedAt: bookedAt && Number.isFinite(Date.parse(`${bookedAt}T00:00:00Z`)) &&
           new Date(`${bookedAt}T00:00:00Z`).toISOString().slice(0, 10) === bookedAt
-          ? bookedAt : null };
+          ? bookedAt : null,
+        ...(principal.fields.includes("money") && booking.source === "external" &&
+          booking.version === 1 &&
+          booking.totalCents !== null && rows.length === booking.stays.length &&
+          rows.every((row) => Array.isArray(row?.values) &&
+            Number.isSafeInteger(row.roomFeeCents) && row.roomFeeCents >= 0) &&
+          rows.reduce((sum, row) => sum + row.roomFeeCents, 0) === booking.totalCents &&
+          groupKey !== null &&
+          (/^L:[A-Za-z0-9-]{8,64}$/.test(groupKey) ||
+            /^J:[A-Za-z0-9_-]{8,100}$/.test(groupKey)) &&
+          rows.every((row) => groupKey ===
+            (groupKey.startsWith("L:")
+              ? `L:${String(row.values[11] ?? "").trim()}`
+              : `J:${String(row.values[9] ?? "").trim()}`))
+          ? { sourceOrderRef: groupKey } : {}) };
     }
   }
   if ((principal.origin === "os" || principal.origin === "line") &&
     principal.fields.includes("contact")) result.contact = booking.contact;
   if ((principal.origin === "os" || principal.origin === "line") &&
     principal.fields.includes("notes")) result.notes = booking.notes;
+  if (principal.origin === "os" && principal.fields.includes("payment_status"))
+    result.paymentReview = calendarPaymentStatus(booking);
   if ((principal.origin === "os" || principal.origin === "finance") &&
     principal.fields.includes("money")) {
     result.totalCents = booking.totalCents;
@@ -1004,7 +1022,7 @@ export class IronGateService {
       readOnly: state.readOnly === true,
       bookings: bookings.map((booking) => {
         const projected = publicBooking(booking, principal);
-        return { id: projected.id, propertyId: projected.propertyId,
+        return { id: projected.id, version: booking.version, propertyId: projected.propertyId,
           workspaceId: projected.workspaceId, status: projected.status,
           stays: projected.stays,
           ...(principal.fields.includes("guest_name") ?
