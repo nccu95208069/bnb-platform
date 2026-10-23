@@ -385,6 +385,21 @@ test("LINE direct create requires a fresh actor-bound preview and one inventory 
     propertyId, key(), input, preview.previewToken), errorCode("LINE_PREVIEW_REQUIRED"));
 });
 
+test("LINE cannot create nights beyond the last complete OwlNest stock observation", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+    state.channel.stockObservedThrough = "2026-11-10";
+  });
+  const service = new IronGateService(repository, "p".repeat(43));
+  const actor = principal("line", { grantId: key(),
+    actions: ["booking:read", "booking:create"] });
+  await assert.rejects(service.previewLineCreate(actor, propertyId,
+    bookingInput(1, { source: "line" })), errorCode("LINE_STOCK_NOT_OBSERVED"));
+  assert.equal((await repository.read(propertyId)).bookings.length, 0);
+});
+
 test("LINE preview rejects altered payload, stale authority, and a disabled channel", async () => {
   const { repository } = setup("owlnest");
   await repository.transact(propertyId, (state) => {

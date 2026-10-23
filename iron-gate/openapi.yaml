@@ -519,7 +519,7 @@ paths:
       description: >-
         PII-free. A LINE operator proof is required. Returns propertyId,
         inventoryVersion, authorityEpoch, readOnly, lineScope, channelReady,
-        canCreate, canAmend, canCancel and canInventory. A candidate Cloud Run
+        stockObservedThrough, canCreate, canAmend, canCancel and canInventory. A candidate Cloud Run
         revision checks these values before receiving traffic.
       parameters:
         - { $ref: '#/components/parameters/PropertyId' }

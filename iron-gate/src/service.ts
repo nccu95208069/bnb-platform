@@ -360,6 +360,12 @@ function requireLineMutation(principal: Principal, state: PropertyState, booking
       !(booking.source === "external" && booking.channelSyncState === "not_required")))
     reject("LINE_BOOKING_NOT_READY", 409);
   if (netReceived(booking) !== 0) reject("LINE_PAYMENT_REQUIRES_REVIEW", 409);
+  requireLineStockWindow(state, nightsFor(booking.stays, state.roomIds));
+}
+function requireLineStockWindow(state: PropertyState, cells: Night[]): void {
+  const end = state.channel.stockObservedThrough;
+  if (end && cells.some((cell) => cell.date > end))
+    reject("LINE_STOCK_NOT_OBSERVED", 409);
 }
 function verifyLineInventoryInput(input: LineInventoryInput): Night {
   if (!input || !Number.isSafeInteger(input.expectedInventoryVersion) ||
@@ -376,6 +382,7 @@ function requireLineInventory(principal: Principal, state: PropertyState,
     state.channel.sourceReadbackEnabled !== true || !state.channel.grantId)
     reject("LINE_CHANNEL_NOT_READY", 409);
   const cell = verifyLineInventoryInput(input);
+  requireLineStockWindow(state, [cell]);
   if (!state.roomIds.includes(cell.roomId)) reject("ROOM_NOT_FOUND", 404);
   const existing = state.manualBlocks.some((item) => keyOf(item) === keyOf(cell));
   if (input.desired === "closed") {
@@ -521,7 +528,9 @@ export class IronGateService {
       state.channel.sourceReadbackEnabled !== true || !state.channel.grantId)
       reject("LINE_CHANNEL_NOT_READY", 409);
     if (state.version !== input.expectedInventoryVersion) reject("VERSION_CONFLICT", 409);
-    if (hasConflict(state, nightsFor(input.stays, state.roomIds))) reject("ROOM_CONFLICT", 409);
+    const cells = nightsFor(input.stays, state.roomIds);
+    requireLineStockWindow(state, cells);
+    if (hasConflict(state, cells)) reject("ROOM_CONFLICT", 409);
     const hash = await digest({ action: "booking:create", input });
     const signed = await signLinePreview(this.linePreviewSecret, principal,
       propertyId, state.version, hash);
@@ -554,6 +563,7 @@ export class IronGateService {
       if (principal.origin === "website") reject("WEBSITE_QUOTE_REQUIRED", 409);
       if (state.channel.mode === "owlnest" && !state.channel.ready) reject("SOURCE_UNAVAILABLE", 503);
       const cells = nightsFor(input.stays, state.roomIds);
+      if (principal.origin === "line") requireLineStockWindow(state, cells);
       if (hasConflict(state, cells)) reject("ROOM_CONFLICT", 409);
       const operationKey = state.channel.mode === "owlnest" ? crypto.randomUUID() : null;
       const booking: Booking = {
@@ -722,6 +732,7 @@ export class IronGateService {
       booking.version !== input.expectedBookingVersion) reject("VERSION_CONFLICT", 409);
     if (action === "amend" && "stays" in (input as AmendBookingInput).changes) {
       const next = nightsFor((input as AmendBookingInput).changes.stays!, state.roomIds);
+      requireLineStockWindow(state, next);
       if (hasConflict(state, next, bookingId)) reject("ROOM_CONFLICT", 409);
     }
     if (action === "amend") requireLineChangeFields(principal, (input as AmendBookingInput).changes);
@@ -768,6 +779,7 @@ export class IronGateService {
           ("notes" in input.changes && input.changes.notes !== booking.notes));
       if ("stays" in input.changes) {
         next = nightsFor(input.changes.stays!, state.roomIds);
+        if (principal.origin === "line") requireLineStockWindow(state, next);
         roomNightsChanged = changedNights(
           principal.origin === "line" ? current : nightsFor(booking.stays, state.roomIds), next);
         if (roomNightsChanged && state.channel.mode !== "none" && principal.origin !== "line")
@@ -1029,6 +1041,7 @@ export class IronGateService {
       lineScope: lineScope(principal),
       channelReady: state.channel.mode === "owlnest" && state.channel.ready === true &&
         state.channel.sourceReadbackEnabled === true && Boolean(state.channel.grantId),
+      stockObservedThrough: state.channel.stockObservedThrough ?? null,
       canCreate: principal.actions.includes("booking:create"),
       canAmend: lineManagesAll(principal) && principal.actions.includes("booking:amend"),
       canCancel: lineManagesAll(principal) && principal.actions.includes("booking:cancel"),

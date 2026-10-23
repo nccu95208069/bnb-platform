@@ -154,6 +154,8 @@ export type PropertyState = {
   channel: { mode: "none" | "owlnest"; ready: boolean; websiteSalesEnabled: boolean;
     /** Disabled until source events have a durable OwlNest operation dispatcher. */
     sourceReadbackEnabled?: boolean;
+    /** Last date whose complete room stock was observed at mode activation. */
+    stockObservedThrough?: string;
     grantId: string | null; websiteBindingId: string | null };
   /** Private durable dispatcher claim. Never auto-expire across an unknown provider write. */
   channelDispatch?: { claimId: string; operationKey: string;

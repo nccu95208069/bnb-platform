@@ -70,6 +70,25 @@ OwlNest inventory has changed.
 
 ## Release gates still required
 
+The production mode change is implemented in
+`scripts/switch-sweetfun-channel.mjs`. It accepts a private, timestamped
+OwlNest cell snapshot spanning at least 180 days and every existing future
+booking (up to 410 days), plus a manifest with the expected property
+version, channel grant and exact snapshot hash. With Gmail and scheduler
+ingress paused and drained, it checks every booked future room night is
+already closed in OwlNest, imports provider-only closed nights as canonical
+manual blocks, rejects future unresolved fences, then changes channel mode in
+one serializable transaction with an audit and exact readback. It records the
+last fully observed stock date. LINE create, edit, cancel and manual inventory
+commands reject nights past that date; a source event outside that horizon
+remains subject to channel review and cannot be reported as synchronized. OwlNest
+currently returns null inventory from 2027-07-01 onward, so a 410-day
+snapshot is unavailable. The switch cannot be
+used with the two currently observed booked-but-open cells. Its
+`--rollback-before-write` action only succeeds at the exact activated version
+with no new operation and retains the imported blocks conservatively. An
+unknown commit outcome must be checked with a read-only state query.
+
 1. Provision and test the disabled scheduled entrypoint with the dedicated GCO
    auth and alert tokens. Prove the broker's owner login/readback and verify a deliberate failed tick reaches the
    administrator; a PII-free log alone is not an alert. An acknowledgement from OwlNest is
