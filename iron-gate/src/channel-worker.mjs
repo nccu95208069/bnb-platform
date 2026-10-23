@@ -31,6 +31,10 @@ export function createChannelWorker({ repository, service, propertyConfigs,
       if (page.operations.length === 0) return { state: "idle", propertyId };
       const operationKey = page.operations[0]?.key;
       if (typeof operationKey !== "string") throw Error("CHANNEL_WORKER_INVALID_PAGE");
+      // A failed owner login has not reached OwlNest. Check it before the
+      // durable dispatch claim, so a transient auth outage cannot strand a
+      // pending operation in manual recovery.
+      if (!provider) await getAuthorization(propertyId);
       let result;
       try {
         result = await reconcileChannelOperation({ propertyId, operationKey,

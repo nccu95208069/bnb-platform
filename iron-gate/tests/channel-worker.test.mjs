@@ -84,3 +84,19 @@ test("worker rejects the wrong principal before any provider call", async () => 
   assert.equal(set.writes(), 0);
   assert.equal((await set.repository.read(propertyId)).channelDispatch, undefined);
 });
+
+test("login failure before dispatch leaves the pending operation unclaimed", async () => {
+  const set = setup(), operationKey = await createPending(set);
+  let attempts = 0;
+  const worker = createChannelWorker({ repository: set.repository, service: set.service,
+    propertyConfigs: { [propertyId]: { hotelId: 6188, roomIds: { [roomId]: 29260 } } },
+    getAuthorization: async () => { attempts++; throw Error("SYNTHETIC_LOGIN_FAILED"); },
+    onReview: async () => { throw Error("NO_DISPATCH_TO_REVIEW"); } });
+  await assert.rejects(worker.runOne(set.channel, propertyId),
+    { message: "SYNTHETIC_LOGIN_FAILED" });
+  assert.equal(attempts, 1);
+  const state = await set.repository.read(propertyId);
+  assert.equal(state.channelDispatch, undefined);
+  assert.equal(state.operations[0].key, operationKey);
+  assert.equal(state.operations[0].state, "sync_pending");
+});

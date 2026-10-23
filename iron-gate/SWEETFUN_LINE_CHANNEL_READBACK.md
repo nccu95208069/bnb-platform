@@ -45,11 +45,15 @@ server-checked readback and calls an injected PII-free review alert. The
 library has a fail-closed Vercel cron entrypoint at `/api/channel-worker`, scheduled
 every five minutes. The entrypoint remains disabled unless the Production-only
 `IRON_GATE_PRODUCTION_CHANNEL_WORKER_ENABLED=true`, `CRON_SECRET`, database URL,
-property/grant IDs, OwlNest room map, OwlNest bearer credential and a dedicated
-`IRON_GATE_CHANNEL_ALERT_URL` / `IRON_GATE_CHANNEL_ALERT_TOKEN` pair are all
-configured. It handles one operation per tick. The bearer credential is supplied
-as a secret environment variable; its expiry or revocation stops dispatch and
-leaves the durable claim/fence for review. On a review result or unknown dispatch,
+property/grant IDs, OwlNest room map, and dedicated HTTPS
+`IRON_GATE_CHANNEL_AUTH_URL` / `IRON_GATE_CHANNEL_AUTH_TOKEN` and
+`IRON_GATE_CHANNEL_ALERT_URL` / `IRON_GATE_CHANNEL_ALERT_TOKEN` pairs are all
+configured. Both URLs point to the same GCO origin and use separate secrets.
+It handles one operation per tick. The GCO auth broker logs in with the existing
+owner credentials, proves the short-lived bearer can read Sweetfun's known room,
+and returns it only to this worker. A login failure before dispatch leaves the
+operation pending without taking a claim; an unknown result after a provider
+write keeps the durable claim and fence for review. On a review result or unknown dispatch,
 the entrypoint sends only property ID, operation ID and status to the GCO
 `/internal/iron-gate-channel-alert` route. That route requires its own token
 and delivers to configured LINE administrators. A failed delivery keeps the
@@ -66,8 +70,8 @@ OwlNest inventory has changed.
 
 ## Release gates still required
 
-1. Provision and test the disabled scheduled entrypoint with a current provider
-   credential and the dedicated GCO alert token. Verify a deliberate failed tick reaches the
+1. Provision and test the disabled scheduled entrypoint with the dedicated GCO
+   auth and alert tokens. Prove the broker's owner login/readback and verify a deliberate failed tick reaches the
    administrator; a PII-free log alone is not an alert. An acknowledgement from OwlNest is
    insufficient; record a fresh complete observation through
    `recordChannelReadback`.

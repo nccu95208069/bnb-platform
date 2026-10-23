@@ -4,7 +4,7 @@ import { PostgresPropertyRepository } from "../dist/postgres-repository.mjs";
 import { IronGateService } from "../dist/service.js";
 import { createChannelWorker } from "../dist/channel-worker.mjs";
 import { assertRuntimeDatabase } from "../dist/runtime-safety.mjs";
-import { checkedOwlNestConfig } from "../dist/owlnest-web-readback.mjs";
+import { boundedOwlNestJson, checkedOwlNestConfig } from "../dist/owlnest-web-readback.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SECRET = /^[A-Za-z0-9_-]{43}$/;
@@ -12,7 +12,44 @@ const SAFE_ERRORS = new Set(["CHANNEL_WORKER_CONFIG_INVALID", "UNSAFE_DATABASE_R
   "UNSAFE_DATABASE_TRANSPORT", "CHANNEL_PROPERTY_CLAIMED", "CHANNEL_NOT_READY",
   "OWLNEST_AUTH_EXPIRED", "OWLNEST_READ_FAILED", "OWLNEST_WRITE_OUTCOME_UNKNOWN",
   "OWLNEST_RESPONSE_INCOMPLETE", "CHANNEL_WORKER_PROPERTY_NOT_READY",
-  "CHANNEL_ALERT_UNAVAILABLE"]);
+  "CHANNEL_ALERT_UNAVAILABLE", "CHANNEL_AUTH_UNAVAILABLE"]);
+
+/** Fetch a new owner login through the protected GCO broker on every cron tick.
+ * Short in-flight caching avoids repeated logins for one operation's GET/PUT/GET.
+ */
+export function createFreshChannelAuthorization({ url, token, propertyId: allowedPropertyId,
+  fetchImpl = fetch,
+  now = () => Date.now() }) {
+  let cached = null, cachedAt = 0, pending = null;
+  return async (propertyId) => {
+    if (propertyId !== allowedPropertyId) throw Error("CHANNEL_AUTH_UNAVAILABLE");
+    if (cached && now() - cachedAt < 120_000) return cached;
+    pending ??= (async () => {
+      let response;
+      try {
+        response = await fetchImpl(url, { method: "POST", cache: "no-store",
+          redirect: "error", signal: AbortSignal.timeout(55_000),
+          headers: { authorization: "Bearer " + token,
+            "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify({ propertyId }) });
+        if (!response?.ok) throw Error("CHANNEL_AUTH_UNAVAILABLE");
+        const result = await boundedOwlNestJson(response, 1024);
+        if (!result || Object.keys(result).join(",") !== "authorization" ||
+          typeof result.authorization !== "string" ||
+          !/^Bearer [A-Za-z0-9._~+\/-]{20,}={0,2}$/.test(result.authorization))
+          throw Error("CHANNEL_AUTH_UNAVAILABLE");
+        cached = result.authorization;
+        cachedAt = now();
+        return cached;
+      } catch {
+        throw Error("CHANNEL_AUTH_UNAVAILABLE");
+      } finally {
+        pending = null;
+      }
+    })();
+    return pending;
+  };
+}
 
 function response(status, state) {
   return new Response(JSON.stringify({ state }), { status, headers: {
@@ -37,21 +74,25 @@ export function createChannelWorkerFetch(env = process.env, dependencies = {}) {
       ready ??= (async () => {
         const propertyId = env.IRON_GATE_CHANNEL_PROPERTY_ID;
         const grantId = env.IRON_GATE_CHANNEL_GRANT_ID;
-        let alertUrl;
+        let alertUrl, authUrl;
         try { alertUrl = new URL(env.IRON_GATE_CHANNEL_ALERT_URL ?? ""); }
+        catch { throw Error("CHANNEL_WORKER_CONFIG_INVALID"); }
+        try { authUrl = new URL(env.IRON_GATE_CHANNEL_AUTH_URL ?? ""); }
         catch { throw Error("CHANNEL_WORKER_CONFIG_INVALID"); }
         if (!UUID.test(propertyId ?? "") || !UUID.test(grantId ?? "") ||
           !env.IRON_GATE_PRODUCTION_DATABASE_URL ||
           alertUrl.protocol !== "https:" || !alertUrl.hostname || alertUrl.port ||
           alertUrl.username || alertUrl.password || alertUrl.search || alertUrl.hash ||
           alertUrl.pathname !== "/internal/iron-gate-channel-alert" ||
+          authUrl.protocol !== "https:" || authUrl.origin !== alertUrl.origin ||
+          authUrl.username || authUrl.password || authUrl.search || authUrl.hash ||
+          authUrl.pathname !== "/internal/iron-gate-channel-auth" ||
           !SECRET.test(env.IRON_GATE_CHANNEL_ALERT_TOKEN ?? "") ||
           env.IRON_GATE_CHANNEL_ALERT_TOKEN === env.CRON_SECRET ||
-          env.IRON_GATE_CHANNEL_ALERT_TOKEN ===
-            env.IRON_GATE_CHANNEL_AUTHORIZATION?.slice(7) ||
-          typeof env.IRON_GATE_CHANNEL_AUTHORIZATION !== "string" ||
-          !/^Bearer [A-Za-z0-9._~+\/-]{20,}={0,2}$/.test(
-            env.IRON_GATE_CHANNEL_AUTHORIZATION)) throw Error("CHANNEL_WORKER_CONFIG_INVALID");
+          !SECRET.test(env.IRON_GATE_CHANNEL_AUTH_TOKEN ?? "") ||
+          env.IRON_GATE_CHANNEL_AUTH_TOKEN === env.CRON_SECRET ||
+          env.IRON_GATE_CHANNEL_AUTH_TOKEN === env.IRON_GATE_CHANNEL_ALERT_TOKEN)
+          throw Error("CHANNEL_WORKER_CONFIG_INVALID");
         let config;
         try { config = JSON.parse(env.IRON_GATE_CHANNEL_OWLNEST_CONFIG_JSON ?? ""); }
         catch { throw Error("CHANNEL_WORKER_CONFIG_INVALID"); }
@@ -66,9 +107,12 @@ export function createChannelWorkerFetch(env = process.env, dependencies = {}) {
         }
         const repository = dependencies.repository ?? new PostgresPropertyRepository(pool);
         const service = dependencies.service ?? new IronGateService(repository);
+        const getAuthorization = createFreshChannelAuthorization({ url: authUrl,
+          token: env.IRON_GATE_CHANNEL_AUTH_TOKEN, propertyId,
+          fetchImpl: dependencies.authFetch ?? fetch });
         const worker = createChannelWorker({ repository, service,
           propertyConfigs: config,
-          getAuthorization: async () => env.IRON_GATE_CHANNEL_AUTHORIZATION,
+          getAuthorization,
           provider: dependencies.provider ?? null,
           onReview: async ({ propertyId: id, operationKey, status }) => {
             // Identifiers only. The durable claim and fence remain for repair.

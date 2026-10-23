@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createChannelWorkerFetch } from "../api/channel-worker.mjs";
+import { createChannelWorkerFetch, createFreshChannelAuthorization } from
+  "../api/channel-worker.mjs";
 import { MemoryPropertyRepository } from "../src/memory-repository.ts";
 import { IronGateService } from "../src/service.ts";
 
@@ -12,9 +13,10 @@ const env = () => ({ VERCEL_ENV: "production",
   IRON_GATE_PRODUCTION_CHANNEL_WORKER_ENABLED: "true", CRON_SECRET: secret,
   IRON_GATE_CHANNEL_PROPERTY_ID: propertyId, IRON_GATE_CHANNEL_GRANT_ID: grantId,
   IRON_GATE_PRODUCTION_DATABASE_URL: "postgres://runtime:synthetic@localhost:5432/postgres",
-  IRON_GATE_CHANNEL_AUTHORIZATION: "Bearer " + "a".repeat(32),
   IRON_GATE_CHANNEL_ALERT_URL: "https://alerts.example.invalid/internal/iron-gate-channel-alert",
   IRON_GATE_CHANNEL_ALERT_TOKEN: "z".repeat(43),
+  IRON_GATE_CHANNEL_AUTH_URL: "https://alerts.example.invalid/internal/iron-gate-channel-auth",
+  IRON_GATE_CHANNEL_AUTH_TOKEN: "a".repeat(43),
   IRON_GATE_CHANNEL_OWLNEST_CONFIG_JSON: JSON.stringify({
     [propertyId]: { hotelId: 1, roomIds: { [roomId]: 11 } },
   }) });
@@ -31,6 +33,41 @@ test("channel cron denies missing token and stays disabled without explicit flag
     IRON_GATE_CHANNEL_ALERT_TOKEN: "" }, { pool: {},
     assertRuntimeDatabase: async () => {} });
   assert.equal((await missingAlert(call())).status, 503);
+  const missingBroker = createChannelWorkerFetch({ ...env(),
+    IRON_GATE_CHANNEL_AUTH_TOKEN: "" }, { pool: {},
+    assertRuntimeDatabase: async () => {} });
+  assert.equal((await missingBroker(call())).status, 503);
+});
+
+test("fresh OwlNest auth uses a scoped HTTPS broker and never accepts a partial response", async () => {
+  const url = new URL(env().IRON_GATE_CHANNEL_AUTH_URL);
+  let now = 0, calls = 0;
+  const get = createFreshChannelAuthorization({ url,
+    token: env().IRON_GATE_CHANNEL_AUTH_TOKEN, propertyId, now: () => now,
+    fetchImpl: async (target, init) => {
+      calls++;
+      assert.equal(String(target), String(url));
+      assert.equal(init.method, "POST");
+      assert.equal(init.headers.authorization,
+        "Bearer " + env().IRON_GATE_CHANNEL_AUTH_TOKEN);
+      assert.deepEqual(JSON.parse(init.body), { propertyId });
+      return new Response(JSON.stringify({ authorization: "Bearer " + "x".repeat(64) }),
+        { status: 200, headers: { "content-type": "application/json" } });
+    } });
+  assert.equal(await get(propertyId), "Bearer " + "x".repeat(64));
+  await assert.rejects(get(grantId), /CHANNEL_AUTH_UNAVAILABLE/);
+  assert.equal(await get(propertyId), "Bearer " + "x".repeat(64));
+  assert.equal(calls, 1);
+  now = 120_001;
+  assert.equal(await get(propertyId), "Bearer " + "x".repeat(64));
+  assert.equal(calls, 2);
+  const invalid = createFreshChannelAuthorization({ url, token: "b".repeat(43), propertyId,
+    fetchImpl: async () => new Response(JSON.stringify({ authorization: "invalid" }),
+      { status: 200 }) });
+  await assert.rejects(invalid(propertyId), /CHANNEL_AUTH_UNAVAILABLE/);
+  const unavailable = createFreshChannelAuthorization({ url, token: "b".repeat(43), propertyId,
+    fetchImpl: async () => new Response("unavailable", { status: 503 }) });
+  await assert.rejects(unavailable(propertyId), /CHANNEL_AUTH_UNAVAILABLE/);
 });
 
 test("one authorized cron tick records exact provider readback and releases the claim", async () => {
