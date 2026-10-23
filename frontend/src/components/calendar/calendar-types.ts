@@ -66,6 +66,8 @@ export type CalendarBooking = {
   check_out: string;
   booked_at: string | null;
   room_rate: number;
+  /** Verified whole-order amount in cents; may lack a trustworthy per-room split. */
+  source_order_total_cents?: number;
   payment_status: PaymentStatus;
   /** Verified server projection for payment review while room prices remain hidden. */
   payment_review_status?: "paid" | "deposit";

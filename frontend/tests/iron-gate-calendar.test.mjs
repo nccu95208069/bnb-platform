@@ -88,7 +88,7 @@ test('calendar reads signed booking plus inventory, preserving blocked room nigh
   assert.equal(result.bookings[0].room_number, '101');
   assert.equal(result.bookings[0].guest_name, 'Sample Guest');
   assert.equal(result.bookings[0].platform, 'booking');
-  assert.equal(result.bookings[0].external_order_no, null);
+  assert.equal(result.bookings[0].external_order_no, 'private-source-order');
   assert.equal(result.bookings[0].price_hidden, true);
   assert.equal(result.bookings[0].payment_status, 'unknown');
   assert.equal(result.bookings[1].room_number, '102');
@@ -195,7 +195,8 @@ test('calendar shows verified stay price to price roles and hides it from no-pri
   const c = config(), data = fixture({ blocked: false });
   const snapshot = { propertyId, workspaceId, from: '2026-10-25', to: '2026-10-26',
     inventoryVersion: 7, authorityEpoch: 1, readOnly: false,
-    bookings: [{ ...data.page.bookings[0], totalCents: 360000, stayAmountsCents: [360000], paymentReview: {
+    bookings: [{ ...data.page.bookings[0], totalCents: 360000, currency: 'TWD',
+      stayAmountsCents: [360000], paymentReview: {
       status: 'paid', source: 'sheet_flag' } }],
     cells: data.availability.cells.filter(cell => cell.state === 'sold') };
   const send = async () => Response.json(snapshot);
@@ -205,6 +206,7 @@ test('calendar shows verified stay price to price roles and hides it from no-pri
   assert.equal(owner.bookings[0].payment_review_status, 'paid');
   assert.equal(owner.bookings[0].price_hidden, false);
   assert.equal(owner.bookings[0].room_rate, 3600);
+  assert.equal(owner.bookings[0].source_order_total_cents, 360000);
   assert.equal(owner.bookings[0].source_payment_flag, 'done');
   const noPrice = await readSweetfunIronGateCalendarSnapshot(snapshot.from, snapshot.to,
     { ...principal, viewPrices: false }, c, send);
@@ -213,4 +215,27 @@ test('calendar shows verified stay price to price roles and hides it from no-pri
   assert.equal(noPrice.bookings[0].source_payment_flag, 'unknown');
   assert.equal(noPrice.bookings[0].price_hidden, true);
   assert.equal(noPrice.bookings[0].room_rate, 0);
+  assert.equal(noPrice.bookings[0].source_order_total_cents, undefined);
+});
+
+test('four-room OTA order exposes only the whole total without fabricating room prices', async () => {
+  const c = config(), data = fixture({ blocked: false });
+  const booking = { ...data.page.bookings[0],
+    stays: ['101', '102', '201', '302'].map(room => ({
+      checkIn: '2026-10-25', checkOut: '2026-10-26', roomIds: [roomIds[room]] })),
+    sourceCalendar: { platform: 'booking', externalOrderNo: '9876543210', bookedAt: null },
+    totalCents: 2061400, currency: 'TWD', stayAmountsCents: null };
+  const snapshot = { propertyId, workspaceId, from: '2026-10-25', to: '2026-10-26',
+    inventoryVersion: 7, authorityEpoch: 1, readOnly: false,
+    bookings: [booking], cells: booking.stays.map(stay => ({
+      roomId: stay.roomIds[0], date: '2026-10-25', state: 'sold' })) };
+  const owner = await readSweetfunIronGateCalendarSnapshot(snapshot.from, snapshot.to,
+    principal, c, async () => Response.json(snapshot));
+  assert.equal(owner.bookings.length, 4);
+  assert.ok(owner.bookings.every(row => row.platform === 'booking' &&
+    row.external_order_no === '9876543210' && row.price_hidden &&
+    row.room_rate === 0 && row.source_order_total_cents === 2061400));
+  const noPrice = await readSweetfunIronGateCalendarSnapshot(snapshot.from, snapshot.to,
+    { ...principal, viewPrices: false }, c, async () => Response.json(snapshot));
+  assert.ok(noPrice.bookings.every(row => row.source_order_total_cents === undefined));
 });

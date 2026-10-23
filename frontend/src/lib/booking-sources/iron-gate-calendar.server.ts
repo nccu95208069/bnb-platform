@@ -157,13 +157,20 @@ function calendarBooking(booking: Record<string, unknown>,
     amounts.every(value => Number.isSafeInteger(value) && value >= 0) &&
     amounts.reduce((sum: number, value: number) => sum + value, 0) === booking.totalCents;
   const cents = priced ? Number(amounts[stayIndex]) : 0;
+  const orderTotalCents = viewPrices && booking.currency === 'TWD' &&
+    Number.isSafeInteger(booking.totalCents) && Number(booking.totalCents) >= 0 &&
+    Number(booking.totalCents) <= 1_000_000_000_000
+    ? Number(booking.totalCents) : undefined;
   return { id, sheet_row_id: id, order_id: `IG-${booking.id}`,
-    external_order_no: null, property_id: 'sweetfun', property_name: '水芳 Sweetfun',
+    external_order_no: typeof source?.externalOrderNo === 'string'
+      ? source.externalOrderNo : null,
+    property_id: 'sweetfun', property_name: '水芳 Sweetfun',
     room_id: `sweetfun-${roomNumber}`, room_number: roomNumber,
     guest_name: name, guest_name_kind: name === '姓名待核' ? 'missing' : 'real',
     platform: sweetfunCalendarPlatform(source?.platform), check_in: checkIn, check_out: checkOut,
     booked_at: null,
     room_rate: cents / 100,
+    source_order_total_cents: orderTotalCents,
     payment_status: paymentStatus, reservation_status: 'confirmed',
     notes: null, payments: [], audit_log: [], extra_guest_count: 0,
     extra_bed_count: 0, pet_count: 0, baby_supplies: [], service_note: null,
