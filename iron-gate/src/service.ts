@@ -2,7 +2,7 @@ import type {
   Action, AmendBookingInput, Booking, BookingReceipt, CreateBookingInput, CreateHoldInput,
   ExtendHoldInput,
   DesiredCell, Night, PaymentEventInput, Principal, PropertyRepository, PropertyState,
-  ReadbackInput, RequestReceipt, SourceEventInput, SourceOrderLookupInput, Stay,
+  ReadbackInput, RequestReceipt, SourceEventInput, SourceFactsInput, SourceOrderLookupInput, Stay,
   TransactionContext, EventType,
 } from "./types.ts";
 import { GateError } from "./errors.ts";
@@ -152,10 +152,13 @@ function publicBooking(booking: Booking, principal: Principal): Record<string, u
   // Field grants are server-authenticated. Public website queries use a separate order credential.
   if (principal.origin === "os" && principal.fields.includes("guest_name")) {
     result.guestName = booking.guestName;
+    if (booking.sourceCalendar) {
+      result.sourceCalendar = { ...booking.sourceCalendar, bookedAt: booking.bookedAt };
+    }
     // The imported rows remain private evidence. Only unambiguous calendar
     // labels may leave that evidence, under the same OS guest grant.
     const rows = booking.sweetfunSnapshot?.rows;
-    if (Array.isArray(rows) && rows.length) {
+    if (!booking.sourceCalendar && Array.isArray(rows) && rows.length) {
       const unique = (column: number): string | null => {
         const values = [...new Set(rows.map((row) => String(row.values?.[column] ?? "").trim()))]
           .filter(Boolean);
@@ -199,6 +202,9 @@ function calendarStayAmounts(booking: Booking): number[] | null {
   if (booking.totalCents === null || !Number.isSafeInteger(booking.totalCents) ||
     booking.totalCents < 0 || booking.stays.some((stay) => stay.roomIds.length !== 1)) return null;
   if (booking.stays.length === 1) return [booking.totalCents];
+  // A newer source event supplies only a whole-order amount. Historical
+  // imported rows cannot prove its current per-night distribution.
+  if (booking.sourceCalendar) return null;
   const rows = booking.sweetfunSnapshot?.rows;
   if (!Array.isArray(rows) || rows.length !== booking.stays.length ||
     new Set(booking.stays.map((stay) => stay.checkIn)).size !== booking.stays.length) return null;
@@ -762,12 +768,15 @@ export class IronGateService {
         const projected = publicBooking(booking, principal);
         return { id: projected.id, propertyId: projected.propertyId,
           workspaceId: projected.workspaceId, status: projected.status,
-          stays: projected.stays, guestName: projected.guestName,
-          sourceCalendar: projected.sourceCalendar,
+          stays: projected.stays,
+          ...(principal.fields.includes("guest_name") ?
+            { guestName: projected.guestName,
+              ...(projected.sourceCalendar ?
+                { sourceCalendar: projected.sourceCalendar } : {}) } : {}),
           ...(principal.fields.includes("payment_status") ?
             { paymentReview: calendarPaymentStatus(booking) } : {}),
           ...(principal.fields.includes("money") ?
-            { totalCents: booking.totalCents,
+            { totalCents: booking.totalCents, currency: booking.currency,
               stayAmountsCents: calendarStayAmounts(booking) } : {}) };
       }), cells };
   }
@@ -999,6 +1008,9 @@ export class IronGateService {
       bookingStatus: booking?.status ?? null,
       stays: booking ? structuredClone(booking.stays) : [],
       bookedAt: booking?.bookedAt ?? null,
+      ...(booking ? { sourceFacts: { totalCents: booking.totalCents,
+        currency: booking.currency, platform: booking.sourceCalendar?.platform ?? null,
+        externalOrderNo: booking.sourceCalendar?.externalOrderNo ?? null } } : {}),
       diverged: link?.diverged ?? false,
       tombstoned: Boolean(link?.tombstoneNights.length),
     };
@@ -1016,6 +1028,18 @@ export class IronGateService {
     if (input.kind !== "upsert" && input.kind !== "cancel") reject("INVALID_INPUT");
     nullableText(input.guestName, 200);
     if (input.bookedAt !== null) dayNumber(input.bookedAt);
+    if (input.totalCents !== undefined && input.totalCents !== null &&
+      (!Number.isSafeInteger(input.totalCents) || input.totalCents < 0 ||
+        input.totalCents > 1_000_000_000_000 || input.currency !== "TWD"))
+      reject("INVALID_AMOUNT");
+    if (input.currency !== undefined && input.currency !== "TWD") reject("INVALID_CURRENCY");
+    if (input.platform !== undefined && input.platform !== null &&
+      !["booking", "agoda", "airbnb", "ctrip", "owlnest", "owljourney", "owlting"].includes(input.platform))
+      reject("INVALID_PLATFORM");
+    if (input.externalOrderNo !== undefined && input.externalOrderNo !== null &&
+      (typeof input.externalOrderNo !== "string" ||
+        !/^[A-Za-z0-9-]{1,64}$/.test(input.externalOrderNo)))
+      reject("INVALID_EXTERNAL_ORDER_NO");
     if (!Number.isSafeInteger(input.expectedInventoryVersion)) reject("INVALID_VERSION");
     const hash = await digest({ action: "source:write", input });
     return this.repository.transact(input.propertyId, (state, tx) => {
@@ -1099,16 +1123,20 @@ export class IronGateService {
           booking.stays = structuredClone(input.stays);
           booking.guestName = input.guestName;
           booking.bookedAt = input.bookedAt;
-          // The booking-only source event carries no fee. An imported Sheet
-          // amount cannot remain a current amount after an external change.
-          booking.totalCents = null;
+          // A missing fee stays unknown. An imported fee cannot remain current
+          // after a changed external order without fresh source evidence.
+          booking.totalCents = input.totalCents ?? null;
+          booking.sourceCalendar = { platform: input.platform ?? null,
+            externalOrderNo: input.externalOrderNo ?? null };
         }
       } else {
         booking = { id: crypto.randomUUID(), workspaceId: state.workspaceId, propertyId: state.propertyId,
           version: 1, status: "confirmed", channelSyncState: "not_required", channelOperationKey: null,
           stays: structuredClone(input.stays), guestName: input.guestName, contact: null, notes: null,
-          totalCents: null, currency: "TWD", bookedAt: input.bookedAt, createdAt: new Date().toISOString(),
-          source: "external", sourceKey };
+          totalCents: input.totalCents ?? null, currency: "TWD", bookedAt: input.bookedAt,
+          createdAt: new Date().toISOString(), source: "external", sourceKey,
+          sourceCalendar: { platform: input.platform ?? null,
+            externalOrderNo: input.externalOrderNo ?? null } };
         state.bookings.push(booking);
       }
       if (!link) {
@@ -1128,6 +1156,69 @@ export class IronGateService {
         inventoryVersion: state.version };
       saveReceipt(state, principal, requestKey, "source:write", hash, response);
       emit(tx, state, "source.applied", booking, principal, requestKey);
+      return response;
+    });
+  }
+
+  async enrichSourceFacts(principal: Principal, requestKey: string,
+    input: SourceFactsInput): Promise<Record<string, unknown>> {
+    uuid(input.propertyId); uuid(requestKey);
+    nonempty(input.sourceSystem, 64); nonempty(input.sourceAccount, 128);
+    nonempty(input.externalOrderId, 256); nonempty(input.sourceVersion, 128);
+    if (principal.origin !== "source" || !principal.grantId ||
+      principal.sourceSystem !== input.sourceSystem ||
+      principal.sourceAccount !== input.sourceAccount) reject("FORBIDDEN", 403);
+    if (!Number.isSafeInteger(input.expectedInventoryVersion) ||
+      !Number.isSafeInteger(input.expectedBookingVersion) || input.expectedBookingVersion < 1)
+      reject("INVALID_VERSION");
+    if (!Number.isSafeInteger(input.totalCents) || input.totalCents < 0 ||
+      input.totalCents > 1_000_000_000_000 || input.currency !== "TWD")
+      reject("INVALID_AMOUNT");
+    if (!["booking", "agoda", "airbnb", "ctrip", "owlnest", "owljourney", "owlting"]
+      .includes(input.platform)) reject("INVALID_PLATFORM");
+    if (input.externalOrderNo !== null &&
+      (typeof input.externalOrderNo !== "string" ||
+        !/^[A-Za-z0-9-]{1,64}$/.test(input.externalOrderNo)))
+      reject("INVALID_EXTERNAL_ORDER_NO");
+    const hash = await digest({ action: "source:facts", input });
+    return this.repository.transact(input.propertyId, (state, tx) => {
+      authorize(principal, state, "source:write", true);
+      if (!state.sourceGrants.some((grant) => grant.active && grant.grantId === principal.grantId &&
+        grant.sourceSystem === input.sourceSystem && grant.sourceAccount === input.sourceAccount))
+        reject("FORBIDDEN", 403);
+      const prior = receiptFor(state, principal, requestKey, hash);
+      if (prior) return prior.response;
+      if (state.version !== input.expectedInventoryVersion) reject("VERSION_CONFLICT", 409);
+      if (state.channel.mode !== "none") reject("SOURCE_FACTS_CHANNEL_ACTIVE", 409);
+      const key = sourceOrderKey(input.sourceSystem, input.sourceAccount, input.externalOrderId);
+      const link = state.sourceLinks.find((item) => item.key === key);
+      const booking = link?.bookingId ? state.bookings.find((item) => item.id === link.bookingId) : null;
+      if (!link || !booking || link.diverged || link.tombstoneNights.length ||
+        link.sourceVersion !== input.sourceVersion ||
+        link.lastAppliedBookingVersion !== input.expectedBookingVersion ||
+        booking.version !== input.expectedBookingVersion || booking.status !== "confirmed")
+        reject("SOURCE_FACTS_STALE", 409);
+      if ((booking.totalCents !== null && booking.totalCents !== input.totalCents) ||
+        (booking.sourceCalendar?.platform && booking.sourceCalendar.platform !== input.platform) ||
+        (booking.sourceCalendar?.externalOrderNo &&
+          booking.sourceCalendar.externalOrderNo !== input.externalOrderNo))
+        reject("SOURCE_FACTS_CONFLICT", 409);
+      const changed = booking.totalCents !== input.totalCents ||
+        booking.sourceCalendar?.platform !== input.platform ||
+        (booking.sourceCalendar?.externalOrderNo ?? null) !== input.externalOrderNo;
+      if (changed) {
+        booking.totalCents = input.totalCents;
+        booking.sourceCalendar = { platform: input.platform,
+          externalOrderNo: input.externalOrderNo };
+        booking.version++;
+        link.lastAppliedBookingVersion = booking.version;
+        state.version++;
+        emit(tx, state, "source.facts_enriched", booking, principal, requestKey);
+      }
+      const response = { state: changed ? "applied" : "already_current",
+        bookingId: booking.id, bookingVersion: booking.version,
+        inventoryVersion: state.version };
+      saveReceipt(state, principal, requestKey, "source:write", hash, response);
       return response;
     });
   }

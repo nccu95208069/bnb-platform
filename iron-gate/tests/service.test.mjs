@@ -201,6 +201,12 @@ test("calendar money grant uses reconciled source night amounts only", async () 
   const first = await service.calendarSnapshot(actor, propertyId, "2026-11-01", "2026-12-01");
   assert.deepEqual(first.bookings[0].stayAmountsCents, [580000, 620000]);
   await repository.transact(propertyId, (state) => {
+    state.bookings[0].sourceCalendar = { platform: "booking", externalOrderNo: null };
+  });
+  const amended = await service.calendarSnapshot(actor, propertyId, "2026-11-01", "2026-12-01");
+  assert.equal(amended.bookings[0].totalCents, 1200000);
+  assert.equal(amended.bookings[0].stayAmountsCents, null);
+  await repository.transact(propertyId, (state) => {
     state.bookings[0].sweetfunSnapshot.rows[1].values[6] = "6201";
   });
   const drifted = await service.calendarSnapshot(actor, propertyId, "2026-11-01", "2026-12-01");
@@ -359,6 +365,106 @@ test("booking-only source modification clears a stale imported fee", async () =>
   assert.equal(updated.state, "applied");
   const state = await repository.read(propertyId);
   assert.equal(state.bookings.find((item) => item.id === first.bookingId).totalCents, null);
+});
+
+test("source event keeps explicit OTA amount and labels with scoped calendar projection", async () => {
+  const { service, repository } = setup();
+  const source = principal("source");
+  const input = sourceInput(1, { totalCents: 191700, currency: "TWD",
+    platform: "booking", externalOrderNo: "5526320838" });
+  const requestKey = key();
+  const first = await service.applySourceEvent(source, requestKey, input);
+  assert.equal((await service.applySourceEvent(source, requestKey, input)).bookingId,
+    first.bookingId);
+  const booking = (await repository.read(propertyId)).bookings[0];
+  assert.equal(booking.totalCents, 191700);
+  assert.deepEqual(booking.sourceCalendar, { platform: "booking",
+    externalOrderNo: "5526320838" });
+  const owner = await service.calendarSnapshot(principal("os"), propertyId,
+    "2026-11-01", "2026-12-01");
+  assert.deepEqual(owner.bookings[0].sourceCalendar, { platform: "booking",
+    externalOrderNo: "5526320838", bookedAt: "2026-10-12" });
+  assert.equal(owner.bookings[0].totalCents, 191700);
+  assert.deepEqual(owner.bookings[0].stayAmountsCents, [191700]);
+  const noMoney = await service.calendarSnapshot(principal("os", {
+    fields: ["guest_name"] }), propertyId, "2026-11-01", "2026-12-01");
+  assert.equal("totalCents" in noMoney.bookings[0], false);
+  assert.equal("stayAmountsCents" in noMoney.bookings[0], false);
+  const noGuest = await service.calendarSnapshot(principal("os", {
+    fields: ["money"] }), propertyId, "2026-11-01", "2026-12-01");
+  assert.equal("sourceCalendar" in noGuest.bookings[0], false);
+});
+
+test("four-room source amount remains whole-order money without invented room split", async () => {
+  const { service, repository } = setup();
+  const extraRooms = [key(), key(), key()];
+  await repository.transact(propertyId, (state) => { state.roomIds.push(...extraRooms); });
+  const stays = [roomId, ...extraRooms].map((id) => ({
+    checkIn: "2026-11-10", checkOut: "2026-11-11", roomIds: [id] }));
+  await service.applySourceEvent(principal("source"), key(), sourceInput(1, {
+    stays, totalCents: 2061400, currency: "TWD", platform: "booking" }));
+  const read = await service.calendarSnapshot(principal("os"), propertyId,
+    "2026-11-01", "2026-12-01");
+  assert.equal(read.bookings[0].totalCents, 2061400);
+  assert.equal(read.bookings[0].stayAmountsCents, null);
+});
+
+test("source money and labels reject malformed or ambiguous facts before writing", async () => {
+  const { service, repository } = setup();
+  const bad = [
+    { totalCents: -1, currency: "TWD" },
+    { totalCents: 191700 },
+    { totalCents: 191700.5, currency: "TWD" },
+    { totalCents: 191700, currency: "USD" },
+    { platform: "<script>" },
+    { externalOrderNo: "bad\nvalue" },
+  ];
+  for (const fields of bad) {
+    await assert.rejects(service.applySourceEvent(principal("source"), key(),
+      sourceInput(1, fields)), error => /^INVALID_/.test(error?.code));
+  }
+  assert.equal((await repository.read(propertyId)).bookings.length, 0);
+});
+
+test("scoped metadata repair enriches a current source email without changing occupancy", async () => {
+  const { service, repository } = setup();
+  const source = principal("source");
+  const original = await service.applySourceEvent(source, key(), sourceInput());
+  const before = await repository.read(propertyId);
+  const input = { propertyId, sourceSystem: "ota", sourceAccount: "synthetic-account",
+    externalOrderId: "external-1", sourceVersion: "v1",
+    expectedInventoryVersion: before.version, expectedBookingVersion: 1,
+    totalCents: 191700, currency: "TWD", platform: "booking",
+    externalOrderNo: "6200060561" };
+  const repairKey = key();
+  await assert.rejects(service.enrichSourceFacts(principal("os"), key(), input),
+    errorCode("FORBIDDEN"));
+  const repaired = await service.enrichSourceFacts(source, repairKey, input);
+  assert.equal(repaired.state, "applied");
+  assert.equal(repaired.bookingId, original.bookingId);
+  assert.deepEqual(await service.enrichSourceFacts(source, repairKey, input), repaired);
+  const after = await repository.read(propertyId);
+  assert.deepEqual(after.bookings[0].stays, before.bookings[0].stays);
+  assert.equal(after.sourceLinks[0].sourceVersion, "v1");
+  assert.equal(after.sourceLinks[0].lastAppliedBookingVersion, 2);
+  assert.equal(after.bookings[0].totalCents, 191700);
+  assert.deepEqual((await service.sourceOrderLookup(source, input)).sourceFacts,
+    { totalCents: 191700, currency: "TWD", platform: "booking",
+      externalOrderNo: "6200060561" });
+  await assert.rejects(service.enrichSourceFacts(source, key(),
+    { ...input, expectedInventoryVersion: after.version,
+      expectedBookingVersion: 2, sourceVersion: "v0" }),
+  errorCode("SOURCE_FACTS_STALE"));
+  await assert.rejects(service.enrichSourceFacts(source, key(),
+    { ...input, expectedInventoryVersion: after.version,
+      expectedBookingVersion: 2, totalCents: 1 }),
+  errorCode("SOURCE_FACTS_CONFLICT"));
+  await repository.transact(propertyId, (state) => { state.channel.mode = "owlnest"; });
+  await assert.rejects(service.enrichSourceFacts(source, key(),
+    { ...input, expectedInventoryVersion: after.version,
+      expectedBookingVersion: 2 }),
+  errorCode("SOURCE_FACTS_CHANNEL_ACTIVE"));
+  assert.equal((await repository.read(propertyId)).bookings.length, 1);
 });
 
 test("source identity parts reject control characters before key composition", async () => {
