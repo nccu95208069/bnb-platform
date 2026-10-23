@@ -581,6 +581,16 @@ test("scoped metadata repair enriches a current source email without changing oc
     { ...input, expectedInventoryVersion: after.version,
       expectedBookingVersion: 2 }),
   errorCode("SOURCE_FACTS_CHANNEL_ACTIVE"));
+  await repository.transact(propertyId, (state) => {
+    state.channel.mode = "none";
+    state.bookings[0].sweetfunSnapshot = { rows: [] };
+  });
+  const protectedLookup = await service.sourceOrderLookup(source, input);
+  assert.equal("sourceFacts" in protectedLookup, false);
+  await assert.rejects(service.enrichSourceFacts(source, key(),
+    { ...input, expectedInventoryVersion: protectedLookup.inventoryVersion,
+      expectedBookingVersion: 2 }),
+  errorCode("SOURCE_FACTS_STALE"));
   assert.equal((await repository.read(propertyId)).bookings.length, 1);
 });
 

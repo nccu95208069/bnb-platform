@@ -908,7 +908,8 @@ paths:
       description: >-
         Changes no stay, occupancy or source version. Requires the same source grant,
         exact source and booking versions, a current property inventory version and
-        an idempotency key. Conflicting existing facts fail closed.
+        an idempotency key. Imported Sheet snapshots and conflicting existing
+        facts fail closed.
       parameters:
         - { $ref: '#/components/parameters/RequestKey' }
       requestBody:
