@@ -217,7 +217,7 @@ function publicBooking(booking: Booking, principal: Principal): Record<string, u
   if ((principal.origin === "os" || principal.origin === "line") &&
     principal.fields.includes("guest_name")) {
     result.guestName = booking.guestName;
-    if (booking.sourceCalendar) {
+    if (principal.origin === "os" && booking.sourceCalendar) {
       result.sourceCalendar = { ...booking.sourceCalendar, bookedAt: booking.bookedAt };
     }
     // The imported rows remain private evidence. Only unambiguous calendar
