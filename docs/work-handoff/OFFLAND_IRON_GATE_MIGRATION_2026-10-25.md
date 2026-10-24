@@ -194,6 +194,23 @@ remaining connections. This is a historical shadow only. Any later Sheet
 change requires a reviewed delta and a new final frozen snapshot before
 authority activation.
 
+The real private snapshot was also projected through the local Iron Gate
+service for 18 month windows from the first to last occupied source month.
+The audit compared all 280 source nights, 270 group keys and per-night fees
+against the calendar projection: zero missing, extra or changed items. This
+does not replace an authenticated check of the deployed API.
+
+A temporary, epoch-0, OS-only read credential was issued for a live preview
+check, but automatic approval review rejected transmitting that token to the
+`sweetfun-os` Vercel Preview environment without destination-specific owner
+authorization. The credential was never used, was marked inactive in the
+database, and its local token file was removed. No OFFLAND preview variable
+was created. A separate proposed broad pull of all Iron Gate production
+environment variables was also rejected because it could extract unrelated
+secrets. The OS reader now reuses its already configured server-side proof
+key, so that broad pull is unnecessary. Live preview setup awaits the owner's
+specific answer.
+
 A source-only GCO release package was exported from pushed commit
 `1283d1184334835c7670297eb0caf9c6156423af` (155 files; SHA-256
 `abf0ff0c485a35b30611dec88971d4b31c73abd4409a8557c801ff14837e81c7`).
