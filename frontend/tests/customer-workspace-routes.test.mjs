@@ -53,8 +53,8 @@ test("API enforces CSRF, tenant boundaries, no-store, separate legacy sessions a
   const credentials = {
     mode: "register",
     email: "route@example.test",
-    password: "Route synthetic passphrase!",
-    confirmPassword: "Route synthetic passphrase!",
+    password: "Route synthetic passphrase 1!",
+    confirmPassword: "Route synthetic passphrase 1!",
   };
   assert.equal(
     (

@@ -11,6 +11,7 @@ import { availabilityFeatures } from "@/lib/availability-features";
 import { PricePair, roomNightStyle } from "./availability-presentation";
 import { useMonthPosition } from "./use-month-position";
 import { useCalendarPreferences } from "./calendar-preferences";
+import { manualMonthWeekMinHeight, unsoldMonthRoomLimits } from "./month-layout";
 import { addDays, addMonths, formatMonthLabel, localTodayIso, WEEKDAY_LABELS, monthStarts } from "./calendar-utils";
 
 const MONTHS = monthStarts("2025-01-01", 36);
@@ -19,7 +20,7 @@ type Props = {
  search:string; onlyAvailable:boolean; onVisibleMonth:(month:string)=>void;
  onSelect:(cell:RoomNight)=>void; onSelectDay:(day:string)=>void;
 };
-function MonthPanel({month,root,props}: {month:string;root:RefObject<HTMLDivElement|null>;props:Props}) {
+function MonthPanel({month,root,props,viewportHeight}: {month:string;root:RefObject<HTMLDivElement|null>;props:Props;viewportHeight:number}) {
 const uiLocale = useIntlLocale();
 
   const uiText = useT();
@@ -28,6 +29,10 @@ const uiLocale = useIntlLocale();
  const [near,setNear]=useState(false),[data,setData]=useState<AvailabilityResult|null>(null),[error,setError]=useState(false),[retry,setRetry]=useState(0);
  const {property,room,channel,cycle,refresh,search,onlyAvailable}=props;
  const expandedWeeks=useCalendarPreferences(s=>s.expandedWeeks),setExpandedWeeks=useCalendarPreferences(s=>s.setExpandedWeeks);
+ const monthWeekAuto=useCalendarPreferences(s=>s.monthWeekAuto);
+ const monthWeekDensity=useCalendarPreferences(s=>s.monthWeekDensity);
+ const {mobile:mobileLimit,desktop:desktopLimit}=unsoldMonthRoomLimits(monthWeekAuto,monthWeekDensity);
+ const manualWeekHeight=monthWeekAuto?undefined:Math.max(96,manualMonthWeekMinHeight(viewportHeight,monthWeekDensity));
  const period=useMemo(()=>({start:month,end:addMonths(month,1)}),[month]);
  const monthDays=useMemo(()=>{
   const weekday=(new Date(month+"T12:00Z").getUTCDay()+6)%7;
@@ -64,7 +69,7 @@ const uiLocale = useIntlLocale();
                   {uiText(WEEKDAY_LABELS.map((d) => (
                     <div
                       key={uiText(`週${d}`)}
-                      className="truncate px-0.5 py-2 text-center text-[10px] text-muted-foreground"
+                      className="truncate px-0.5 py-2 text-center text-[0.625rem] text-muted-foreground"
                     >
                       {uiText(`週${d}`)}
                     </div>
@@ -88,6 +93,7 @@ const uiLocale = useIntlLocale();
                         <div
                           data-unsold-date={day}
                           data-position-date={day}
+                          style={{ minHeight: manualWeekHeight }}
                           className={cn(
                             "min-h-44 border-b border-r p-1 sm:p-2",
                             !inMonth && "bg-muted/25",
@@ -109,13 +115,13 @@ const uiLocale = useIntlLocale();
                               {Number(day.slice(-2))}
                             </span>
                             {inMonth && (
-                              <span className="hidden text-[10px] text-muted-foreground sm:inline">
+                              <span className="hidden text-[0.625rem] text-muted-foreground sm:inline">
                                 {uiText("未售")}{count}
                               </span>
                             )}
                           </button>
                           {shown
-                            .slice(0, expanded ? shown.length : 3)
+                            .slice(0, expanded ? shown.length : desktopLimit)
                             .map((c, i) => (
                               <button
                                 key={c.room}
@@ -125,10 +131,10 @@ const uiLocale = useIntlLocale();
                                 className={cn(
                                   "mb-1 w-full rounded-md border px-1 py-1 text-left sm:flex sm:items-center sm:justify-between",
                                   roomNightStyle(c),
-                                  !expanded && i === 2 && "hidden sm:flex",
+                                  !expanded && i >= mobileLimit && "hidden sm:flex",
                                 )}
                               >
-                                <span className="flex items-center gap-0.5 text-[10px] font-medium sm:text-xs">
+                                <span className="flex items-center gap-0.5 text-[0.625rem] font-medium sm:text-xs">
                                   {c.room}
                                   {availabilityFeatures.pricingReview && c.pricing &&
                                     !c.pricing.eligible &&
@@ -143,30 +149,30 @@ const uiLocale = useIntlLocale();
                                 />
                               </button>
                             ))}
-                          {!expanded && shown.length > 2 && (
+                          {!expanded && shown.length > mobileLimit && (
                             <button
-                              className="w-full text-left text-[9px] text-muted-foreground sm:hidden"
+                              className="w-full text-left text-[0.5625rem] text-muted-foreground sm:hidden"
                               aria-expanded={false}
                               aria-label={uiText("{0} 展開其餘房間", [day])}
                               onClick={() =>
                                 setExpandedWeeks((v) => [...v, weekKey])
                               }
                             >
-                              {uiText("另")}{shown.length - 2} {uiText("房")}</button>
+                              {uiText("另")}{shown.length - mobileLimit} {uiText("房")}</button>
                           )}
-                          {!expanded && shown.length > 3 && (
+                          {!expanded && shown.length > desktopLimit && (
                             <button
-                              className="hidden w-full text-left text-[10px] text-muted-foreground sm:block"
+                              className="hidden w-full text-left text-[0.625rem] text-muted-foreground sm:block"
                               aria-expanded={false}
                               aria-label={uiText("{0} 展開其餘房間", [day])}
                               onClick={() =>
                                 setExpandedWeeks((v) => [...v, weekKey])
                               }
                             >
-                              {uiText("另")}{shown.length - 3} {uiText("房")}</button>
+                              {uiText("另")}{shown.length - desktopLimit} {uiText("房")}</button>
                           )}
                           {inMonth && shown.length === 0 && (
-                            <p className="pt-2 text-[10px] text-muted-foreground">
+                            <p className="pt-2 text-[0.625rem] text-muted-foreground">
                               {!correct || error ? (error ? "待重試" : "載入中") : day < (data?.asof ?? localTodayIso())
                                 ? uiText("已過期")
                                 : search.trim()
@@ -204,13 +210,16 @@ export function UnsoldMonthScroller(props:Props) {
   const uiText = useT();
 
  const root=useRef<HTMLDivElement>(null);
+ const [viewportHeight,setViewportHeight]=useState(520);
  useLayoutEffect(()=>{
   const container=root.current;if(!container)return;
   let frame=0;
   const measure=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{
    const height=window.visualViewport?.height ?? window.innerHeight;
    const top=container.getBoundingClientRect().top;
-   container.style.height=`${Math.max(280,height-Math.max(0,top)-8)}px`;
+   const measuredHeight=Math.max(280,height-Math.max(0,top)-8);
+   container.style.height=`${measuredHeight}px`;
+   setViewportHeight(measuredHeight);
   });};
   measure();
   const observer=new ResizeObserver(measure);
@@ -221,6 +230,6 @@ export function UnsoldMonthScroller(props:Props) {
  const historyRevision=useCalendarPreferences(s=>s.historyRevision);
  useMonthPosition(root,props.anchor,props.jump+historyRevision,props.onVisibleMonth);
  return <div ref={root} style={{overflowAnchor:"none"}} role="region" aria-label={uiText("未售月曆，可上下捲動月份")} tabIndex={0} className="h-[calc(100dvh-280px)] min-h-[280px] overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm">
-  {MONTHS.map(month=><MonthPanel key={month} month={month} root={root} props={props}/>)}
+  {MONTHS.map(month=><MonthPanel key={month} month={month} root={root} props={props} viewportHeight={viewportHeight}/>)}
  </div>;
 }

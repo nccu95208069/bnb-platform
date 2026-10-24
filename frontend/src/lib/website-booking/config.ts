@@ -86,13 +86,18 @@ export function bindingToken(binding: WebsiteBinding) {
 }
 export function sameSecret(left: string, right: string) { return timingSafeEqual(Buffer.from(digest(left)), Buffer.from(digest(right))); }
 export function serviceClient(token: string | null): WebsiteClient {
-  let rows: WebsiteClient[], legacyCount: number;
+  let rows: WebsiteClient[], legacyCount: number, selfServiceOrigins: string[];
   try {
     const existing = JSON.parse(process.env.WEBSITE_BOOKING_CLIENTS || "[]");
     const studio = JSON.parse(process.env.WEBSITE_BOOKING_STUDIO_CLIENTS || "[]");
     if (!Array.isArray(existing) || !Array.isArray(studio)) throw Error();
     legacyCount = existing.length;
     rows = [...existing, ...studio];
+    selfServiceOrigins = JSON.parse(process.env.WEBSITE_BOOKING_STUDIO_SELF_SERVICE_ORIGINS || "[]");
+    if (!Array.isArray(selfServiceOrigins) || selfServiceOrigins.length > 50 ||
+      new Set(selfServiceOrigins).size !== selfServiceOrigins.length || selfServiceOrigins.some(origin =>
+        typeof origin !== "string" || new URL(origin).protocol !== "https:" || new URL(origin).origin !== origin ||
+        !studio.some(client => client?.editor_origin === origin))) throw Error();
   } catch { throw Error("WEBSITE_BOOKING_UNAVAILABLE"); }
   if (!Array.isArray(rows) || rows.length > 50) throw Error("WEBSITE_BOOKING_UNAVAILABLE");
   const ids = new Set<string>(), hashes = new Set<string>();
@@ -113,7 +118,11 @@ export function serviceClient(token: string | null): WebsiteClient {
   if (!found || !Array.isArray(found.site_ids) || found.site_ids.some(s => typeof s !== "string")) throw Error("UNAUTHORIZED");
   id(found.id);
   try { const origin = new URL(found.editor_origin); if (origin.protocol !== "https:" || origin.origin !== found.editor_origin) throw Error(); } catch { throw Error("WEBSITE_BOOKING_UNAVAILABLE"); }
-  return found;
+  // Existing secret registries remain intact. This explicit origin opt-in only
+  // extends an already authenticated Studio client to pending UUID requests.
+  // The intended owner must still verify and approve each site; sales stay off.
+  return rows.indexOf(found) >= legacyCount && selfServiceOrigins.includes(found.editor_origin)
+    ? { ...found, allow_new_sites: true } : found;
 }
 export function permittedSite(client: WebsiteClient, siteId: unknown) {
   const site = id(siteId);

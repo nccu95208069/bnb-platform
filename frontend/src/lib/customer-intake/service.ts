@@ -41,8 +41,10 @@ export function sheetLink(value: unknown) {
     !match
   )
     throw new Error("SHEET_LINK_INVALID");
-  // Remove incidental sharing tokens, tracking and fragment data from the request.
-  return `https://docs.google.com/spreadsheets/d/${match[1]}/edit`;
+  // Keep only the numeric tab ID so the approved link opens the intended tab.
+  // Sharing tokens and other query or fragment data are discarded.
+  const gid = new URLSearchParams(url.hash.slice(1)).get("gid") ?? url.searchParams.get("gid");
+  return `https://docs.google.com/spreadsheets/d/${match[1]}/edit${gid && /^\d{1,12}$/.test(gid) ? `#gid=${gid}` : ""}`;
 }
 export function intakeAnswers(input: Record<string, unknown>): IntakeAnswers {
   if (

@@ -131,6 +131,7 @@ test('lookup survives sales disable and configuration changes; expiry keeps inve
  try {assert.equal((await f.call('requests',{idempotencyKey:input.idempotencyKey,configurationHash:'old'})).orderId,result.orderId);assert.equal((await f.call('reservations',input)).orderId,result.orderId);assert.equal((await f.call('bootstrap')).state,'unavailable');} finally {testEnvironment();}
  assert.equal((await f.call('requests',{idempotencyKey:input.idempotencyKey},new Date(f.now.getTime()+86400001))).status,'hold_expired_waiting_owner');
  let w=await f.workspace(),b=w.bookings[0];
+ assert.equal(b.updatedAt,b.createdAt);
  const op={action:'hold-convert',bookingId:b.id,bookingVersion:b.version,requestKey:randomUUID(),version:w.version,confirmPlatformOnly:true,confirmedReceipt:true,amount:1000,method:'cash',receivedAt:new Date(Date.now()-1000).toISOString()};
  await holdOperation(f.store,f.account.id,w.slug,op);const confirmed=await f.call('reservations',input);assert.equal(confirmed.status,'confirmed');assert.equal(confirmed.orderVersion,2);assert.deepEqual(confirmed.payment,{status:'partial',receivedCents:100000,remainingCents:300000,refundedCents:0,refundReviewRequired:false});
  w=await f.workspace();b=w.bookings[0];assert.equal(b.platform,'Official Website');

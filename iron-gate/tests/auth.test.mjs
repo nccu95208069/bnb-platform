@@ -188,7 +188,12 @@ test("OS machine credential needs current member proof and intersects current sc
     assert.deepEqual(identity.actions, ["booking:create"]);
     assert.deepEqual(identity.fields, ["guest_name"]);
     const handler = createHandler(new IronGateService(repository), authenticate);
-    assert.equal((await handler(request.clone())).status, 201);
+    assert.equal((await handler(request.clone())).status, 403);
+    const fullVerifier = createGrantAuthenticator(directory, repository, async () => ({
+      subjectId: "verified-member", workspaceId, propertyIds: [propertyId],
+      actions: ["booking:create"], fields: ["guest_name", "money"] }));
+    assert.equal((await createHandler(new IronGateService(repository),
+      fullVerifier)(request.clone())).status, 201);
     const noProperty = createGrantAuthenticator(directory, repository, async () => ({
       subjectId: "verified-member", workspaceId, propertyIds: [], actions: ["booking:create"], fields: [] }));
     assert.equal(await noProperty(request.clone()), null);
@@ -270,18 +275,18 @@ test("signed OS member proof authorizes only its current scoped HTTP request", a
   const directory = new SqliteCredentialDirectory(filename);
   try {
     await repository.seed(state());
-    const issued = grant("os", ["booking:create", "booking:read"], ["guest_name"]);
+    const issued = grant("os", ["booking:create", "booking:read"], ["guest_name", "money"]);
     const token = directory.issue(issued, new Date(Date.now() + 60_000).toISOString());
     const request = new Request(`https://iron.invalid/v1/properties/${propertyId}/bookings`, {
       method: "POST", headers: { authorization: `Bearer ${token}`,
         "content-type": "application/json", "idempotency-key": crypto.randomUUID() },
       body: JSON.stringify({ expectedInventoryVersion: 1, source: "os", guestName: "Synthetic",
-        contact: null, notes: null, totalCents: null, bookedAt: null,
+        contact: null, notes: null, totalCents: 10000, bookedAt: null,
         stays: [{ checkIn: "2026-11-10", checkOut: "2026-11-11", roomIds: [roomId] }] }),
     });
     const secret = Buffer.alloc(32, 9);
     const member = { active: true, subjectId: crypto.randomUUID(), workspaceId,
-      propertyIds: [propertyId], actions: ["booking:create"], fields: ["guest_name"] };
+      propertyIds: [propertyId], actions: ["booking:create"], fields: ["guest_name", "money"] };
     request.headers.set("x-iron-gate-os-proof",
       await signOsMemberProof(secret, request.clone(), issued, member));
     const handler = createHandler(new IronGateService(repository),

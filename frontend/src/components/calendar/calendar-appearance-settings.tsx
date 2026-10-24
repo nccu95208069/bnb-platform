@@ -2,8 +2,7 @@
 import {useT} from "@/components/i18n/language-provider";
 
 import Link from "next/link";
-import { LoginDevices } from "@/components/account/login-devices";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Check, Loader2 } from "lucide-react";
 import { CALENDAR_PALETTES, CHANNELS, DEFAULT_PALETTE, paletteById, platformAppearance, type PaletteId } from "@/lib/calendar-palettes";
 import { useCalendarAppearance } from "./calendar-appearance";
@@ -27,7 +26,7 @@ function PaletteCalendarPreview({ palette }: { palette: PaletteId }) {
   const uiText = useT();
 
   return <div className="overflow-hidden rounded-xl border bg-white text-slate-800" aria-label={uiText("{0}日曆示意", [paletteById(palette).name])}>
-    <div className="grid grid-cols-7 border-b bg-slate-50 text-center text-[10px] text-slate-500">
+    <div className="grid grid-cols-7 border-b bg-slate-50 text-center text-[0.625rem] text-slate-500">
       {["一", "二", "三", "四", "五", "六", "日"].map(day => <span key={day} className="py-2">{uiText(`週${day}`)}</span>)}
     </div>
     <div className="grid grid-cols-7 text-center text-xs">
@@ -35,7 +34,7 @@ function PaletteCalendarPreview({ palette }: { palette: PaletteId }) {
     </div>
     <div className="relative grid grid-cols-7 gap-y-1 pb-4">
       <div className="pointer-events-none absolute inset-0 grid grid-cols-7" aria-hidden="true">{Array.from({length:7}, (_, i) => <span key={i} className="border-r last:border-0" />)}</div>
-      {PREVIEW_STAYS.map((stay, i) => <div key={i} className="relative mx-px min-w-0 rounded-sm border px-1 py-1 text-[10px] leading-3.5" style={{...platformAppearance(palette, stay.channel), gridColumn:`${stay.start} / span ${stay.span}`, gridRow:stay.row}}>
+      {PREVIEW_STAYS.map((stay, i) => <div key={i} className="relative mx-px min-w-0 rounded-sm border px-1 py-1 text-[0.625rem] leading-3.5" style={{...platformAppearance(palette, stay.channel), gridColumn:`${stay.start} / span ${stay.span}`, gridRow:stay.row}}>
         <span className="block truncate font-semibold">{stay.label}</span><span className="block truncate">{stay.guest}</span>
       </div>)}
     </div>
@@ -48,8 +47,6 @@ export function CalendarAppearanceSettings() {
   const { palette, scope, saving, error, reload, save } = useCalendarAppearance();
   const [draft, setDraft] = useState<PaletteId | null>(null);
   const [saved, setSaved] = useState(false);
-  const [isOwner, setIsOwner] = useState(false);
-  useEffect(() => { fetch("/api/calendar-session", { cache: "no-store" }).then(r => r.json()).then(d => setIsOwner(["owner", "admin", "god"].includes(d.membership?.role))).catch(() => {}); }, []);
   const selected = draft ?? palette;
   return <section className="mx-auto max-w-4xl space-y-5 pb-8">
     <div>
@@ -60,8 +57,6 @@ export function CalendarAppearanceSettings() {
     <div className="rounded-xl border bg-card px-4 py-3 text-sm" aria-live="polite">
       {scope === "account" ? uiText("私人帳號 · 配色會跨裝置保存，只影響你的畫面。") : scope === "device" ? <>{uiText("目前未登入 · 配色只儲存在這個瀏覽器。")}<Link href="/calendar-access" className="ml-2 underline">{uiText("登入後同步")}</Link></> : scope === "loading" ? uiText("正在讀取你的配色…") : uiText("暫時無法確認個人偏好。")}
     </div>
-    {scope === "account" && <LoginDevices />}
-    {isOwner && <Link href="/settings/email" className="block rounded-xl border bg-card px-4 py-3 text-sm underline">{uiText("Gmail 寄信設定 · 成員邀請與設定密碼")}</Link>}
     <div className="grid gap-3 sm:grid-cols-2" role="group" aria-label={uiText("五種日曆配色")}>
       {CALENDAR_PALETTES.map((preset) => <button key={preset.id} type="button" aria-pressed={selected === preset.id} aria-label={uiText(preset.name)} disabled={saving}
         onClick={() => { setDraft(preset.id); setSaved(false); }}
@@ -72,7 +67,7 @@ export function CalendarAppearanceSettings() {
         </span>
         <span className="mt-1 block text-xs leading-5 text-muted-foreground">{uiText(preset.description)}</span>
         <span className="mt-3 grid grid-cols-3 gap-1 rounded-xl border bg-white p-2" aria-hidden="true">
-          {CHANNELS.slice(0, 6).map((channel, i) => <span key={channel} className="truncate rounded border px-1.5 py-1 text-[11px] font-medium" style={platformAppearance(preset.id, channel)}>{SAMPLE_LABELS[i]}</span>)}
+          {CHANNELS.slice(0, 6).map((channel, i) => <span key={channel} className="truncate rounded border px-1.5 py-1 text-[0.6875rem] font-medium" style={platformAppearance(preset.id, channel)}>{SAMPLE_LABELS[i]}</span>)}
         </span>
       </button>)}
     </div>

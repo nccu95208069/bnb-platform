@@ -120,6 +120,7 @@ export type Booking = {
   };
   guestNotified: false;
   createdAt: string;
+  updatedAt?: string; // Last accepted OS booking change; absent on older records with no reliable timestamp.
   actor: string;
   entry: "os" | "sheet" | "calendar";
   calendar?: CalendarReference;

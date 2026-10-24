@@ -19,7 +19,7 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
     Object.assign(process.env, original);
   });
   Object.assign(process.env, {
-    CALENDAR_SOURCE: 'sheet_snapshot', BOOKING_SHEET_SOURCES: 'sweetfun',
+    CALENDAR_SOURCE: 'sheet_snapshot', BOOKING_SHEET_SOURCES: 'sweetfun,offland',
     CALENDAR_OWNER_CODE_HASH: 'a'.repeat(64),
     CALENDAR_OWNER_SESSION_SECRET: 'b'.repeat(64),
     KV_REST_API_URL: 'https://fixture.invalid', KV_REST_API_TOKEN: 'synthetic',
@@ -34,10 +34,10 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
   delete process.env.UPSTASH_REDIS_REST_TOKEN;
   const member = { id: 'c'.repeat(32), displayName: 'Synthetic viewer',
     role: 'viewer', status: 'active', allProperties: false,
-    propertyIds: ['sweetfun'], credential: { schema: 1, kind: 'password',
+    propertyIds: ['sweetfun', 'offland'], credential: { schema: 1, kind: 'password',
       revision: 'd'.repeat(64), salt: 'e'.repeat(32), hash: 'f'.repeat(128) } };
+  const noPriceMember = { ...member, id: 'b'.repeat(32), role: 'viewer_no_price' };
   let inventoryMatches = true;
-  let snapshotMatches = true;
   let sheetCalls = 0;
   let igCalls = 0;
   t.mock.method(console, 'error', () => {});
@@ -46,7 +46,11 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
     if (target === 'https://fixture.invalid') {
       const command = JSON.parse(options.body);
       if (command[1]?.endsWith(':members'))
-        return Response.json({ result: JSON.stringify({ version: 1, members: [member] }) });
+        return Response.json({ result: JSON.stringify({ version: 1, members: [member, noPriceMember] }) });
+      if (command[0] === 'MGET')
+        return Response.json({ result: command.slice(1).map(() => null) });
+      if (command[0] === 'SCAN')
+        return Response.json({ result: ['0', []] });
       return Response.json({ result: null });
     }
     if (target.startsWith('https://sheets.googleapis.com/')) {
@@ -57,28 +61,21 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
     assert.equal(options.headers.authorization, `Bearer ${grant.token}`);
     assert.ok(options.headers['x-iron-gate-os-proof']);
     igCalls++;
-    const preview = process.env.IRON_GATE_SWEETFUN_CALENDAR_PREVIEW_ENABLED === 'true';
-    if (target.includes('/availability?')) {
-      const cells = Object.entries(roomIds).map(([room, roomId]) => ({
-        roomId, date: '2026-10-25',
-        state: room === '101' && inventoryMatches ? 'sold' : 'unsold',
-        saleReady: false,
-      }));
-      return Response.json({ propertyId, inventoryVersion: 7,
-        authorityEpoch: preview ? 0 : 1, cells });
-    }
-    return Response.json({ propertyId, inventoryVersion: 7,
-      authorityEpoch: preview ? 0 : 1, readOnly: preview,
-      snapshot: preview ? { capturedAt: '2026-10-21T09:52:08.770Z',
-        sourceHash: snapshotMatches ? 'f'.repeat(64) : 'e'.repeat(64) } : null,
-      nextCursor: null,
+    assert.ok(target.includes('/calendar-snapshot?'));
+    const cells = inventoryMatches ? [{ roomId: roomIds['101'],
+      date: '2026-10-25', state: 'sold' }] : [];
+    return Response.json({ propertyId, workspaceId, from: '2026-10-25',
+      to: '2026-10-26', inventoryVersion: 7,
+      authorityEpoch: 1, readOnly: false, cells,
       bookings: [{ id: '66666666-6666-4666-8666-666666666666',
         workspaceId, propertyId, status: 'confirmed', channelSyncState: 'not_required',
         guestName: 'Sample Guest',
+        version: 1, currency: 'TWD', totalCents: 179000, stayAmountsCents: [179000],
+        paymentReview: { status: 'paid', source: 'sheet_flag' },
         stays: [{ checkIn: '2026-10-25', checkOut: '2026-10-26',
           roomIds: [roomIds['101']] }] }] });
   });
-  const request = new NextRequest('https://fixture.invalid/api/v1/bookings/calendar?start=2026-10-25&end=2026-10-26', {
+  const request = new NextRequest('https://fixture.invalid/api/v1/bookings/calendar?start=2026-10-25&end=2026-10-26&properties=sweetfun', {
     headers: { cookie: `${MEMBER_COOKIE}=${createMemberSession(member)}` },
   });
   const first = await GET(request);
@@ -87,35 +84,30 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
   assert.equal(data.data_mode, 'iron_gate_booking_only');
   assert.equal(data.bookings.length, 1);
   assert.equal(data.bookings[0].guest_name, 'Sample Guest');
-  assert.equal(data.price_hidden, true);
+  assert.equal(data.properties.length, 2);
+  assert.equal(data.rooms.length, 6);
+  assert.equal(data.price_hidden, false);
+  assert.equal(data.bookings[0].price_hidden, false);
+  assert.equal(data.bookings[0].room_rate, 1790);
+  assert.equal(data.bookings[0].payment_status, 'paid');
+  assert.equal(data.bookings[0].payment_review_status, 'paid');
   assert.equal(data.source.availability_authoritative, false);
   assert.equal(sheetCalls, 0);
-  assert.equal(igCalls, 3);
+  assert.equal(igCalls, 1);
+
+  const noPriceRequest = new NextRequest('https://fixture.invalid/api/v1/bookings/calendar?start=2026-10-25&end=2026-10-26&properties=sweetfun', {
+    headers: { cookie: `${MEMBER_COOKIE}=${createMemberSession(noPriceMember)}` },
+  });
+  const noPriceResponse = await GET(noPriceRequest);
+  const noPriceData = await noPriceResponse.json();
+  assert.equal(noPriceResponse.status, 200);
+  assert.equal(noPriceData.price_hidden, true);
+  assert.equal(noPriceData.bookings[0].price_hidden, true);
+  assert.equal(noPriceData.bookings[0].room_rate, 0);
 
   inventoryMatches = false;
   const failed = await GET(request);
   assert.equal(failed.status, 503);
   assert.equal((await failed.json()).bookings, undefined);
-  assert.equal(sheetCalls, 0);
-
-  inventoryMatches = true;
-  delete process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED;
-  Object.assign(process.env, {
-    IRON_GATE_SWEETFUN_CALENDAR_PREVIEW_ENABLED: 'true',
-    IRON_GATE_SWEETFUN_SNAPSHOT_VERSION: '7',
-    IRON_GATE_SWEETFUN_SNAPSHOT_HASH: 'f'.repeat(64),
-  });
-  const previewResponse = await GET(request);
-  const preview = await previewResponse.json();
-  assert.equal(previewResponse.status, 200);
-  assert.equal(preview.data_mode, 'iron_gate_snapshot_preview');
-  assert.equal(preview.source.private_snapshot_at, '2026-10-21T09:52:08.770Z');
-  assert.equal(preview.source.automatic_sync, false);
-  assert.equal(preview.bookings[0].snapshot_only, true);
-  assert.equal(sheetCalls, 0);
-  snapshotMatches = false;
-  const drift = await GET(request);
-  assert.equal(drift.status, 503);
-  assert.equal((await drift.json()).bookings, undefined);
   assert.equal(sheetCalls, 0);
 });

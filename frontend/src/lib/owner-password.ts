@@ -34,10 +34,23 @@ export function passwordProblem(password: unknown): string | null {
   if (!password.trim() || /^(.)\1+$/.test(password) || ["password1234", "123456789012"].includes(password.toLowerCase())) return "請使用較不容易猜到的密碼或長句。";
   return null;
 }
-export async function createPasswordCredential(password: string): Promise<OwnerCredential> {
-  if (passwordProblem(password)) throw new Error("PASSWORD_INVALID");
+export function customerPasswordProblem(password: unknown): string | null {
+  if (typeof password !== "string" || password.length < 8 || password.length > 128) return "請使用 8～128 字元的密碼，包含英文字母、數字和特殊符號。";
+  if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password) || !/[\x21-\x2F\x3A-\x40\x5B-\x60\x7B-\x7E]/.test(password))
+    return "請使用 8～128 字元的密碼，包含英文字母、數字和特殊符號。";
+  return null;
+}
+async function hashPasswordCredential(password: string): Promise<OwnerCredential> {
   const salt = randomBytes(16).toString("hex");
   return { schema: 1, kind: "password", salt, hash: (await derive(password, salt)).toString("hex"), revision: randomBytes(32).toString("hex") };
+}
+export async function createPasswordCredential(password: string): Promise<OwnerCredential> {
+  if (passwordProblem(password)) throw new Error("PASSWORD_INVALID");
+  return hashPasswordCredential(password);
+}
+export async function createCustomerPasswordCredential(password: string): Promise<OwnerCredential> {
+  if (customerPasswordProblem(password)) throw new Error("PASSWORD_INVALID");
+  return hashPasswordCredential(password);
 }
 export async function changeOwnerPassword(store: OwnerCredentialStore, cookie: string | undefined, input: { currentPassword?: unknown; password?: unknown; confirmPassword?: unknown }) {
   const previous = await store.read();
@@ -67,6 +80,19 @@ export class RedisOwnerCredentialStore implements OwnerCredentialStore {
     return body.result;
   }
   async read() { return parseCredential(await this.command(["GET", `${this.prefix}:credential`])); }
+  async readRecovery(): Promise<string | null> {
+    const value = await this.command(["GET", `${this.prefix}:email-recovery`]);
+    if (value !== null && typeof value !== "string") throw new Error("OWNER_STORE_UNAVAILABLE");
+    return value;
+  }
+  async saveRecovery(value: string, seconds: number): Promise<void> {
+    if (await this.command(["SET", `${this.prefix}:email-recovery`, value, "EX", seconds]) !== "OK")
+      throw new Error("OWNER_STORE_UNAVAILABLE");
+  }
+  async replaceForRecovery(expectedCredential: string, expectedRecovery: string, next: OwnerCredential): Promise<boolean> {
+    return await this.command(["EVAL", "if redis.call('GET',KEYS[1])~=ARGV[1] or redis.call('GET',KEYS[2])~=ARGV[2] then return 0 end; redis.call('SET',KEYS[1],ARGV[3]); redis.call('DEL',KEYS[2]); return 1", 2,
+      `${this.prefix}:credential`, `${this.prefix}:email-recovery`, expectedCredential, expectedRecovery, JSON.stringify(next)]) === 1;
+  }
   async consumeAttempt() {
     const count = await this.command(["EVAL", "local n=redis.call('INCR',KEYS[1]); if n==1 then redis.call('EXPIRE',KEYS[1],900) end; return n", 1, `${this.prefix}:attempts`]);
     return typeof count === "number" && count <= 20;

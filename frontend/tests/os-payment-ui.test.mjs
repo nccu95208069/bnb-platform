@@ -4,15 +4,35 @@ import {OsPaymentPanel} from '../src/components/payments/os-payment-panel.tsx';
 import {mount} from './helpers/customer-dom.mjs';
 const check={property_id:'sweetfun',order_id:'SF-test',source_version:'v1',booking_version:'booking-v1',total:4000,rooms:['101','102'],nights:2,source_paid:false,finance_received:0,ledger:{version:0,receipts:[]},can_record:true,sheet_write_enabled:true,payment_status:'unknown',payment_accounts:[{id:'bank',property_id:'sweetfun',method:'bank_transfer',last_digits:'12345',name:'測試銀行'}]};
 const props={property:'sweetfun',order:'SF-test',canRecord:true,onChange:()=>{}};
-test('one entry button, manual receipt uses selected finance account and only reports verified main Sheet success',async t=>{
+test('owner payment actions, manual receipt uses selected finance account and only reports verified main Sheet success',async t=>{
  const posts=[];t.mock.method(globalThis,'fetch',async(url,options={})=>{if(options.method==='POST'&&JSON.parse(options.body).action==='check_sheet_access')return Response.json({verified:true});if(options.method==='POST'){posts.push(JSON.parse(options.body));return Response.json({verified:true,sheet_verified:true});}return Response.json(check);});
- const ui=await mount(t,OsPaymentPanel,props);assert.ok(ui.button('登記收款'));assert.equal(ui.button('登記訂金'),undefined);await ui.click(ui.button('登記收款'));
+ const ui=await mount(t,OsPaymentPanel,props);assert.ok(ui.button('登記收款'));assert.ok(ui.button('登記房費已收'));await ui.click(ui.button('登記收款'));
  await ui.fill(ui.control('本次收到多少（元）'),'500');await ui.fill(ui.control('收款帳戶'),'bank');await ui.click(ui.button('確認並同步主表'));
  assert.equal(posts.length,1);assert.equal(posts[0].amount,500);assert.equal(posts[0].payment_account_id,'bank');assert.equal(posts[0].status_only,false);assert.match(document.body.textContent,/main sheet 已同步確認/);
 });
 test('direct paid mode sends zero amount and does not require bank/payment fields',async t=>{
  const posts=[];t.mock.method(globalThis,'fetch',async(url,options={})=>{if(options.method==='POST'&&JSON.parse(options.body).action==='check_sheet_access')return Response.json({verified:true});if(options.method==='POST'){posts.push(JSON.parse(options.body));return Response.json({verified:true,sheet_verified:true});}return Response.json(check);});
- const ui=await mount(t,OsPaymentPanel,props);await ui.click(ui.button('登記收款'));await ui.click(ui.control('直接標示已付清'));assert.equal(ui.control('本次收到多少（元）'),undefined);await ui.click(ui.button('確認並同步主表'));assert.equal(posts.length,1);assert.equal(posts[0].amount,0);assert.equal(posts[0].status_only,true);assert.equal(posts[0].payment_account_id,undefined);
+ const ui=await mount(t,OsPaymentPanel,props);await ui.click(ui.button('登記房費已收'));assert.equal(ui.control('本次收到多少（元）'),undefined);await ui.click(ui.button('確認並同步主表'));assert.equal(posts.length,1);assert.equal(posts[0].amount,0);assert.equal(posts[0].status_only,true);assert.equal(posts[0].payment_account_id,undefined);
+});
+test('Iron Gate payment action confirms the exact source booking and avoids Sheet access',async t=>{
+ const id='IG-66666666-6666-4666-8666-666666666666',posts=[],gets=[];
+ t.mock.method(globalThis,'fetch',async(url,options={})=>{
+  if(options.method==='POST'){
+   const input=JSON.parse(options.body);posts.push(input);
+   assert.notEqual(input.action,'check_sheet_access');
+   return Response.json({verified:true});
+  }
+  gets.push(String(url));
+  return Response.json({...check,order_id:id,sheet_write_enabled:false});
+ });
+ const ui=await mount(t,OsPaymentPanel,{...props,order:id,sourceBookingId:id});
+ assert.match(gets[0],/ig_booking=IG-/);
+ await ui.click(ui.button('登記房費已收'));
+ await ui.click(ui.button('確認登記'));
+ assert.equal(posts.length,1);
+ assert.equal(posts[0].ig_booking_id,id);
+ assert.equal(posts[0].status_only,true);
+ assert.match(document.body.textContent,/付款已儲存並確認/);
 });
 test('failed save locks original payload and retries without a new request ID',async t=>{
  const posts=[];t.mock.method(globalThis,'fetch',async(url,options={})=>{if(options.method==='POST'&&JSON.parse(options.body).action==='check_sheet_access')return Response.json({verified:true});if(options.method==='POST'){posts.push(JSON.parse(options.body));return posts.length===1?Response.json({detail:'OS 已保存，主表尚未確認同步。'},{status:503}):Response.json({verified:true,sheet_verified:true});}return Response.json(check);});
