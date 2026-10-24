@@ -171,12 +171,27 @@ was subsequently deployed to production as `dpl_6J1AFcGueU9MQgndtaiz7UJjUsfJ`;
 Vercel readback confirmed `READY` and alias `sweetfun-os.vercel.app`. A second
 environment metadata readback found no `OFFLAND` variables among 76 entries,
 so the new reader remains closed and the live Sheet remains the Offland
-calendar source. No database load, live writer change, or production authority
-switch is claimed. The Stage 1 and Stage 3 gates remain open.
+calendar source. No live writer change or production authority switch is
+claimed. The Stage 1 and Stage 3 gates remain open.
+
+At approximately 02:42 Taipei time, the hash-bound initial snapshot was
+imported into the dedicated Supabase project using a short-lived restricted
+`iron_gate_shadow_import` login and the reviewed idempotent seed script.
+Independent database readback found the separate OFFLAND property at epoch 0,
+version 1, `readOnly=true`, 270 bookings, 270 source links, 280 occupied villa
+nights, zero source grants, zero receipts and zero issued credentials. Its
+stored source hash matches the private snapshot. The temporary login was
+returned to `NOLOGIN`, password cleared, expiry set to year 2000, runtime
+membership revoked, and its one idle backend terminated; readback found zero
+remaining connections. This is a historical shadow only. Any later Sheet
+change requires a reviewed delta and a new final frozen snapshot before
+authority activation.
 
 A source-only GCO release package was exported from pushed commit
-`ec69e50347a7cb00dfb4b20ec724f330d19c9378` (155 files; SHA-256
-`e9149723bc54da7bedcc16d50698424903c2952cb1ec497deb40b68d32a7d507`).
+`1283d1184334835c7670297eb0caf9c6156423af` (155 files; SHA-256
+`abf0ff0c485a35b30611dec88971d4b31c73abd4409a8557c801ff14837e81c7`).
+This candidate refuses the Offland Gmail Iron Gate route unless the Offland
+LINE order-write pause is also enabled; five targeted synthetic checks pass.
 No Cloud Build or Cloud Run candidate exists yet because the connected account
 still lacks Cloud Run project access.
 
