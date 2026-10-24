@@ -134,8 +134,21 @@ zero-traffic candidate cannot be inspected from the connected Google account:
 the Google Cloud Console reports missing access to `gmail-order-handler` in
 `essential-truth-478816-v1`. No GCP CLI credentials are available locally.
 
+The live Sheet's linked Apps Script project currently lists four installed
+triggers: `onEditInstallable`, `onChangeInstallable`, `auditOnOpenMenu`, and
+`auditDaily`. They are shown as owned by another user; `onChangeInstallable`
+last ran at 00:05 Taipei time on 2026-10-25 with a reported 100% error rate.
+The two edit/change triggers remain a cutover fence until their owner confirms
+their runtime behavior and can pause them. The daily audit's read-only nature
+must also be checked against the live script, not inferred from its name.
+
 Code for the Offland audit/shadow candidate, OS read path and Gmail/LINE
-writer fences has been prepared on feature branches. These are closed by
-default, and no database load, live writer change, deployment, or production
-authority switch is claimed here. The Stage 1 and Stage 3 gates remain open;
-the live Sheet is still the Offland calendar source.
+writer fences has been published as draft PRs
+[`bnb-platform#78`](https://github.com/nccu95208069/bnb-platform/pull/78) and
+[`gmail-check-order#97`](https://github.com/nccu95208069/gmail-check-order/pull/97).
+The OS candidate is READY in a protected Vercel preview (`dpl_78kULw7XxrQxxEbVMyaRqD8CV5KX`);
+its Offland flag is absent and defaults closed. The production alias remains
+on `dpl_6tdddv9FWVShckyVDPtCTFUvmuwr`. No database load, live writer change,
+production deployment, or production authority switch is claimed. The Stage
+1 and Stage 3 gates remain open; the live Sheet is still the Offland calendar
+source.
