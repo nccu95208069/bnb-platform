@@ -62,6 +62,7 @@ export function manualError(error: unknown, key?: string) {
       code.includes('NOT_READY') || code.includes('READ_ONLY') ||
       code.includes('REQUIRES') || code === 'REFUND_EXCEEDS_RECEIVED' ||
       code === 'PAYMENT_EVENT_LIMIT' || code === 'PAYMENT_EVENT_EXISTS' ||
+      code === 'PAYMENT_EVIDENCE_EXISTS' ||
       code === 'IDEMPOTENCY_CONFLICT' ? 409 :
     code === 'BOOKING_NOT_FOUND' || code === 'REQUEST_NOT_FOUND' ? 404 : 503;
   // Iron Gate errors use stable codes; never return guest or provider payloads.

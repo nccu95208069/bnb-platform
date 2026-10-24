@@ -91,6 +91,10 @@ test('manual direct receipts and refunds use Iron Gate exactly once and read bac
   await assert.rejects(recordManualPayment(owner, c, created.bookingId,
     { ...receivedInput, amountCents: 41000 }, receivedKey, send),
   /IDEMPOTENCY_CONFLICT/);
+  await assert.rejects(recordManualPayment(owner, c, created.bookingId,
+    { ...receivedInput, expectedBookingVersion: 2, amountCents: 1000,
+      evidenceRef: 'SYNTHETIC BANK RECEIPT 1' }, key(), send),
+  /PAYMENT_EVIDENCE_EXISTS/);
   assert.equal((await manualPaymentRequestResult(owner, c, receivedKey, send)).paymentEventId,
     receivedKey);
   await assert.rejects(recordManualPayment(owner, c, created.bookingId, {

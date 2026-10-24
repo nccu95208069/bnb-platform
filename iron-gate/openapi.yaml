@@ -154,7 +154,7 @@ components:
         kind: { type: string, enum: [received, refunded] }
         amountCents: { type: integer, minimum: 1 }
         currency: { type: string, enum: [TWD] }
-        evidenceRef: { type: string, minLength: 1, maxLength: 256 }
+        evidenceRef: { type: string, minLength: 1, maxLength: 256, description: Unique for the same booking and event kind after case and Unicode normalization. }
         occurredAt: { type: string, format: date-time }
     PaymentReceipt:
       type: object

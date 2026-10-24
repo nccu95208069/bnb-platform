@@ -10,7 +10,7 @@
 - Iron Gate OS 建立 OwlNest 館訂單時要求 readback 能力、grant 及覆蓋房晚的庫存觀測窗口。改房／改期要求前次同步已驗證，並 fence 新舊房晚。工作器先關閉且回讀新房晚，再開放舊房晚；任一步未知則保留 fence 供人工核對。
 - 日曆和詳情顯示來源、訂單版本、房況同步及來源待核狀態。水芳仍沿用既有唯讀來源標示；只有獨立手動入口可寫。新 Iron Gate 直訂不套用既有 OS 收款覆蓋，也不提供舊 OS 收款面板；獨立的 Iron Gate 收付款入口預設關閉。既有進口訂單的付款顯示和通知流程維持原版本。
 - 無價格權限的日曆投影會在 Iron Gate、OS 轉換及最終權限投影遮蔽 OTA／OwlNest 訂單別名。來源事件若使用不同事件鍵但帶同平台同 OTA 單號，會保留房晚 fence 並停在來源待核，不再建立第二張確認單。瀏覽器會在提交前持久保存原請求鍵，重載後仍提示查詢；伺服器 5xx 不視為確定失敗。確認成功或明確拒絕後才清除鍵。
-- 新直訂收付款有另一個預設關閉的入口：需 `IRON_GATE_SWEETFUN_MANUAL_PAYMENTS_ENABLED=true` 與獨立的 `IRON_GATE_SWEETFUN_MANUAL_PAYMENT_GRANT`（同館別／工作區，僅 `booking:read`、`payment:write`、`money` 範圍）。Owner／Admin／God 可在訂單詳情登記收款或退款，證據編號與時間寫入 Iron Gate append-only 事件；後端防重、版本及退款上限檢查後，OS 讀回核對。瀏覽器保存請求鍵供斷線後查詢。此流程不寫舊 OS 付款帳本，也不自動移轉真實銀行款項。
+- 新直訂收付款有另一個預設關閉的入口：需 `IRON_GATE_SWEETFUN_MANUAL_PAYMENTS_ENABLED=true` 與獨立的 `IRON_GATE_SWEETFUN_MANUAL_PAYMENT_GRANT`（同館別／工作區，僅 `booking:read`、`payment:write`、`money` 範圍）。Owner／Admin／God 可在訂單詳情登記收款或退款，唯一憑證編號與時間寫入 Iron Gate append-only 事件；後端防重、同單同類憑證重複、版本及退款上限檢查後，OS 讀回核對。瀏覽器保存請求鍵供斷線後查詢。此流程不寫舊 OS 付款帳本，也不自動移轉真實銀行款項。
 - 現有財務首頁和訂單收款摘要仍讀 Sheet／OS 舊帳本；Iron Gate 日曆啟用時，水芳頁面明確提示新直訂及其收付款未計入合計。不能把這些合計當完整財務數字或重複在舊帳本登記同一款項。
 
 ## 尚未開啟的正式流程

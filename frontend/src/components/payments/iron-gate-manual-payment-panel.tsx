@@ -17,6 +17,7 @@ const labels: Record<string, string> = {
   VERSION_CONFLICT: '訂單或收款紀錄已變更，請重新載入再確認。',
   REFUND_EXCEEDS_RECEIVED: '退款金額超過這張訂單已登記的淨收款。',
   PAYMENT_EVENT_LIMIT: '這張訂單的收付款紀錄已達上限，請聯絡管理員。',
+  PAYMENT_EVIDENCE_EXISTS: '這張訂單已登記相同的收付憑證編號，請先核對原紀錄。',
   MANUAL_PENDING_REQUEST: '有一筆收付款結果尚未確認，請先查詢原請求。',
   MANUAL_PENDING_REQUEST_INVALID: '瀏覽器保存的請求資料無法辨識，請先人工核對。',
   MANUAL_STORAGE_UNAVAILABLE: '瀏覽器無法安全保存請求鍵，暫時不能登記。',
@@ -166,7 +167,7 @@ export function IronGateManualPaymentPanel({ bookingId, canRecord, onChange }: {
           <div className="space-y-1"><Label htmlFor="iron-gate-payment-at">實際收付時間（台灣時間）</Label>
             <Input id="iron-gate-payment-at" required type="datetime-local" value={occurred}
               onChange={event => setOccurred(event.target.value)} /></div>
-          <div className="space-y-1"><Label htmlFor="iron-gate-payment-evidence">憑證編號或說明</Label>
+          <div className="space-y-1"><Label htmlFor="iron-gate-payment-evidence">唯一收付憑證編號</Label>
             <Input id="iron-gate-payment-evidence" required maxLength={256} value={evidence}
               onChange={event => setEvidence(event.target.value)} /></div>
         </fieldset>

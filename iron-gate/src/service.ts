@@ -851,7 +851,8 @@ export class IronGateService {
     if (input.kind !== "received" && input.kind !== "refunded") reject("INVALID_INPUT");
     if (!Number.isSafeInteger(input.amountCents) || input.amountCents <= 0) reject("INVALID_AMOUNT");
     if (input.currency !== "TWD") reject("INVALID_CURRENCY");
-    nonempty(input.evidenceRef, 256);
+    const evidence = nonempty(input.evidenceRef, 256).trim().normalize("NFKC").toLowerCase();
+    if (!evidence) reject("INVALID_INPUT");
     if (timestamp(input.occurredAt) > Date.now()) reject("FUTURE_RECEIPT");
     const hash = await digest({ action: "payment:write", bookingId, input });
     return this.repository.transact(propertyId, (state, tx) => {
@@ -865,6 +866,9 @@ export class IronGateService {
       if (booking.version !== input.expectedBookingVersion) reject("VERSION_CONFLICT", 409);
       if (state.bookings.some((item) => (item.paymentEvents ?? []).some((event) => event.id === input.eventId)))
         reject("PAYMENT_EVENT_EXISTS", 409);
+      if ((booking.paymentEvents ?? []).some((event) => event.kind === input.kind &&
+        event.evidenceRef.trim().normalize("NFKC").toLowerCase() === evidence))
+        reject("PAYMENT_EVIDENCE_EXISTS", 409);
       if (input.kind === "refunded" && input.amountCents > netReceived(booking))
         reject("REFUND_EXCEEDS_RECEIVED", 409);
       if ((booking.paymentEvents ?? []).length >= 500) reject("PAYMENT_EVENT_LIMIT", 409);
