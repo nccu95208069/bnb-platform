@@ -104,6 +104,21 @@ test('calendar reads signed booking plus inventory, preserving blocked room nigh
   assert.equal(result.bookings[1].source_conflict, true);
 });
 
+test('calendar preserves occupancy when an older booking omits channel metadata', async () => {
+  const c = config();
+  const data = fixture();
+  delete data.page.bookings[0].channelSyncState;
+  const result = await readSweetfunIronGateCalendar('2026-10-25', '2026-10-26',
+    principal, c, sender(data, c));
+  assert.equal(result.soldRoomNights, 1);
+  assert.equal(result.bookings[0].channel_sync_state, undefined);
+  data.page.bookings[0].channelSyncState = 'unrecognized';
+  const unknown = await readSweetfunIronGateCalendar('2026-10-25', '2026-10-26',
+    principal, c, sender(data, c));
+  assert.equal(unknown.soldRoomNights, 1);
+  assert.equal(unknown.bookings[0].channel_sync_state, undefined);
+});
+
 test('calendar rejects inventory that omits a confirmed sold night', async () => {
   const c = config();
   await assert.rejects(readSweetfunIronGateCalendar('2026-10-25', '2026-10-26',

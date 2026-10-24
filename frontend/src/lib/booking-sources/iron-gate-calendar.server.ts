@@ -201,7 +201,9 @@ function calendarBooking(booking: Record<string, unknown>,
     notes: null, payments: [], audit_log: [], extra_guest_count: 0,
     extra_bed_count: 0, pet_count: 0, baby_supplies: [], service_note: null,
     source_read_only: true, snapshot_only: snapshotOnly,
-    channel_sync_state: booking.channelSyncState as CalendarBooking['channel_sync_state'],
+    channel_sync_state: ['not_required', 'action_required', 'pending', 'verified',
+      'review_required'].includes(String(booking.channelSyncState))
+      ? booking.channelSyncState as CalendarBooking['channel_sync_state'] : undefined,
     channel_pending_nights: Array.isArray(booking.lineChannelPending)
       ? booking.lineChannelPending.length : 0,
     requirements_known: false, payment_unconfirmed: true,
@@ -271,8 +273,6 @@ export async function readSweetfunIronGateCalendar(start: string, end: string,
         item.propertyId !== config.grant.propertyId ||
         item.workspaceId !== config.grant.workspaceId ||
         !['confirmed', 'cancelled', 'held'].includes(String(item.status)) ||
-        !['not_required', 'action_required', 'pending', 'verified', 'review_required']
-          .includes(String(item.channelSyncState)) ||
         !Array.isArray(item.stays) || item.stays.length > 32 ||
         seenBookings.has(String(item.id)))
         throw Error('IRON_GATE_CALENDAR_INVALID_BOOKING');
