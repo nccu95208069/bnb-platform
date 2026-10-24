@@ -227,6 +227,48 @@ test('lost sync response is recoverable and does not dispatch another close', as
   assert.equal(state.bookings[0].channelSyncState, 'pending');
 });
 
+test('fast OwlNest review is reported as review, not an unknown sync result', async () => {
+  const { repository, service, send } = setup('owlnest'), c = config();
+  const created = await createManualBooking(owner, c, {
+    expectedInventoryVersion: 1, stays: stay(), guestName: 'Synthetic Guest',
+    contact: null, notes: null, totalCents: 100000, bookedAt: null,
+  }, key(), send);
+  let writes = 0;
+  const worker = createChannelWorker({ repository, service, provider: {
+    observe: async (_propertyId, cells) => ({ observedAt: new Date().toISOString(),
+      providerVersion: key(), cells: cells.map(cell => ({ roomId: cell.roomId,
+        date: cell.date, count: 0, isLock: true })) }),
+    setNight: async () => { writes++; },
+  }, propertyConfigs: {}, getAuthorization: async () => '',
+  onReview: async () => {} });
+  const channel = { clientId: 'synthetic-channel', subjectId: 'synthetic-worker',
+    origin: 'channel', workspaceId, propertyIds: [propertyId], authorityEpoch: 1,
+    actions: ['channel:verify'], fields: [], grantId: channelGrantId };
+  const fastReview = async (url, init) => {
+    const response = await send(url, init);
+    if (init.method === 'POST' && new URL(url).pathname.endsWith('/sync-room-status')) {
+      assert.equal((await worker.runOne(channel, propertyId)).state, 'review_required');
+      await recordManualPayment(owner, c, created.bookingId, {
+        expectedBookingVersion: created.bookingVersion, kind: 'received',
+        amountCents: 1000, evidenceRef: 'synthetic payment during review',
+        occurredAt: '2026-10-24T00:00:00.000Z',
+      }, key(), send);
+    }
+    return response;
+  };
+  const result = await startManualRoomSync(owner, c, created.bookingId, {
+    expectedBookingVersion: created.bookingVersion,
+    expectedInventoryVersion: created.inventoryVersion,
+  }, key(), fastReview);
+  assert.equal(result.operationState, 'review_required');
+  assert.equal(result.channelSyncState, 'review_required');
+  assert.equal(result.bookingVersion, created.bookingVersion + 1);
+  assert.equal(writes, 0);
+  const state = await repository.read(propertyId);
+  assert.equal(state.operations.length, 1);
+  assert.equal(state.fences.length, 1);
+});
+
 test('unobserved stock is a definitive conflict, while a lost write stays unknown', async () => {
   const rejected = manualError(Error('CHANNEL_STOCK_NOT_OBSERVED'), key());
   assert.equal(rejected.status, 409);

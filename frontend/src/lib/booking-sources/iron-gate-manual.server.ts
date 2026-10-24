@@ -307,20 +307,25 @@ export async function startManualRoomSync(principal: Principal, config: ManualCo
   const result = await callIronGate(config, principal, 'POST',
     `${bookingPath(config, bookingId)}/sync-room-status`,
     { expectedBookingVersion, expectedInventoryVersion }, requestKey, send);
-  if (result.operationState !== 'sync_pending' || !UUID.test(String(result.operationKey)))
+  if (result.operationState !== 'sync_pending' ||
+    result.bookingVersion !== before.version ||
+    !UUID.test(String(result.operationKey)))
     throw Error('MANUAL_READBACK_MISMATCH');
   const after = await readAfterWrite(config, principal, bookingId, send);
   ensureBooking(after, config, bookingId);
-  const pending = after.version === before.version && after.channelSyncState === 'pending';
-  const verified = after.version === Number(before.version) + 1 &&
+  const pending = Number(after.version) >= Number(before.version) &&
+    after.channelSyncState === 'pending';
+  const verified = Number(after.version) > Number(before.version) &&
     after.channelSyncState === 'verified';
-  if (!(pending || verified) || after.status !== 'confirmed' ||
+  const reviewRequired = Number(after.version) >= Number(before.version) &&
+    after.channelSyncState === 'review_required';
+  if (!(pending || verified || reviewRequired) || after.status !== 'confirmed' ||
     after.channelOperationKey !== result.operationKey ||
     !sameStays(after.stays, before.stays as Stay[]))
     throw Error('MANUAL_READBACK_MISMATCH');
   return { bookingId, bookingVersion: after.version,
     inventoryVersion: result.inventoryVersion,
-    operationState: after.channelSyncState === 'verified' ? 'sync_verified' : result.operationState,
+    operationState: verified ? 'sync_verified' : reviewRequired ? 'review_required' : result.operationState,
     channelSyncState: after.channelSyncState, requestKey };
 }
 

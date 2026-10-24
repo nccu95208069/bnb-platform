@@ -212,7 +212,9 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
       clearPendingManualRequest(window.localStorage, key);
       setResult(sourceNameOnly ? "旅客姓名已在 Sweetfun OS 更正並讀回確認；來源差異待核對。" :
         mode === "sync" ? value.channelSyncState === "verified" ?
-          "OwlNest 房況已回讀驗證。" : "已開始同步房況；OwlNest 回讀驗證前仍顯示同步中。" :
+          "OwlNest 房況已回讀驗證。" : value.channelSyncState === "review_required" ?
+          "房況同步需要人工核對；請勿重複按同步，先確認 OwlNest 房況。" :
+          "已開始同步房況；OwlNest 回讀驗證前仍顯示同步中。" :
         value.operationState === "awaiting_manual_sync" ?
         "訂單已在 Iron Gate 建立並讀回；OwlNest 尚未開關房。請在訂單詳情按「同步房況」。" :
         value.operationState === "sync_pending" ?
