@@ -183,9 +183,9 @@ export function currentPeriod(anchorDate: string, view: CalendarView, locale="zh
 }
 
 export function fetchPeriod(anchorDate: string, view: CalendarView,
-  fixedSnapshotPreview = false): CalendarPeriod {
+  boundedMonth = false): CalendarPeriod {
   if (view === "month") {
-    if (fixedSnapshotPreview) return monthCalendarPeriod(startOfMonth(anchorDate));
+    if (boundedMonth) return monthCalendarPeriod(startOfMonth(anchorDate));
     return {
       start: "2025-01-01",
       end: "2028-01-01",

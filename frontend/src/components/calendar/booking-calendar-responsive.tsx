@@ -87,6 +87,7 @@ const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 const EDIT_STORAGE_KEY = "sweetfun-os-demo-edits-v4";
 const MONTHS = monthStarts("2025-01-01", 36);
 const FIXED_PREVIEW = process.env.NEXT_PUBLIC_IRON_GATE_FIXED_PREVIEW === "true";
+const BOUNDED_MONTH = FIXED_PREVIEW || !DEMO_MODE;
 
 type OrderPatch = {
   guest_name?: string;
@@ -246,11 +247,12 @@ const uiLocale = useIntlLocale();
   const handledNavigationRequest = useRef(navigationRequest?.id ?? 0);
 
   const requestPeriod = useMemo(
-    () => fetchPeriod(anchorDate, query.trim() ? "month" : view, FIXED_PREVIEW),
+    () => fetchPeriod(anchorDate, query.trim() ? "month" : view, BOUNDED_MONTH),
     [anchorDate, view, query],
   );
   const previewMonth = startOfMonth(anchorDate);
-  const monthsToShow = useMemo(() => FIXED_PREVIEW ? [previewMonth] : MONTHS,
+  // A live calendar must never render unfetched months as vacant rooms.
+  const monthsToShow = useMemo(() => BOUNDED_MONTH ? [previewMonth] : MONTHS,
     [previewMonth]);
   const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess(); }, [setSelectedId, initializeAccess]);
   const { data, loading, refreshing, error, requestFailed, lastLoadedAt } = useCalendarData({
@@ -731,7 +733,7 @@ const uiLocale = useIntlLocale();
             onChange={(event: ChangeEvent<HTMLInputElement>) =>
               setQuery(event.target.value)
             }
-            placeholder={uiText("搜尋客人、房號、需求或訂單編號")}
+            placeholder={uiText(BOUNDED_MONTH ? "搜尋本月客人、房號、需求或訂單編號" : "搜尋客人、房號、需求或訂單編號")}
             className="h-10 flex-1 border-0 bg-transparent px-1 text-base shadow-none focus-visible:ring-0"
           />
           <Button
@@ -826,7 +828,7 @@ const uiLocale = useIntlLocale();
                 onChange={(event: ChangeEvent<HTMLInputElement>) =>
                   setQuery(event.target.value)
                 }
-                placeholder={uiText("搜尋客人、房號、需求或訂單編號")}
+                placeholder={uiText(BOUNDED_MONTH ? "搜尋本月客人、房號、需求或訂單編號" : "搜尋客人、房號、需求或訂單編號")}
                 className="bg-background pl-9"
               />
             </div>
@@ -927,6 +929,7 @@ const uiLocale = useIntlLocale();
           {view === "month" && (
             <div className="calendar-month-mobile-viewport -mx-2 md:mx-0">
               <MonthScroller
+                key={BOUNDED_MONTH ? previewMonth : "all-months"}
                 months={monthsToShow}
                 targetMonth={monthTarget}
                 targetDate={anchorDate}
