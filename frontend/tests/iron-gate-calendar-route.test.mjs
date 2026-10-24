@@ -73,7 +73,8 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
         sourceHash: snapshotMatches ? 'f'.repeat(64) : 'e'.repeat(64) } : null,
       nextCursor: null,
       bookings: [{ id: '66666666-6666-4666-8666-666666666666',
-        workspaceId, propertyId, status: 'confirmed', guestName: 'Sample Guest',
+        workspaceId, propertyId, status: 'confirmed', channelSyncState: 'not_required',
+        guestName: 'Sample Guest',
         stays: [{ checkIn: '2026-10-25', checkOut: '2026-10-26',
           roomIds: [roomIds['101']] }] }] });
   });
