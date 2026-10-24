@@ -6,6 +6,7 @@ import type {
   TransactionContext, EventType,
 } from "./types.ts";
 import { GateError } from "./errors.ts";
+import { createBusinessReport, type BusinessReport } from "./business-report.ts";
 export { GateError } from "./errors.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -1304,6 +1305,28 @@ export class IronGateService {
             { totalCents: booking.totalCents, currency: booking.currency,
               stayAmountsCents: calendarStayAmounts(booking) } : {}) };
       }), cells };
+  }
+
+  async businessReport(principal: Principal, propertyId: string): Promise<BusinessReport> {
+    uuid(propertyId);
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    authorize(principal, state, "booking:aggregate");
+    if (principal.origin !== "service" || principal.fields.length !== 0)
+      reject("FORBIDDEN", 403);
+    // Recheck after authentication: authority may have moved between the two reads.
+    if (principal.authorityEpoch !== state.authorityEpoch || state.authorityEpoch < 1)
+      reject("AUTHORITY_MOVED", 409);
+    if (state.readOnly !== false) reject("PROPERTY_READ_ONLY", 409);
+    const prices = new Map<string, NightPrice[]>();
+    for (const booking of state.bookings) {
+      if (booking.status !== "confirmed") continue;
+      const cells = nightsFor(booking.stays, state.roomIds);
+      const exact = exactNightPrices(booking.roomNightPrices, cells, booking.totalCents);
+      if (exact) prices.set(booking.id, exact);
+    }
+    return createBusinessReport(state, (booking) => calendarPaymentStatus(booking).status === "paid",
+      undefined, prices);
   }
 
   async occupancySummary(principal: Principal, propertyId: string, from: string,

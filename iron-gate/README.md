@@ -1,5 +1,43 @@
 # Iron Gate
 
+## Daily business reporting
+
+`GET /v1/properties/:propertyId/business-report` returns the complete dashboard
+`BusinessPulseData` object at the top level. It uses one current property snapshot
+and every canonical booking, including recent orders whose stays are beyond the
+calendar snapshot window. Only `confirmed` bookings contribute to sales and room
+nights. Daily order totals use verified source booking dates in `Asia/Taipei`;
+`createdAt` and import timestamps are never substitutes.
+
+This endpoint requires a dedicated opaque credential with `origin: "service"`,
+`actions: ["booking:aggregate"]`, `fields: []`, the intended property/workspace, and
+its current positive authority epoch. Existing `booking:read` credentials cannot
+access it. The service rechecks the epoch after authentication and refuses a
+shadow/read-only property. It never writes booking, inventory, payment or audit
+state. Credential issuance retains the existing maximum 30-day expiry; operators
+must rotate the reporting credential before expiry using the administrative
+credential directory. Runtime credentials cannot issue or renew credentials.
+Use the bounded [issuance and rotation runbook](REPORTING_CREDENTIAL_ROTATION.md)
+and `scripts/reporting-credential.mjs` for repeatable operator maintenance.
+
+The response contains no canonical property, workspace, booking or room IDs, no
+guest names/contact/notes, and no source aliases or OTA references. Optional
+guest labels are the constant `旅客`; legacy checkout identifiers are omitted.
+Public room numbers are recovered only from consistent imported evidence, with
+neutral room labels when evidence is absent. Arbitrary platform text is mapped to
+`其他`; only a fixed set of public channel names is exposed.
+
+Amounts are TWD booking revenue, not cash received. Verified explicit room-night
+prices from current LINE bookings take precedence. Imported source room prices are used
+only when they still reconcile to the authoritative total; otherwise revenue is
+allocated across room nights with an explicit quality warning. Missing dates or
+prices remain unknown. `meta` includes `inventoryVersion`, `authorityEpoch`,
+quality counts and `warnings`; `sourceUpdatedAt` is null because the property
+state does not expose a trustworthy last-source-update timestamp. `saleReady` is
+always false: confirmed-booking occupancy is not a promise of sellable stock.
+Responses are `private, no-store` and should be fetched by the dashboard server,
+with the reporting token kept out of browser code and logs.
+
 Iron Gate 是獨立的訂單與房晚權威服務。此目錄目前提供可執行的合成 API、PostgreSQL 儲存、館別隔離、憑證與唯讀 OS 影子比對。**已有受保護的 Preview 與固定 503 的 Production 空殼；尚未接管任何真實訂單。** 產品和 API 契約分別見 [Iron Gate v1](IRON_GATE_V1.md)、[API v1](API_V1.md) 與 [OpenAPI](openapi.yaml)。
 
 Sean 自用 OS、民宿客戶 OS 工作區與 Iron Gate 的目前／目標資料責任，見 [2026-10-20 業主對齊紀錄](../docs/work-handoff/SEAN_SAAS_IRON_GATE_DATA_BOUNDARY_2026-10-20.md)。

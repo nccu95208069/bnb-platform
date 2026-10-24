@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-const actions = new Set(["booking:read", "booking:create", "booking:amend", "booking:cancel", "booking:manage_all", "inventory:write",
+const actions = new Set(["booking:read", "booking:aggregate", "booking:create", "booking:amend", "booking:cancel", "booking:manage_all", "inventory:write",
   "hold:write", "payment:write", "finance:ledger", "event:read", "occupancy:aggregate",
   "housekeeping:read", "source:write", "channel:verify"]);
 const fields = new Set(["guest_name", "contact", "notes", "money", "payment_status"]);
@@ -19,6 +19,10 @@ export function validateGrantShape(grant) {
     throw new Error("INVALID_CREDENTIAL_GRANT");
   if (!["os", "line", "website", "guest", "source", "channel", "service", "finance"].includes(grant.origin))
     throw new Error("INVALID_CREDENTIAL_ORIGIN");
+  // Reporting is a separate PII-free service capability. Existing booking-read
+  // and member credentials must never implicitly acquire financial analytics.
+  if (grant.origin !== "service" && grant.actions.includes("booking:aggregate"))
+    throw new Error("INVALID_BUSINESS_REPORT_SCOPE");
   if (grant.origin !== "line" && grant.actions.some((action) =>
     ["booking:manage_all", "inventory:write"].includes(action)))
     throw new Error("INVALID_CREDENTIAL_GRANT");
@@ -54,7 +58,7 @@ export function validateGrantShape(grant) {
     grant.fields.some((field) => !["guest_name", "contact", "notes", "money"].includes(field))))
     throw new Error("INVALID_LINE_SCOPE");
   if (grant.origin === "service" && (grant.fields.length || grant.actions.some((action) =>
-    action !== "event:read" && action !== "booking:read" &&
+    action !== "event:read" && action !== "booking:read" && action !== "booking:aggregate" &&
     action !== "occupancy:aggregate" && action !== "housekeeping:read")))
     throw new Error("INVALID_SERVICE_SCOPE");
   if (grant.origin === "finance" && (grant.actions.some((action) =>
