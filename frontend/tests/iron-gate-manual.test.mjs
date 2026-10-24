@@ -4,6 +4,7 @@ import { MemoryPropertyRepository } from '../../iron-gate/src/memory-repository.
 import { IronGateService } from '../../iron-gate/src/service.ts';
 import { createHandler } from '../../iron-gate/src/http.ts';
 import { createChannelWorker } from '../../iron-gate/src/channel-worker.mjs';
+import { manualError } from '../src/lib/booking-sources/iron-gate-manual-route.server.ts';
 import { createOsMemberProofVerifier } from '../../iron-gate/src/os-member-proof.mjs';
 import { ironGateManualConfig, previewManualBooking, previewManualAmend, createManualBooking,
   amendManualBooking, cancelManualBooking, manualRequestResult } from
@@ -143,6 +144,16 @@ test('manual gateway stays closed without both explicit switches', () => {
     /MANUAL_CONFIG_UNAVAILABLE/);
   const c = config();
   assert.equal(c.grant.propertyId, propertyId);
+});
+
+test('unobserved stock is a definitive conflict, while a lost write stays unknown', async () => {
+  const rejected = manualError(Error('CHANNEL_STOCK_NOT_OBSERVED'), key());
+  assert.equal(rejected.status, 409);
+  assert.equal((await rejected.json()).code, 'CHANNEL_STOCK_NOT_OBSERVED');
+  const requestKey = key();
+  const unknown = manualError(Error('MANUAL_RESULT_UNKNOWN'), requestKey);
+  assert.equal(unknown.status, 202);
+  assert.equal((await unknown.json()).request_key, requestKey);
 });
 
 test('manual direct receipts and refunds use Iron Gate exactly once and read back', async () => {

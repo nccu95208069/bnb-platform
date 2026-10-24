@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from 'next/server';
 import { principalFor, sessionMember } from '../workspace-auth/session';
-import { ironGateManualConfig } from './iron-gate-manual.server';
+import { ironGateManualConfig } from './iron-gate-manual.server.ts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 export const privateHeaders = { 'Cache-Control': 'private, no-store', Vary: 'Cookie' };
