@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { runWebsiteEmailDelivery, emailDeliveryBindings, emailDeliverySiteScopes } from '../src/lib/website-booking/delivery.ts';
 import { notificationPlan, notificationStates } from '../src/lib/website-booking/notifications.ts';
 import { digest } from '../src/lib/customer-workspaces/auth.ts';
-import { studioSitesKey } from '../src/lib/website-booking/studio-sites.ts';
+import { studioSitesKey, studioEmailClientIds } from '../src/lib/website-booking/studio-sites.ts';
 import { emailFixture, memoryEmailStore, fixtureNow, storedRecords } from './helpers/website-email-fixture.mjs';
 
 const fixedNow = () => fixtureNow;
@@ -201,7 +201,7 @@ test('configured exact site scopes discover approved bindings without per-bindin
 test('approved UUID sites join internal email delivery by Studio client without per-site settings', async t => {
   const keys = ['WEBSITE_BOOKING_STUDIO_CLIENTS', 'WEBSITE_BOOKING_STUDIO_EMAIL_CLIENT_IDS'];
   const previous = Object.fromEntries(keys.map(key => [key, process.env[key]]));
-  t.after(() => { for (const key of keys) previous[key] === undefined ? delete process.env[key] : process.env[key] = previous[key]; });
+  t.after(() => { for (const key of keys) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; } });
   const clientId = 'approved-studio-email', siteId = randomUUID();
   const f = await emailFixture({ siteId });
   f.mutate(`website:binding:${f.bindingId}`, binding => { binding.clientId = clientId; });
@@ -220,4 +220,28 @@ test('approved UUID sites join internal email delivery by Studio client without 
   assert.equal((await runWebsiteEmailDelivery(f.store, [], { now: fixedNow, send: async () => { throw Error('duplicate send'); } })).sent, 0);
   f.store.values.delete(studioSitesKey(clientId));
   assert.equal((await runWebsiteEmailDelivery(f.store, [], { now: fixedNow, send: async () => { throw Error('revoked send'); } })).sent, 0);
+});
+
+test('origin-admitted Studio clients enable approved-site email without rewriting stored credentials', async t=>{
+ const keys=['WEBSITE_BOOKING_STUDIO_CLIENTS','WEBSITE_BOOKING_STUDIO_EMAIL_CLIENT_IDS','WEBSITE_BOOKING_STUDIO_SELF_SERVICE_ORIGINS','WEBSITE_BOOKING_STUDIO_EMAIL_START_AT'];
+ const old=Object.fromEntries(keys.map(k=>[k,process.env[k]]));t.after(()=>{for(const k of keys){if(old[k]===undefined)delete process.env[k];else process.env[k]=old[k]}});
+ const clientId='existing-studio',origin='https://studio.example.invalid',siteId=randomUUID();
+ const client={id:clientId,token_sha256:digest('unchanged-stored-credential'),site_ids:['original-pilot'],editor_origin:origin};
+ process.env.WEBSITE_BOOKING_STUDIO_CLIENTS=JSON.stringify([client]);
+ process.env.WEBSITE_BOOKING_STUDIO_EMAIL_CLIENT_IDS=JSON.stringify([clientId]);
+ delete process.env.WEBSITE_BOOKING_STUDIO_SELF_SERVICE_ORIGINS;
+ assert.throws(studioEmailClientIds,/EMAIL_DELIVERY_UNAVAILABLE/);
+ process.env.WEBSITE_BOOKING_STUDIO_SELF_SERVICE_ORIGINS=JSON.stringify([origin]);
+ assert.deepEqual(studioEmailClientIds(),[clientId]);
+ const f=await emailFixture({siteId});f.mutate(`website:binding:${f.bindingId}`,b=>{b.clientId=clientId});
+ f.store.values.delete(f.siteKey);
+ f.store.values.set(`website:site:${digest(JSON.stringify([clientId,siteId]))}`,JSON.stringify({bindingId:f.bindingId,ownerAccountId:f.binding.ownerAccountId}));
+ f.store.values.set(studioSitesKey(clientId),JSON.stringify([siteId]));
+ let calls=0;const deliver=()=>runWebsiteEmailDelivery(f.store,[],{now:fixedNow,send:async()=>`provider:auto-${++calls}`});
+ process.env.WEBSITE_BOOKING_STUDIO_EMAIL_START_AT='2026-10-07T00:00:00.000Z';
+ assert.equal((await deliver()).sent,0);assert.equal(calls,0);
+ f.mutate(`website:binding:${f.bindingId}`,b=>{b.approvedAt='2026-10-07T00:00:01.000Z'});
+ assert.equal((await deliver()).sent,2);
+ assert.equal(calls,2);assert.deepEqual(JSON.parse(process.env.WEBSITE_BOOKING_STUDIO_CLIENTS),[client]);
+ for(const selected of [['unknown'],[clientId,clientId],['*']]){process.env.WEBSITE_BOOKING_STUDIO_EMAIL_CLIENT_IDS=JSON.stringify(selected);assert.throws(studioEmailClientIds,/EMAIL_DELIVERY_UNAVAILABLE/)}
 });

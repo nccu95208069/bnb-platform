@@ -79,6 +79,8 @@ export function createChannelWorker({ repository, service, propertyConfigs,
           withPropertyLease: claims.forOperation(operationKey),
           loadOperation: (id, key) => service.channelOperation(principal, id, key),
           recordReadback: (input) => service.recordChannelReadback(principal, input),
+          recordPreflight: service.recordManualChannelPreflight ?
+            (input) => service.recordManualChannelPreflight(principal, input) : undefined,
           provider: adapter });
       } catch (error) {
         // Claim remains in review/active. A notification failure must not

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { CalendarBooking } from "../../components/calendar/calendar-types";
 import { SWEETFUN_SOURCE, type SheetProperty } from "./config.ts";
+import { sweetfunCalendarPlatform } from "./sweetfun-platform.ts";
 
 // Source adapters own format interpretation. Calendar UI consumes this common projection.
 // This projection is read-only and contains no guest identity or original order numbers.
@@ -19,7 +20,6 @@ export type BookingSourceSnapshot = {
 
 const REQUIRED = ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "全額支付狀態", "檢查狀態", "唯一ID", "訂單編號"];
 const ADAPTER_VERSION = "sweetfun-sheet-v3";
-const PLATFORM: Record<string, string> = { booking: "booking", "booking.com": "booking", agoda: "agoda", airbnb: "airbnb", line: "direct", ctrip: "ctrip", owljourney: "owljourney" };
 const opaque = (value: string) => createHash("sha256").update(value).digest("hex").slice(0, 20);
 function iso(value: string): string | null {
   const m = /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/.exec(value);
@@ -91,7 +91,7 @@ export function adaptSheetBookings(values: unknown[][], sourceId: string, observ
     // Missing parent order ID is explicitly ungrouped; never infer by guest name or adjacent nights.
     const orderId = `SF-${opaque(`${sourceId}:order:${r.order || `ungrouped:${r.uid}`}`)}`;
     const booking = make(id, orderId, r.room, r.start!, r.end!);
-    booking.platform = PLATFORM[r.get("預定平台").toLowerCase()] ?? "other";
+    booking.platform = sweetfunCalendarPlatform(r.get("預定平台"));
     booking.booked_at = iso(r.get("預訂日期"));
     booking.room_rate = r.amount;
     const guestCount = Number(r.get("入住人數"));
@@ -104,7 +104,7 @@ export function adaptSheetBookings(values: unknown[][], sourceId: string, observ
     booking.source_identity_kind = r.order ? "parent_order" : "row";
     booking.nightly_amounts = [{ date: r.start!, amount: r.amount }];
     booking.notes = r.order ? "已依來源訂單編號串接連住；公開畫面顯示匿名編號。" : "依唯一 ID 識別此房晚。訂單編號可空白；跨列連住需共同編號才能合併。";
-    if (!PLATFORM[r.get("預定平台").toLowerCase()]) booking.notes += " 通路名稱需確認，暫列其他。";
+    if (booking.platform === "other") booking.notes += " 通路名稱需確認，暫列其他。";
     bookings.push(booking);
   }
   // Quarantine overlapping data, preserve an explicit calendar block, and exclude disputed money.

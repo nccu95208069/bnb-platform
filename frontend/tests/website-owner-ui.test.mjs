@@ -65,7 +65,7 @@ test("email login prepares proof first, retains the connection and safely retrie
   });
   const { button, control, fill, click } = await mountOwner(t);
   await fill(control("業主 Email"), "owner@example.test");
-  await click(button("寄送登入連結"));
+  await click(button("寄送登入碼"));
   assert.equal(posts[0].action, "login-prepare");
   assert.equal(posts[1].connectionId, connectionId);
   assert.match(posts[1].requestKey, /^[a-f0-9-]{36}$/);
@@ -250,7 +250,7 @@ test("rapid login submits do not rotate browser proof twice", async (t) => {
   });
   const { button, control, fill, dom } = await mountOwner(t);
   await fill(control("業主 Email"), "owner@example.test");
-  const form = button("寄送登入連結").form;
+  const form = button("寄送登入碼").form;
   await act(() => {
     form.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
     form.dispatchEvent(new dom.window.Event("submit", { bubbles: true, cancelable: true }));
@@ -283,7 +283,7 @@ test("a different signed-in account can request the intended owner's login witho
   const { button, control, fill, click } = await mountOwner(t);
   assert.match(document.body.textContent, /請使用指定的業主信箱登入/);
   await fill(control("業主 Email"), "owner@example.test");
-  await click(button("寄送登入連結"));
+  await click(button("寄送登入碼"));
   assert.equal(posts[1].connectionId, connectionId);
   assert.equal(posts[1].email, "owner@example.test");
   assert.equal(document.querySelector('a[href="/start"]'), null);

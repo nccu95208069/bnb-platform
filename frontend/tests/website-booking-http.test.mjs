@@ -28,13 +28,11 @@ async function setup(t){
  const approval=await Owner.POST(request('/api/website-booking/owner',f.approval,{cookie}));assert.equal(approval.status,200,await approval.clone().text());
  const status=await Connections.POST(request('/api/integration/website-booking/v1/connections',{schemaVersion:1,action:'status',siteId:f.prepare.siteId,connectionId:f.connection.connectionId},{token:editorToken}));assert.equal(status.status,200);
  const binding=await status.json();
- const approved=(await store.read('website:binding:'+binding.bindingId)).value;
- assert.equal(binding.salesEnabled,false);
- const activation=await Management.POST(request('/api/customer-workspaces/'+approved.slug+'/website',{
-   action:'sales',bindingId:approved.id,revision:approved.revision,enabled:true,
-   confirmedEmptyCalendar:true,confirmedStaticSource:true,requestKey:randomUUID(),
- },{cookie}),{params:Promise.resolve({slug:approved.slug})});
- assert.equal(activation.status,200,await activation.clone().text());
+ const savedBinding=(await store.read('website:binding:'+binding.bindingId)).value;
+ const activated=await Management.POST(request('/api/customer-workspaces/'+savedBinding.slug+'/website',{
+   action:'sales',bindingId:binding.bindingId,revision:savedBinding.revision,enabled:true,requestKey:randomUUID()
+ },{cookie}),{params:Promise.resolve({slug:savedBinding.slug})});
+ assert.equal(activated.status,200,await activated.clone().text());
  const call=async(action,body={},headers={})=> Guest.POST(request('/api/integration/website-booking/v1/bindings/'+binding.bindingId+'/'+action,{schemaVersion:1,source:'Official Website',configurationHash:f.prepare.configurationHash,...body},{token:binding.bindingToken,headers}),{params:Promise.resolve({bindingId:binding.bindingId,action})});
  const stay={checkIn:f.config.opensOn,checkOut:new Date(Date.parse(f.config.opensOn)+86400000).toISOString().slice(0,10),roomTypeId:'double',quantity:1,adults:2,children:0};
  const quote=async()=>{const a=await call('availability',stay);assert.equal(a.status,200);const q=await call('quotes',{...stay,availabilityToken:(await a.json()).availabilityToken});assert.equal(q.status,200);return q.json();};

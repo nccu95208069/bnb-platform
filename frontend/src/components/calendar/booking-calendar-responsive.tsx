@@ -6,9 +6,11 @@ import {GuestNotificationProvider} from "./guest-notification";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 import { OsPaymentPanel } from "@/components/payments/os-payment-panel";
+import { IronGateManualPaymentPanel } from "@/components/payments/iron-gate-manual-payment-panel";
 
 import { CalendarPrivacy } from "./calendar-privacy";
 import { CalendarToolbar } from "./calendar-toolbar";
+import { ManualBookingDialog } from "./manual-booking-dialog";
 import {
   useCallback,
   useEffect,
@@ -72,6 +74,7 @@ import {
   startOfMonth,
 } from "@/components/calendar/calendar-utils";
 import { WeekCarousel } from "@/components/calendar/week-carousel";
+import { visualCalendarStays } from "@/components/calendar/visual-stays";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiClient } from "@/lib/api-client";
@@ -120,14 +123,9 @@ type DemoEditState = {
 
 const EMPTY_EDITS: DemoEditState = { orders: {}, segments: {} };
 
-async function readCalendar(start: string, end: string): Promise<CalendarResponse> {
-  if (FIXED_PREVIEW) {
-    const response = await fetch(`/api/v1/bookings/calendar?start=${start}&end=${end}`,
-      { cache: "no-store" });
-    if (!response.ok) throw Error("無法讀取固定快照，請稍後重試。");
-    return response.json();
-  }
-  if (!PAYMENT_SANDBOX) return apiClient.get<CalendarResponse>(`/bookings/calendar?start=${start}&end=${end}`);
+async function readCalendar(start: string, end: string, propertyIds: string[]): Promise<CalendarResponse> {
+  const selected = propertyIds.length ? `&properties=${encodeURIComponent(propertyIds.join(','))}` : '';
+  if (!PAYMENT_SANDBOX) return apiClient.get<CalendarResponse>(`/bookings/calendar?start=${start}&end=${end}${selected}`);
   const response = await fetch(`/api/payment-sandbox/calendar?start=${start}&end=${end}`, { cache: "no-store" });
   if (!response.ok) throw Error("無法連接隔離測試服務，請稍後重試。");
   return response.json();
@@ -217,6 +215,7 @@ const uiLocale = useIntlLocale();
   const selectedPropertyIds = useCalendarPreferences(
     (state) => state.selectedPropertyIds,
   );
+  const availableProperties = useCalendarPreferences((state) => state.properties);
   const setProperties = useCalendarPreferences((state) => state.setProperties);
 
   const initializeAccess = useAccessControl((state) => state.initialize);
@@ -233,21 +232,39 @@ const uiLocale = useIntlLocale();
   const [monthTarget, setMonthTarget] = useState(() =>
     startOfMonth(anchorDate),
   );
+  const scrollCommit = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelScrollCommit = useCallback(() => {
+    if (scrollCommit.current) clearTimeout(scrollCommit.current);
+    scrollCommit.current = null;
+  }, []);
+  useEffect(() => () => {
+    cancelScrollCommit();
+  }, [cancelScrollCommit]);
   const accessScope = JSON.stringify([membership?.id, membership?.role, membership?.allProperties, membership?.propertyIds]);
+  const requestedPropertyIds = useMemo(() => {
+    const valid = selectedPropertyIds.filter(id => id === 'sweetfun' || id === 'offland');
+    if (!valid.length || valid.length === 2 || availableProperties.length > 0 &&
+      valid.length === availableProperties.length) return [];
+    return [...valid].sort();
+  }, [availableProperties.length, selectedPropertyIds]);
+  const propertyScope = requestedPropertyIds.join(',');
+  const scopedRead = useCallback((start: string, end: string) =>
+    readCalendar(start, end, propertyScope ? propertyScope.split(',') : []), [propertyScope]);
   const selectedId = useCalendarPreferences((s) => s.selectedBookingId);
   const setSelectedId = useCalendarPreferences((s) => s.setSelectedBookingId);
   const historyRevision = useCalendarPreferences((s) => s.historyRevision);
   useEffect(() => {
     const month = startOfMonth(useCalendarPreferences.getState().anchorDate);
+    cancelScrollCommit();
     setVisibleMonth(month);
     setMonthTarget(month);
-  }, [historyRevision]);
+  }, [historyRevision, cancelScrollCommit]);
   const [reloadKey, setReloadKey] = useState(0);
+  const [manualMode, setManualMode] = useState<"create" | "amend" | "cancel" | "sync" | null>(null);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
   const [editsHydrated, setEditsHydrated] = useState(false);
   const previousView = useRef<CalendarView>(view);
   const handledNavigationRequest = useRef(navigationRequest?.id ?? 0);
-
   const requestPeriod = useMemo(
     () => fetchPeriod(anchorDate, query.trim() ? "month" : view, BOUNDED_MONTH),
     [anchorDate, view, query],
@@ -256,12 +273,19 @@ const uiLocale = useIntlLocale();
   // A live calendar must never render unfetched months as vacant rooms.
   const monthsToShow = useMemo(() => BOUNDED_MONTH ? [previewMonth] : MONTHS,
     [previewMonth]);
+  const visiblePeriod = view === "month" ? fetchPeriod(visibleMonth, "month", true) : requestPeriod;
   const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess(); }, [setSelectedId, initializeAccess]);
   const { data, loading, refreshing, error, requestFailed, lastLoadedAt } = useCalendarData({
-    start: requestPeriod.start, end: requestPeriod.end, scope: accessScope, reload: reloadKey,
-    read: readCalendar, onProperties: setProperties, onAccessLost: accessLost,
+    start: requestPeriod.start, end: requestPeriod.end,
+    scope: `${accessScope}:${propertyScope}`, reload: reloadKey,
+    read: scopedRead, onProperties: setProperties, onAccessLost: accessLost,
+    visibleStart: visiblePeriod.start,
+    visibleEnd: visiblePeriod.end,
   });
   const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
+  const manualEnabled = data?.iron_gate_manual_enabled === true && !requestFailed &&
+    !loading && !error && !refreshing &&
+    hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end);
   const displayPeriod = useMemo(() => {
     if (view === "month") {
       return {
@@ -293,6 +317,7 @@ const uiLocale = useIntlLocale();
     handledNavigationRequest.current = navigationRequest.id;
 
     if (navigationRequest.action === "today") {
+      cancelScrollCommit();
       setTodayRequest(value=>value+1);
       const today = localTodayIso();
       setAnchorDate(today);
@@ -306,6 +331,7 @@ const uiLocale = useIntlLocale();
 
     const direction = navigationRequest.action === "previous" ? -1 : 1;
     if (view === "month") {
+      cancelScrollCommit();
       const target = addMonths(visibleMonth, direction);
       setVisibleMonth(target);
       setMonthTarget(target);
@@ -317,7 +343,7 @@ const uiLocale = useIntlLocale();
       return;
     }
     setAnchorDate((value) => addDays(value, direction));
-  }, [navigationRequest, view, visibleMonth, setAnchorDate]);
+  }, [navigationRequest, view, visibleMonth, setAnchorDate, cancelScrollCommit]);
 
   useEffect(() => {
     const oldView = previousView.current;
@@ -371,7 +397,9 @@ const uiLocale = useIntlLocale();
 
 
   const sourceChanged = useCallback(() => setReloadKey(value => value + 1), []);
-  useCalendarRevision((data?.properties ?? []).map(p => p.id).filter(id => id === 'sweetfun' || id === 'offland').sort().join(','), !PAYMENT_SANDBOX && !loading && !refreshing && !!data?.source?.automatic_sync, sourceChanged);
+  useCalendarRevision((data?.properties ?? []).map(p => p.id).filter(id => id === 'sweetfun' || id === 'offland').sort().join(','),
+    !PAYMENT_SANDBOX && !loading && !refreshing &&
+      data?.data_mode !== "iron_gate_booking_only" && !!data?.source?.automatic_sync, sourceChanged);
 
   const rawEditedBookings = useMemo(
     () =>
@@ -390,7 +418,7 @@ const uiLocale = useIntlLocale();
     if (!membership || membership.allProperties) return null;
     return new Set(membership.propertyIds);
   }, [membership]);
-  const coverageMissing = !hasCalendarCoverage(data, requestPeriod.start, requestPeriod.end);
+  const coverageMissing = !hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end);
   const unavailableSelectedSource = coverageMissing || data?.source_errors?.some(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)));
 
 
@@ -438,6 +466,9 @@ const uiLocale = useIntlLocale();
     );
   }, [propertyBookings, query]);
 
+  // Presentation links never enter metrics, order selection, payment, or finance.
+  const displayBookings = useMemo(() => visualCalendarStays(filteredBookings), [filteredBookings]);
+
   const visibleRooms = useMemo(
     () =>
       (data?.rooms ?? []).filter(
@@ -459,6 +490,16 @@ const uiLocale = useIntlLocale();
       (booking) => booking.order_id === selectedBooking.order_id,
     );
   }, [editedBookings, selectedBooking]);
+  const selectedVisualNights = useMemo(() => {
+    if (!selectedBooking) return [];
+    const span = displayBookings.find((booking) => booking.visual_source_ids?.includes(selectedBooking.id));
+    if (!span?.visual_source_ids) return [];
+    const byId = new Map(editedBookings.map((booking) => [booking.id, booking]));
+    return span.visual_source_ids.flatMap((id) => {
+      const booking = byId.get(id);
+      return booking ? [booking] : [];
+    });
+  }, [displayBookings, editedBookings, selectedBooking]);
 
   const metrics = useMemo(() => {
     const relevant = filteredBookings.filter(
@@ -506,7 +547,14 @@ const uiLocale = useIntlLocale();
   const handleVisibleMonthChange = useCallback(
     (month: string) => {
       setVisibleMonth(month);
-      setAnchorDate((current) => startOfMonth(current) === month ? current : month);
+      // A fast swipe can pass several months in one gesture. Commit the URL
+      // and data anchor only after it settles instead of doing it on every
+      // scroll frame and rebuilding the booking view mid-gesture.
+      if (scrollCommit.current) clearTimeout(scrollCommit.current);
+      scrollCommit.current = setTimeout(() => {
+        scrollCommit.current = null;
+        setAnchorDate((current) => startOfMonth(current) === month ? current : month);
+      }, 180);
     },
     [setAnchorDate],
   );
@@ -523,6 +571,7 @@ const uiLocale = useIntlLocale();
 
   function navigate(direction: -1 | 1) {
     if (view === "month") {
+      cancelScrollCommit();
       const target = addMonths(visibleMonth, direction);
       setVisibleMonth(target);
       setMonthTarget(target);
@@ -537,6 +586,7 @@ const uiLocale = useIntlLocale();
   }
 
   function goToToday() {
+    cancelScrollCommit();
     setTodayRequest(value=>value+1);
     const today = localTodayIso();
     setAnchorDate(today);
@@ -758,7 +808,7 @@ const uiLocale = useIntlLocale();
               <h1 className="text-lg font-semibold tracking-tight">
                 {uiText("訂單與房況日曆")}</h1>
               {effectiveRole !== "owner" && (
-                <span className="rounded-full border bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
+                <span className="rounded-full border bg-muted px-2 py-1 text-[0.6875rem] font-medium text-muted-foreground">
                   {uiText("權限預覽")}</span>
               )}
             </div>
@@ -825,6 +875,9 @@ const uiLocale = useIntlLocale();
           </div>
 
           <div className="flex items-center gap-2">
+            {manualEnabled && data?.properties.some(property => property.id === "sweetfun") &&
+              (!selectedPropertyIds.length || selectedPropertyIds.includes("sweetfun")) &&
+              <Button size="sm" onClick={() => setManualMode("create")}>新增水芳訂單</Button>}
             <div className="relative w-56">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -836,7 +889,7 @@ const uiLocale = useIntlLocale();
                 className="bg-background pl-9"
               />
             </div>
-            <span className="whitespace-nowrap text-[11px] text-muted-foreground">
+            <span className="whitespace-nowrap text-[0.6875rem] text-muted-foreground">
               {lastLoadedAt
                 ? uiText("{0} {1}", [lastLoadedAt.toLocaleTimeString(uiLocale, {
                     hour: "2-digit",
@@ -880,14 +933,6 @@ const uiLocale = useIntlLocale();
       {DEMO_MODE && !LIVE_SHEET && !PAYMENT_SANDBOX && data?.data_mode === "anonymized_multi_property_demo" && (
         <div className="hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 md:block">
           {uiText("示範模式：可測試權限、付款、改期與取消；變更只保存在這台裝置。")}</div>
-      )}
-
-      {data?.data_mode === "iron_gate_snapshot_preview" && (
-        <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
-          {uiText("Iron Gate 固定快照預覽 · 不接單、不自動追單。這不是目前可售房況。")}
-          {data.source?.private_snapshot_at && <> {uiText("資料擷取時間：")}
-            {new Date(data.source.private_snapshot_at).toLocaleString(uiLocale, { timeZone: "Asia/Taipei" })}。</>}
-        </div>
       )}
 
       {data?.guest_access?.available && <CalendarPrivacy authenticated={data.guest_access.authenticated} />}
@@ -935,10 +980,14 @@ const uiLocale = useIntlLocale();
               <MonthScroller
                 key={BOUNDED_MONTH ? previewMonth : "all-months"}
                 months={monthsToShow}
+                coveredMonths={monthsToShow.filter(month => {
+                  const period = fetchPeriod(month, "month", true);
+                  return hasCalendarCoverage(data, period.start, period.end);
+                })}
                 targetMonth={monthTarget}
                 targetDate={anchorDate}
                 targetRevision={todayRequest + historyRevision}
-                bookings={filteredBookings}
+                bookings={displayBookings}
                 rooms={visibleRooms}
                 properties={selectedProperties}
                 onVisibleMonthChange={handleVisibleMonthChange}
@@ -951,7 +1000,7 @@ const uiLocale = useIntlLocale();
             <div className="-mx-2 md:mx-0">
               <WeekCarousel
                 anchorDate={anchorDate}
-                bookings={filteredBookings}
+                bookings={displayBookings}
                 rooms={visibleRooms}
                 properties={selectedProperties}
                 onNavigateWeek={(offset) =>
@@ -966,7 +1015,7 @@ const uiLocale = useIntlLocale();
             <div className="-mx-2 p-2 md:mx-0 md:p-0">
               <DayView
                 date={anchorDate}
-                bookings={filteredBookings}
+                bookings={displayBookings}
                 rooms={visibleRooms}
                 properties={selectedProperties}
                 onSelectBooking={(booking) => setSelectedId(booking.id)}
@@ -990,6 +1039,8 @@ const uiLocale = useIntlLocale();
       <BookingDetailsPanel
         booking={selectedBooking}
         orderSegments={selectedOrderSegments}
+        visualNights={selectedVisualNights}
+        onSelectVisualNight={(booking) => setSelectedId(booking.id)}
         rooms={data?.rooms ?? []}
         permissions={
           (data?.source?.read_only || selectedBooking?.snapshot_only)
@@ -1001,8 +1052,16 @@ const uiLocale = useIntlLocale();
         paymentWorkspace={
           data?.source?.read_only && selectedBooking?.snapshot_only ? (
             <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">目前為唯讀快照。請重新載入並確認最新訂單後，再登錄付款。</p>
+          ) : data?.source?.read_only && selectedBooking?.iron_gate_source === "os" &&
+            data?.iron_gate_manual_payment_enabled && selectedBooking.iron_gate_booking_id ? (
+            <IronGateManualPaymentPanel key={selectedBooking.iron_gate_booking_id}
+              bookingId={selectedBooking.iron_gate_booking_id}
+              canRecord={permissions.recordPayments} onChange={() => setReloadKey(v => v + 1)} />
+          ) : data?.source?.read_only && selectedBooking?.iron_gate_source === "os" ? (
+            <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+              此筆手動訂單的收付款功能尚未啟用，請先依現行財務流程處理並核對。</p>
           ) : data?.source?.read_only && selectedBooking && permissions.viewPrices && !selectedBooking.source_conflict ? (
-            <OsPaymentPanel key={selectedBooking.order_id} property={selectedBooking.property_id} order={selectedBooking.order_id} canRecord={permissions.recordPayments} onChange={() => setReloadKey(v=>v+1)} />
+            <OsPaymentPanel key={selectedBooking.payment_order_id??selectedBooking.order_id} property={selectedBooking.property_id} order={selectedBooking.payment_order_id??selectedBooking.order_id} sourceBookingId={selectedBooking.order_id.startsWith('IG-')?selectedBooking.order_id:undefined} canRecord={permissions.recordPayments} onChange={() => setReloadKey(v=>v+1)} />
           ) : PAYMENT_SANDBOX && selectedBooking && permissions.viewPrices ? (
             <PaymentWorkspace
               key={selectedBooking.order_id}
@@ -1016,14 +1075,33 @@ const uiLocale = useIntlLocale();
         onRecordPayment={recordPayment}
         onUpdateBooking={updateBooking}
         onCancelBooking={cancelBooking}
+        onManualEdit={manualEnabled && selectedBooking &&
+          ["os", "external"].includes(selectedBooking.iron_gate_source ?? "") &&
+          ["verified", "not_required", "awaiting_manual_sync"].includes(
+            selectedBooking.iron_gate_channel_sync ?? "") &&
+          !selectedBooking.iron_gate_source_review ?
+          () => setManualMode("amend") : undefined}
+        onManualCancel={manualEnabled && selectedBooking?.iron_gate_source === "os" &&
+          ["verified", "not_required", "awaiting_manual_sync"].includes(
+            selectedBooking.iron_gate_channel_sync ?? "") &&
+          !selectedBooking.iron_gate_source_review ?
+          () => setManualMode("cancel") : undefined}
+        onManualSync={manualEnabled && selectedBooking?.iron_gate_source === "os" &&
+          selectedBooking.iron_gate_channel_sync === "awaiting_manual_sync" &&
+          !selectedBooking.iron_gate_source_review ?
+          () => setManualMode("sync") : undefined}
       />
+      {manualMode && <ManualBookingDialog open mode={manualMode}
+        bookingId={selectedBooking?.iron_gate_booking_id}
+        inventoryVersion={Number(data?.source?.private_snapshot_version ?? 0)}
+        defaultDate={anchorDate}
+        onClose={() => setManualMode(null)}
+        onDone={() => setReloadKey(value => value + 1)} />}
     </div>
   );
 }
 
-export function BookingCalendarResponsive({ snapshotPreviewConfigured = false }: {
-  snapshotPreviewConfigured?: boolean;
-}) {
+export function BookingCalendarResponsive() {
   const uiText = useT();
 
   const [paymentReview, setPaymentReview] = useState(false);
@@ -1034,14 +1112,12 @@ export function BookingCalendarResponsive({ snapshotPreviewConfigured = false }:
   const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);
   const membership = useAccessControl((state) => state.membership);
   const supported = ["sweetfun", "offland"];
-  const previewApplies = snapshotPreviewConfigured &&
-    (selectedPropertyIds.length === 0 || selectedPropertyIds.includes("sweetfun"));
-  const showUnsold = !previewApplies && viewPrices && supported.some(id => (PAYMENT_SANDBOX || membership?.allProperties || membership?.propertyIds.includes(id)) && (selectedPropertyIds.length === 0 || selectedPropertyIds.includes(id)));
+  const showUnsold = viewPrices && supported.some(id => (PAYMENT_SANDBOX || membership?.allProperties || membership?.propertyIds.includes(id)) && (selectedPropertyIds.length === 0 || selectedPropertyIds.includes(id)));
   useEffect(() => { if (ready && !showUnsold && mode === "unsold") setMode("sold"); }, [ready, showUnsold, mode, setMode]);
   if (!ready)
     return <p className="p-4 text-sm text-muted-foreground">{uiText("讀取日曆…")}</p>;
   return (
-    <GuestNotificationProvider disabled={snapshotPreviewConfigured}><div className={paymentReview && viewPrices && mode === "sold" ? "payment-review" : ""}>
+    <GuestNotificationProvider><div className={paymentReview && viewPrices && mode === "sold" ? "payment-review" : ""}>
       {mode === "unsold" && showUnsold ? (
         <>
           <CalendarToolbar showUnsold={showUnsold} paymentReview={paymentReview} onPaymentReview={() => setPaymentReview(v => !v)} />

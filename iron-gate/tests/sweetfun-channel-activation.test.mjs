@@ -48,11 +48,13 @@ test("fresh complete stock imports provider-only closures and activates the gate
   const planned = planSweetfunChannelActivation(state, occupancy, manifest, snapshot, now);
   assert.equal(planned.summary.observedCells, 1506);
   assert.equal(planned.summary.stockObservedThrough, "2027-06-30");
+  assert.equal(planned.summary.stockObservedFrom, snapshot.startDate);
   assert.equal(planned.summary.occupiedCells, 1);
   assert.equal(planned.summary.importedBlocks, 1);
   assert.deepEqual(planned.state.manualBlocks, [{ roomId: rooms[1], date: day(4) }]);
   assert.deepEqual(planned.state.channel, { mode: "owlnest", ready: true,
-    sourceReadbackEnabled: true, stockObservedThrough: "2027-06-30",
+    sourceReadbackEnabled: true, stockObservedFrom: snapshot.startDate,
+    stockObservedThrough: "2027-06-30",
     websiteSalesEnabled: false,
     grantId, websiteBindingId: null });
   assert.equal(planned.state.version, 39);

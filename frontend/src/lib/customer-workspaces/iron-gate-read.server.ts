@@ -21,7 +21,7 @@ const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const RESPONSE_FIELDS = new Set(["id", "workspaceId", "propertyId", "version", "status",
   "channelSyncState", "stays", "createdAt", "source", "guestName", "contact", "notes",
   "totalCents", "currency", "paymentSummary", "hold", "lineChannelPending",
-  "lineChannelActionRequiredAt"]);
+  "lineChannelActionRequiredAt", "bookedAt", "sourceReviewRequired"]);
 const HOLD_FIELDS = new Set(["schema", "scope", "startedAt", "expiresAt", "state",
   "convertedAt", "releasedAt", "latePaymentReview"]);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -34,9 +34,12 @@ function object(value: unknown): value is Record<string, unknown> {
 function safeBookingShape(booking: Record<string, unknown>, canReadMoney: boolean): boolean {
   if (!Number.isSafeInteger(booking.version) || Number(booking.version) < 1 ||
     !["held", "confirmed", "cancelled"].includes(String(booking.status)) ||
-    !["not_required", "action_required", "pending", "verified", "review_required"]
+    !["not_required", "action_required", "awaiting_manual_sync", "pending", "verified", "review_required"]
       .includes(String(booking.channelSyncState)) ||
     !["os", "line", "website", "external"].includes(String(booking.source)) ||
+    ("bookedAt" in booking && booking.bookedAt !== null &&
+      (typeof booking.bookedAt !== "string" || !DATE.test(booking.bookedAt))) ||
+    ("sourceReviewRequired" in booking && typeof booking.sourceReviewRequired !== "boolean") ||
     typeof booking.createdAt !== "string" || !INSTANT.test(booking.createdAt) ||
     !Array.isArray(booking.stays) || booking.stays.length > 32) return false;
   for (const [field, max] of [["guestName", 200], ["contact", 256], ["notes", 2048]] as const) {

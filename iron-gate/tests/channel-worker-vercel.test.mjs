@@ -75,18 +75,22 @@ test("one authorized cron tick records exact provider readback and releases the 
   repository.seed({ workspaceId: "11111111-1111-4111-8111-111111111111",
     propertyId, roomIds: [roomId], version: 1, authorityEpoch: 1, readOnly: false,
     channel: { mode: "owlnest", ready: true, sourceReadbackEnabled: true,
-      websiteSalesEnabled: false, grantId, websiteBindingId: null },
+      websiteSalesEnabled: false, grantId, websiteBindingId: null,
+      stockObservedFrom: "2026-11-01", stockObservedThrough: "2099-12-31" },
     sourceGrants: [], bookings: [], sourceLinks: [], operations: [], fences: [],
     manualBlocks: [], receipts: [] });
   const service = new IronGateService(repository);
   const os = { clientId: "os", subjectId: "staff", origin: "os",
     workspaceId: "11111111-1111-4111-8111-111111111111", propertyIds: [propertyId],
-    authorityEpoch: 1, actions: ["booking:create"], fields: [] };
-  await service.createBooking(os, propertyId, crypto.randomUUID(), {
+    authorityEpoch: 1, actions: ["booking:create", "booking:amend"],
+    fields: ["guest_name", "money"] };
+  const created = await service.createBooking(os, propertyId, crypto.randomUUID(), {
     expectedInventoryVersion: 1,
     stays: [{ checkIn: "2026-11-10", checkOut: "2026-11-11", roomIds: [roomId] }],
-    guestName: null, contact: null, notes: null, totalCents: null,
+    guestName: "Synthetic Guest", contact: null, notes: null, totalCents: 10000,
     bookedAt: null, source: "os" });
+  await service.requestManualChannelSync(os, propertyId, created.bookingId,
+    crypto.randomUUID(), created.bookingVersion, created.inventoryVersion);
   let closed = false;
   const provider = { async observe(_propertyId, requested) {
     return { observedAt: new Date().toISOString(), providerVersion: closed ? "closed" : "open",

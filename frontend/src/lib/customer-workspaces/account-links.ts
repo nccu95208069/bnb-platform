@@ -4,7 +4,7 @@ import {
 } from "./identity.ts";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { accountKey, digest } from "./auth.ts";
-import { createPasswordCredential } from "../owner-password.ts";
+import { createCustomerPasswordCredential } from "../owner-password.ts";
 import type { Account } from "./types.ts";
 import type { CustomerStore } from "./store.ts";
 import { customerOrigin } from "./site-url.ts";
@@ -126,7 +126,7 @@ export async function consumeAccountLink(
       email: link.email,
       workspaces: [],
     }),
-    credential: await createPasswordCredential(password),
+    credential: await createCustomerPasswordCredential(password),
     emailVerifiedAt: new Date().toISOString(),
   };
   const consumed = {

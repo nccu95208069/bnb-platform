@@ -35,6 +35,7 @@ const payment={amount:3000,method:'cash',receivedAt:'2025-01-01T00:00:00Z',confi
 test('hold occupies nights, villa and availability; expiry survives reload without reopening',async()=>{
   const f=fixture(),{booking}=await f.reserve();
   const w=await f.current(),expires=new Date(Date.parse(booking.hold.expiresAt)+1);
+  assert.equal(booking.updatedAt, booking.createdAt);
   assert.equal(Date.parse(booking.hold.expiresAt)-Date.parse(booking.hold.startedAt),86400000);
   assert.equal(holdPhase(w.bookings[0],expires),'awaiting_owner');
   assert.equal(pendingHoldTasks(w,expires).length,1);
@@ -61,9 +62,11 @@ test('extension rejects stale buttons and invalid deadlines, keeps same identity
   const input=await f.command({action:'hold-extend',bookingId:booking.id,bookingVersion:1,hours:12,confirmPlatformOnly:true});
   await holdOperation(...f.args,input);
   const after=(await f.current()).bookings[0];
+  assert.ok(Date.parse(after.updatedAt) >= Date.parse(booking.updatedAt));
   assert.equal(Date.parse(after.hold.expiresAt)-Date.parse(booking.hold.expiresAt),12*3600000);
   await holdOperation(...f.args,input);
   assert.equal((await f.current()).bookings[0].hold.expiresAt,after.hold.expiresAt);
+  assert.equal((await f.current()).bookings[0].updatedAt,after.updatedAt);
   await assert.rejects(holdOperation(...f.args,{...input,requestKey:'stale-new-operation'}),/VERSION_CONFLICT/);
   await assert.rejects(f.op(booking.id,'hold-extend',{expiresAt:'2026-02-30T00:00:00.000Z'}),/INVALID_HOLD_DEADLINE/);
 });
@@ -115,7 +118,7 @@ test('role/property/receipt guards and hidden-price projection',async()=>{
 test('hold export and query never label held inventory cancelled or count it as confirmed',async()=>{
   const f=fixture(),{booking}=await f.reserve(),w=await f.current(),v=view(w,w.members[0]);
   const workbook=buildStandardWorkbook(w,{generatedAt:booking.hold.startedAt});
-  assert.equal(workbook.schemaVersion,4);assert.equal(workbook.tables.orders[1][5],'保留中');assert.equal(workbook.tables.nights[1][7],'保留中');
+  assert.equal(workbook.schemaVersion,5);assert.equal(workbook.tables.orders[1][5],'保留中');assert.equal(workbook.tables.nights[1][7],'保留中');
   assert.equal(workbook.tables.orders[1][18],'Official Website');assert.equal(workbook.tables.orders[1][24],booking.hold.expiresAt);
   assert.equal(queryOrders(v,{status:'held'}).total,1);assert.equal(queryOrders(v,{status:'confirmed'}).total,0);
 });

@@ -11,14 +11,16 @@ const propertyId = "22222222-2222-4222-8222-222222222222";
 const roomId = "33333333-3333-4333-8333-333333333333";
 const principal = { clientId: "os", subjectId: "owner", origin: "os", workspaceId,
   propertyIds: [propertyId], authorityEpoch: 7,
-  actions: ["booking:create", "booking:read", "booking:cancel"], fields: [] };
+  actions: ["booking:create", "booking:read", "booking:cancel"],
+  fields: ["guest_name", "money"] };
 const state = () => ({ workspaceId, propertyId, roomIds: [roomId], version: 1, authorityEpoch: 7,
   channel: { mode: "none", ready: false, websiteSalesEnabled: false,
     grantId: null, websiteBindingId: null }, sourceGrants: [], bookings: [], sourceLinks: [],
   operations: [], fences: [], manualBlocks: [], receipts: [] });
 const input = () => ({ expectedInventoryVersion: 1,
   stays: [{ checkIn: "2026-11-10", checkOut: "2026-11-11", roomIds: [roomId] }],
-  guestName: null, contact: null, notes: null, totalCents: null, bookedAt: null, source: "os" });
+  guestName: "Synthetic Guest", contact: null, notes: null, totalCents: 10000,
+  bookedAt: null, source: "os" });
 
 test("committed booking and request receipt survive process-style reopen", async () => {
   const folder = mkdtempSync(join(tmpdir(), "iron-gate-"));

@@ -6,16 +6,17 @@ import { PostgresPropertyRepository } from "../src/postgres-repository.mjs";
 import { IronGateService } from "../src/service.ts";
 import { createOwlNestWebProvider } from "../src/owlnest-web-provider.mjs";
 import { checkedOwlNestConfig } from "../src/owlnest-web-readback.mjs";
-import { recoverChannelClaim } from "../src/channel-recovery.mjs";
+import { recoverChannelClaim, releaseReviewedManualClaim } from "../src/channel-recovery.mjs";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
-/** Read-only OwlNest observation, then evidence-backed claim clearance. No PUT. */
+/** Read-only OwlNest observation, then evidence-backed recovery or reviewed quarantine. No PUT. */
 export async function recoverWithManifest(manifest) {
   if (!UUID.test(manifest?.propertyId ?? "") ||
     !UUID.test(manifest?.grantId ?? "") ||
     !UUID.test(manifest?.expectedClaimId ?? "") ||
     !Number.isSafeInteger(manifest?.expectedInventoryVersion) ||
+    ![undefined, true].includes(manifest?.releaseReviewedManualClaim) ||
     typeof manifest?.databaseUrl !== "string" ||
     typeof manifest?.authorization !== "string" ||
     !/^Bearer [A-Za-z0-9._~+\/-]{20,}={0,2}$/.test(manifest.authorization))
@@ -40,6 +41,12 @@ export async function recoverWithManifest(manifest) {
     const provider = createOwlNestWebProvider({
       propertyConfigs: manifest.propertyConfigs,
       getAuthorization: async () => manifest.authorization });
+    if (manifest.releaseReviewedManualClaim === true)
+      return releaseReviewedManualClaim({ repository, provider, principal,
+        propertyId: state.propertyId, expectedClaimId: manifest.expectedClaimId,
+        expectedInventoryVersion: manifest.expectedInventoryVersion,
+        acknowledgeQuarantine: manifest.acknowledgeQuarantine,
+        reviewReason: manifest.reviewReason });
     return recoverChannelClaim({ repository, service: new IronGateService(repository),
       provider, principal, propertyId: state.propertyId,
       expectedClaimId: manifest.expectedClaimId });
@@ -55,7 +62,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     const safe = new Set(["CHANNEL_RECOVERY_MANIFEST_INVALID", "CHANNEL_RECOVERY_STATE_MOVED",
       "CHANNEL_RECOVERY_CLAIM_MOVED", "CHANNEL_RECOVERY_OPERATION_INVALID",
       "CHANNEL_RECOVERY_READBACK_INCOMPLETE", "UNSAFE_DATABASE_ROLE_OR_SCHEMA",
-      "UNSAFE_DATABASE_TRANSPORT"]);
+      "UNSAFE_DATABASE_TRANSPORT", "CHANNEL_REVIEW_RELEASE_INVALID",
+      "CHANNEL_REVIEW_RELEASE_STATE_MOVED", "CHANNEL_REVIEW_RELEASE_READBACK_INCOMPLETE",
+      "CHANNEL_REVIEW_RELEASE_STOCK_OPEN", "CHANNEL_REVIEW_RELEASE_LIMIT_REACHED"]);
     process.stderr.write((safe.has(error?.message) ? error.message :
       "CHANNEL_RECOVERY_FAILED") + "\n");
     process.exitCode = 1;

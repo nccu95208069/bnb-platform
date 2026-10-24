@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { dateValue, textValue } from "./service.ts";
 import type { Booking, Property, StaySegment } from "./types.ts";
+import { importRowsTooLarge } from "./import-limits.ts";
 
 export const NORMALIZATION_VERSION = 1;
 
@@ -35,6 +36,7 @@ export type Mapping = {
     platform?: number;
     bookedAt?: number;
     notes?: number;
+    sourceRowId?: number;
   };
   roomMap: Record<string, string[]>;
   granularity: "order" | "stay" | "night" | "grid";
@@ -42,6 +44,11 @@ export type Mapping = {
   receivedMeaning: "source" | "property" | "guest" | "none";
   currency: "TWD";
   from: string;
+  // Verified inventory coverage is independent of the historical import start.
+  coverageFrom?: string;
+  // Only explicit, unique source row IDs may stand in for a missing order ID.
+  // Each such row becomes a separate booking; never join by name or proximity.
+  missingOrderId?: "review" | "source-row";
   // Exclusive upper bound, only when the owner confirms the source is complete
   // for every physical room and existing booking/block in this interval.
   coverageTo?: string;
@@ -101,6 +108,7 @@ type Group = {
   lines: Line[];
   references: SourceReference[];
   issues: string[];
+  pastRows: number;
 };
 const MAX_ROOM_NIGHTS = 20000;
 const digest = (value: unknown) =>
@@ -162,16 +170,22 @@ export function validateMapping(mapping: Mapping) {
     mapping.headerRow > 20 ||
     !mapping.columns ||
     !mapping.roomMap ||
+    (mapping.missingOrderId !== undefined && !["review", "source-row"].includes(mapping.missingOrderId)) ||
+    (mapping.missingOrderId === "source-row" &&
+      (!["stay", "night"].includes(mapping.granularity) ||
+        !Number.isInteger(mapping.columns.sourceRowId) ||
+        mapping.columns.sourceRowId! < 0)) ||
     typeof mapping.roomMap !== "object" ||
     Array.isArray(mapping.roomMap)
   )
     throw new Error("INVALID_INPUT");
   const from = dateValue(mapping.from);
+  const coverageFrom = mapping.coverageFrom === undefined ? from : dateValue(mapping.coverageFrom);
   if (mapping.coverageConfirmed === true && mapping.coverageTo === undefined) throw new Error("SOURCE_COVERAGE");
   if (mapping.coverageTo !== undefined) {
     const to = dateValue(mapping.coverageTo);
-    if (mapping.coverageConfirmed !== true || to <= from ||
-      Date.parse(to) - Date.parse(from) > 731 * 86400000) throw new Error("SOURCE_COVERAGE");
+    if (mapping.coverageConfirmed !== true || to <= coverageFrom ||
+      Date.parse(to) - Date.parse(coverageFrom) > 731 * 86400000) throw new Error("SOURCE_COVERAGE");
   }
   const required =
     mapping.granularity === "grid"
@@ -194,10 +208,11 @@ export function validateMapping(mapping: Mapping) {
     "platform",
     "bookedAt",
     "notes",
+    "sourceRowId",
   ] as const) {
     const index =
       mapping.columns[key] ??
-      (["status", "platform", "bookedAt", "notes"].includes(key) ? -1 : NaN);
+      (["status", "platform", "bookedAt", "notes", "sourceRowId"].includes(key) ? -1 : NaN);
     if (
       !Number.isInteger(index) ||
       index < -1 ||
@@ -306,18 +321,20 @@ export function normalizeSheet(
 ): NormalizedOrder[] {
   validateMapping(mapping);
   if (
-    !Array.isArray(source.rows) ||
-    source.rows.length > 501 ||
-    source.rows.length < mapping.headerRow ||
-    source.rows.some(
-      (r) =>
-        !Array.isArray(r) ||
-        r.length > 52 ||
-        r.some((v) => typeof v !== "string" || v.length > 2000),
-    )
+    importRowsTooLarge(source.rows) ||
+    source.rows.length < mapping.headerRow
   )
     throw new Error("IMPORT_SIZE");
   const groups = new Map<string, Group>();
+  const sourceRowIdColumn = mapping.columns.sourceRowId;
+  const sourceRowIdCounts = new Map<string, number>();
+  if (mapping.missingOrderId === "source-row" && sourceRowIdColumn !== undefined) {
+    for (const row of source.rows.slice(mapping.headerRow)) {
+      if (row.every((value) => !value.trim())) continue;
+      const id = cell(row, sourceRowIdColumn);
+      if (id) sourceRowIdCounts.set(id, (sourceRowIdCounts.get(id) ?? 0) + 1);
+    }
+  }
   let roomNights = 0;
   function add(row: string[], rowNumber: number, column?: number) {
     const c = mapping.columns;
@@ -334,6 +351,9 @@ export function normalizeSheet(
         ? cell(row, c.externalId)
         : (grid!.orderIds[`${rowNumber}:${column + 1}`] ??
           (grid!.cellMeaning === "order-id" ? content : ""));
+    const sourceRowId = sourceRowIdColumn === undefined ? "" : cell(row, sourceRowIdColumn);
+    const useSourceRowId = !rawId && mapping.missingOrderId === "source-row" && column === undefined;
+    const resolvedId = useSourceRowId && sourceRowId ? `source-row:${sourceRowId}` : rawId;
     const groupKey = rawId ? `id:${rawId}` : `row:${selection}`;
     const group = groups.get(groupKey) ?? {
       selection,
@@ -341,18 +361,17 @@ export function normalizeSheet(
       lines: [],
       references: [],
       issues: [],
+      pastRows: 0,
     };
     groups.set(groupKey, group);
     group.references.push(reference);
     try {
-      const externalId = textValue(rawId, 200);
+      if (useSourceRowId && (!sourceRowId || sourceRowIdCounts.get(sourceRowId) !== 1))
+        throw new Error("缺少或重複來源列唯一ID，不能安全建立獨立訂單");
+      if (mapping.missingOrderId === "source-row" && rawId.startsWith("source-row:"))
+        throw new Error("來源訂單編號與來源列識別碼的保留格式衝突");
+      const externalId = textValue(resolvedId, 200);
       group.externalId = externalId;
-      if (mapping.granularity !== "order" && !externalId)
-        throw new Error(
-          column === undefined
-            ? "多列訂單需要來源訂單編號，不能只按客人姓名合併"
-            : "此房況格尚未指定訂單編號，不能只按客人姓名合併",
-        );
       const status = cell(row, c.status).toLowerCase();
       if (status.includes("保留") || ["held", "hold", "awaiting_owner"].includes(status))
         throw new Error("來源保留單需連同期限與占房權威核對，不能當作正式或取消訂單匯入；請使用保留單串接流程");
@@ -387,6 +406,13 @@ export function normalizeSheet(
       const nights = (Date.parse(checkOut) - Date.parse(checkIn)) / 86400000;
       if (nights < 1 || nights > 366)
         throw new Error("退房日期需晚於入住，最長 366 晚");
+      if (checkOut <= mapping.from) group.pastRows += 1;
+      if (mapping.granularity !== "order" && !externalId)
+        throw new Error(
+          column === undefined
+            ? "多列訂單需要來源訂單編號，不能只按客人姓名合併"
+            : "此房況格尚未指定訂單編號，不能只按客人姓名合併",
+        );
       const roomIds = roomsFor(cell(row, c.rooms), mapping, property);
       roomNights += nights * roomIds.length;
       if (roomNights > MAX_ROOM_NIGHTS) throw new Error("IMPORT_SIZE");
@@ -440,7 +466,11 @@ export function normalizeSheet(
       references: group.references,
       roomNightCount: 0,
       draft: null,
-      issues: [...new Set(group.issues)],
+      issues: [...new Set([
+        ...group.issues,
+        ...(group.issues.length && group.pastRows === group.references.length
+          ? ["已在選定範圍之前退房"] : []),
+      ])],
       fingerprint: "",
     };
     if (group.issues.length || !group.lines.length) return result;
@@ -597,6 +627,8 @@ export function normalizeSheet(
       result.issues.push(
         error instanceof Error ? error.message : "無法轉換此訂單",
       );
+      if (group.pastRows === group.references.length)
+        result.issues.push("已在選定範圍之前退房");
     }
     return result;
   });

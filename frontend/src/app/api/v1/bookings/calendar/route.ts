@@ -6,12 +6,14 @@ import { ownerAccessConfigured } from "@/lib/calendar-owner-session";
 import { readOperationalSheet } from "@/lib/sheet-monitor/google";
 import { recordCalendarHealth } from "@/lib/booking-sources/calendar-diagnostics";
 import { randomUUID } from "node:crypto";
-import { readCalendarSources, calendarReadError, type CalendarReadEvent } from "@/lib/booking-sources/calendar-reader";
+import { readCalendarSources, calendarReadError, unconfirmedPayment, type CalendarReadEvent } from "@/lib/booking-sources/calendar-reader";
 import { readBookingSnapshot } from "@/lib/booking-sources/snapshot";
+import type { CalendarResponse } from "@/components/calendar/calendar-types";
 import { activeSources } from "@/lib/booking-sources/config";
-import { ironGateCalendarConfig, readSweetfunIronGateCalendar } from "@/lib/booking-sources/iron-gate-calendar.server";
+import { ironGateCalendarConfig, readSweetfunIronGateCalendarSnapshot } from "@/lib/booking-sources/iron-gate-calendar.server";
+import { ironGateManualConfig } from "@/lib/booking-sources/iron-gate-manual.server";
+import { ironGateManualPaymentConfig } from "@/lib/booking-sources/iron-gate-manual-payment.server";
 import { type NextRequest, NextResponse } from "next/server";
-import { getVercelOidcToken } from "@vercel/oidc";
 
 type PaymentStatus = "paid" | "deposit" | "unpaid";
 type PlatformCode = "a" | "b" | "c" | "d" | "i" | "o" | "x";
@@ -185,11 +187,13 @@ export async function GET(request: NextRequest) {
   const startedAt = Date.now();
   const events: CalendarReadEvent[] = [];
   const headers = { "Cache-Control": "private, no-store", Vary: "Cookie", "X-Request-ID": requestId };
+  let authenticatedPrincipal: Awaited<ReturnType<typeof principalFor>> = null;
   // Authenticate before reading snapshots or returning any calendar metadata.
   if (process.env.NODE_ENV === "production" || process.env.CALENDAR_SOURCE === "sheet_snapshot") {
     try {
       if ((await sessionMember(request))?.mustResetPassword) return NextResponse.json({detail:"請先重設密碼。",requires_password_reset:true},{status:403,headers:{"Cache-Control":"private, no-store"}});
-      if (!await principalFor(request)) return NextResponse.json({detail:"請先登入。"},{status:401,headers:{"Cache-Control":"private, no-store",Vary:"Cookie"}});
+      authenticatedPrincipal = await principalFor(request);
+      if (!authenticatedPrincipal) return NextResponse.json({detail:"請先登入。"},{status:401,headers:{"Cache-Control":"private, no-store",Vary:"Cookie"}});
     } catch {
       return NextResponse.json({detail:"暫時無法確認登入，請稍後再試。"},{status:503,headers:{"Cache-Control":"private, no-store"}});
     }
@@ -218,20 +222,25 @@ export async function GET(request: NextRequest) {
 
   if (process.env.CALENDAR_SOURCE === "sheet_snapshot") {
     try {
-      if((await sessionMember(request))?.mustResetPassword) return NextResponse.json({detail:"請先重設密碼。",requires_password_reset:true},{status:403,headers:{"Cache-Control":"private, no-store"}});
-      const principal = await principalFor(request);
-      if (!principal) return NextResponse.json({detail:"請先登入。"},{status:401,headers:{"Cache-Control":"private, no-store",Vary:"Cookie"}});
-      const definitions = activeSources().filter(d => allowedProperty(principal, d.property.id));
-      if ((process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED === "true" ||
-          process.env.IRON_GATE_SWEETFUN_CALENDAR_PREVIEW_ENABLED === "true") &&
+      const principal = authenticatedPrincipal;
+      if (!principal) return NextResponse.json({detail:"請先登入。"},{status:401,headers});
+      const authorized = activeSources().filter(d => allowedProperty(principal, d.property.id));
+      const requested = request.nextUrl.searchParams.get('properties');
+      const selected = requested === null ? null : requested.split(',');
+      if (selected && (selected.length < 1 || selected.length > 2 ||
+          new Set(selected).size !== selected.length ||
+          selected.some(id => id !== 'sweetfun' && id !== 'offland')))
+        return NextResponse.json({ detail: '館別篩選無效。' }, { status: 400, headers });
+      const chosen = selected ? authorized.filter(d => selected.includes(d.property.id)) : authorized;
+      // A saved filter may name a property whose membership was removed.
+      // Hydrate the remaining authorized properties so the client can recover.
+      const definitions = chosen.length ? chosen : authorized;
+      if (!definitions.length) return NextResponse.json({ detail: '無法讀取此館別。' }, { status: 403, headers });
+      if (process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED === "true" &&
           definitions.some(d => d.key === "sweetfun")) {
         const offland = definitions.filter(d => d.key !== "sweetfun");
-        const igConfig = ironGateCalendarConfig();
-        if (process.env.VERCEL_ENV === "preview" &&
-          process.env.IRON_GATE_PREVIEW_OWNER_ONLY === "true")
-          igConfig.trustedSourceToken = await getVercelOidcToken();
         const [ig, other] = await Promise.all([
-          readSweetfunIronGateCalendar(start, end, principal, igConfig),
+          readSweetfunIronGateCalendarSnapshot(start, end, principal, ironGateCalendarConfig()),
           offland.length ? readCalendarSources(offland, start, end, principal.viewPrices, {
             cache: configuredPrivateCalendarCache(), startedAt,
             snapshot: readBookingSnapshot, details: readOperationalSheet,
@@ -239,45 +248,68 @@ export async function GET(request: NextRequest) {
             report: event => { events.push(event); },
           }) : Promise.resolve(null),
         ]);
-        const bookings = projectBookings([
-          ...ig.bookings, ...(other?.bookings ?? []),
-        ], principal);
-        const preview = ig.mode === "snapshot_preview";
-        const source = preview ? {
-          label: "Iron Gate 固定快照預覽", observed_at: ig.observedAt,
-          private_snapshot_at: ig.snapshotCapturedAt!,
-          private_snapshot_version: String(ig.inventoryVersion),
-          read_only: true, automatic_sync: false, availability_authoritative: false,
-        } : { label: "Iron Gate 訂房紀錄", observed_at: ig.observedAt,
+        let igPayments = ig.bookings;
+        let paymentWarning: CalendarResponse['source_warnings'] = [];
+        const imported = ig.bookings.filter(booking => booking.iron_gate_source !== 'os');
+        if (principal.viewPrices && imported.length) {
+          try {
+            const overlaid = await overlayPayments(imported);
+            const byId = new Map(overlaid.map(booking => [booking.id, booking]));
+            igPayments = ig.bookings.map(booking => byId.get(booking.id) ?? booking);
+          }
+          catch { igPayments = ig.bookings.map(booking =>
+            booking.iron_gate_source === 'os' ? booking : unconfirmedPayment(booking));
+            paymentWarning = [{ property_id: 'sweetfun', label: 'Iron Gate 訂房紀錄', phase: 'payments' }]; }
+        }
+        const bookings = projectBookings([...igPayments, ...(other?.bookings ?? [])], principal);
+        let manualEnabled = false;
+        let manualPaymentEnabled = false;
+        if (principal.viewPrices && ["owner", "admin", "god"].includes(principal.role) &&
+          (principal.allProperties || principal.propertyIds.includes("sweetfun"))) {
+          try { ironGateManualConfig(); manualEnabled = true; } catch { /* closed by default */ }
+          try { ironGateManualPaymentConfig(); manualPaymentEnabled = true; }
+          catch { /* separate money grant stays closed by default */ }
+        }
+        const source = { label: "Iron Gate 訂房紀錄", observed_at: ig.observedAt,
           read_only: true, automatic_sync: true, availability_authoritative: false,
           private_snapshot_version: String(ig.inventoryVersion),
           sync: { status: "confirming" as const, last_checked_at: ig.observedAt,
             last_successful_check_at: ig.observedAt, last_published_at: ig.observedAt,
             cutoff: ig.observedAt, interval_seconds: 0,
             error_code: "OWLNEST_STOCK_NOT_VERIFIED" } };
+        const missingPaymentNights = igPayments.filter(booking =>
+          !booking.source_conflict && booking.payment_status === 'unknown').reduce((sum, booking) => {
+          const from = Math.max(Date.parse(`${booking.check_in}T00:00:00Z`), startDate.getTime());
+          const to = Math.min(Date.parse(`${booking.check_out}T00:00:00Z`), endDate.getTime());
+          return sum + Math.max(0, Math.round((to - from) / DAY_MS));
+        }, 0);
         const sourceSummary = { rows: ig.soldRoomNights,
           accepted_rows: ig.soldRoomNights,
           quarantined_rows: 0, blocked_room_nights: ig.blockedRoomNights,
           missing_order_id: 0,
-          missing_payment_status: ig.soldRoomNights };
+          missing_payment_status: missingPaymentNights };
         return NextResponse.json({
-          price_hidden: true,
+          price_hidden: !principal.viewPrices,
           year: startDate.getUTCFullYear(), month: startDate.getUTCMonth() + 1,
           month_start: monthStart(start), month_end: monthEnd(start),
           period_start: start, period_end: end,
-          properties: PROPERTIES.filter(p => definitions.some(d => d.property.id === p.id)),
+          properties: PROPERTIES.filter(p => authorized.some(d => d.property.id === p.id)),
           rooms: ROOMS.filter(r => definitions.some(d => d.property.id === r.property_id)),
           order_count: new Set(bookings.filter(b => !b.source_conflict).map(b => b.order_id)).size,
           booking_segment_count: bookings.filter(b => !b.source_conflict).length,
-          total_amount: 0, bookings, source, source_summary: sourceSummary,
+          total_amount: bookings.filter(b => !b.source_conflict && !b.price_hidden)
+            .reduce((sum, b) => sum + b.room_rate, 0),
+          bookings, source, source_summary: sourceSummary,
           sources: [{ property_id: "sweetfun", source, summary: sourceSummary },
             ...(other?.snapshots.map(({ definition, snapshot }) => ({
               property_id: definition.property.id, source: snapshot.source,
               summary: snapshot.summary })) ?? [])],
           request_id: requestId,
-          source_errors: other?.errors ?? [], source_warnings: other?.warnings ?? [],
+          source_errors: other?.errors ?? [], source_warnings: [...paymentWarning, ...(other?.warnings ?? [])],
           guest_access: { available: ownerAccessConfigured(), authenticated: true },
-          data_mode: preview ? "iron_gate_snapshot_preview" : "iron_gate_booking_only",
+          data_mode: "iron_gate_booking_only",
+          iron_gate_manual_enabled: manualEnabled,
+          iron_gate_manual_payment_enabled: manualPaymentEnabled,
         }, { headers });
       }
       const result = await readCalendarSources(definitions, start, end, principal.viewPrices, {
@@ -294,7 +326,7 @@ export async function GET(request: NextRequest) {
         price_hidden: !principal?.viewPrices,
         year: startDate.getUTCFullYear(), month: startDate.getUTCMonth() + 1,
         month_start: monthStart(start), month_end: monthEnd(start), period_start: start, period_end: end,
-        properties: PROPERTIES.filter(p => definitions.some(d => d.property.id === p.id)), rooms: ROOMS.filter(r => loadedProperties.has(r.property_id)),
+        properties: PROPERTIES.filter(p => authorized.some(d => d.property.id === p.id)), rooms: ROOMS.filter(r => loadedProperties.has(r.property_id)),
         order_count: new Set(bookings.filter(b => !b.source_conflict).map(b => b.order_id)).size,
         booking_segment_count: bookings.filter(b => !b.source_conflict).length,
         total_amount: bookings.filter(b => !b.source_conflict).reduce((sum, b) => sum + b.room_rate, 0),
@@ -311,7 +343,9 @@ export async function GET(request: NextRequest) {
     } catch (error) {
       console.error(JSON.stringify({ event: "calendar_unavailable", request_id: requestId, code: calendarReadError(error) }));
       // Never fall back to fictional bookings when an operational source is configured.
-      return NextResponse.json({ detail: "訂房日曆資料暫時無法讀取，請稍後重試。", request_id: requestId }, { status: 503, headers });
+      return NextResponse.json({ detail: process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED === "true"
+        ? "訂單日曆暫時無法讀取，請稍後重試。"
+        : "訂房表快照暫時無法讀取，請稍後重試。", request_id: requestId }, { status: 503, headers });
     } finally {
       await recordCalendarHealth(events, requestId, startedAt);
     }

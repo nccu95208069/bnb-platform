@@ -161,7 +161,7 @@ test("public ICS route previews before signup, emails only at save, restores sel
     200,
   );
   assert.equal(f.mail.length, 1);
-  assert.match(f.mail[0].text, /不需要設定密碼/);
+  assert.match(f.mail[0].text, /可在電腦或手機開啟/);
   const token = f.mail[0].text.match(/\/signin#([^\s]+)/)[1];
   assert.equal(
     (

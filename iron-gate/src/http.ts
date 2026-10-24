@@ -149,10 +149,18 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         if (parts.length === 5 && request.method === "PATCH") {
           const value = await body(request);
           exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "changes"],
-            ["channelPolicy"]);
+            ["channelPolicy", "reason"]);
           const result = await service.amendBooking(principal, propertyId, parts[4], requestKey(request),
             value as AmendBookingInput, request.headers.get("x-iron-gate-line-preview"));
           return json(result, result.operationState === "sync_pending" ? 202 : 200);
+        }
+        if (parts.length === 6 && parts[5] === "sync-room-status" && request.method === "POST") {
+          const value = await body(request);
+          exact(value, ["expectedBookingVersion", "expectedInventoryVersion"]);
+          const result = await service.requestManualChannelSync(principal, propertyId, parts[4],
+            requestKey(request), value.expectedBookingVersion as number,
+            value.expectedInventoryVersion as number);
+          return json(result, 202);
         }
         if (parts.length === 6 && parts[5] === "line-action-previews" && request.method === "POST") {
           const value = await body(request);
@@ -184,11 +192,11 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         }
         if (parts.length === 6 && parts[5] === "cancel" && request.method === "POST") {
           const value = await body(request);
-          exact(value, ["expectedBookingVersion", "expectedInventoryVersion"], ["channelPolicy"]);
+          exact(value, ["expectedBookingVersion", "expectedInventoryVersion"], ["channelPolicy", "reason"]);
           const result = await service.cancelBooking(principal, propertyId, parts[4], requestKey(request),
             value.expectedBookingVersion as number, value.expectedInventoryVersion as number,
             request.headers.get("x-iron-gate-line-preview"),
-            value.channelPolicy as "manual" | undefined);
+            value.channelPolicy as "manual" | undefined, value.reason as string | undefined);
           return json(result, result.operationState === "sync_pending" ? 202 : 200);
         }
         if (parts.length === 6 && parts[5] === "payment-events" && request.method === "POST") {
@@ -304,6 +312,14 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         exact(value, ["propertyId", "providerVersion", "observedAt", "cells"],
           ["appliedClosedCells"]);
         const result = await service.recordChannelReadback(principal,
+          { ...value, operationKey: parts[2] } as ReadbackInput);
+        return json(result, result.state === "review_required" ? 409 : 200);
+      }
+      if (parts[1] === "inventory-operations" && parts[2] && parts[3] === "preflight" &&
+        parts.length === 4 && request.method === "POST") {
+        const value = await body(request);
+        exact(value, ["propertyId", "providerVersion", "observedAt", "cells"]);
+        const result = await service.recordManualChannelPreflight(principal,
           { ...value, operationKey: parts[2] } as ReadbackInput);
         return json(result, result.state === "review_required" ? 409 : 200);
       }

@@ -6,7 +6,7 @@ import {useT,useIntlLocale} from '@/components/i18n/language-provider';
 import type {FinanceSummaryRow} from '@/lib/finance-summary';
 import {PLATFORMS,METHODS,taipeiDate} from '@/lib/finance-model';
 import {SummaryReceipt} from './summary-receipt';
-type Report={property_id:string;properties:{id:string;name:string}[];orders:FinanceSummaryRow[];updated_at:string};
+type Report={property_id:string;properties:{id:string;name:string}[];orders:FinanceSummaryRow[];updated_at:string;iron_gate_direct_excluded?:boolean};
 export function FinanceSummary(){
  const t=useT(),locale=useIntlLocale(),query=useSearchParams(),router=useRouter();
  const property=query.get('property')??'';
@@ -19,6 +19,7 @@ export function FinanceSummary(){
  <header><Link href={`/finance?property=${encodeURIComponent(property)}`} className="text-sm text-slate-500 hover:underline">← {t('財務首頁')}</Link><h1 className="mt-3 text-2xl font-semibold">{t('訂單收款')}</h1></header>
  <div className="flex flex-wrap gap-2"><select aria-label={t('我的旅宿')} disabled={!data||!!receipt} className="min-w-0 rounded-lg border bg-white p-2.5" value={data?.property_id??property} onChange={e=>{setNotice('');router.push(`/finance/summary?property=${encodeURIComponent(e.target.value)}`);}}>{data?.properties.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select><input aria-label={t('入住月份')} type="month" className="min-w-0 rounded-lg border bg-white p-2.5" value={month} onChange={e=>{if(e.target.value){setMonth(e.target.value);setSearch('');setLimit(30);}}}/><button aria-label={t('重新整理')} className="rounded-lg border px-3" onClick={()=>setRefresh(v=>v+1)}>↻</button><input aria-label={t('搜尋全部訂單')} placeholder={t('搜尋全部訂單：編號、房間或日期')} className="min-w-0 basis-full rounded-lg border p-2.5 sm:flex-1 sm:basis-auto" value={search} onChange={e=>{setSearch(e.target.value);setLimit(30);}}/></div>
  {notice&&<p role="status" className="text-sm text-teal-800">{t(notice)}</p>}{error&&<p role="alert" className="rounded-lg bg-amber-50 p-3">{t(error)}</p>}
+ {data?.iron_gate_direct_excluded&&<p role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">{t('水芳 Iron Gate 新直訂與其收付款尚未併入此頁的訂單及收支合計。請到日曆逐單核對，避免重複登記。')}</p>}
  {!data&&!error&&<p role="status">{t('載入中…')}</p>}
  {data&&<><div className="flex flex-wrap justify-between gap-2 text-xs text-slate-500"><span>{t('訂單數')} {orders.length}{search.trim()?` · ${t('搜尋全部月份')}`:''}</span><span>{t('已收僅列已登記款項；應收與未收尚未確認時顯示待確認。')}</span></div>
  <div className="space-y-3">{orders.slice(0,limit).map(o=>{
