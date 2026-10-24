@@ -368,6 +368,40 @@ components:
               roomId: { type: string, format: uuid }
               date: { type: string, format: date }
               state: { type: string, enum: [sold, held, blocked] }
+    BusinessReport:
+      type: object
+      additionalProperties: false
+      description: >-
+        PulseData-compatible analytics from every confirmed canonical booking in
+        one property snapshot. Monetary outputs are TWD, not cents or cash received.
+        Public room labels and fixed neutral guest placeholders only; no canonical
+        IDs, source references, guest names, contact or notes. Missing booking dates
+        and prices are counted in meta quality warnings instead of being invented.
+      required: [generatedAt, timezone, yesterday, today, last7, upcoming, grids, verdict, actions, summaryText, meta]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        timezone: { type: string, enum: [Asia/Taipei] }
+        yesterday: { type: object }
+        today: { type: object }
+        last7:
+          type: object
+          description: Includes daily14 and daily30 complete-day booking-date series.
+        upcoming: { type: object }
+        grids: { type: object }
+        verdict: { type: object }
+        actions: { type: array, items: { type: object } }
+        summaryText: { type: string }
+        meta:
+          type: object
+          required: [source, inventoryVersion, authorityEpoch, readOnly, saleReady, sourceUpdatedAt, warnings]
+          properties:
+            source: { type: string, enum: [iron-gate] }
+            inventoryVersion: { type: integer, minimum: 0 }
+            authorityEpoch: { type: integer, minimum: 1 }
+            readOnly: { type: boolean, enum: [false] }
+            saleReady: { type: boolean, enum: [false] }
+            sourceUpdatedAt: { type: 'null' }
+            warnings: { type: array, items: { type: string } }
     OccupancySummary:
       type: object
       additionalProperties: false
@@ -1028,6 +1062,27 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/CalendarSnapshot' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/properties/{propertyId}/business-report:
+    get:
+      operationId: getBusinessReport
+      summary: Read a PII-free daily booking and revenue report
+      description: >-
+        Requires origin=service, the explicit booking:aggregate action, and empty
+        fields. Reads all history once, including recent bookings for distant future
+        stays. Uses Asia/Taipei business dates. A current positive authority epoch
+        and readOnly=false are mandatory. The response is the report itself, with no
+        data envelope. Always private/no-store. Does not prove sellable inventory.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+      responses:
+        '200':
+          description: One complete versioned report with quality metadata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BusinessReport' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: Authority moved, property is read-only, or source data is inconsistent
   /v1/properties/{propertyId}/occupancy-summary:
     get:
       operationId: getOccupancySummary

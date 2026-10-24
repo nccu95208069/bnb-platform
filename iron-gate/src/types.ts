@@ -3,6 +3,7 @@ export type ChannelSyncState = "not_required" | "pending" | "verified" | "review
 export type OperationState = "sync_pending" | "sync_verified" | "review_required";
 export type Action =
   | "booking:read"
+  | "booking:aggregate"
   | "booking:create"
   | "booking:amend"
   | "booking:cancel"
