@@ -943,7 +943,7 @@ const uiLocale = useIntlLocale();
               {(onManualEdit || onManualCancel) &&
                 <div className="grid grid-cols-2 gap-2">
                   {onManualEdit && <Button variant="outline" onClick={onManualEdit}>
-                    修改訂單</Button>}
+                    {booking.iron_gate_source === "external" ? "更正旅客姓名" : "修改訂單"}</Button>}
                   {onManualCancel && <Button variant="outline" onClick={onManualCancel}>
                     取消訂單</Button>}
                 </div>}

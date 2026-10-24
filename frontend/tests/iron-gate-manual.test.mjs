@@ -137,6 +137,44 @@ test('OS direct lifecycle verifies every OwlNest transition before the next writ
   assert.equal(reviews.length, 0);
 });
 
+test('selected external booking accepts a local name correction without changing room nights', async () => {
+  const { repository, service, send } = setup(), c = config();
+  const sourceGrantId = key();
+  await repository.transact(propertyId, state => {
+    state.sourceGrants.push({ grantId: sourceGrantId, sourceSystem: 'ota',
+      sourceAccount: 'synthetic-account', active: true });
+  });
+  const source = { clientId: 'synthetic-source-client', subjectId: 'synthetic-source',
+    origin: 'source', workspaceId, propertyIds: [propertyId], authorityEpoch: 1,
+    actions: ['source:write'], fields: [], grantId: sourceGrantId,
+    sourceSystem: 'ota', sourceAccount: 'synthetic-account' };
+  const imported = await service.applySourceEvent(source, key(), {
+    propertyId, sourceSystem: 'ota', sourceAccount: 'synthetic-account',
+    externalOrderId: 'synthetic-external-order', sourceVersion: 'v1',
+    previousSourceVersion: null, kind: 'upsert', expectedInventoryVersion: 1,
+    stays: [{ checkIn: '2026-11-10', checkOut: '2026-11-12',
+      roomIds: [roomIds['101']] }], guestName: 'Original Guest',
+    bookedAt: '2026-10-24', totalCents: null,
+  });
+  const before = await repository.read(propertyId);
+  await assert.rejects(amendManualBooking(owner, c, imported.bookingId, {
+    expectedBookingVersion: 1, expectedInventoryVersion: before.version,
+    reason: 'Synthetic correction', changes: { contact: 'new contact' },
+  }, key(), send), /SOURCE_AMEND_REQUIRES_REVIEW/);
+  const result = await amendManualBooking(owner, c, imported.bookingId, {
+    expectedBookingVersion: 1, expectedInventoryVersion: before.version,
+    reason: 'Synthetic correction', changes: { guestName: 'Corrected Guest' },
+  }, key(), send);
+  assert.equal(result.bookingVersion, 2);
+  const after = await repository.read(propertyId);
+  assert.equal(after.bookings[0].guestName, 'Corrected Guest');
+  assert.equal(after.bookings[0].lineOverridePending, true);
+  assert.equal(after.sourceLinks[0].diverged, true);
+  assert.deepEqual(after.bookings[0].stays, before.bookings[0].stays);
+  assert.equal(after.operations.length, 0);
+  assert.equal(after.fences.length, 0);
+});
+
 test('manual gateway stays closed without both explicit switches', () => {
   assert.throws(() => ironGateManualConfig({}), /MANUAL_CONFIG_UNAVAILABLE/);
   assert.throws(() => ironGateManualPaymentConfig({}), /MANUAL_CONFIG_UNAVAILABLE/);

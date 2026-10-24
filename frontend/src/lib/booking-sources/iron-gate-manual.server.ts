@@ -297,11 +297,18 @@ export async function amendManualBooking(principal: Principal, config: ManualCon
   const before = await callIronGate(config, principal, 'GET', bookingPath(config, bookingId),
     null, null, send);
   ensureBooking(before, config, bookingId);
-  if (before.source !== 'os' || before.status !== 'confirmed' ||
+  const externalNameOnly = before.source === 'external';
+  if (!['os', 'external'].includes(String(before.source)) || before.status !== 'confirmed' ||
     before.version !== input.expectedBookingVersion) throw Error('MANUAL_VERSION_CONFLICT');
   if (before.sourceReviewRequired === true ||
     !['verified', 'not_required'].includes(String(before.channelSyncState)))
     throw Error('CHANNEL_AMENDMENT_NOT_READY');
+  if (externalNameOnly) {
+    if (Object.keys(changes).length !== 1 || typeof changes.guestName !== 'string' ||
+      !changes.guestName.trim() || changes.guestName.trim() === before.guestName)
+      throw Error('SOURCE_AMEND_REQUIRES_REVIEW');
+    changes.guestName = changes.guestName.trim();
+  }
   const payload = { expectedBookingVersion: version(input.expectedBookingVersion, 1),
     expectedInventoryVersion: version(input.expectedInventoryVersion),
     changes, reason: reason(input.reason) };
@@ -312,6 +319,12 @@ export async function amendManualBooking(principal: Principal, config: ManualCon
   if (after.status !== 'confirmed' || after.version !== result.bookingVersion ||
     Object.entries(changes).some(([field, value]) => field === 'stays' ?
       !sameStays(after.stays, value as Stay[]) : after[field] !== value))
+    throw Error('MANUAL_READBACK_MISMATCH');
+  if (externalNameOnly && (after.source !== 'external' ||
+    after.sourceReviewRequired !== true || after.channelSyncState !== before.channelSyncState ||
+    !sameStays(after.stays, before.stays as Stay[]) ||
+    after.contact !== before.contact || after.notes !== before.notes ||
+    after.totalCents !== before.totalCents || after.bookedAt !== before.bookedAt))
     throw Error('MANUAL_READBACK_MISMATCH');
   return { bookingId, bookingVersion: after.version, inventoryVersion: result.inventoryVersion,
     operationState: result.operationState, channelSyncState: after.channelSyncState, requestKey };

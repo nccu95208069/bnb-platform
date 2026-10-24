@@ -1801,16 +1801,41 @@ test("OS OwlNest writes stay within both ends of the observed stock window", asy
   assert.equal((await repository.read(propertyId)).bookings[0].status, "confirmed");
 });
 
-test("OS cannot silently amend a source order", async () => {
+test("OS can correct only the name on a uniquely linked source order and keeps source review", async () => {
   const { service, repository } = setup();
   const imported = await service.applySourceEvent(principal("source"), key(), sourceInput());
   const state = await repository.read(propertyId);
-  await assert.rejects(service.amendBooking(principal("os", {
-    actions: [...principal().actions, "booking:amend"],
-  }), propertyId, imported.bookingId, key(), {
-    expectedBookingVersion: 1, expectedInventoryVersion: state.version,
-    changes: { guestName: "Manual correction" },
-  }), errorCode("SOURCE_AMEND_REQUIRES_REVIEW"));
+  const actor = principal("os", { actions: [...principal().actions, "booking:amend"] });
+  for (const changes of [{ contact: "synthetic-contact" }, { notes: "synthetic note" },
+    { totalCents: 1000 }, { guestName: "Manual correction", totalCents: 1000 },
+    { guestName: null }, { guestName: "External Guest" }]) {
+    await assert.rejects(service.amendBooking(actor, propertyId, imported.bookingId,
+      key(), { expectedBookingVersion: 1, expectedInventoryVersion: state.version,
+        changes, reason: "Synthetic correction" }), errorCode("SOURCE_AMEND_REQUIRES_REVIEW"));
+  }
+  const input = { expectedBookingVersion: 1, expectedInventoryVersion: state.version,
+    changes: { guestName: "Manual correction" }, reason: "Synthetic correction" };
+  const requestKey = key();
+  const result = await service.amendBooking(actor, propertyId, imported.bookingId,
+    requestKey, input);
+  assert.equal(result.sourceReviewRequired, true);
+  assert.deepEqual(await service.amendBooking(actor, propertyId, imported.bookingId,
+    requestKey, input), result);
+  const after = await repository.read(propertyId);
+  assert.equal(after.bookings[0].guestName, "Manual correction");
+  assert.equal(after.bookings[0].lineOverridePending, true);
+  assert.equal(after.sourceLinks[0].diverged, true);
+  assert.equal(after.fences.length, 0);
+  assert.equal(after.operations.length, 0);
+  assert.equal(after.version, state.version);
+  assert.equal((await service.getBooking(actor, propertyId, imported.bookingId))
+    .sourceReviewRequired, true);
+  assert.equal(repository.auditRecords(propertyId).at(-1).reason, "Synthetic correction");
+  const sourceAgain = await service.applySourceEvent(principal("source"), key(),
+    sourceInput(after.version, { sourceVersion: "v2", previousSourceVersion: "v1",
+      totalCents: null }));
+  assert.equal(sourceAgain.state, "review_required");
+  assert.equal((await repository.read(propertyId)).bookings[0].guestName, "Manual correction");
 });
 
 test("native paid booking requires settlement before cancellation; refund stays append-only", async () => {

@@ -1077,7 +1077,8 @@ const uiLocale = useIntlLocale();
         onRecordPayment={recordPayment}
         onUpdateBooking={updateBooking}
         onCancelBooking={cancelBooking}
-        onManualEdit={manualEnabled && selectedBooking?.iron_gate_source === "os" &&
+        onManualEdit={manualEnabled && selectedBooking &&
+          ["os", "external"].includes(selectedBooking.iron_gate_source ?? "") &&
           ["verified", "not_required"].includes(selectedBooking.iron_gate_channel_sync ?? "") &&
           !selectedBooking.iron_gate_source_review ?
           () => setManualMode("amend") : undefined}

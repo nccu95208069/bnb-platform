@@ -33,6 +33,7 @@ const LABELS: Record<string, string> = {
   MANUAL_PENDING_REQUEST: "仍有一筆提交結果未確認。請先查詢原請求，避免重複送單。",
   MANUAL_PENDING_REQUEST_INVALID: "此瀏覽器保存的請求資料無法辨識，請先人工核對訂單。",
   MANUAL_STORAGE_UNAVAILABLE: "此瀏覽器無法安全保存請求鍵，暫時不能提交訂單。",
+  SOURCE_AMEND_REQUIRES_REVIEW: "這張來源訂單目前不能修改此欄位，請重新載入確認。",
 };
 
 function dayAfter(value: string): string {
@@ -68,10 +69,11 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
   const [checkOut, setCheckOut] = useState(dayAfter(defaultDate));
   const [roomNumbers, setRoomNumbers] = useState<string[]>([]);
   const [reason, setReason] = useState("");
+  const sourceNameOnly = mode === "amend" && detail?.source === "external";
   const simpleStay = mode === "create" || detail?.stays.length === 1;
-  const canMutate = mode === "create" || detail?.source === "os" &&
+  const canMutate = mode === "create" || (detail?.source === "os" || sourceNameOnly) &&
     detail.status === "confirmed" && !detail.sourceReviewRequired &&
-    !["pending", "review_required"].includes(detail.channelSyncState);
+    ["verified", "not_required"].includes(detail.channelSyncState);
   const stay = useMemo(() => [{ checkIn, checkOut, roomNumbers: [...roomNumbers].sort() }],
     [checkIn, checkOut, roomNumbers]);
   const fingerprint = JSON.stringify([stay, inventoryVersion, detail?.version]);
@@ -122,18 +124,25 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
     setError(""); setResult("");
     let submittedKey: string | null = null;
     if (!canMutate) { setError("這張訂單目前不能手動修改或取消。"); return; }
-    if (mode !== "cancel" && (!guestName.trim() || !roomNumbers.length ||
-      !checkIn || !checkOut || checkOut <= checkIn)) {
-      setError("請填妥旅客、房間及正確的入住與退房日期。"); return;
+    if (mode !== "cancel" && !guestName.trim()) {
+      setError("請填寫旅客姓名。"); return;
+    }
+    if (sourceNameOnly && guestName.trim() === detail?.guestName) {
+      setError("旅客姓名尚未變更。"); return;
+    }
+    if (mode !== "cancel" && !sourceNameOnly &&
+      (!roomNumbers.length || !checkIn || !checkOut || checkOut <= checkIn)) {
+      setError("請填妥房間及正確的入住與退房日期。"); return;
     }
     if (mode !== "create" && !reason.trim()) { setError("請填寫原因。"); return; }
-    if (totalTwd && (!/^\d+$/.test(totalTwd) ||
+    if (!sourceNameOnly && totalTwd && (!/^\d+$/.test(totalTwd) ||
       !Number.isSafeInteger(Number(totalTwd) * 100))) {
       setError("房價請填寫有效的台幣金額，未知可留白。"); return;
     }
     setBusy(true);
     try {
-      if (mode !== "cancel" && (previewFor !== fingerprint || !preview)) {
+      if (mode !== "cancel" && !sourceNameOnly &&
+        (previewFor !== fingerprint || !preview)) {
         const path = mode === "create" ? "/api/v1/bookings/manual/preview" :
           `/api/v1/bookings/manual/${bookingId}/preview`;
         const body = mode === "create" ? { expectedInventoryVersion: inventoryVersion,
@@ -150,7 +159,10 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
       const payload = mode === "create" ? { expectedInventoryVersion: inventoryVersion,
         stays: stay, guestName: guestName.trim(), contact: contact.trim() || null,
         notes: notes.trim() || null, totalCents: totalTwd ? Math.round(Number(totalTwd) * 100) : null,
-        bookedAt: bookedAt || null } : mode === "amend" ? {
+        bookedAt: bookedAt || null } : mode === "amend" && sourceNameOnly ? {
+          expectedBookingVersion: detail?.version, expectedInventoryVersion: inventoryVersion,
+          reason: reason.trim(), changes: { guestName: guestName.trim() },
+        } : mode === "amend" ? {
           expectedBookingVersion: detail?.version, expectedInventoryVersion: inventoryVersion,
           reason: reason.trim(), changes: { stays: stay, guestName: guestName.trim(),
             contact: contact.trim() || null, notes: notes.trim() || null,
@@ -188,7 +200,8 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
         return;
       }
       clearPendingManualRequest(window.localStorage, key);
-      setResult(value.operationState === "sync_pending" ?
+      setResult(sourceNameOnly ? "旅客姓名已在 Sweetfun OS 更正並讀回確認；來源差異待核對。" :
+        value.operationState === "sync_pending" ?
         "訂單已記錄，OwlNest 房況同步中。" : "訂單已記錄並讀回確認。");
       onDone();
     } catch (err) {
@@ -225,18 +238,21 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
       <DialogHeader>
         <DialogTitle>{mode === "create" ? "新增水芳訂單" : mode === "amend" ?
           "修改水芳訂單" : "取消水芳訂單"}</DialogTitle>
-        <DialogDescription>訂單會記錄在 Iron Gate；OwlNest 房況需同步並回讀後才算驗證完成。</DialogDescription>
+        <DialogDescription>{sourceNameOnly ?
+          "只更正 Sweetfun OS 的旅客姓名；不變動 OwlNest 訂單或房況，來源差異會標示待核。" :
+          "訂單會記錄在 Iron Gate；OwlNest 房況需同步並回讀後才算驗證完成。"}</DialogDescription>
       </DialogHeader>
       {loading ? <p role="status">讀取訂單中…</p> : <div className="space-y-4">
         {mode !== "create" && !canMutate &&
           <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
             此訂單的來源或房況仍需核對，暫時不能手動操作。</p>}
-        {mode === "amend" && !simpleStay &&
+        {mode === "amend" && !sourceNameOnly && !simpleStay &&
           <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
             這張訂單有多段住宿，請先在詳情確認全單；目前介面只支援單段住宿修改。</p>}
         {mode !== "cancel" && <>
           <div className="space-y-1"><Label htmlFor="manual-guest">旅客姓名</Label>
             <Input id="manual-guest" value={guestName} onChange={e => setGuestName(e.target.value)} /></div>
+          {!sourceNameOnly && <>
           <div className="space-y-1"><Label htmlFor="manual-contact">聯絡方式</Label>
             <Input id="manual-contact" value={contact} onChange={e => setContact(e.target.value)} /></div>
           <div><Label>房間</Label><div className="mt-2 grid grid-cols-3 gap-2">
@@ -261,6 +277,7 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
           </div>
           <div className="space-y-1"><Label htmlFor="manual-notes">備註</Label>
             <Textarea id="manual-notes" value={notes} onChange={e => setNotes(e.target.value)} /></div>
+          </>}
         </>}
         {mode !== "create" && <div className="space-y-1"><Label htmlFor="manual-reason">
           {mode === "cancel" ? "取消原因" : "修改原因"}</Label>
@@ -269,7 +286,7 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
           Number(detail?.netReceivedCents) > 0 &&
           <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
             這張訂單仍有收款，請先完成退款或結算；取消不會自動退款。</p>}
-        {preview && previewFor === fingerprint && mode !== "cancel" &&
+        {preview && previewFor === fingerprint && mode !== "cancel" && !sourceNameOnly &&
           <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm">
             Iron Gate 內部 {preview.roomNights} 個房晚目前可用。提交後才會同步並回讀 OwlNest 房況。
           </p>}
@@ -281,11 +298,12 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
       </div>}
       <DialogFooter>
         <Button variant="outline" onClick={onClose} disabled={busy || unknown}>關閉</Button>
-        {!loading && canMutate && !(mode === "amend" && !simpleStay) &&
+        {!loading && canMutate && !(mode === "amend" && !sourceNameOnly && !simpleStay) &&
           !(mode === "cancel" && Number(detail?.netReceivedCents) > 0) &&
           !result.includes("尚未確認") &&
           <Button onClick={() => void submit()} disabled={busy}>
             {busy ? "處理中…" : mode === "cancel" ? "確認取消" :
+              sourceNameOnly ? "確認修改姓名" :
               preview && previewFor === fingerprint ? "確認提交" : "檢查房晚"}</Button>}
       </DialogFooter>
     </DialogContent>

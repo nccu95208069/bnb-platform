@@ -432,7 +432,7 @@ function makeBookingReceipt(state: PropertyState, booking: Booking): BookingRece
       (booking.status === "cancelled" ||
         (booking.totalCents !== null && netReceived(booking) > booking.totalCents)) };
 }
-function flagLineSourceReview(state: PropertyState, booking: Booking,
+function flagExternalSourceReview(state: PropertyState, booking: Booking,
   before: Night[], after: Night[], unverifiable = false): void {
   if (booking.source !== "external") return;
   booking.lineOverridePending = true;
@@ -791,8 +791,19 @@ export class IronGateService {
       if (booking.version !== input.expectedBookingVersion) reject("VERSION_CONFLICT", 409);
       if (booking.status === "cancelled") reject("ORDER_CANCELLED", 409);
       if (principal.origin === "line") requireLineMutation(principal, state, booking);
-      if (principal.origin === "os" && booking.source === "external")
-        reject("SOURCE_AMEND_REQUIRES_REVIEW", 409);
+      const externalNameCorrection = principal.origin === "os" && booking.source === "external";
+      if (externalNameCorrection) {
+        const linked = state.sourceLinks.filter((link) => link.bookingId === booking.id);
+        if (booking.status !== "confirmed" ||
+          !["verified", "not_required"].includes(booking.channelSyncState) ||
+          booking.lineOverridePending === true || linked.length !== 1 ||
+          linked[0].diverged || linked[0].lastAppliedBookingVersion !== booking.version ||
+          Object.keys(input.changes).length !== 1 ||
+          typeof input.changes.guestName !== "string" ||
+          !input.changes.guestName.trim() ||
+          input.changes.guestName.trim() === booking.guestName || !input.reason?.trim())
+          reject("SOURCE_AMEND_REQUIRES_REVIEW", 409);
+      }
       const baselineReadbackNeeded = principal.origin === "line" &&
         booking.channelSyncState === "not_required";
       requireAmendFields(principal, input.changes);
@@ -817,13 +828,15 @@ export class IronGateService {
         if (roomNightsChanged && hasConflict(state, next, booking.id)) reject("ROOM_CONFLICT", 409);
         booking.stays = structuredClone(input.changes.stays!);
       }
-      if ("guestName" in input.changes) booking.guestName = input.changes.guestName!;
+      if ("guestName" in input.changes) booking.guestName = externalNameCorrection ?
+        input.changes.guestName!.trim() : input.changes.guestName!;
       if ("contact" in input.changes) booking.contact = input.changes.contact!;
       if ("notes" in input.changes) booking.notes = input.changes.notes!;
       if ("totalCents" in input.changes) booking.totalCents = input.changes.totalCents!;
       booking.version++;
-      if (principal.origin === "line") flagLineSourceReview(state, booking, current, next,
+      if (principal.origin === "line") flagExternalSourceReview(state, booking, current, next,
         unverifiableSourceEdit);
+      if (externalNameCorrection) flagExternalSourceReview(state, booking, current, next);
       if (state.channel.mode === "owlnest" && roomNightsChanged ||
         principal.origin === "line" && baselineReadbackNeeded) {
         const before = new Set(current.map(keyOf)), after = new Set(next.map(keyOf));
@@ -1284,7 +1297,7 @@ export class IronGateService {
         requireOsStockWindow(state, nightsFor(booking.stays, state.roomIds));
       const previousSync = booking.channelSyncState;
       if (principal.origin === "line")
-        flagLineSourceReview(state, booking, nightsFor(booking.stays, state.roomIds), []);
+        flagExternalSourceReview(state, booking, nightsFor(booking.stays, state.roomIds), []);
       booking.status = "cancelled";
       booking.version++;
       if (state.channel.mode === "owlnest") {
@@ -1535,7 +1548,7 @@ export class IronGateService {
         link?.sourceVersion === input.sourceVersion)
         return review("SOURCE_VERSION_CONFLICT", [...cells,
           ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);
-      // A later source fact may acknowledge the exact LINE override. This is
+      // A later source fact may acknowledge the exact local correction. This is
       // the only automatic way to release its source-review fence; mismatches
       // remain under review and cannot silently replace the local edit.
       if (link?.diverged && linkedBooking?.lineOverridePending === true &&
