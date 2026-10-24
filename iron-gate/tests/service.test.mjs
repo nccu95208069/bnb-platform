@@ -2182,6 +2182,40 @@ test("booking list uses scoped seek pagination and hides money without its grant
     { limit: 1, cursor: first.nextCursor, status: null, from: null, to: null }), errorCode("INVALID_CURSOR"));
 });
 
+test("OS attention list filters before pagination and binds the cursor to that filter", async () => {
+  const { service, repository } = setup();
+  const writer = principal();
+  const receipts = [];
+  for (let index = 0; index < 3; index++) {
+    const from = `2026-11-${10 + index}`;
+    const to = `2026-11-${11 + index}`;
+    const state = await repository.read(propertyId);
+    receipts.push(await service.createBooking(writer, propertyId, key(),
+      bookingInput(state.version, { stays: [{ checkIn: from, checkOut: to,
+        roomIds: [roomId] }] })));
+  }
+  for (const receipt of receipts.slice(1)) {
+    const state = await repository.read(propertyId);
+    await service.cancelBooking(writer, propertyId, receipt.bookingId, key(),
+      receipt.bookingVersion, state.version);
+  }
+  const reader = principal("os", { actions: ["booking:read"], fields: [] });
+  const options = { limit: 1, status: null, from: null, to: null, attention: true };
+  const first = await service.listBookings(reader, propertyId, { ...options, cursor: null });
+  assert.equal(first.bookings.length, 1);
+  assert.equal(first.bookings[0].status, "cancelled");
+  assert.ok(first.nextCursor);
+  const second = await service.listBookings(reader, propertyId,
+    { ...options, cursor: first.nextCursor });
+  assert.equal(second.bookings.length, 1);
+  assert.notEqual(second.bookings[0].id, first.bookings[0].id);
+  assert.equal(second.nextCursor, null);
+  await assert.rejects(service.listBookings(reader, propertyId,
+    { ...options, attention: false, cursor: first.nextCursor }), errorCode("INVALID_CURSOR"));
+  await assert.rejects(service.listBookings(principal("line", { actions: ["booking:read"] }),
+    propertyId, { ...options, cursor: null }), errorCode("FORBIDDEN"));
+});
+
 test("read-only Sweetfun list exposes only a pinned snapshot identity to OS readers", async () => {
   const repository = new MemoryPropertyRepository();
   repository.seed({ workspaceId, propertyId, roomIds: [roomId], version: 7,

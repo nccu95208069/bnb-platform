@@ -204,6 +204,7 @@ export async function listIronGateRoomActions(
   if (!grant) throw new Error("NOT_FOUND");
   const url = new URL(`${configuredBaseUrl(config.baseUrl)}/v1/properties/${propertyId}/bookings`);
   url.searchParams.set("limit", "50");
+  url.searchParams.set("attention", "true");
   if (cursor) url.searchParams.set("cursor", cursor);
   const proof = await signCurrentIronGateMembership(store, accountId, slug,
     new Request(url, { method: "GET" }), grant, config.proofSecret);

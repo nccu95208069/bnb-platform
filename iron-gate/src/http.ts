@@ -132,6 +132,7 @@ export function createHandler(service: IronGateService, authenticate: Authentica
             cursor: url.searchParams.get("cursor"),
             status: url.searchParams.get("status") as "held" | "confirmed" | "cancelled" | null,
             from: url.searchParams.get("from"), to: url.searchParams.get("to"),
+            attention: url.searchParams.get("attention") === "true",
           }));
         }
         if (parts.length === 4 && request.method === "POST") {

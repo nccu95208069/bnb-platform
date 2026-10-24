@@ -1155,7 +1155,7 @@ export class IronGateService {
 
   async listBookings(principal: Principal, propertyId: string, options: {
     limit: number; cursor: string | null; status: Booking["status"] | null;
-    from: string | null; to: string | null;
+    from: string | null; to: string | null; attention?: boolean;
   }): Promise<Record<string, unknown>> {
     uuid(propertyId);
     if (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > 100) reject("INVALID_LIMIT");
@@ -1172,6 +1172,7 @@ export class IronGateService {
         const parsed = JSON.parse(atob(encoded));
         if (parsed.v !== 1 || parsed.propertyId !== propertyId || parsed.status !== options.status ||
           parsed.from !== options.from || parsed.to !== options.to ||
+          Boolean(parsed.attention) !== Boolean(options.attention) ||
           typeof parsed.createdAt !== "string" || typeof parsed.id !== "string") throw Error();
         timestamp(parsed.createdAt); uuid(parsed.id);
         seek = { createdAt: parsed.createdAt, id: parsed.id };
@@ -1181,9 +1182,12 @@ export class IronGateService {
     if (!state) reject("PROPERTY_NOT_FOUND", 404);
     authorize(principal, state, "booking:read");
     if (principal.origin !== "os" && principal.origin !== "line") reject("FORBIDDEN", 403);
+    if (options.attention && principal.origin !== "os") reject("FORBIDDEN", 403);
     const result = state.bookings.filter((booking) =>
       (principal.origin !== "line" || lineManagesAll(principal) || booking.source === "line" &&
         booking.sourceKey === `line:${principal.grantId}`) &&
+      (!options.attention || booking.status === "cancelled" ||
+        ["action_required", "pending", "review_required"].includes(booking.channelSyncState)) &&
       (options.status === null || booking.status === options.status) &&
       (options.from === null || options.to === null || booking.stays.some((stay) =>
         stay.checkIn < options.to! && stay.checkOut > options.from!)) &&
@@ -1194,6 +1198,7 @@ export class IronGateService {
     const last = page.at(-1);
     const nextCursor = result.length > options.limit && last ?
       btoa(JSON.stringify({ v: 1, propertyId, status: options.status, from: options.from,
+        attention: Boolean(options.attention),
         to: options.to, createdAt: last.createdAt, id: last.id }))
         .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") : null;
     const snapshot = state.readOnly === true && state.authorityEpoch === 0 &&

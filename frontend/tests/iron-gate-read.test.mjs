@@ -79,6 +79,7 @@ test("room-action list is membership-scoped, paginated, and projects only safe f
     lineChannelPending: pending, guestName: "Synthetic Guest" };
   const send = async (url, options) => {
     assert.match(url, /limit=50/);
+    assert.match(url, /attention=true/);
     assert.match(url, /cursor=synthetic_Cursor_1/);
     const claims = JSON.parse(Buffer.from(options.headers["x-iron-gate-os-proof"].split(".")[0],
       "base64url").toString("utf8"));
