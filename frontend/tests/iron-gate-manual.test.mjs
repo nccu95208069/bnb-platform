@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { MemoryPropertyRepository } from '../../iron-gate/src/memory-repository.ts';
 import { IronGateService } from '../../iron-gate/src/service.ts';
 import { createHandler } from '../../iron-gate/src/http.ts';
+import { createChannelWorker } from '../../iron-gate/src/channel-worker.mjs';
 import { createOsMemberProofVerifier } from '../../iron-gate/src/os-member-proof.mjs';
 import { ironGateManualConfig, previewManualBooking, previewManualAmend, createManualBooking,
   amendManualBooking, cancelManualBooking, manualRequestResult } from
@@ -15,6 +16,7 @@ const workspaceId = '11111111-1111-4111-8111-111111111111';
 const propertyId = '22222222-2222-4222-8222-222222222222';
 const credentialId = '33333333-3333-4333-8333-333333333333';
 const clientId = '44444444-4444-4444-8444-444444444444';
+const channelGrantId = '66666666-6666-4666-8666-666666666666';
 const roomIds = Object.fromEntries(['101', '102', '201', '202', '301', '302']
   .map((number, index) => [number, `55555555-5555-4555-8555-55555555555${index}`]));
 const secret = 'synthetic-manual-proof-secret-32-bytes';
@@ -42,12 +44,15 @@ function config(overrides = {}) {
   });
 }
 
-function setup() {
+function setup(channel = 'none') {
   const repository = new MemoryPropertyRepository();
   repository.seed({ workspaceId, propertyId, roomIds: Object.values(roomIds),
     version: 1, authorityEpoch: 1, readOnly: false,
-    channel: { mode: 'none', ready: false, websiteSalesEnabled: false,
-      grantId: null, websiteBindingId: null },
+    channel: { mode: channel, ready: channel === 'owlnest', websiteSalesEnabled: false,
+      grantId: channel === 'owlnest' ? channelGrantId : null, websiteBindingId: null,
+      sourceReadbackEnabled: channel === 'owlnest',
+      stockObservedFrom: channel === 'owlnest' ? '2026-11-01' : null,
+      stockObservedThrough: channel === 'owlnest' ? '2026-12-31' : null },
     sourceGrants: [], bookings: [], sourceLinks: [], operations: [], fences: [],
     manualBlocks: [], receipts: [] });
   const verifier = createOsMemberProofVerifier(secret);
@@ -61,6 +66,75 @@ function setup() {
   const send = async (url, init) => handle(new Request(url, init));
   return { repository, service, send };
 }
+
+test('OS direct lifecycle verifies every OwlNest transition before the next write', async () => {
+  const { repository, service, send } = setup('owlnest'), c = config();
+  const stock = new Map(), writes = [], reviews = [];
+  const provider = {
+    observe: async (_propertyId, cells) => ({ observedAt: new Date().toISOString(),
+      providerVersion: key(), cells: cells.map(cell => ({ roomId: cell.roomId,
+        date: cell.date, ...(stock.get(`${cell.roomId}:${cell.date}`) ??
+          { count: 1, isLock: false }) })) }),
+    setNight: async (_propertyId, cell) => {
+      writes.push({ date: cell.date, desired: cell.desired });
+      stock.set(`${cell.roomId}:${cell.date}`, cell.desired === 'closed' ?
+        { count: 0, isLock: true } : { count: 1, isLock: false });
+    },
+  };
+  const worker = createChannelWorker({ repository, service, provider,
+    propertyConfigs: {}, getAuthorization: async () => '',
+    onReview: async review => { reviews.push(review); } });
+  const channel = { clientId: 'synthetic-channel', subjectId: 'synthetic-worker',
+    origin: 'channel', workspaceId, propertyIds: [propertyId], authorityEpoch: 1,
+    actions: ['channel:verify'], fields: [], grantId: channelGrantId };
+  const created = await createManualBooking(owner, c, {
+    expectedInventoryVersion: 1, stays: stay(), guestName: 'Synthetic Guest',
+    contact: null, notes: null, totalCents: 100000, bookedAt: null,
+  }, key(), send);
+  assert.equal(created.channelSyncState, 'pending');
+  assert.equal((await repository.read(propertyId)).fences.length, 1);
+  assert.equal((await worker.runOne(channel, propertyId)).state, 'sync_verified');
+  let state = await repository.read(propertyId);
+  assert.equal(state.fences.length, 0);
+  assert.equal(state.bookings[0].channelSyncState, 'verified');
+
+  const move = await amendManualBooking(owner, c, created.bookingId, {
+    expectedBookingVersion: state.bookings[0].version,
+    expectedInventoryVersion: state.version, reason: 'Synthetic move',
+    changes: { stays: stay('2026-11-12', '2026-11-13') },
+  }, key(), send);
+  assert.equal(move.channelSyncState, 'pending');
+  const beforeMoveWrites = writes.length;
+  assert.equal((await worker.runOne(channel, propertyId)).state, 'sync_verified');
+  assert.deepEqual(writes.slice(beforeMoveWrites).map(item => item.desired),
+    ['closed', 'open', 'open']);
+  state = await repository.read(propertyId);
+  assert.equal(state.fences.length, 0);
+
+  const received = await recordManualPayment(owner, c, created.bookingId, {
+    expectedBookingVersion: state.bookings[0].version, kind: 'received',
+    amountCents: 40000, evidenceRef: 'synthetic received',
+    occurredAt: '2026-10-24T00:00:00.000Z',
+  }, key(), send);
+  const refunded = await recordManualPayment(owner, c, created.bookingId, {
+    expectedBookingVersion: received.bookingVersion, kind: 'refunded',
+    amountCents: 40000, evidenceRef: 'synthetic refunded',
+    occurredAt: '2026-10-24T00:00:00.000Z',
+  }, key(), send);
+  assert.equal(refunded.netReceivedCents, 0);
+  state = await repository.read(propertyId);
+  const cancelled = await cancelManualBooking(owner, c, created.bookingId, {
+    expectedBookingVersion: state.bookings[0].version,
+    expectedInventoryVersion: state.version, reason: 'Synthetic cancellation',
+  }, key(), send);
+  assert.equal(cancelled.channelSyncState, 'pending');
+  assert.equal((await worker.runOne(channel, propertyId)).state, 'sync_verified');
+  state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].status, 'cancelled');
+  assert.equal(state.fences.length, 0);
+  assert.equal(state.bookings[0].paymentEvents.length, 2);
+  assert.equal(reviews.length, 0);
+});
 
 test('manual gateway stays closed without both explicit switches', () => {
   assert.throws(() => ironGateManualConfig({}), /MANUAL_CONFIG_UNAVAILABLE/);
