@@ -32,7 +32,7 @@ export default async function WorkspacesPage() {
     {errors.map(error => <p role="alert" key={error} className="rounded-xl bg-amber-50 p-4">{error}</p>)}
     <div className="grid gap-4 sm:grid-cols-2">
       {legacy.map(p => <a key={p.href} href={p.href} className={card}><h2 className="font-semibold">{p.name}</h2><p className="mt-2 text-sm text-slate-600">查看目前訂房表同步的日曆</p></a>)}
-      {customers.map(w => <a key={w.id} href={w.href} className={card}><h2 className="font-semibold">{w.name}</h2><p className="mt-2 text-sm text-slate-600">{w.properties.map(p => p.name).join('、')}</p></a>)}
+      {customers.map(w => <a key={w.id} href={w.href} className={card}><h2 className="font-semibold">{w.name}</h2>{w.properties.map(p => <p key={p.id} className="mt-2 text-sm text-slate-600">{p.name} · 日曆已建立{p.calendarState === 'pending' ? '，訂單待匯入或核對' : ''} · 已登記 {p.activeBookings} 筆有效訂房／保留</p>)}</a>)}
     </div>
     {!legacy.length && !customers.length && !errors.length && <p className="rounded-xl bg-white p-5">尚未登入旅宿帳號，或目前帳號尚無可使用的旅宿。</p>}
     <nav aria-label="旅宿帳號" className="flex flex-wrap gap-4 text-sm text-teal-800">

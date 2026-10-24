@@ -816,6 +816,9 @@ export function BookingDetailsPanel({
   paymentWorkspace,
   onUpdateBooking,
   onCancelBooking,
+  onManualEdit,
+  onManualCancel,
+  onManualSync,
 }: {
   booking: CalendarBooking | null;
   orderSegments: CalendarBooking[];
@@ -828,6 +831,9 @@ export function BookingDetailsPanel({
   paymentWorkspace?: React.ReactNode;
   onUpdateBooking: (input: UpdateBookingInput) => void;
   onCancelBooking: (reason: string) => void;
+  onManualEdit?: () => void;
+  onManualCancel?: () => void;
+  onManualSync?: () => void;
 }) {
 const uiLocale = useIntlLocale();
 
@@ -901,6 +907,15 @@ const uiLocale = useIntlLocale();
                 <p className="mt-2 text-xs text-muted-foreground">{uiText("姓名欄原文（需求不代表已安排完成）")}</p>
                 <p className="mt-1 whitespace-pre-wrap break-words text-sm">{(booking.guest_name_sources ?? [booking.guest_name]).join("\n")}</p>
               </section>}
+              {orderSegments.length > 1 && <section className="rounded-xl border p-3" aria-label={uiText("同一訂單的住宿安排")}>
+                <h3 className="font-semibold">{uiText("同一訂單的住宿安排")}</h3>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {orderSegments.map(segment => <li key={segment.id} className={segment.id === booking.id ? "font-semibold" : ""}>
+                    {segment.room_number} · {formatDate(segment.check_in, uiLocale)}–{formatDate(segment.check_out, uiLocale)}
+                    {segment.id === booking.id && ` · ${uiText("目前選取")}`}
+                  </li>)}
+                </ul>
+              </section>}
               <div
                 className={cn(
                   "rounded-xl border px-3 py-2.5 text-sm font-semibold",
@@ -914,6 +929,28 @@ const uiLocale = useIntlLocale();
                   ? uiText("已取消")
                   : uiText("{0} · {1}{2}", [PLATFORM_LABELS[booking.platform] ?? booking.platform,PAYMENT_LABELS[booking.payment_status],stayNightCount(booking) > 1 ? ` · 連住 ${stayNightCount(booking)} 晚` : ""])}
               </div>
+
+              {booking.iron_gate_channel_sync && (
+                <div role="status" className="rounded-xl border bg-muted/40 px-3 py-2 text-sm">
+                  <div>{uiText("Iron Gate 訂單已記錄")}</div>
+                  <div>{uiText("OwlNest 房況：")}{uiText(({
+                    not_required: "無需同步", awaiting_manual_sync: "尚未同步，請按「同步房況」",
+                    pending: "同步中，尚未驗證",
+                    verified: "已回讀驗證", review_required: "需人工核對",
+                  })[booking.iron_gate_channel_sync])}</div>
+                  {booking.iron_gate_source_review &&
+                    <div className="text-amber-800">{uiText("訂單來源有差異，需人工核對")}</div>}
+                </div>
+              )}
+
+              {(onManualEdit || onManualCancel || onManualSync) &&
+                <div className="grid grid-cols-2 gap-2">
+                  {onManualSync && <Button onClick={onManualSync}>同步房況</Button>}
+                  {onManualEdit && <Button variant="outline" onClick={onManualEdit}>
+                    {booking.iron_gate_source === "external" ? "更正旅客姓名" : "修改訂單"}</Button>}
+                  {onManualCancel && <Button variant="outline" onClick={onManualCancel}>
+                    取消訂單</Button>}
+                </div>}
 
               {booking.reservation_status !== "cancelled" &&
                 (permissions.recordPayments || permissions.editBookings) && (

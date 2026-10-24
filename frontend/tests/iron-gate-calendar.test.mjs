@@ -121,6 +121,8 @@ test('unchanged imported order keeps its existing OS payment identity only for p
     viewer, c, sender(data, c, () => {}, viewer));
   assert.equal(withoutMoney.bookings[0].payment_order_id, 'IG-66666666-6666-4666-8666-666666666666');
   assert.equal(withoutMoney.bookings[0].owlnest_order_no, null);
+  assert.equal(withoutMoney.bookings[0].external_order_no, null);
+  assert.equal(withoutMoney.bookings[0].notification_order_id, undefined);
 });
 
 test('payment preflight checks the exact booking identity, total and current room nights', async () => {
@@ -265,6 +267,26 @@ test('one signed snapshot returns calendar bookings and blocks with no paginatio
   await assert.rejects(readSweetfunIronGateCalendarSnapshot(snapshot.from, snapshot.to,
     principal, c, async () => Response.json({ ...snapshot, cells: snapshot.cells.slice(1) })),
   /IRON_GATE_CALENDAR_INVENTORY_DRIFT/);
+});
+
+test('manual Iron Gate booking projects its edit identity and sync state', async () => {
+  const c = config(), data = fixture({ blocked: false });
+  const booking = { ...data.page.bookings[0], source: 'os', version: 3,
+    channelSyncState: 'verified', sourceReviewRequired: false,
+    bookedAt: '2026-10-13', sourceCalendar: undefined };
+  const snapshot = { propertyId, workspaceId, from: '2026-10-25', to: '2026-10-26',
+    inventoryVersion: 7, authorityEpoch: 1, readOnly: false,
+    bookings: [booking], cells: [{ roomId: roomIds['101'],
+      date: '2026-10-25', state: 'sold' }] };
+  const result = await readSweetfunIronGateCalendarSnapshot(snapshot.from, snapshot.to,
+    principal, c, async () => Response.json(snapshot));
+  assert.equal(result.bookings[0].iron_gate_booking_id, booking.id);
+  assert.equal(result.bookings[0].iron_gate_booking_version, 3);
+  assert.equal(result.bookings[0].iron_gate_source, 'os');
+  assert.equal(result.bookings[0].iron_gate_channel_sync, 'verified');
+  assert.equal(result.bookings[0].iron_gate_source_review, false);
+  assert.equal(result.bookings[0].booked_at, '2026-10-13');
+  assert.equal(result.bookings[0].platform, 'direct');
 });
 
 test('calendar shows verified stay price to price roles and hides it from no-price roles', async () => {

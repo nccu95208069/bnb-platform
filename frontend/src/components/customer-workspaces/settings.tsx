@@ -524,8 +524,8 @@ export function CustomerSettings({
                   </p>
                   <p className="mb-3 text-sm text-slate-500">
                     {data.readiness?.[p.id]?.complete === false
-                      ? "訂單尚待匯入或核對，空房與新增訂房暫停"
-                      : "可管理訂房"}
+                      ? "日曆已建立 · 訂單尚待匯入或核對，空房與新增訂房暫停"
+                      : "日曆已建立 · 可管理訂房"}
                   </p>
                   <div className="flex flex-wrap gap-3">
                     <a

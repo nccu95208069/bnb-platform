@@ -55,7 +55,7 @@ export function WebsiteWorkspace({ data, initialPropertyId }: { data: WorkspaceV
         ].map(card => <a key={card.title} className="rounded-2xl border border-slate-200 bg-white p-6 transition hover:border-teal-600 focus-visible:outline-2 focus-visible:outline-teal-700" href={card.url}><h2 className="text-xl font-semibold">{card.title} <span aria-hidden="true">↗</span></h2><p className="mt-2 text-slate-600">{card.detail}</p></a>)}
       </section>
       <p className="my-6 rounded-xl bg-amber-50 p-4 text-sm text-amber-950">官網保留期限為 24 小時。到期後房間仍會保留，請確認款項，再選擇延長、確認收款或釋出。</p>
-      {(["owner", "admin"].includes(data.role)) ? <p className="flex flex-wrap gap-5"><a className="underline" href={href("settings")}>房價與旅宿設定</a><a className="underline" href={href("calendar")}>手動新增訂單與封房</a></p> : null}
+      {(["owner", "admin"].includes(data.role)) ? <p className="flex flex-wrap gap-5"><a className="underline" href={href("settings")}>房價與旅宿設定</a><a className="underline" href={href("calendar")}>手動新增訂單與封房</a>{data.role === "owner" ? <a className="underline" href={href("integrations")}>LINE／OTA／OwlNest 授權</a> : null}</p> : null}
     </> : <p>目前没有可管理的館別。</p>}
     {data.role === "owner" ? <section className="mt-10 border-t border-slate-200 pt-8"><h2 className="text-xl font-semibold">官網預訂</h2>
       <p className="mt-2 text-slate-600">房價與房況由這個工作區提供；網站內容由建站工作台管理。</p>

@@ -14,7 +14,8 @@ function assertOccupancy(workspace: Workspace, property: Property, booking: Book
   if (workspace.calendarSources?.some(s => s.propertyId === property.id && s.mode === "connected"))
     throw new Error("CALENDAR_SOURCE_OWNS_OCCUPANCY");
   if (workspace.bookings.some(b => b.id !== booking.id && b.propertyId === property.id && occupiesInventory(b) && bookingsOverlap(b, booking)) ||
-      workspace.blocks?.some(b => b.propertyId === property.id && b.status === "active" && bookingsOverlap(b, booking)))
+      workspace.blocks?.some(b => b.propertyId === property.id && b.status === "active" && bookingsOverlap(b, booking)) ||
+      workspace.integrationFences?.some(f => f.propertyId === property.id && bookingsOverlap(f, booking)))
     throw new Error("ROOM_CONFLICT");
 }
 

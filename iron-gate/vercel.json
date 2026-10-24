@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "outputDirectory": "public",
+  "functions": {
+    "api/channel-worker.mjs": { "maxDuration": 300 }
+  },
+  "rewrites": [
+    { "source": "/v1/(.*)", "destination": "/api/index" }
+  ],
+  "crons": [
+    { "path": "/api/channel-worker", "schedule": "*/5 * * * *" }
+  ]
+}

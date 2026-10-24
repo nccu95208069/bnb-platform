@@ -6,9 +6,11 @@ import {GuestNotificationProvider} from "./guest-notification";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 import { OsPaymentPanel } from "@/components/payments/os-payment-panel";
+import { IronGateManualPaymentPanel } from "@/components/payments/iron-gate-manual-payment-panel";
 
 import { CalendarPrivacy } from "./calendar-privacy";
 import { CalendarToolbar } from "./calendar-toolbar";
+import { ManualBookingDialog } from "./manual-booking-dialog";
 import {
   useCallback,
   useEffect,
@@ -267,6 +269,7 @@ const uiLocale = useIntlLocale();
     setMonthTarget(month);
   }, [historyRevision, cancelScrollCommit]);
   const [reloadKey, setReloadKey] = useState(0);
+  const [manualMode, setManualMode] = useState<"create" | "amend" | "cancel" | "sync" | null>(null);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
   const [editsHydrated, setEditsHydrated] = useState(false);
   const previousView = useRef<CalendarView>(view);
@@ -286,6 +289,9 @@ const uiLocale = useIntlLocale();
     prefetch: prefetchRanges,
   });
   const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
+  const manualEnabled = data?.iron_gate_manual_enabled === true && !requestFailed &&
+    !loading && !error && !refreshing &&
+    hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end);
   const displayPeriod = useMemo(() => {
     if (view === "month") {
       return {
@@ -872,6 +878,9 @@ const uiLocale = useIntlLocale();
           </div>
 
           <div className="flex items-center gap-2">
+            {manualEnabled && data?.properties.some(property => property.id === "sweetfun") &&
+              (!selectedPropertyIds.length || selectedPropertyIds.includes("sweetfun")) &&
+              <Button size="sm" onClick={() => setManualMode("create")}>新增水芳訂單</Button>}
             <div className="relative w-56">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -1045,6 +1054,14 @@ const uiLocale = useIntlLocale();
         paymentWorkspace={
           data?.source?.read_only && selectedBooking?.snapshot_only ? (
             <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">目前為唯讀快照。請重新載入並確認最新訂單後，再登錄付款。</p>
+          ) : data?.source?.read_only && selectedBooking?.iron_gate_source === "os" &&
+            data?.iron_gate_manual_payment_enabled && selectedBooking.iron_gate_booking_id ? (
+            <IronGateManualPaymentPanel key={selectedBooking.iron_gate_booking_id}
+              bookingId={selectedBooking.iron_gate_booking_id}
+              canRecord={permissions.recordPayments} onChange={() => setReloadKey(v => v + 1)} />
+          ) : data?.source?.read_only && selectedBooking?.iron_gate_source === "os" ? (
+            <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+              此筆手動訂單的收付款功能尚未啟用，請先依現行財務流程處理並核對。</p>
           ) : data?.source?.read_only && selectedBooking && permissions.viewPrices && !selectedBooking.source_conflict ? (
             <OsPaymentPanel key={selectedBooking.payment_order_id??selectedBooking.order_id} property={selectedBooking.property_id} order={selectedBooking.payment_order_id??selectedBooking.order_id} sourceBookingId={selectedBooking.order_id.startsWith('IG-')?selectedBooking.order_id:undefined} canRecord={permissions.recordPayments} onChange={() => setReloadKey(v=>v+1)} />
           ) : PAYMENT_SANDBOX && selectedBooking && permissions.viewPrices ? (
@@ -1060,7 +1077,28 @@ const uiLocale = useIntlLocale();
         onRecordPayment={recordPayment}
         onUpdateBooking={updateBooking}
         onCancelBooking={cancelBooking}
+        onManualEdit={manualEnabled && selectedBooking &&
+          ["os", "external"].includes(selectedBooking.iron_gate_source ?? "") &&
+          ["verified", "not_required", "awaiting_manual_sync"].includes(
+            selectedBooking.iron_gate_channel_sync ?? "") &&
+          !selectedBooking.iron_gate_source_review ?
+          () => setManualMode("amend") : undefined}
+        onManualCancel={manualEnabled && selectedBooking?.iron_gate_source === "os" &&
+          ["verified", "not_required", "awaiting_manual_sync"].includes(
+            selectedBooking.iron_gate_channel_sync ?? "") &&
+          !selectedBooking.iron_gate_source_review ?
+          () => setManualMode("cancel") : undefined}
+        onManualSync={manualEnabled && selectedBooking?.iron_gate_source === "os" &&
+          selectedBooking.iron_gate_channel_sync === "awaiting_manual_sync" &&
+          !selectedBooking.iron_gate_source_review ?
+          () => setManualMode("sync") : undefined}
       />
+      {manualMode && <ManualBookingDialog open mode={manualMode}
+        bookingId={selectedBooking?.iron_gate_booking_id}
+        inventoryVersion={Number(data?.source?.private_snapshot_version ?? 0)}
+        defaultDate={anchorDate}
+        onClose={() => setManualMode(null)}
+        onDone={() => setReloadKey(value => value + 1)} />}
     </div>
   );
 }

@@ -159,11 +159,13 @@ function calendarBooking(booking: Record<string, unknown>,
   const name = typeof booking.guestName === 'string' && booking.guestName.trim()
     ? booking.guestName.trim() : '姓名待核';
   const source = object(booking.sourceCalendar) ? booking.sourceCalendar : null;
+  const manualSource = booking.source === 'os';
   const sourceOrderRef = typeof source?.sourceOrderRef === 'string' &&
     /^(?:L:[A-Za-z0-9-]{8,64}|J:[A-Za-z0-9_-]{8,100})$/.test(source.sourceOrderRef)
     ? source.sourceOrderRef : null;
   const paymentId = paymentOrderId(String(booking.id), viewPrices ? sourceOrderRef : null, viewPrices);
-  const notificationId = paymentOrderId(String(booking.id), sourceOrderRef, true);
+  const notificationId = viewPrices ?
+    paymentOrderId(String(booking.id), sourceOrderRef, true) : undefined;
   const review = viewPrices && object(booking.paymentReview) ? booking.paymentReview : null;
   const paymentStatus = review && ['paid', 'deposit'].includes(String(review.status)) &&
     ['sheet_flag', 'payment_events'].includes(String(review.source))
@@ -185,15 +187,20 @@ function calendarBooking(booking: Record<string, unknown>,
     payment_order_id: paymentId,
     source_booking_version: Number.isSafeInteger(booking.version) && Number(booking.version) >= 1
       ? Number(booking.version) : undefined,
+    iron_gate_booking_id: String(booking.id),
+    iron_gate_booking_version: Number(booking.version),
+    iron_gate_source: booking.source as CalendarBooking['iron_gate_source'],
+    iron_gate_channel_sync: booking.channelSyncState as CalendarBooking['iron_gate_channel_sync'],
+    iron_gate_source_review: booking.sourceReviewRequired === true,
     source_legacy_payment: viewPrices && !!sourceOrderRef,
     owlnest_order_no: viewPrices && sourceOrderRef?.startsWith('L:') ? sourceOrderRef.slice(2) : null,
-    external_order_no: typeof source?.externalOrderNo === 'string'
+    external_order_no: viewPrices && typeof source?.externalOrderNo === 'string'
       ? source.externalOrderNo : null,
     property_id: 'sweetfun', property_name: '水芳 Sweetfun',
     room_id: `sweetfun-${roomNumber}`, room_number: roomNumber,
     guest_name: name, guest_name_kind: name === '姓名待核' ? 'missing' : 'real',
-    platform: sweetfunCalendarPlatform(source?.platform), check_in: checkIn, check_out: checkOut,
-    booked_at: optionalDate(source?.bookedAt),
+    platform: manualSource ? 'direct' : sweetfunCalendarPlatform(source?.platform), check_in: checkIn, check_out: checkOut,
+    booked_at: optionalDate(source?.bookedAt ?? booking.bookedAt),
     room_rate: cents / 100,
     source_order_total_cents: orderTotalCents,
     payment_status: paymentStatus, reservation_status: 'confirmed',

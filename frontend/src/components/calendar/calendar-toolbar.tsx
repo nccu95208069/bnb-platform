@@ -39,12 +39,13 @@ export function CalendarToolbar({ data, showUnsold, paymentReview, onPaymentRevi
     </details>
     <div className="order-3 flex w-full flex-wrap items-center justify-end gap-1.5 sm:order-none sm:w-auto sm:flex-1 sm:justify-start">
       {sources.map(({ property_id, source, summary }) => {
+        const preview = property_id === "sweetfun" && data?.data_mode === "iron_gate_snapshot_preview";
         const issue = (summary?.new_issue_rows ?? 0) > 0;
         const status = source.automatic_sync && source.sync ? source.sync.status : "waiting";
         const incomplete = data?.source_warnings?.some(warning => warning.property_id === property_id);
         const healthy = status === "healthy" && !issue && !incomplete;
         const label = property_id === "sweetfun" ? "Sweetfun" : property_id === "offland" ? "OFFLAND" : source.label;
-        const text = incomplete ? "待確認" : issue ? "待核對" : ({ healthy: "正常", confirming: "確認中", waiting: "待同步", error: "同步失敗", stale: "已過期" })[status];
+        const text = preview ? "固定快照" : incomplete ? "待確認" : issue ? "待核對" : ({ healthy: "正常", confirming: "確認中", waiting: "待同步", error: "同步失敗", stale: "已過期" })[status];
         return <details key={property_id} className="md:relative">
           <summary className={cn("flex cursor-pointer list-none items-center gap-1 whitespace-nowrap rounded-full border px-2 py-1 text-[0.625rem] [&::-webkit-details-marker]:hidden", healthy ? "border-border text-muted-foreground" : "border-amber-300 bg-amber-50 text-amber-950")}>
             <span className={cn("size-1.5 rounded-full", healthy ? "bg-emerald-500" : "bg-amber-500")} />
@@ -52,8 +53,8 @@ export function CalendarToolbar({ data, showUnsold, paymentReview, onPaymentRevi
           </summary>
           <div className="absolute left-2 right-2 top-full z-50 mt-1 md:left-0 md:right-auto md:w-64 max-w-[calc(100vw-2rem)] space-y-2 rounded-xl border bg-popover p-3 text-xs shadow-lg">
             <p className="font-semibold">{source.label} · {t("唯讀")}</p>
-            <p>{t(({ waiting: "尚未啟用自動同步或等待首次檢查。", healthy: "每分鐘自動檢查訂房表。", confirming: "發現資料變更，確認前保留上次資料。", error: "檢查失敗，保留上次資料，系統會自動重試。", stale: "資料可能過期，目前顯示上次資料。" })[status])}</p>
-            <p>{t("最後成功確認：")}{source.sync?.last_successful_check_at ? new Date(source.sync.last_successful_check_at).toLocaleString(locale, { timeZone: "Asia/Taipei" }) : t("尚無確認紀錄")}</p>
+            <p>{preview ? t("這是固定版本的 Iron Gate 訂單預覽，不會接單或自動追單。") : t(({ waiting: "尚未啟用自動同步或等待首次檢查。", healthy: "每分鐘自動檢查訂房表。", confirming: "發現資料變更，確認前保留上次資料。", error: "檢查失敗，保留上次資料，系統會自動重試。", stale: "資料可能過期，目前顯示上次資料。" })[status])}</p>
+            <p>{t(preview ? "快照時間：" : "最後成功確認：")}{preview && source.private_snapshot_at ? new Date(source.private_snapshot_at).toLocaleString(locale, { timeZone: "Asia/Taipei" }) : source.sync?.last_successful_check_at ? new Date(source.sync.last_successful_check_at).toLocaleString(locale, { timeZone: "Asia/Taipei" }) : t("尚無確認紀錄")}</p>
             {issue && <p className="text-amber-800">{t("新增或變更的問題涉及")}{summary?.new_issue_rows}{t("列，相關房況待核對。")}</p>}
           </div>
         </details>;

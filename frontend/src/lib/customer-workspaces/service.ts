@@ -244,11 +244,11 @@ export function view(workspace: Workspace, member: Membership): WorkspaceView {
           ? {
               ...r,
               label:
-                r.source === "sheet" ? "來源試算表待核對" : "來源日曆待核對",
+                r.source === "sheet" ? "來源試算表待核對" : r.source === "calendar" ? "來源日曆待核對" : "外部訂單待核對",
             }
           : r,
       ),
-    blocks: (workspace.blocks ?? [])
+    blocks: [...(workspace.blocks ?? [])
       .filter((b) => properties.some((p) => p.id === b.propertyId))
       .map(({ calendar: _calendar, ...block }) => {
         void _calendar;
@@ -256,7 +256,13 @@ export function view(workspace: Workspace, member: Membership): WorkspaceView {
           ...block,
           reason: member.role === "viewer_no_price" ? "封房" : block.reason,
         };
-      }),
+      }), ...(workspace.integrationFences ?? [])
+        .filter(f => properties.some(p => p.id === f.propertyId))
+        .map(f => ({ id: f.id, version: 1, propertyId: f.propertyId, checkIn: f.checkIn,
+          checkOut: f.checkOut, roomIds: f.roomIds,
+          stays: [{ checkIn: f.checkIn, checkOut: f.checkOut, roomIds: f.roomIds }],
+          reason: member.role === "viewer_no_price" ? "封房" : f.state === "pending" ? "通路操作待核對" : "OwlNest 已關房",
+          status: "active" as const, createdAt: f.createdAt }))],
     readiness: Object.fromEntries(
       allowedProperties.map((p) => [p.id, propertyReadiness(workspace, p)]),
     ),
@@ -509,6 +515,8 @@ async function createBookingRecord(
         b.propertyId === property.id &&
         b.status === "active" &&
         bookingsOverlap(b, { checkIn, checkOut, roomIds, stays }),
+    ) || workspace.integrationFences?.some(
+      (f) => f.propertyId === property.id && bookingsOverlap(f, { checkIn, checkOut, roomIds, stays }),
     )
   )
     throw new Error("ROOM_CONFLICT");

@@ -31,7 +31,7 @@ import {
 } from "@/lib/customer-workspaces/calendar-onboarding";
 import { previewAvailable } from "@/lib/customer-workspaces/calendar-onboarding-http";
 import { intakePreview } from "@/lib/customer-intake/config";
-import { sendCustomerLifecycleMail } from "@/lib/workspace-auth/mail";
+import { sendCustomerAuthMail } from "@/lib/workspace-auth/mail";
 import { normalizedEmail, validEmail } from "@/lib/workspace-auth/types";
 import { WEBSITE_LOGIN_COOKIE } from "@/lib/website-booking/login";
 import { connectionFor } from "@/lib/website-booking/connections";
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
           draftHash: hash,
           returnPath: input.returnPath as string | undefined,
         },
-        sendCustomerLifecycleMail,
+        sendCustomerAuthMail,
         intakePreview(),
       );
       return NextResponse.json(

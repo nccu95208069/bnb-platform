@@ -13,6 +13,21 @@ import {
 } from "node:crypto";
 import { ADMIN_EMAIL, validEmail } from "./types.ts";
 import { redisCommand, workspacePrefix } from "./store.ts";
+export function assertAcceptanceRecipient(to: string, purpose: "auth" | "lifecycle" = "lifecycle") {
+  const mode = process.env.CUSTOMER_ISOLATED_ACCEPTANCE;
+  if (mode === undefined || mode === "false") return;
+  if (mode !== "true") throw new Error("MAIL_RECIPIENT_NOT_ALLOWED");
+  // A tester must be able to receive their own login/recovery link. Guest,
+  // import and booking notices still require the exact acceptance allowlist.
+  if (purpose === "auth") return;
+  let configured: unknown;
+  try { configured = JSON.parse(process.env.CUSTOMER_ACCEPTANCE_EMAIL_RECIPIENTS || "[]"); }
+  catch { throw new Error("MAIL_RECIPIENT_NOT_ALLOWED"); }
+  if (!Array.isArray(configured) || configured.length < 1 || configured.length > 20 ||
+      configured.some(value => typeof value !== "string" || !validEmail(value) || value !== value.trim().toLowerCase()) ||
+      new Set(configured).size !== configured.length || !configured.includes(to.trim().toLowerCase()))
+    throw new Error("MAIL_RECIPIENT_NOT_ALLOWED");
+}
 function encryptionKey() {
   const secret = process.env.CALENDAR_OWNER_SESSION_SECRET;
   if (!secret || !/^[a-f0-9]{64}$/.test(secret))
@@ -67,6 +82,7 @@ function transport(password: string) {
   });
 }
 export async function configureMail(input: unknown) {
+  assertAcceptanceRecipient(ADMIN_EMAIL);
   const password = typeof input === "string" ? input.replace(/\s/g, "") : "";
   if (!/^[a-zA-Z]{16}$/.test(password)) throw new Error("INVALID_INPUT");
   const smtp = transport(password);
@@ -101,6 +117,7 @@ export async function configureMail(input: unknown) {
 }
 // Operator setup only: no public endpoint accepts existing OAuth credentials.
 export async function configureGmailOAuth(input: GmailAuthorization) {
+  assertAcceptanceRecipient(ADMIN_EMAIL);
   const config = gmailAuthorization(input);
   const messageId = await sendGmail(
     config,
@@ -133,6 +150,7 @@ export async function configureGmailOAuth(input: GmailAuthorization) {
 }
 export async function sendInvitation(to: string, token: string) {
   if (!validEmail(to)) throw new Error("INVALID_INPUT");
+  assertAcceptanceRecipient(to);
   const value = await storedMail();
   if (!value?.secret) throw new Error("MAIL_NOT_CONFIGURED");
   // Fixed trusted origin; never derive activation links from a Host header.
@@ -172,13 +190,27 @@ export async function sendOperatorIntakeNotification(
 
 // Called only with a stored applicant/account address and server-owned templates.
 // There is no endpoint accepting arbitrary recipients or message contents.
-export async function sendCustomerLifecycleMail(
+export async function sendCustomerAuthMail(to: string, subject: string, text: string) {
+  if (!((subject === "旅宿工作區｜你的登入連結" &&
+          (text.startsWith("請在剛才操作的同一個瀏覽器") ||
+            text.startsWith("請在 15 分鐘內開啟下方連結，確認登入 "))) ||
+        (subject === "旅宿工作區｜你的登入碼" && text.startsWith("你的登入碼：")) ||
+        (subject === "旅宿服務｜重新設定密碼" && text.startsWith("你剛剛要求重新設定旅宿工作區的密碼"))))
+    throw new Error("INVALID_INPUT");
+  return customerMail(to, subject, text, "auth");
+}
+export async function sendCustomerLifecycleMail(to: string, subject: string, text: string) {
+  return customerMail(to, subject, text, "lifecycle");
+}
+async function customerMail(
   to: string,
   subject: string,
   text: string,
+  purpose: "auth" | "lifecycle",
 ) {
   if (!validEmail(to) || /[\r\n]/.test(to)) throw new Error("INVALID_INPUT");
   if (/[\r\n]/.test(subject)) throw new Error("INVALID_INPUT");
+  assertAcceptanceRecipient(to, purpose);
   const value = await storedMail();
   if (!value?.secret) throw new Error("MAIL_NOT_CONFIGURED");
   if (value.method === "gmail_oauth") {

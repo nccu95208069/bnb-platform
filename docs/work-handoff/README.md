@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-24 Sweetfun 手動訂單：[隔離實作、驗證與正式啟用前的來源／財務限制](SWEETFUN_MANUAL_BOOKING_IMPLEMENTATION_2026-10-24.md)。目前只提供預設關閉的水芳直訂新增、修改、取消入口，尚未對正式資料或 OwlNest 寫入。
+
 2026-10-16 onboarding and standard-workbook release: [3,000-row import, customer password and sharing-guide improvements](ONBOARDING_CLARITY_2026-10-16.md#production-release--2026-10-16) and [v5 booking last-updated time](STANDARD_SHEET_V5_UPDATED_AT_2026-10-16.md#發布與資料邊界) are live on `https://sweetfun-os.vercel.app` from `c4ac224` / Vercel `dpl_4EEqMUY4hPNm3oXN1yzU5zt6Ha6d`.
 
 2026-10-15 website flow repair: [503 root cause, current Studio booking dependencies, isolated end-to-end verification, deployment evidence and pending authenticated live acceptance](WEBSITE_BOOKING_FLOW_2026-10-15.md).

@@ -1,5 +1,7 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
+2026-10-24 水芳手動訂單：直訂新增、改房／改期、取消的 OS→Iron Gate 隔離程式已完成且預設關閉。後續須先完成 [OTA 來源身分、財務及正式切換檢查](SWEETFUN_MANUAL_BOOKING_IMPLEMENTATION_2026-10-24.md)，才可處理業主要求的 OTA 補登與既有來源單更正，並逐步開啟正式寫入。
+
 2026-10-19 完整歷史匯入預覽與既有已售月曆樣式已由 PR #55 合併並發布，正式站已唯讀驗證；真實訂單仍待使用者按最後匯入確認。後續發布必須套用[開通、匯入與月曆發布檢查](ONBOARDING_RELEASE_GATES_2026-10-19.md)，來源衝突仍需個別核對。
 
 2026-10-19 首次開通後的 Sheet 連結直達唯讀預覽、無草稿列顯示來源原值與舊列略過，已[合併並發布至正式站](ONBOARDING_PREVIEW_FOLLOWUP_2026-10-19.md)；實際訂單匯入仍待使用者核對並確認。

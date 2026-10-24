@@ -253,6 +253,8 @@ export function failure(error: unknown) {
     ],
     IMPORT_EXPIRED: [409, "預覽已過期，請重新讀取試算表。"],
     FEATURE_UNAVAILABLE: [503, "新客戶入口尚未開放。"],
+    SOURCES_UNAVAILABLE: [503, "此環境尚未開放來源連接。現有房況不會改變。"],
+    CONNECTION_EXPIRED: [410, "來源連接申請已過期，請重新從連接器開始。"],
     UNAUTHORIZED: [
       401,
       "請重新登入，再繼續操作；若登入失敗，請確認信箱及使用的登入方式。",

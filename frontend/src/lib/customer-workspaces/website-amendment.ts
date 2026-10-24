@@ -62,7 +62,8 @@ export async function amendWebsiteBooking(
   if (finance.credit !== null && finance.credit > 0 && input.allowOverpayment !== true)
     throw Error("OVERPAYMENT_CONFIRMATION_REQUIRED");
   if (context.workspace.bookings.some(b => b.id !== booking.id && b.propertyId === property.id && occupiesInventory(b) && bookingsOverlap(b, next)) ||
-      context.workspace.blocks?.some(b => b.propertyId === property.id && b.status === "active" && bookingsOverlap(b, next))) throw Error("ROOM_CONFLICT");
+      context.workspace.blocks?.some(b => b.propertyId === property.id && b.status === "active" && bookingsOverlap(b, next)) ||
+      context.workspace.integrationFences?.some(f => f.propertyId === property.id && bookingsOverlap(f, next))) throw Error("ROOM_CONFLICT");
   const notifications = await holdNotificationChanges(store, context.workspace, next, "booking_changed", now);
   // Capacity was checked against this exact approved mapping. A concurrent
   // owner reconfiguration cannot change it before the shared atomic commit.

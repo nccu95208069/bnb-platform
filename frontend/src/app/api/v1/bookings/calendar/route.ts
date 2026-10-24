@@ -11,6 +11,8 @@ import { readBookingSnapshot } from "@/lib/booking-sources/snapshot";
 import type { CalendarResponse } from "@/components/calendar/calendar-types";
 import { activeSources } from "@/lib/booking-sources/config";
 import { ironGateCalendarConfig, readSweetfunIronGateCalendarSnapshot } from "@/lib/booking-sources/iron-gate-calendar.server";
+import { ironGateManualConfig } from "@/lib/booking-sources/iron-gate-manual.server";
+import { ironGateManualPaymentConfig } from "@/lib/booking-sources/iron-gate-manual-payment.server";
 import { type NextRequest, NextResponse } from "next/server";
 
 type PaymentStatus = "paid" | "deposit" | "unpaid";
@@ -248,12 +250,26 @@ export async function GET(request: NextRequest) {
         ]);
         let igPayments = ig.bookings;
         let paymentWarning: CalendarResponse['source_warnings'] = [];
-        if (principal.viewPrices) {
-          try { igPayments = await overlayPayments(ig.bookings); }
-          catch { igPayments = ig.bookings.map(unconfirmedPayment);
+        const imported = ig.bookings.filter(booking => booking.iron_gate_source !== 'os');
+        if (principal.viewPrices && imported.length) {
+          try {
+            const overlaid = await overlayPayments(imported);
+            const byId = new Map(overlaid.map(booking => [booking.id, booking]));
+            igPayments = ig.bookings.map(booking => byId.get(booking.id) ?? booking);
+          }
+          catch { igPayments = ig.bookings.map(booking =>
+            booking.iron_gate_source === 'os' ? booking : unconfirmedPayment(booking));
             paymentWarning = [{ property_id: 'sweetfun', label: 'Iron Gate 訂房紀錄', phase: 'payments' }]; }
         }
         const bookings = projectBookings([...igPayments, ...(other?.bookings ?? [])], principal);
+        let manualEnabled = false;
+        let manualPaymentEnabled = false;
+        if (principal.viewPrices && ["owner", "admin", "god"].includes(principal.role) &&
+          (principal.allProperties || principal.propertyIds.includes("sweetfun"))) {
+          try { ironGateManualConfig(); manualEnabled = true; } catch { /* closed by default */ }
+          try { ironGateManualPaymentConfig(); manualPaymentEnabled = true; }
+          catch { /* separate money grant stays closed by default */ }
+        }
         const source = { label: "Iron Gate 訂房紀錄", observed_at: ig.observedAt,
           read_only: true, automatic_sync: true, availability_authoritative: false,
           private_snapshot_version: String(ig.inventoryVersion),
@@ -292,6 +308,8 @@ export async function GET(request: NextRequest) {
           source_errors: other?.errors ?? [], source_warnings: [...paymentWarning, ...(other?.warnings ?? [])],
           guest_access: { available: ownerAccessConfigured(), authenticated: true },
           data_mode: "iron_gate_booking_only",
+          iron_gate_manual_enabled: manualEnabled,
+          iron_gate_manual_payment_enabled: manualPaymentEnabled,
         }, { headers });
       }
       const result = await readCalendarSources(definitions, start, end, principal.viewPrices, {
