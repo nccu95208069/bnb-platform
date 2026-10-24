@@ -20,6 +20,11 @@ release. It does not assert migrated payments or OwlNest channel inventory.
   evidence (42 populated). 248 rows have no Q, including two continuation
   rows with neither O nor Q. Never infer parent identity from names, dates,
   adjacent rows, or O. J is the lossless per-room-night identity.
+- Of the 248 J-only rows, 187 carry an OTA platform label and 61 carry LINE.
+  An older Gmail amendment/cancellation that supplies only a platform order ID
+  cannot be linked automatically to those J-only bookings; the new writer
+  fails closed for human reconciliation. Do not claim automatic historical
+  change coverage without a source-backed identity bridge.
 - The current OS Sheet monitor reads A:O and aliases O to order number. This
   conflicts with current source headers and `gmail-check-order` writer schema,
   which explicitly writes Q and preserves O as payment status. Repair this
@@ -159,16 +164,23 @@ Code for the Offland audit/shadow candidate, OS read path and Gmail/LINE
 writer fences has been published as draft PRs
 [`bnb-platform#78`](https://github.com/nccu95208069/bnb-platform/pull/78) and
 [`gmail-check-order#97`](https://github.com/nccu95208069/gmail-check-order/pull/97).
-The OS candidate is READY in a protected Vercel preview (`dpl_78kULw7XxrQxxEbVMyaRqD8CV5KX`);
+The updated OS candidate is READY in a protected Vercel preview
+(`dpl_GfF2LcGFoQxCTmPtta79pgqDW2G1`);
 its Offland flag is absent and defaults closed. The production alias remains
 on `dpl_6tdddv9FWVShckyVDPtCTFUvmuwr`. No database load, live writer change,
 production deployment, or production authority switch is claimed. The Stage
 1 and Stage 3 gates remain open; the live Sheet is still the Offland calendar
 source.
 
-Additional unpublished branch work prepares an exact final-snapshot authority
-activation, next-epoch scoped Gmail/OS credentials, and a no-new-write epoch-2
-rollback. These enforce writer-freeze timestamps and reject source/state drift.
+A source-only GCO release package was exported from pushed commit
+`ec69e50347a7cb00dfb4b20ec724f330d19c9378` (155 files; SHA-256
+`e9149723bc54da7bedcc16d50698424903c2952cb1ec497deb40b68d32a7d507`).
+No Cloud Build or Cloud Run candidate exists yet because the connected account
+still lacks Cloud Run project access.
+
+The OS draft PR also prepares exact final-snapshot authority activation,
+next-epoch scoped Gmail/OS credentials, and a no-new-write epoch-2 rollback.
+These enforce writer-freeze timestamps and reject source/state drift.
 When the Offland calendar flag eventually turns on, OS will hold calendar
 payment entry for explicit reconciliation because the legacy monitor mistook
 O (card/payment status) for the Q order identity. Existing OS receipts remain
