@@ -64,6 +64,8 @@ export function prepareOfflandGroups(snapshot) {
 }
 
 function validConfig(config) {
+  const capturedMs = typeof config?.capturedAt === "string"
+    ? Date.parse(config.capturedAt) : NaN;
   return config && UUID.test(config.workspaceId ?? "") &&
     UUID.test(config.propertyId ?? "") && UUID.test(config.roomId ?? "") &&
     new Set([config.workspaceId, config.propertyId, config.roomId]).size === 3 &&
@@ -72,8 +74,8 @@ function validConfig(config) {
     typeof config.sourceId === "string" && config.sourceId.length > 0 &&
     typeof config.sourceCopyId === "string" && config.sourceCopyId.length > 0 &&
     config.sourceCopyId !== config.sourceId &&
-    typeof config.capturedAt === "string" &&
-    new Date(config.capturedAt).toISOString() === config.capturedAt &&
+    Number.isFinite(capturedMs) &&
+    new Date(capturedMs).toISOString() === config.capturedAt &&
     config.capturedAt === config.sourceCopyCreatedAt &&
     config.bookingIds && typeof config.bookingIds === "object" &&
     !Array.isArray(config.bookingIds);

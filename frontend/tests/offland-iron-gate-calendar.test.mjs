@@ -64,6 +64,7 @@ test('Offland calendar uses its own grant, Q order identity and exact two-night 
   const expected = 'SF-' + createHash('sha256').update(
     'offland-operations-sheet-v1:order:SYNTHETIC12345').digest('hex').slice(0, 20);
   assert.ok(result.bookings.every(b => b.payment_order_id === expected));
+  assert.ok(result.bookings.every(b => b.source_legacy_payment === false));
   assert.ok(result.bookings.every(b => b.owlnest_order_no === null));
 });
 

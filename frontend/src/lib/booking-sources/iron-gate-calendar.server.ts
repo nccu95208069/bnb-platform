@@ -271,7 +271,7 @@ function calendarBooking(booking: Record<string, unknown>,
     iron_gate_source: booking.source as CalendarBooking['iron_gate_source'],
     iron_gate_channel_sync: booking.channelSyncState as CalendarBooking['iron_gate_channel_sync'],
     iron_gate_source_review: booking.sourceReviewRequired === true,
-    source_legacy_payment: viewPrices && !!sourceOrderRef,
+    source_legacy_payment: property === 'sweetfun' && viewPrices && !!sourceOrderRef,
     owlnest_order_no: property === 'sweetfun' && viewPrices &&
       sourceOrderRef?.startsWith('L:') ? sourceOrderRef.slice(2) : null,
     external_order_no: viewPrices && typeof source?.externalOrderNo === 'string'

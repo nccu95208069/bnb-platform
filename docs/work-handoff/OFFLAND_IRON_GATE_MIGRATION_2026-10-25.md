@@ -125,10 +125,15 @@ source rows and 280 villa nights with no overlapping date or rejected row;
 22 Q-linked groups and 248 J-only rows produce 270 bookings. It has no payment
 events and no stock or channel activation.
 
-The isolated Drive restore-copy drill remains pending. Automatic approval
-review rejected creating a second copy from the owner-only backup because the
-destination was not specified precisely enough for sensitive guest data. Do
-not retry it with a different tool or destination without explicit approval.
+The owner explicitly authorized the exact restore destination after automatic
+approval review rejected an unspecified sensitive-data destination. A separate
+native restore-drill copy was created in the owner's My Drive root at 02:29
+Taipei time, with owner-only access and all five original tabs. The 4,777
+A:Q booking cells match the private backup cell-for-cell, including six
+formulas and all notes. Its ID is
+`1SiwKRBKJEWWbK1ZuKJktHOKJVW8iG9bzBZYek9W_MNo`. It is disposable;
+it was moved to recoverable Google Drive Trash after verification. The
+original source and the first owner-only backup remain in place.
 The current Cloud Run service revision, configuration, trigger inventory and
 zero-traffic candidate cannot be inspected from the connected Google account:
 the Google Cloud Console reports missing access to `gmail-order-handler` in
@@ -138,9 +143,17 @@ The live Sheet's linked Apps Script project currently lists four installed
 triggers: `onEditInstallable`, `onChangeInstallable`, `auditOnOpenMenu`, and
 `auditDaily`. They are shown as owned by another user; `onChangeInstallable`
 last ran at 00:05 Taipei time on 2026-10-25 with a reported 100% error rate.
-The two edit/change triggers remain a cutover fence until their owner confirms
-their runtime behavior and can pause them. The daily audit's read-only nature
-must also be checked against the live script, not inferred from its name.
+The connected `sweetfuntw@gmail.com` account is confirmed as the original
+Sheet owner and all four triggers display as owned by that account. The
+currently visible script file has no edit/change handler definitions, but
+the triggers remain a cutover fence until they are stopped in the final window.
+Apps Script's trigger menu offers Delete rather than Pause; record each
+setting before removal so any approved rollback can recreate it. The daily
+trigger is scheduled for 07:00–08:00 Asia/Taipei with daily error notices.
+The daily audit is not read-only: it can create/delete Google Calendar events,
+change Sheet notes/backgrounds, and send failure email. Its owner must pause
+the daily and menu paths during the final frozen-copy window, then decide
+whether and how to keep the old Calendar audit after Iron Gate activation.
 
 Code for the Offland audit/shadow candidate, OS read path and Gmail/LINE
 writer fences has been published as draft PRs
@@ -152,3 +165,13 @@ on `dpl_6tdddv9FWVShckyVDPtCTFUvmuwr`. No database load, live writer change,
 production deployment, or production authority switch is claimed. The Stage
 1 and Stage 3 gates remain open; the live Sheet is still the Offland calendar
 source.
+
+Additional unpublished branch work prepares an exact final-snapshot authority
+activation, next-epoch scoped Gmail/OS credentials, and a no-new-write epoch-2
+rollback. These enforce writer-freeze timestamps and reject source/state drift.
+When the Offland calendar flag eventually turns on, OS will hold calendar
+payment entry for explicit reconciliation because the legacy monitor mistook
+O (card/payment status) for the Q order identity. Existing OS receipts remain
+in their original ledger keys and can be viewed as recovery records when the
+original order ID is known; they are not automatically remapped to Q. Booking
+fee display is not a payment ledger.
