@@ -21,6 +21,7 @@ function digest(value) {
  * private snapshot. This function never mutates the caller's state. */
 export function planOfflandAuthorityActivation(state, occupancy, snapshot, config, manifest) {
   const captured = instant(state?.offlandImport?.capturedAt);
+  const finalCaptured = instant(manifest?.finalCapturedAt);
   const authorized = instant(manifest?.authorizedAt);
   const freezeTimes = ["legacyFrozenAt", "appsScriptFrozenAt",
     "humanEditsFrozenAt", "osWritesFrozenAt", "lineDrainedAt", "gmailDrainedAt"]
@@ -39,9 +40,16 @@ export function planOfflandAuthorityActivation(state, occupancy, snapshot, confi
     manifest.sourceSystem !== SOURCE_SYSTEM || !UUID.test(manifest.grantId ?? "") ||
     !Number.isSafeInteger(manifest.cutoverTimestampMs) ||
     manifest.cutoverTimestampMs <= 0 ||
-    !Number.isFinite(captured) || !Number.isFinite(authorized) ||
-    freezeTimes.some((ms) => !Number.isFinite(ms) || ms > captured) ||
-    captured > authorized || manifest.cutoverTimestampMs > Math.min(...freezeTimes) ||
+    !Number.isFinite(captured) || !Number.isFinite(finalCaptured) ||
+    !Number.isFinite(authorized) ||
+    typeof manifest.finalSourceCopyId !== "string" ||
+    !manifest.finalSourceCopyId ||
+    manifest.finalSourceCopyId === manifest.sourceAccount ||
+    manifest.finalSourceCopyId === state.offlandImport.sourceCopyId ||
+    manifest.finalSourceCopyCreatedAt !== manifest.finalCapturedAt ||
+    captured >= finalCaptured || finalCaptured > authorized ||
+    freezeTimes.some((ms) => !Number.isFinite(ms) || ms > finalCaptured) ||
+    manifest.cutoverTimestampMs > Math.min(...freezeTimes) ||
     state.channel?.mode !== "none" || state.channel?.ready !== false ||
     state.channel?.websiteSalesEnabled !== false ||
     state.offlandImport?.flaggedGroups !== 0 ||
@@ -69,6 +77,8 @@ export function planOfflandAuthorityActivation(state, occupancy, snapshot, confi
     sourceHash: manifest.expectedSourceHash,
     sourceStateHash: digest({ bookings: state.bookings,
       sourceLinks: state.sourceLinks, occupancy }),
+    finalSourceCopyId: manifest.finalSourceCopyId,
+    finalCapturedAt: manifest.finalCapturedAt,
     cutoverTimestampMs: manifest.cutoverTimestampMs,
     legacyFrozenAt: manifest.legacyFrozenAt,
     appsScriptFrozenAt: manifest.appsScriptFrozenAt,

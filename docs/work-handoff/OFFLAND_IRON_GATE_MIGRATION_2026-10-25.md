@@ -197,7 +197,10 @@ still lacks Cloud Run project access.
 
 The OS draft PR also prepares exact final-snapshot authority activation,
 next-epoch scoped Gmail/OS credentials, and a no-new-write epoch-2 rollback.
-These enforce writer-freeze timestamps and reject source/state drift.
+These enforce writer-freeze timestamps and reject source/state drift. Activation
+now additionally requires a distinct owner-only final copy created after all
+writers are frozen and drained; its A:Q source hash must exactly match the
+loaded shadow. A changed source cannot be silently activated.
 When the Offland calendar flag eventually turns on, OS will hold calendar
 payment entry for explicit reconciliation because the legacy monitor mistook
 O (card/payment status) for the Q order identity. Existing OS receipts remain

@@ -13,7 +13,7 @@ import { switchOfflandAuthority } from "../scripts/switch-offland-authority.mjs"
 import { nightsFor } from "../src/service.ts";
 
 const uid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-const at = "2026-10-25T01:00:00.000Z";
+const at = "2026-10-25T00:10:00.000Z";
 
 function fixture() {
   const values = ["OFFLAND", "Synthetic Guest", "Booking", "2026-11-01",
@@ -24,7 +24,7 @@ function fixture() {
   const config = { workspaceId: uid(1), propertyId: uid(2), roomId: uid(3),
     inventoryVersion: 1, authorityEpoch: 0,
     expectedSourceHash: auditOfflandSnapshot(snapshot).sourceHash,
-    sourceId: "private-source-sheet", sourceCopyId: "private-final-copy",
+    sourceId: "private-source-sheet", sourceCopyId: "private-initial-copy",
     sourceCopyCreatedAt: at, capturedAt: at,
     bookingIds: { "Q:order-001": uid(100) } };
   const state = prepareOfflandShadow(snapshot, config).state;
@@ -34,6 +34,9 @@ function fixture() {
   const manifest = { propertyId: state.propertyId, workspaceId: state.workspaceId,
     sourceSystem: "offland-calendar-sheet", sourceAccount: config.sourceId,
     expectedSourceHash: config.expectedSourceHash, expectedVersion: 1,
+    finalSourceCopyId: "private-final-copy",
+    finalSourceCopyCreatedAt: "2026-10-25T01:00:00.000Z",
+    finalCapturedAt: "2026-10-25T01:00:00.000Z",
     grantId: uid(200), cutoverTimestampMs: Date.parse("2026-10-25T00:29:00.000Z"),
     legacyFrozenAt: "2026-10-25T00:30:00.000Z",
     appsScriptFrozenAt: "2026-10-25T00:31:00.000Z",
@@ -53,6 +56,7 @@ test("Offland activates only exact final shadow and can roll back before a write
   assert.equal(activated.state.authorityEpoch, 1);
   assert.equal(activated.state.version, 2);
   assert.equal(activated.state.sourceGrants[0].sourceSystem, "offland-calendar-sheet");
+  assert.equal(activated.state.offlandAuthority.finalSourceCopyId, "private-final-copy");
   const rolled = planOfflandNoWriteRollback(activated.state, occupancy,
     { ...manifest, rolledBackAt: "2026-10-25T01:02:00.000Z" });
   assert.equal(rolled.state.readOnly, true);
@@ -68,6 +72,9 @@ test("Offland activation rejects drift, missing writer freeze, and wrong source 
     config, manifest), /OFFLAND_AUTHORITY_PREFLIGHT_FAILED/);
   assert.throws(() => planOfflandAuthorityActivation(state, occupancy, snapshot,
     config, { ...manifest, appsScriptFrozenAt: undefined }),
+  /OFFLAND_AUTHORITY_PREFLIGHT_FAILED/);
+  assert.throws(() => planOfflandAuthorityActivation(state, occupancy, snapshot,
+    config, { ...manifest, finalSourceCopyId: config.sourceCopyId }),
   /OFFLAND_AUTHORITY_PREFLIGHT_FAILED/);
   assert.throws(() => planOfflandAuthorityActivation(state, occupancy, snapshot,
     config, { ...manifest, legacyFrozenAt: "2026-10-25T01:01:00.000Z" }),
