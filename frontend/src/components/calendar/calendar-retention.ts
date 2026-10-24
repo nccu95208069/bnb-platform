@@ -22,7 +22,11 @@ export function retainedCalendar(data: CalendarResponse | null, failed: boolean)
 // Month grids overlap at their edges. Combine only a contiguous set from the
 // same inventory version, anchored on the month the user is viewing.
 export function combinedCalendarWindows(windows: CalendarResponse[], start: string, end: string): CalendarResponse | null {
-  const anchor = windows.find(window => window.period_start <= start && window.period_end > start);
+  // Adjacent month grids overlap. Prefer the exact requested window so its
+  // source warnings and permissions, rather than the prior month's, lead.
+  const anchor = windows.find(window => window.period_start === start && window.period_end === end) ??
+    windows.find(window => window.period_start <= start && window.period_end >= end) ??
+    windows.find(window => window.period_start <= start && window.period_end > start);
   if (!anchor) return null;
   const version = anchor.source?.private_snapshot_version;
   const peers = windows.filter(window => window.source?.private_snapshot_version === version)

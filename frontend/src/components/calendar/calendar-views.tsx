@@ -412,6 +412,7 @@ export function MonthScroller({
   targetRevision?: number;
   onVisibleMonthChange: (month: string) => void;
 }) {
+  const uiText = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [viewportHeight, setViewportHeight] = useState(520);
   const [fontScale, setFontScale] = useState(1);
@@ -444,6 +445,9 @@ export function MonthScroller({
     <div
       ref={scrollRef}
       style={{ overflowAnchor: "none", height: viewportHeight }}
+      role="region"
+      aria-label={uiText("已售月曆，可上下捲動月份")}
+      tabIndex={0}
       className="overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm"
     >
       {months.map((monthStart) => (

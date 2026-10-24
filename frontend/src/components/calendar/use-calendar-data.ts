@@ -47,6 +47,8 @@ export function useCalendarData({ start, end, visibleStart = start, visibleEnd =
   const loading = pending && !covered;
   const refreshing = pending && covered;
   const mainCovered = hasCalendarCoverage(data, start, end);
+  const hasSource = !!data?.source;
+  const sourceVersion = data?.source?.private_snapshot_version;
   const prefetchKey = JSON.stringify(prefetch.map(({ start: from, end: to }) => [from, to]));
 
   useEffect(() => {
@@ -102,7 +104,7 @@ export function useCalendarData({ start, end, visibleStart = start, visibleEnd =
   }, [start, end, scope, reload, requestKey, read, onProperties, onAccessLost]);
 
   useEffect(() => {
-    if (settledKey !== requestKey || !mainCovered || failed || !data?.source?.private_snapshot_version) return;
+    if (settledKey !== requestKey || !mainCovered || failed || !hasSource) return;
     let active = true;
     void (async () => {
       const state = cache.current;
@@ -111,7 +113,7 @@ export function useCalendarData({ start, end, visibleStart = start, visibleEnd =
         const cached = combinedCalendarWindows([...state.windows.values()].map(item => item.data), from, to);
         return !hasCalendarCoverage(cached, from, to);
       });
-      // Both adjacent years start together so either scroll direction is warm.
+      // Adjacent month/year requests start together so either direction is warm.
       const results = await Promise.allSettled(ranges.map(async ([from, to]) => ({
         from, to, response: await readWindow(state, from, to, read),
       })));
@@ -127,7 +129,7 @@ export function useCalendarData({ start, end, visibleStart = start, visibleEnd =
         }
         const { from, to, response } = result.value;
         if (!validCalendarResponse(response, from, to) ||
-          response.source?.private_snapshot_version !== data.source?.private_snapshot_version) continue;
+          response.source?.private_snapshot_version !== sourceVersion) continue;
         const key = `${from}:${to}`;
         state.windows.delete(key);
         state.windows.set(key, { data: response, at: Date.now() });
@@ -137,6 +139,6 @@ export function useCalendarData({ start, end, visibleStart = start, visibleEnd =
       if (combined) setLoaded({ scope, data: combined });
     })();
     return () => { active = false; };
-  }, [prefetchKey, settledKey, requestKey, mainCovered, failed, data?.source?.private_snapshot_version, scope, reload, start, end, read, onAccessLost]);
+  }, [prefetchKey, settledKey, requestKey, mainCovered, failed, hasSource, sourceVersion, scope, reload, start, end, read, onAccessLost]);
   return { data, loading, refreshing, error: pending ? null : error, requestFailed: failed, lastLoadedAt };
 }
