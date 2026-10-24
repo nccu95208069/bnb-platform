@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-24 Sean 每日訂單儀表板：[水芳改讀 Iron Gate、OFFLAND 正式回讀、發布與對帳結果](SEAN_DAILY_DASHBOARD_2026-10-24.md)。連線與頁面修復已發布；14 筆切換後新單缺少真實下訂日期，按下訂日的每日統計仍待來源日期或明確替代口徑。包含報表憑證到期與輪替交接。
+
 2026-10-20 資料責任對齊：[Sean Sweetfun OS、BnB SaaS OS 與 Iron Gate 的三個角色、目前 Sheet 匯入落點與目標權威](SEAN_SAAS_IRON_GATE_DATA_BOUNDARY_2026-10-20.md)。目前客戶工作區測試仍在 Sweetfun OS 網站內，確認匯入寫入 OS 工作區；Iron Gate 尚未接管真實訂單。
 
 2026-10-20 水芳遷移規劃：[主訂房 Sheet、Gmail、Sweetfun OS、LINE 與訂單財務逐階段轉入 Iron Gate](../../iron-gate/SWEETFUN_SHEET_MIGRATION_PLAN_2026-10-20.md)；[來源盤點](../../iron-gate/SWEETFUN_MIGRATION_SOURCE_INVENTORY_2026-10-20.md)與[執行紀錄](../../iron-gate/SWEETFUN_MIGRATION_EXECUTION_2026-10-20.md)。已建立私人來源副本，尚未匯入或切換真實訂單。
