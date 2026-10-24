@@ -164,7 +164,8 @@ function calendarBooking(booking: Record<string, unknown>,
     /^(?:L:[A-Za-z0-9-]{8,64}|J:[A-Za-z0-9_-]{8,100})$/.test(source.sourceOrderRef)
     ? source.sourceOrderRef : null;
   const paymentId = paymentOrderId(String(booking.id), viewPrices ? sourceOrderRef : null, viewPrices);
-  const notificationId = paymentOrderId(String(booking.id), sourceOrderRef, true);
+  const notificationId = viewPrices ?
+    paymentOrderId(String(booking.id), sourceOrderRef, true) : undefined;
   const review = viewPrices && object(booking.paymentReview) ? booking.paymentReview : null;
   const paymentStatus = review && ['paid', 'deposit'].includes(String(review.status)) &&
     ['sheet_flag', 'payment_events'].includes(String(review.source))
@@ -193,7 +194,7 @@ function calendarBooking(booking: Record<string, unknown>,
     iron_gate_source_review: booking.sourceReviewRequired === true,
     source_legacy_payment: viewPrices && !!sourceOrderRef,
     owlnest_order_no: viewPrices && sourceOrderRef?.startsWith('L:') ? sourceOrderRef.slice(2) : null,
-    external_order_no: typeof source?.externalOrderNo === 'string'
+    external_order_no: viewPrices && typeof source?.externalOrderNo === 'string'
       ? source.externalOrderNo : null,
     property_id: 'sweetfun', property_name: '水芳 Sweetfun',
     room_id: `sweetfun-${roomNumber}`, room_number: roomNumber,

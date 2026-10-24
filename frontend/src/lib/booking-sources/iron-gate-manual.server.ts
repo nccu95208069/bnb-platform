@@ -148,6 +148,7 @@ async function callIronGate(config: ManualConfig, principal: Principal,
   } catch { throw Error(method === 'GET' ? 'MANUAL_READ_UNAVAILABLE' : 'MANUAL_RESULT_UNKNOWN'); }
   if (!object(raw)) throw Error(method === 'GET' ?
     'MANUAL_READ_UNAVAILABLE' : 'MANUAL_RESULT_UNKNOWN');
+  if (method !== 'GET' && response.status >= 500) throw Error('MANUAL_RESULT_UNKNOWN');
   if (!response.ok) {
     const candidate = object(raw.error) ? raw.error.code : null;
     const error = typeof candidate === 'string' && /^[A-Z][A-Z0-9_]{1,80}$/.test(candidate) ?

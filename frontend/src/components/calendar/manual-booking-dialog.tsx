@@ -7,6 +7,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter,
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { clearPendingManualRequest, readPendingManualRequest,
+  savePendingManualRequest } from "@/lib/booking-sources/manual-request-identity";
 
 type Mode = "create" | "amend" | "cancel";
 type Detail = { bookingId: string; version: number; status: string; source: string;
@@ -25,6 +27,9 @@ const LABELS: Record<string, string> = {
   CHANNEL_AMENDMENT_NOT_READY: "房況同步尚未完成，暫時不能修改房間或日期。",
   MANUAL_REASON_REQUIRED: "請填寫修改或取消原因。",
   MANUAL_DATE_RANGE_TOO_WIDE: "日期範圍過長，請分段處理。",
+  MANUAL_PENDING_REQUEST: "仍有一筆提交結果未確認。請先查詢原請求，避免重複送單。",
+  MANUAL_PENDING_REQUEST_INVALID: "此瀏覽器保存的請求資料無法辨識，請先人工核對訂單。",
+  MANUAL_STORAGE_UNAVAILABLE: "此瀏覽器無法安全保存請求鍵，暫時不能提交訂單。",
 };
 
 function dayAfter(value: string): string {
@@ -75,6 +80,13 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
     setGuestName(""); setContact(""); setNotes(""); setTotalTwd("");
     setBookedAt(""); setCheckIn(defaultDate); setCheckOut(dayAfter(defaultDate));
     setRoomNumbers([]);
+    try {
+      const pending = readPendingManualRequest(window.localStorage);
+      if (pending) {
+        setRequestKey(pending.requestKey);
+        setResult("先前提交的結果尚未確認。請先用原請求鍵查詢，暫時不要再次提交。");
+      }
+    } catch { setError(message('MANUAL_PENDING_REQUEST_INVALID')); }
     if (mode === "create" || !bookingId) return;
     const controller = new AbortController();
     setLoading(true);
@@ -132,8 +144,6 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
         return;
       }
       const key = crypto.randomUUID();
-      submittedKey = key;
-      setRequestKey(key);
       const payload = mode === "create" ? { expectedInventoryVersion: inventoryVersion,
         stays: stay, guestName: guestName.trim(), contact: contact.trim() || null,
         notes: notes.trim() || null, totalCents: totalTwd ? Math.round(Number(totalTwd) * 100) : null,
@@ -147,20 +157,34 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
       const path = mode === "create" ? "/api/v1/bookings/manual" : mode === "amend" ?
         `/api/v1/bookings/manual/${bookingId}` :
         `/api/v1/bookings/manual/${bookingId}/cancel`;
+      try {
+        savePendingManualRequest(window.localStorage, {
+          requestKey: key, mode, bookingId: bookingId ?? null, createdAt: Date.now(),
+        });
+      } catch (storageError) {
+        throw Error(storageError instanceof Error && storageError.message.startsWith('MANUAL_') ?
+          storageError.message : 'MANUAL_STORAGE_UNAVAILABLE');
+      }
+      submittedKey = key;
+      setRequestKey(key);
       const response = await fetch(path, { method: mode === "amend" ? "PATCH" : "POST",
         cache: "no-store", headers: { "content-type": "application/json",
           "idempotency-key": key }, body: JSON.stringify(payload) });
       const value = await responseJson(response);
       if (value.outcome === "unknown" || response.status >= 500 ||
+        !response.ok && (typeof value.code !== "string" ||
+          !/^[A-Z][A-Z0-9_]{1,80}$/.test(value.code)) ||
         response.ok && (typeof value.bookingId !== "string" || value.requestKey !== key)) {
         setResult("提交結果尚未確認。請用下方按鈕查詢原請求，暫時不要再次提交。");
         return;
       }
       if (!response.ok) {
+        clearPendingManualRequest(window.localStorage, key);
         setRequestKey(null);
         setError(message(value.code));
         return;
       }
+      clearPendingManualRequest(window.localStorage, key);
       setResult(value.operationState === "sync_pending" ?
         "訂單已記錄，OwlNest 房況同步中。" : "訂單已記錄並讀回確認。");
       onDone();
@@ -184,6 +208,8 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
       const value = await responseJson(response);
       if (!response.ok || typeof value.bookingId !== "string")
         throw Error(String(value.code ?? ""));
+      clearPendingManualRequest(window.localStorage, requestKey);
+      setRequestKey(null);
       setResult("原請求已在 Iron Gate 留下紀錄，請重新載入確認房況同步狀態。");
       onDone();
     } catch { setError("仍無法確認原請求。請保留此畫面，不要建立第二筆訂單。"); }

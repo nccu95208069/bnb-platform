@@ -676,14 +676,19 @@ test("LINE manual opening rejects a separate unresolved fence", async () => {
 });
 
 test("manage-all LINE grant reads and amends an external order without source overwrite", async () => {
-  const { repository } = setup("owlnest");
-  await repository.transact(propertyId, (state) => {
-    state.readOnly = false;
-    state.channel.sourceReadbackEnabled = true;
-  });
+  const { repository } = setup();
   const service = new IronGateService(repository, "p".repeat(43));
   const source = principal("source");
-  const event = await service.applySourceEvent(source, key(), sourceInput());
+  await service.applySourceEvent(source, key(), sourceInput());
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.mode = "owlnest";
+    state.channel.ready = true;
+    state.channel.grantId = channelGrantId;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const event = await service.applySourceEvent(source, key(), sourceInput(2, {
+    sourceVersion: "v2", previousSourceVersion: "v1" }));
   assert.equal(event.state, "applied");
   let state = await repository.read(propertyId);
   const original = state.bookings[0];
@@ -715,19 +720,24 @@ test("manage-all LINE grant reads and amends an external order without source ov
   [["2026-11-10", "closed"], ["2026-11-12", "closed"]]);
   assert.equal(state.fences.some((fence) => fence.key === "review:line:" + original.id), true);
   const sourceAgain = await service.applySourceEvent(source, key(),
-    sourceInput(state.version, { sourceVersion: "v2", previousSourceVersion: "v1" }));
+    sourceInput(state.version, { sourceVersion: "v3", previousSourceVersion: "v2" }));
   assert.equal(sourceAgain.state, "review_required");
   assert.equal((await repository.read(propertyId)).bookings[0].stays[0].checkIn, "2026-11-11");
 });
 
 test("manage-all LINE cancellation of external order leaves provider nights closed for review", async () => {
-  const { repository } = setup("owlnest");
+  const { repository } = setup();
+  const service = new IronGateService(repository, "p".repeat(43));
+  await service.applySourceEvent(principal("source"), key(), sourceInput());
   await repository.transact(propertyId, (state) => {
     state.readOnly = false;
+    state.channel.mode = "owlnest";
+    state.channel.ready = true;
+    state.channel.grantId = channelGrantId;
     state.channel.sourceReadbackEnabled = true;
   });
-  const service = new IronGateService(repository, "p".repeat(43));
-  const event = await service.applySourceEvent(principal("source"), key(), sourceInput());
+  const event = await service.applySourceEvent(principal("source"), key(), sourceInput(2, {
+    sourceVersion: "v2", previousSourceVersion: "v1" }));
   const operation = (await repository.read(propertyId)).operations[0];
   await service.recordChannelReadback(principal("channel"), { propertyId,
     operationKey: operation.key, observedAt: new Date().toISOString(),
@@ -754,7 +764,7 @@ test("manage-all LINE cancellation of external order leaves provider nights clos
   const ready = await repository.read(propertyId);
   assert.equal(ready.fences.some((fence) => fence.key === "review:line:" + event.bookingId), true);
   const sourceAck = await service.applySourceEvent(principal("source"), key(),
-    sourceInput(ready.version, { kind: "cancel", sourceVersion: "v2", previousSourceVersion: "v1" }));
+    sourceInput(ready.version, { kind: "cancel", sourceVersion: "v3", previousSourceVersion: "v2" }));
   assert.equal(sourceAck.lineOverrideReconciled, true);
   assert.equal(sourceAck.channelSyncState, "pending");
   let reconciled = await repository.read(propertyId);
@@ -772,14 +782,18 @@ test("manage-all LINE cancellation of external order leaves provider nights clos
 });
 
 test("external contact edit stays under review because source events cannot prove contact", async () => {
-  const { repository } = setup("owlnest");
+  const { repository } = setup();
+  const service = new IronGateService(repository, "p".repeat(43));
+  await service.applySourceEvent(principal("source"), key(), sourceInput(1, { totalCents: null }));
   await repository.transact(propertyId, (state) => {
     state.readOnly = false;
+    state.channel.mode = "owlnest";
+    state.channel.ready = true;
+    state.channel.grantId = channelGrantId;
     state.channel.sourceReadbackEnabled = true;
   });
-  const service = new IronGateService(repository, "p".repeat(43));
   const first = await service.applySourceEvent(principal("source"), key(),
-    sourceInput(1, { totalCents: null }));
+    sourceInput(2, { sourceVersion: "v2", previousSourceVersion: "v1", totalCents: null }));
   const channel = principal("channel");
   const initialOperation = (await repository.read(propertyId)).operations[0];
   await service.recordChannelReadback(channel, { propertyId,
@@ -799,7 +813,7 @@ test("external contact edit stays under review because source events cannot prov
   const amended = await repository.read(propertyId);
   assert.equal(amended.bookings[0].lineOverrideUnverifiable, true);
   const sourceAck = await service.applySourceEvent(principal("source"), key(),
-    sourceInput(amended.version, { sourceVersion: "v2", previousSourceVersion: "v1",
+    sourceInput(amended.version, { sourceVersion: "v3", previousSourceVersion: "v2",
       totalCents: null }));
   assert.equal(sourceAck.state, "review_required");
   const after = await repository.read(propertyId);
@@ -940,9 +954,27 @@ test("source event keeps explicit OTA amount and labels with scoped calendar pro
     fields: ["guest_name"] }), propertyId, "2026-11-01", "2026-12-01");
   assert.equal("totalCents" in noMoney.bookings[0], false);
   assert.equal("stayAmountsCents" in noMoney.bookings[0], false);
+  assert.equal("externalOrderNo" in noMoney.bookings[0].sourceCalendar, false);
   const noGuest = await service.calendarSnapshot(principal("os", {
     fields: ["money"] }), propertyId, "2026-11-01", "2026-12-01");
   assert.equal("sourceCalendar" in noGuest.bookings[0], false);
+});
+
+test("a different source key with the same OTA order number stays in review", async () => {
+  const { service, repository } = setup();
+  const source = principal("source");
+  const first = await service.applySourceEvent(source, key(), sourceInput(1, {
+    platform: "booking", externalOrderNo: "OTA12345" }));
+  const duplicate = await service.applySourceEvent(source, key(), sourceInput(2, {
+    externalOrderId: "external-2", platform: "booking", externalOrderNo: "OTA12345",
+    stays: [{ checkIn: "2026-11-14", checkOut: "2026-11-16", roomIds: [roomId] }],
+  }));
+  assert.equal(duplicate.state, "review_required");
+  assert.equal(duplicate.reason, "SOURCE_IDENTITY_COLLISION");
+  const state = await repository.read(propertyId);
+  assert.deepEqual(state.bookings.map((booking) => booking.id), [first.bookingId]);
+  assert.ok(state.fences.some((fence) => fence.reason === "source_review" &&
+    fence.cells.some((cell) => cell.date === "2026-11-14")));
 });
 
 test("four-room source amount remains whole-order money without invented room split", async () => {
@@ -1080,14 +1112,14 @@ test("OwlNest external cancellation stays under review until provider evidence e
     errorCode("ROOM_CONFLICT"));
 });
 
-test("OwlNest source changes fence stock before any booking is marked applied", async () => {
+test("OwlNest source events without identity fence stock before any booking is applied", async () => {
   const { service, repository } = setup("owlnest");
   await repository.transact(propertyId, (state) => {
     state.channel.sourceReadbackEnabled = false;
   });
   const source = principal("source");
   const incoming = await service.applySourceEvent(source, key(), sourceInput());
-  assert.equal(incoming.reason, "CHANNEL_UPSERT_REQUIRES_READBACK");
+  assert.equal(incoming.reason, "SOURCE_IDENTITY_UNVERIFIED");
   let state = await repository.read(propertyId);
   assert.equal(state.bookings.length, 0);
   assert.deepEqual(state.fences[0].cells.map((cell) => cell.date).sort(),
@@ -1100,6 +1132,18 @@ test("OwlNest source changes fence stock before any booking is marked applied", 
   assert.equal(state.bookings.length, 0);
   assert.equal(state.sourceLinks.length, 0);
   assert.equal(state.fences.length, 2);
+});
+
+test("new OwlNest source events require a verified order identity even with stock readback", async () => {
+  const { service, repository } = setup("owlnest");
+  const incoming = await service.applySourceEvent(principal("source"), key(), sourceInput());
+  assert.equal(incoming.state, "review_required");
+  assert.equal(incoming.reason, "SOURCE_IDENTITY_UNVERIFIED");
+  const state = await repository.read(propertyId);
+  assert.equal(state.bookings.length, 0);
+  assert.equal(state.operations.length, 0);
+  assert.deepEqual(state.fences[0].cells.map((cell) => cell.date).sort(),
+    ["2026-11-10", "2026-11-11"]);
 });
 
 test("OwlNest source date changes hold old and new room nights for review", async () => {
@@ -1124,12 +1168,19 @@ test("OwlNest source date changes hold old and new room nights for review", asyn
 });
 
 test("gated source readback preserves Gmail source version after OwlNest verification", async () => {
-  const { service, repository } = setup("owlnest");
+  const { service, repository } = setup();
+  const source = principal("source"), channel = principal("channel");
+  const imported = await service.applySourceEvent(source, key(), sourceInput());
+  assert.equal(imported.state, "applied");
   await repository.transact(propertyId, (state) => {
+    state.channel.mode = "owlnest";
+    state.channel.ready = true;
+    state.channel.grantId = channelGrantId;
     state.channel.sourceReadbackEnabled = true;
   });
-  const source = principal("source"), channel = principal("channel");
-  const first = await service.applySourceEvent(source, key(), sourceInput());
+  const first = await service.applySourceEvent(source, key(), sourceInput(2, {
+    sourceVersion: "v2", previousSourceVersion: "v1",
+  }));
   assert.equal(first.state, "applied");
   assert.equal(first.channelSyncState, "pending");
   let state = await repository.read(propertyId);
@@ -1146,14 +1197,14 @@ test("gated source readback preserves Gmail source version after OwlNest verific
   assert.equal(state.fences.length, 0);
   assert.equal(state.sourceLinks[0].lastAppliedBookingVersion, state.bookings[0].version);
   const detailChange = await service.applySourceEvent(source, key(), sourceInput(state.version, {
-    sourceVersion: "v2", previousSourceVersion: "v1", guestName: "Updated Synthetic Guest",
+    sourceVersion: "v3", previousSourceVersion: "v2", guestName: "Updated Synthetic Guest",
   }));
   assert.equal(detailChange.state, "applied");
   assert.equal(detailChange.channelSyncState, undefined);
   state = await repository.read(propertyId);
   assert.equal(state.operations.length, 1);
   const cancellation = await service.applySourceEvent(source, key(), sourceInput(state.version, {
-    kind: "cancel", sourceVersion: "v3", previousSourceVersion: "v2",
+    kind: "cancel", sourceVersion: "v4", previousSourceVersion: "v3",
   }));
   assert.equal(cancellation.state, "applied");
   assert.equal(cancellation.channelSyncState, "pending");
@@ -1206,32 +1257,42 @@ test("gated source amendment reads back old opened and new closed nights", async
 });
 
 test("gated source events cannot overtake a pending channel operation", async () => {
-  const { service, repository } = setup("owlnest");
+  const { service, repository } = setup();
+  const source = principal("source");
+  await service.applySourceEvent(source, key(), sourceInput());
   await repository.transact(propertyId, (state) => {
+    state.channel.mode = "owlnest";
+    state.channel.ready = true;
+    state.channel.grantId = channelGrantId;
     state.channel.sourceReadbackEnabled = true;
   });
-  const source = principal("source");
-  const first = await service.applySourceEvent(source, key(), sourceInput());
-  const attempted = await service.applySourceEvent(source, key(), sourceInput(2, {
-    sourceVersion: "v2", previousSourceVersion: "v1",
+  const first = await service.applySourceEvent(source, key(), sourceInput(2, {
+    sourceVersion: "v2", previousSourceVersion: "v1" }));
+  const attempted = await service.applySourceEvent(source, key(), sourceInput(3, {
+    sourceVersion: "v3", previousSourceVersion: "v2",
     stays: [{ checkIn: "2026-11-12", checkOut: "2026-11-14", roomIds: [roomId] }],
   }));
   assert.equal(attempted.state, "review_required");
   assert.equal(attempted.reason, "CHANNEL_PREVIOUS_OPERATION_UNRESOLVED");
   const state = await repository.read(propertyId);
   assert.equal(state.bookings[0].id, first.bookingId);
-  assert.equal(state.bookings[0].version, 1);
-  assert.equal(state.sourceLinks[0].sourceVersion, "v1");
+  assert.equal(state.bookings[0].version, 2);
+  assert.equal(state.sourceLinks[0].sourceVersion, "v2");
   assert.equal(state.fences.length, 2);
 });
 
 test("gated source cancellation keeps manually blocked nights closed", async () => {
-  const { service, repository } = setup("owlnest");
+  const { service, repository } = setup();
+  const source = principal("source"), channel = principal("channel");
+  await service.applySourceEvent(source, key(), sourceInput());
   await repository.transact(propertyId, (state) => {
+    state.channel.mode = "owlnest";
+    state.channel.ready = true;
+    state.channel.grantId = channelGrantId;
     state.channel.sourceReadbackEnabled = true;
   });
-  const source = principal("source"), channel = principal("channel");
-  const first = await service.applySourceEvent(source, key(), sourceInput());
+  const first = await service.applySourceEvent(source, key(), sourceInput(2, {
+    sourceVersion: "v2", previousSourceVersion: "v1" }));
   let state = await repository.read(propertyId);
   await service.recordChannelReadback(channel, { propertyId,
     operationKey: first.operationKey, providerVersion: "synthetic-closed-v1",
@@ -1245,7 +1306,7 @@ test("gated source cancellation keeps manually blocked nights closed", async () 
   });
   state = await repository.read(propertyId);
   const cancelled = await service.applySourceEvent(source, key(), sourceInput(state.version, {
-    kind: "cancel", sourceVersion: "v2", previousSourceVersion: "v1",
+    kind: "cancel", sourceVersion: "v3", previousSourceVersion: "v2",
   }));
   state = await repository.read(propertyId);
   assert.deepEqual(state.operations[1].cells.map((cell) => [cell.date, cell.desired]).sort(),

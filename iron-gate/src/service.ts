@@ -234,7 +234,10 @@ function publicBooking(booking: Booking, principal: Principal,
     principal.fields.includes("guest_name")) {
     result.guestName = booking.guestName;
     if (principal.origin === "os" && booking.sourceCalendar) {
-      result.sourceCalendar = { ...booking.sourceCalendar, bookedAt: booking.bookedAt };
+      result.sourceCalendar = { platform: booking.sourceCalendar.platform,
+        ...(principal.fields.includes("money") ?
+          { externalOrderNo: booking.sourceCalendar.externalOrderNo } : {}),
+        bookedAt: booking.bookedAt };
     }
     // The imported rows remain private evidence. Only unambiguous calendar
     // labels may leave that evidence, under the same OS guest grant.
@@ -252,7 +255,8 @@ function publicBooking(booking: Booking, principal: Principal,
       const rawBookedAt = unique(5);
       const match = /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/.exec(rawBookedAt ?? "");
       const bookedAt = match ? `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}` : null;
-      result.sourceCalendar = { platform, externalOrderNo,
+      result.sourceCalendar = { platform,
+        ...(principal.fields.includes("money") ? { externalOrderNo } : {}),
         bookedAt: bookedAt && Number.isFinite(Date.parse(`${bookedAt}T00:00:00Z`)) &&
           new Date(`${bookedAt}T00:00:00Z`).toISOString().slice(0, 10) === bookedAt
           ? bookedAt : null,
@@ -1568,6 +1572,21 @@ export class IronGateService {
         return review("SOURCE_DIVERGED", [...cells, ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);
       if (input.kind === "upsert" && link && link.tombstoneNights.length)
         return review("SOURCE_TOMBSTONE_REACTIVATION", [...cells, ...link.tombstoneNights]);
+      // A platform order number is only an auxiliary identity. It is not
+      // enough to claim another booking, but a collision must never create a
+      // second confirmed booking under a different source-event key.
+      if (input.kind === "upsert" && input.platform && input.externalOrderNo) {
+        const aliasOwner = state.bookings.find((booking) => booking.id !== linkedBooking?.id &&
+          booking.sourceCalendar?.platform === input.platform &&
+          booking.sourceCalendar?.externalOrderNo === input.externalOrderNo);
+        if (aliasOwner) return review("SOURCE_IDENTITY_COLLISION", [...cells,
+          ...nightsFor(aliasOwner.stays, state.roomIds)]);
+      }
+      // Stock readback proves room availability, not the identity of an OTA
+      // reservation. Until a provider-backed order lookup can claim a unique
+      // OwlNest identity, a new source event must not create a second order.
+      if (channelMode && input.kind === "upsert" && !linkedBooking)
+        return review("SOURCE_IDENTITY_UNVERIFIED", cells);
       if (sourceReadback && (!state.channel.ready || !state.channel.grantId))
         return review("CHANNEL_NOT_READY", [...cells,
           ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);

@@ -130,3 +130,19 @@ test('a lost create response is recovered by its original key without a second w
   assert.equal(recovered.bookingId, (await repository.read(propertyId)).bookings[0].id);
   assert.equal((await repository.read(propertyId)).bookings.length, 1);
 });
+
+test('a server error after commit remains an unknown result recoverable by the original key', async () => {
+  const { repository, send } = setup(), c = config(), requestKey = key();
+  const serverErrorAfterCommit = async (url, init) => {
+    const response = await send(url, init);
+    if (init.method === 'POST' && new URL(url).pathname.endsWith('/bookings'))
+      return Response.json({ error: { code: 'INTERNAL_ERROR' } }, { status: 500 });
+    return response;
+  };
+  await assert.rejects(createManualBooking(owner, c, {
+    expectedInventoryVersion: 1, stays: stay(), guestName: 'Synthetic Guest',
+    contact: null, notes: null, totalCents: null, bookedAt: null,
+  }, requestKey, serverErrorAfterCommit), /MANUAL_RESULT_UNKNOWN/);
+  const recovered = await manualRequestResult(owner, c, requestKey, send);
+  assert.equal(recovered.bookingId, (await repository.read(propertyId)).bookings[0].id);
+});

@@ -121,6 +121,8 @@ test('unchanged imported order keeps its existing OS payment identity only for p
     viewer, c, sender(data, c, () => {}, viewer));
   assert.equal(withoutMoney.bookings[0].payment_order_id, 'IG-66666666-6666-4666-8666-666666666666');
   assert.equal(withoutMoney.bookings[0].owlnest_order_no, null);
+  assert.equal(withoutMoney.bookings[0].external_order_no, null);
+  assert.equal(withoutMoney.bookings[0].notification_order_id, undefined);
 });
 
 test('payment preflight checks the exact booking identity, total and current room nights', async () => {
