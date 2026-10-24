@@ -1,6 +1,6 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
-2026-10-24 水芳手動訂單：直訂新增、改房／改期、取消的 OS→Iron Gate 隔離程式已完成且預設關閉。後續須先完成 [OTA 來源身分、財務及正式切換檢查](SWEETFUN_MANUAL_BOOKING_IMPLEMENTATION_2026-10-24.md)，才可處理業主要求的 OTA 補登與既有來源單更正，並逐步開啟正式寫入。
+2026-10-24 水芳手動訂單：直訂新增、改房／改期、取消的 OS→Iron Gate 入口已正式發布；新單建立與 OwlNest 同步分成兩次明確操作。後續須以指定安全房晚完成 [真實關房、回讀、復原、OTA 身分及財務限制檢查](SWEETFUN_MANUAL_BOOKING_IMPLEMENTATION_2026-10-24.md)，才可宣稱外部房況寫入驗收完成；OTA 補登與房晚／金額更正仍不開放。
 
 2026-10-19 完整歷史匯入預覽與既有已售月曆樣式已由 PR #55 合併並發布，正式站已唯讀驗證；真實訂單仍待使用者按最後匯入確認。後續發布必須套用[開通、匯入與月曆發布檢查](ONBOARDING_RELEASE_GATES_2026-10-19.md)，來源衝突仍需個別核對。
 

@@ -4,7 +4,7 @@
 
 2026-10-20 資料責任對齊：[Sean Sweetfun OS、BnB SaaS OS 與 Iron Gate 的三個角色、目前 Sheet 匯入落點與目標權威](SEAN_SAAS_IRON_GATE_DATA_BOUNDARY_2026-10-20.md)。目前客戶工作區測試仍在 Sweetfun OS 網站內，確認匯入寫入 OS 工作區；Iron Gate 尚未接管真實訂單。
 
-2026-10-24 Sweetfun 手動訂單：[隔離實作、驗證與正式啟用前的來源／財務限制](SWEETFUN_MANUAL_BOOKING_IMPLEMENTATION_2026-10-24.md)。目前只提供預設關閉的水芳直訂新增、修改、取消入口，尚未對正式資料或 OwlNest 寫入。
+2026-10-24 Sweetfun 手動訂單：[實作、正式發布與來源／財務限制](SWEETFUN_MANUAL_BOOKING_IMPLEMENTATION_2026-10-24.md)。水芳 Owner／Admin／God 直訂入口已上線；真實 OwlNest 關房與復原仍待指定安全房晚的受控驗收。
 
 2026-10-16 onboarding and standard-workbook release: [3,000-row import, customer password and sharing-guide improvements](ONBOARDING_CLARITY_2026-10-16.md#production-release--2026-10-16) and [v5 booking last-updated time](STANDARD_SHEET_V5_UPDATED_AT_2026-10-16.md#發布與資料邊界) are live on `https://sweetfun-os.vercel.app` from `c4ac224` / Vercel `dpl_4EEqMUY4hPNm3oXN1yzU5zt6Ha6d`.
 
