@@ -21,3 +21,10 @@ test('manual request identity survives dialog reload and is not overwritten', ()
   clearPendingManualRequest(storage, key);
   assert.equal(readPendingManualRequest(storage), null);
 });
+
+test('manual booking writes stop when the browser cannot retain the recovery key', () => {
+  const storage = { getItem: () => null, setItem: () => {}, removeItem: () => {} };
+  assert.throws(() => savePendingManualRequest(storage,
+    { requestKey: key, mode: 'create', bookingId: null, createdAt: 1 }),
+  /MANUAL_STORAGE_UNAVAILABLE/);
+});

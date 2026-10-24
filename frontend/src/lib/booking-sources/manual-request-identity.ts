@@ -25,6 +25,8 @@ export function readPendingManualRequest(store: Store): PendingManualRequest | n
 export function savePendingManualRequest(store: Store, pending: PendingManualRequest): void {
   if (readPendingManualRequest(store)) throw Error('MANUAL_PENDING_REQUEST');
   store.setItem(STORAGE_KEY, JSON.stringify(pending));
+  if (readPendingManualRequest(store)?.requestKey !== pending.requestKey)
+    throw Error('MANUAL_STORAGE_UNAVAILABLE');
 }
 
 export function clearPendingManualRequest(store: Store, requestKey: string): void {
