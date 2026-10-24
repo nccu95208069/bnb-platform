@@ -152,6 +152,13 @@ The connected `sweetfuntw@gmail.com` account is confirmed as the original
 Sheet owner and all four triggers display as owned by that account. The
 currently visible script file has no edit/change handler definitions, but
 the triggers remain a cutover fence until they are stopped in the final window.
+Owner-side trigger settings were read without saving changes: the change
+trigger targets spreadsheet `onChangeInstallable` with daily error mail;
+the daily audit targets `auditDaily` on a daily 07:00–08:00 GMT+08 timer with
+daily error mail. The editor's current function picker omits both stale
+`onChangeInstallable` and `onEditInstallable`, so deletion should be treated
+as a controlled retirement unless their historical source is separately
+restored for rollback.
 Apps Script's trigger menu offers Delete rather than Pause; record each
 setting before removal so any approved rollback can recreate it. The daily
 trigger is scheduled for 07:00–08:00 Asia/Taipei with daily error notices.
@@ -167,7 +174,9 @@ writer fences has been published as draft PRs
 The updated OS candidate is READY in a protected Vercel preview
 (`dpl_GfF2LcGFoQxCTmPtta79pgqDW2G1`);
 its Offland flag is absent and defaults closed. The same tested frontend source
-was subsequently deployed to production as `dpl_6J1AFcGueU9MQgndtaiz7UJjUsfJ`;
+was subsequently deployed to production as `dpl_6J1AFcGueU9MQgndtaiz7UJjUsfJ`,
+then the reviewed proof-key reuse was deployed as
+`dpl_J7dzfUaaBZji3zxWksC7bCs6fCFv`;
 Vercel readback confirmed `READY` and alias `sweetfun-os.vercel.app`. A second
 environment metadata readback found no `OFFLAND` variables among 76 entries,
 so the new reader remains closed and the live Sheet remains the Offland
