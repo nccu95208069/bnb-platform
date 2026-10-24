@@ -511,6 +511,18 @@ function requireOsStockWindow(state: PropertyState, cells: Night[]): void {
   if (!from || !through || cells.some((cell) => cell.date < from || cell.date > through))
     reject("CHANNEL_STOCK_NOT_OBSERVED", 409);
 }
+function verifiedOwnManualClose(state: PropertyState, booking: Booking, cells: Night[]): boolean {
+  const operation = state.operations.find((item) => item.key === booking.channelOperationKey);
+  if (!operation || operation.bookingId !== booking.id ||
+    operation.state !== "sync_verified" || operation.manualInitialClose !== true ||
+    operation.ownCloseWriteRequired !== true ||
+    operation.initialOpenPreflight?.status !== "open" ||
+    !operation.observations?.some((item) => item.accepted === true) ||
+    operation.cells.length !== cells.length || hasConflict(state, cells, booking.id))
+    return false;
+  const expected = new Set(cells.map(keyOf));
+  return operation.cells.every((cell) => cell.desired === "closed" && expected.has(keyOf(cell)));
+}
 function verifyLineInventoryInput(input: LineInventoryInput): Night {
   if (!input || !Number.isSafeInteger(input.expectedInventoryVersion) ||
     input.expectedInventoryVersion < 0 || !["closed", "open"].includes(input.desired))
@@ -893,7 +905,7 @@ export class IronGateService {
       state.operations.push({ key: operationKey, bookingId, bookingVersion: booking.version,
         state: "sync_pending", cells: cells.map((cell) => ({ ...cell, desired: "closed" })),
         createdAt: new Date().toISOString(), verifiedAt: null, providerVersion: null,
-        manualInitialClose: true });
+        manualInitialClose: true, ownCloseWriteRequired: true });
       state.fences.push({ key: operationKey, cells, reason: "channel_pending" });
       state.version++;
       const response = makeBookingReceipt(state, booking);
@@ -1806,8 +1818,10 @@ export class IronGateService {
       if (principal.origin === "os" && netReceived(booking) !== 0)
         reject("CANCELLATION_REQUIRES_SETTLEMENT", 409);
       if (principal.origin === "os" && state.channel.mode === "owlnest" &&
-        booking.channelSyncState !== "awaiting_manual_sync")
-        requireOsStockWindow(state, nightsFor(booking.stays, state.roomIds));
+        booking.channelSyncState !== "awaiting_manual_sync") {
+        const cells = nightsFor(booking.stays, state.roomIds);
+        if (!verifiedOwnManualClose(state, booking, cells)) requireOsStockWindow(state, cells);
+      }
       const previousSync = booking.channelSyncState;
       const previousNights = nightsFor(booking.stays, state.roomIds);
       if (principal.origin === "line")
