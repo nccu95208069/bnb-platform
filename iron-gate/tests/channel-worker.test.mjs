@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { MemoryPropertyRepository } from "../src/memory-repository.ts";
 import { IronGateService } from "../src/service.ts";
 import { createChannelWorker } from "../src/channel-worker.mjs";
-import { recoverChannelClaim } from "../src/channel-recovery.mjs";
+import { recoverChannelClaim, releaseReviewedManualClaim } from "../src/channel-recovery.mjs";
 
 const workspaceId = "11111111-1111-4111-8111-111111111111";
 const propertyId = "22222222-2222-4222-8222-222222222222";
@@ -27,16 +27,19 @@ function setup({ providerFails = false, initiallyClosed = false } = {}) {
   const channel = { clientId: "channel-client", subjectId: "channel-worker", origin: "channel",
     workspaceId, propertyIds: [propertyId], authorityEpoch: 1,
     actions: ["channel:verify"], fields: [], grantId: channelGrant };
-  let stock = initiallyClosed ? { count: 0, isLock: true } :
-    { count: 1, isLock: false }, writes = 0;
+  const stock = new Map([["2099-11-10", initiallyClosed ?
+    { count: 0, isLock: true } : { count: 1, isLock: false }]]);
+  let writes = 0;
   const alerts = [];
   const provider = {
-    observe: async () => ({ observedAt: new Date().toISOString(), providerVersion: "synthetic-v1",
-      cells: [{ roomId, date: "2099-11-10", ...stock }] }),
-    setNight: async () => {
+    observe: async (_propertyId, cells) => ({ observedAt: new Date().toISOString(),
+      providerVersion: "synthetic-v1", cells: cells.map((cell) => ({
+        roomId: cell.roomId, date: cell.date,
+        ...(stock.get(cell.date) ?? { count: 1, isLock: false }) })) }),
+    setNight: async (_propertyId, cell) => {
       writes++;
       if (providerFails) throw Error("SYNTHETIC_UNKNOWN_WRITE");
-      stock = { count: 0, isLock: true };
+      stock.set(cell.date, { count: 0, isLock: true });
     },
   };
   const worker = createChannelWorker({ repository, service, provider,
@@ -45,10 +48,13 @@ function setup({ providerFails = false, initiallyClosed = false } = {}) {
     writes: () => writes };
 }
 
-async function createPending(set) {
+async function createPending(set, date = "2099-11-10") {
+  const current = await set.repository.read(propertyId);
   const result = await set.service.createBooking(set.owner, propertyId, crypto.randomUUID(), {
-    expectedInventoryVersion: 1,
-    stays: [{ checkIn: "2099-11-10", checkOut: "2099-11-11", roomIds: [roomId] }],
+    expectedInventoryVersion: current.version,
+    stays: [{ checkIn: date,
+      checkOut: new Date(Date.parse(`${date}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10),
+      roomIds: [roomId] }],
     guestName: "Synthetic Guest", contact: null, notes: null, totalCents: 10000,
     bookedAt: "2099-01-01", source: "os" });
   assert.equal(result.operationState, "awaiting_manual_sync");
@@ -87,6 +93,87 @@ test("already-closed OwlNest night stays under review without a provider write",
   assert.equal((await set.repository.read(propertyId)).fences.length, 1);
 });
 
+test("reviewed manual close releases only the property claim, then unrelated work proceeds", async () => {
+  const set = setup({ initiallyClosed: true }), reviewedKey = await createPending(set);
+  assert.equal((await set.worker.runOne(set.channel, propertyId)).state, "review_required");
+  const nextKey = await createPending(set, "2099-11-12");
+  assert.equal((await set.worker.runOne(set.channel, propertyId)).state, "idle");
+  const before = await set.repository.read(propertyId);
+  const releaseInput = { repository: set.repository, provider: set.provider,
+    principal: set.channel, propertyId, expectedClaimId: before.channelDispatch.claimId,
+    expectedInventoryVersion: before.version,
+    reviewReason: "Reviewed preclosed night; keep its fence", acknowledgeQuarantine: true };
+  await assert.rejects(releaseReviewedManualClaim({ ...releaseInput,
+    acknowledgeQuarantine: false }), /CHANNEL_REVIEW_RELEASE_INVALID/);
+  const result = await releaseReviewedManualClaim(releaseInput);
+  assert.equal(result.claimReleased, true);
+  const released = await set.repository.read(propertyId);
+  assert.equal(released.channelDispatch, null);
+  assert.equal(released.operations.find((item) => item.key === reviewedKey).state,
+    "review_required");
+  assert.equal(released.bookings[0].channelSyncState, "review_required");
+  assert.ok(released.fences.some((item) => item.key === reviewedKey));
+  assert.equal(released.operations.find((item) => item.key === reviewedKey).observations.at(-1).accepted,
+    false);
+  assert.equal(set.repository.auditRecords(propertyId).at(-1).type,
+    "channel.review_claim_released");
+  await assert.rejects(releaseReviewedManualClaim(releaseInput),
+    /CHANNEL_REVIEW_RELEASE_STATE_MOVED/);
+  assert.deepEqual(await set.worker.runOne(set.channel, propertyId),
+    { state: "sync_verified", propertyId, operationKey: nextKey });
+  assert.equal(set.writes(), 1);
+  assert.ok((await set.repository.read(propertyId)).fences.some((item) => item.key === reviewedKey));
+});
+
+test("reviewed claim stays held on incomplete evidence or a changed property version", async () => {
+  const set = setup({ initiallyClosed: true });
+  await createPending(set);
+  await set.worker.runOne(set.channel, propertyId);
+  const state = await set.repository.read(propertyId);
+  const input = { repository: set.repository, principal: set.channel, propertyId,
+    expectedClaimId: state.channelDispatch.claimId,
+    expectedInventoryVersion: state.version, reviewReason: "Retain the reviewed room-night fence",
+    acknowledgeQuarantine: true };
+  await assert.rejects(releaseReviewedManualClaim({ ...input,
+    provider: { observe: async () => ({ observedAt: new Date().toISOString(),
+      providerVersion: "incomplete", cells: [] }) } }),
+  /CHANNEL_REVIEW_RELEASE_READBACK_INCOMPLETE/);
+  await assert.rejects(releaseReviewedManualClaim({ ...input,
+    provider: { observe: async () => ({ observedAt: new Date().toISOString(),
+      providerVersion: "still-open", cells: [{ roomId, date: "2099-11-10",
+        count: 1, isLock: false }] }) } }), /CHANNEL_REVIEW_RELEASE_STOCK_OPEN/);
+  await assert.rejects(releaseReviewedManualClaim({ ...input, provider: set.provider,
+    expectedInventoryVersion: state.version - 1 }), /CHANNEL_REVIEW_RELEASE_STATE_MOVED/);
+  await assert.rejects(releaseReviewedManualClaim({ ...input, provider: set.provider,
+    principal: { ...set.channel, actions: [] } }), /CHANNEL_REVIEW_RELEASE_INVALID/);
+  assert.equal((await set.repository.read(propertyId)).channelDispatch.claimId,
+    state.channelDispatch.claimId);
+});
+
+test("reviewed claim cannot release past another pending operation on the same night", async () => {
+  const set = setup({ initiallyClosed: true });
+  await createPending(set);
+  await set.worker.runOne(set.channel, propertyId);
+  await set.repository.transact(propertyId, (state) => {
+    const key = crypto.randomUUID();
+    state.operations.push({ key, bookingId: null, bookingVersion: 0,
+      state: "sync_pending", cells: [{ roomId, date: "2099-11-10", desired: "closed" }],
+      createdAt: new Date().toISOString(), verifiedAt: null, providerVersion: null });
+    state.fences.push({ key, cells: [{ roomId, date: "2099-11-10" }],
+      reason: "channel_pending" });
+    state.version++;
+  });
+  const state = await set.repository.read(propertyId);
+  await assert.rejects(releaseReviewedManualClaim({ repository: set.repository,
+    provider: set.provider, principal: set.channel, propertyId,
+    expectedClaimId: state.channelDispatch.claimId,
+    expectedInventoryVersion: state.version, acknowledgeQuarantine: true,
+    reviewReason: "Overlapping operation needs investigation" }),
+  /CHANNEL_REVIEW_RELEASE_STATE_MOVED/);
+  assert.equal((await set.repository.read(propertyId)).channelDispatch.claimId,
+    state.channelDispatch.claimId);
+});
+
 test("crash after a manual close cannot be auto-verified from final stock", async () => {
   const set = setup(), operationKey = await createPending(set), claimId = crypto.randomUUID();
   await set.repository.transact(propertyId, (state) => {
@@ -108,6 +195,16 @@ test("crash after a manual close cannot be auto-verified from final stock", asyn
   assert.equal(state.channelDispatch.state, "review_required");
   assert.equal(state.fences.length, 1);
   assert.equal((await set.worker.runOne(set.channel, propertyId)).state, "idle");
+  const released = await releaseReviewedManualClaim({ repository: set.repository,
+    provider: set.provider, principal: set.channel, propertyId, expectedClaimId: claimId,
+    expectedInventoryVersion: state.version, acknowledgeQuarantine: true,
+    reviewReason: "Unknown write outcome remains under review" });
+  assert.equal(released.claimReleased, true);
+  const quarantined = await set.repository.read(propertyId);
+  assert.equal(quarantined.channelDispatch, null);
+  assert.equal(quarantined.operations[0].state, "review_required");
+  assert.equal(quarantined.bookings[0].channelSyncState, "review_required");
+  assert.equal(quarantined.fences.length, 1);
 });
 
 test("unknown OwlNest outcome keeps the fence and claim for review", async () => {

@@ -275,7 +275,7 @@ export type EventType =
   | "payment.recorded" | "source.applied" | "source.review_required"
   | "inventory.blocked" | "inventory.opened"
   | "source.facts_enriched"
-  | "channel.verified" | "channel.review_required";
+  | "channel.verified" | "channel.review_required" | "channel.review_claim_released";
 
 export type PendingEvent = {
   eventId: string;
