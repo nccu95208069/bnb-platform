@@ -3,10 +3,19 @@ import assert from 'node:assert/strict';
 import { act, createElement, useEffect } from 'react';
 import { mount } from './helpers/customer-dom.mjs';
 import { useCalendarData } from '../src/components/calendar/use-calendar-data.ts';
-import { hasCalendarCoverage } from '../src/components/calendar/calendar-retention.ts';
+import { combinedCalendarWindows, hasCalendarCoverage } from '../src/components/calendar/calendar-retention.ts';
 import { ApiError } from '../src/lib/api-client.ts';
 const response = (start = '2026-10-01', end = '2026-11-01') => ({ period_start: start, period_end: end, properties: [], rooms: [], bookings: [{ id: 'one', property_id: 'sweetfun', room_id: '301', guest_name: 'SYNTHETIC_PRIVATE', check_in: '2026-10-07', check_out: '2026-10-08' }] });
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+
+test('overlapping month grids keep the requested month source status', () => {
+  const october = { ...response('2026-09-28', '2026-11-02'), source_errors: [] };
+  const november = { ...response('2026-10-26', '2026-12-07'),
+    source_errors: [{ property_id: 'offland', label: 'Sheet' }] };
+  const combined = combinedCalendarWindows([october, november], november.period_start, november.period_end);
+  assert.equal(combined.source_errors[0].property_id, 'offland');
+  assert.equal(combined.period_start, october.period_start);
+});
 
 test('mounted calendar retains readonly data through retry, blocks unvisited ranges, clears revoked access, and rejects late older responses', async t => {
   let state, attempts = [], denied = 0;
@@ -117,6 +126,30 @@ test('prefetched monthly windows make the next month available without another m
   await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
   assert.equal(state.loading, false);
   assert.equal(attempts.filter(item => item.start === props.start && item.end === props.end).length, 1);
+});
+
+test('live Sheet months prefetch even when the source has no snapshot version', async t => {
+  const attempts = [];
+  let state;
+  const read = (start, end) => new Promise(resolve => attempts.push({ start, end, resolve }));
+  const onProperties = () => {}, onAccessLost = () => {};
+  const props = { start: '2026-09-28', end: '2026-11-02', scope: 'owner:offland', reload: 0,
+    prefetch: [{ start: '2026-10-26', end: '2026-12-07' }] };
+  const live = (start, end) => ({ ...response(start, end), source: { label: 'Sheet' } });
+  function Probe(input) {
+    const value = useCalendarData({ ...input, read, onProperties, onAccessLost });
+    useEffect(() => { state = value; }, [value]);
+    return createElement('span', null, value.loading ? 'loading' : 'calendar');
+  }
+  const { root } = await mount(t, Probe, props);
+  await act(async () => { attempts[0].resolve(live(props.start, props.end)); await tick(); });
+  assert.equal(attempts.length, 2);
+  await act(async () => { attempts[1].resolve(live(attempts[1].start, attempts[1].end)); await tick(); });
+  assert.equal(hasCalendarCoverage(state.data, props.prefetch[0].start, props.prefetch[0].end), true);
+  Object.assign(props, props.prefetch[0], { prefetch: [] });
+  await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+  assert.equal(state.loading, false);
+  assert.equal(attempts.length, 2);
 });
 
 test('scrolling October to November keeps the yearly snapshot and makes no network read', async t => {

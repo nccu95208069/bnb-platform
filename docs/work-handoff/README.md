@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-24 已售月曆捲動修復：[正式資料的單月讀取、相鄰月份預載與手機跨月滑動](IRON_GATE_CALENDAR_LOAD_FIX_2026-10-22.md#follow-up-restore-continuous-sold-month-scrolling--2026-10-24)。
+
 2026-10-24 Sean 每日訂單儀表板：[水芳首次新單通知日、14 筆補登、OFFLAND 回讀與正式對帳](SEAN_DAILY_DASHBOARD_2026-10-24.md)。業主已選定新單通知日，後端／前端／受控補登已發布；version 59 缺每日統計日期 0 筆，原 OTA 下訂日保留未知。包含比較期間、正式版本及憑證輪替交接。
 
 2026-10-20 資料責任對齊：[Sean Sweetfun OS、BnB SaaS OS 與 Iron Gate 的三個角色、目前 Sheet 匯入落點與目標權威](SEAN_SAAS_IRON_GATE_DATA_BOUNDARY_2026-10-20.md)。目前客戶工作區測試仍在 Sweetfun OS 網站內，確認匯入寫入 OS 工作區；Iron Gate 尚未接管真實訂單。

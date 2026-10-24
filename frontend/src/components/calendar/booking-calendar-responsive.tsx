@@ -92,7 +92,7 @@ const EDIT_STORAGE_KEY = "sweetfun-os-demo-edits-v4";
 const MONTHS = monthStarts("2025-01-01", 36);
 const FIXED_PREVIEW = process.env.NEXT_PUBLIC_IRON_GATE_FIXED_PREVIEW === "true";
 // Production may retain the demo flag while reading the live Sheet/Iron Gate
-// source. Any live source must query only the visible month.
+// source. Keep live requests bounded even though the scroll track has all months.
 const BOUNDED_MONTH = FIXED_PREVIEW || LIVE_SHEET || !DEMO_MODE;
 
 type OrderPatch = {
@@ -271,9 +271,15 @@ const uiLocale = useIntlLocale();
     [anchorDate, view, query],
   );
   const previewMonth = startOfMonth(anchorDate);
-  // A live calendar must never render unfetched months as vacant rooms.
-  const monthsToShow = useMemo(() => BOUNDED_MONTH ? [previewMonth] : MONTHS,
+  // The fixed month positions preserve native touch momentum across boundaries.
+  // Unfetched positions remain explicitly unloaded until their own read succeeds.
+  const monthsToShow = useMemo(() => MONTHS.includes(previewMonth) ? MONTHS : [previewMonth],
     [previewMonth]);
+  const prefetchRanges = useMemo(() => view === "month" && BOUNDED_MONTH
+    ? [-1, 1].map(offset => addMonths(visibleMonth, offset))
+      .filter(month => monthsToShow.includes(month))
+      .map(month => fetchPeriod(month, "month", true))
+    : [], [view, visibleMonth, monthsToShow]);
   const visiblePeriod = view === "month" ? fetchPeriod(visibleMonth, "month", true) : requestPeriod;
   const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess(); }, [setSelectedId, initializeAccess]);
   const { data, loading, refreshing, error, requestFailed, lastLoadedAt } = useCalendarData({
@@ -282,6 +288,7 @@ const uiLocale = useIntlLocale();
     read: scopedRead, onProperties: setProperties, onAccessLost: accessLost,
     visibleStart: visiblePeriod.start,
     visibleEnd: visiblePeriod.end,
+    prefetch: prefetchRanges,
   });
   const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
   const manualEnabled = data?.iron_gate_manual_enabled === true && !requestFailed &&
@@ -423,6 +430,7 @@ const uiLocale = useIntlLocale();
     return new Set(membership.propertyIds);
   }, [membership]);
   const coverageMissing = !hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end);
+  const keepMonthVisible = view === "month" && !!data && selectedPropertyIds.length > 0;
   const unavailableSelectedSource = coverageMissing || data?.source_errors?.some(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)));
 
 
@@ -966,11 +974,11 @@ const uiLocale = useIntlLocale();
         </div>
       )}
 
-      {loading ? (
+      {loading && !keepMonthVisible ? (
         <div className="flex min-h-[calc(100dvh-7rem)] items-center justify-center gap-2 bg-card text-sm text-muted-foreground md:min-h-96 md:rounded-xl md:border md:shadow-sm">
           <LoaderCircle className="size-4 animate-spin" />
           {uiText("讀取訂單與房況中")}</div>
-      ) : coverageMissing ? (
+      ) : coverageMissing && !keepMonthVisible ? (
         <div role="status" className="m-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-16 text-center text-sm text-amber-950 md:m-0">
           此日期區間尚未成功載入，房況無法確認。請重試或回到已載入的日期。</div>
       ) : selectedProperties.length === 0 ? (
@@ -981,7 +989,7 @@ const uiLocale = useIntlLocale();
           {view === "month" && (
             <div className="calendar-month-mobile-viewport -mx-2 md:mx-0">
               <MonthScroller
-                key={BOUNDED_MONTH ? previewMonth : "all-months"}
+                key={monthsToShow === MONTHS ? "all-months" : previewMonth}
                 months={monthsToShow}
                 coveredMonths={monthsToShow.filter(month => {
                   const period = fetchPeriod(month, "month", true);
