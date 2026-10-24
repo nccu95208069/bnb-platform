@@ -159,10 +159,11 @@ function calendarBooking(booking: Record<string, unknown>,
   const name = typeof booking.guestName === 'string' && booking.guestName.trim()
     ? booking.guestName.trim() : '姓名待核';
   const source = object(booking.sourceCalendar) ? booking.sourceCalendar : null;
-  const sourceOrderRef = viewPrices && typeof source?.sourceOrderRef === 'string' &&
+  const sourceOrderRef = typeof source?.sourceOrderRef === 'string' &&
     /^(?:L:[A-Za-z0-9-]{8,64}|J:[A-Za-z0-9_-]{8,100})$/.test(source.sourceOrderRef)
     ? source.sourceOrderRef : null;
-  const paymentId = paymentOrderId(String(booking.id), sourceOrderRef, viewPrices);
+  const paymentId = paymentOrderId(String(booking.id), viewPrices ? sourceOrderRef : null, viewPrices);
+  const notificationId = paymentOrderId(String(booking.id), sourceOrderRef, true);
   const review = viewPrices && object(booking.paymentReview) ? booking.paymentReview : null;
   const paymentStatus = review && ['paid', 'deposit'].includes(String(review.status)) &&
     ['sheet_flag', 'payment_events'].includes(String(review.source))
@@ -180,11 +181,12 @@ function calendarBooking(booking: Record<string, unknown>,
     Number(booking.totalCents) <= 1_000_000_000_000
     ? Number(booking.totalCents) : undefined;
   return { id, sheet_row_id: id, order_id: `IG-${booking.id}`,
+    notification_order_id: notificationId,
     payment_order_id: paymentId,
     source_booking_version: Number.isSafeInteger(booking.version) && Number(booking.version) >= 1
       ? Number(booking.version) : undefined,
-    source_legacy_payment: !!sourceOrderRef,
-    owlnest_order_no: sourceOrderRef?.startsWith('L:') ? sourceOrderRef.slice(2) : null,
+    source_legacy_payment: viewPrices && !!sourceOrderRef,
+    owlnest_order_no: viewPrices && sourceOrderRef?.startsWith('L:') ? sourceOrderRef.slice(2) : null,
     external_order_no: typeof source?.externalOrderNo === 'string'
       ? source.externalOrderNo : null,
     property_id: 'sweetfun', property_name: '水芳 Sweetfun',
@@ -232,6 +234,37 @@ export type IronGatePaymentOrder = {
   sourcePaid: boolean;
   legacyImported: boolean;
 };
+
+/** Confirm that a calendar order still exists and is active before recording manual contact. */
+export async function readSweetfunIronGateNotificationOrder(bookingId: string,
+  principal: Principal, config: IronGateCalendarConfig,
+  send: typeof fetch = fetch): Promise<string> {
+  if (!UUID.test(bookingId) ||
+    !(principal.allProperties || principal.propertyIds.includes('sweetfun')))
+    throw Error('IRON_GATE_CALENDAR_FORBIDDEN');
+  const url = new URL(`/v1/properties/${config.grant.propertyId}/bookings/${bookingId}`,
+    `${baseUrl(config.baseUrl)}/`);
+  const raw = await getJson(url.toString(), config, principal, send, 64 * 1024, 8000);
+  if (!object(raw) || raw.id !== bookingId ||
+    raw.propertyId !== config.grant.propertyId || raw.workspaceId !== config.grant.workspaceId ||
+    raw.status !== 'confirmed' || !Number.isSafeInteger(raw.version) || Number(raw.version) < 1 ||
+    !Array.isArray(raw.stays) || raw.stays.length < 1 || raw.stays.length > 32)
+    throw Error('IRON_GATE_NOTIFICATION_SOURCE_INVALID');
+  const knownRooms = new Set(Object.values(config.roomIds));
+  for (const stay of raw.stays) {
+    if (!object(stay) || typeof stay.checkIn !== 'string' ||
+      typeof stay.checkOut !== 'string' || !Array.isArray(stay.roomIds) ||
+      stay.roomIds.length < 1 || stay.roomIds.length > ROOMS.length ||
+      stay.roomIds.some(id => !knownRooms.has(String(id))))
+      throw Error('IRON_GATE_NOTIFICATION_SOURCE_INVALID');
+    try {
+      if (day(stay.checkOut) <= day(stay.checkIn))
+        throw Error('IRON_GATE_NOTIFICATION_SOURCE_INVALID');
+    } catch { throw Error('IRON_GATE_NOTIFICATION_SOURCE_INVALID'); }
+  }
+  const source = object(raw.sourceCalendar) ? raw.sourceCalendar : null;
+  return paymentOrderId(bookingId, source?.sourceOrderRef, true);
+}
 
 /** Re-read the exact Iron Gate booking before any OS receipt is recorded. */
 export async function readSweetfunIronGatePaymentOrder(bookingId: string,

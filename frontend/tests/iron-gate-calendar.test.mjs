@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHash } from 'node:crypto';
 import { createOsMemberProofVerifier } from '../../iron-gate/src/os-member-proof.mjs';
-import { ironGateCalendarConfig, readSweetfunIronGateCalendar, readSweetfunIronGateCalendarSnapshot, readSweetfunIronGatePaymentOrder } from
+import { ironGateCalendarConfig, readSweetfunIronGateCalendar, readSweetfunIronGateCalendarSnapshot, readSweetfunIronGatePaymentOrder, readSweetfunIronGateNotificationOrder } from
   '../src/lib/booking-sources/iron-gate-calendar.server.ts';
 
 const workspaceId = '11111111-1111-4111-8111-111111111111';
@@ -113,6 +113,7 @@ test('unchanged imported order keeps its existing OS payment identity only for p
   const expected = 'SF-' + createHash('sha256').update(
     'sweetfun-operations-sheet-v1:order:OBE12345678901234567890').digest('hex').slice(0, 20);
   assert.equal(owner.bookings[0].payment_order_id, expected);
+  assert.equal(owner.bookings[0].notification_order_id, expected);
   assert.equal(owner.bookings[0].source_booking_version, 1);
   assert.equal(owner.bookings[0].owlnest_order_no, 'OBE12345678901234567890');
   const viewer = { ...principal, viewPrices: false };
@@ -144,6 +145,30 @@ test('payment preflight checks the exact booking identity, total and current roo
   await assert.rejects(readSweetfunIronGatePaymentOrder(booking.id,
     principal, c, async () => Response.json({ ...booking, status: 'cancelled' })),
   /IRON_GATE_PAYMENT_SOURCE_INVALID/);
+});
+
+test('manual notification checks an active exact booking without requesting price access', async () => {
+  const c = config(), booking = fixture().page.bookings[0];
+  const housekeeper = { ...principal, role: 'housekeeper', viewPrices: false };
+  const send = async (url, init) => {
+    assert.match(url, /\/bookings\/66666666-6666-4666-8666-666666666666$/);
+    const proof = await createOsMemberProofVerifier(c.proofSecret)(
+      new Request(url, init), { ...c.grant, origin: 'os' });
+    assert.equal(proof?.subjectId, housekeeper.id);
+    assert.deepEqual(proof?.fields, ['guest_name']);
+    return Response.json(booking);
+  };
+  assert.equal(await readSweetfunIronGateNotificationOrder(booking.id, housekeeper, c, send),
+    `IG-${booking.id}`);
+  await assert.rejects(readSweetfunIronGateNotificationOrder(booking.id,
+    { ...housekeeper, allProperties: false, propertyIds: ['offland'] }, c, send),
+  /IRON_GATE_CALENDAR_FORBIDDEN/);
+  await assert.rejects(readSweetfunIronGateNotificationOrder(booking.id,
+    housekeeper, c, async () => Response.json({ ...booking, status: 'cancelled' })),
+  /IRON_GATE_NOTIFICATION_SOURCE_INVALID/);
+  await assert.rejects(readSweetfunIronGateNotificationOrder(booking.id,
+    housekeeper, c, async () => Response.json({ ...booking, propertyId: clientId })),
+  /IRON_GATE_NOTIFICATION_SOURCE_INVALID/);
 });
 
 test('Iron Gate uses the same Sweetfun channel palette as the former Sheet calendar', async () => {

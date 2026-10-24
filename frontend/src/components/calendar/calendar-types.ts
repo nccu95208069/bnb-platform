@@ -47,6 +47,8 @@ export type CalendarBooking = {
   id: string;
   sheet_row_id: string;
   order_id: string;
+  /** Stable manual-contact status identity; preserves marks from the former Sheet calendar. */
+  notification_order_id?: string;
   /** Existing OS payment ledger identity for an unchanged imported Iron Gate order. */
   payment_order_id?: string;
   source_booking_version?: number;
