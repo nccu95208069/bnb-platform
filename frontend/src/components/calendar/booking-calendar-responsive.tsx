@@ -87,7 +87,9 @@ const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 const EDIT_STORAGE_KEY = "sweetfun-os-demo-edits-v4";
 const MONTHS = monthStarts("2025-01-01", 36);
 const FIXED_PREVIEW = process.env.NEXT_PUBLIC_IRON_GATE_FIXED_PREVIEW === "true";
-const BOUNDED_MONTH = FIXED_PREVIEW || !DEMO_MODE;
+// Production may retain the demo flag while reading the live Sheet/Iron Gate
+// source. Any live source must query only the visible month.
+const BOUNDED_MONTH = FIXED_PREVIEW || LIVE_SHEET || !DEMO_MODE;
 
 type OrderPatch = {
   guest_name?: string;
