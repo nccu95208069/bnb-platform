@@ -1,6 +1,6 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
-2026-10-24 水芳手動訂單：直訂新增、改房／改期、取消的 OS→Iron Gate 入口已正式發布；新單建立與 OwlNest 同步分成兩次明確操作。後續須以指定安全房晚完成 [真實關房、回讀、復原、OTA 身分及財務限制檢查](SWEETFUN_MANUAL_BOOKING_IMPLEMENTATION_2026-10-24.md)，才可宣稱外部房況寫入驗收完成；OTA 補登與房晚／金額更正仍不開放。
+2026-10-24 水芳手動訂單：直訂新增、改房／改期、取消的 OS→Iron Gate 入口已正式發布；新單建立與 OwlNest 同步分成兩次明確操作。指定 2027-03-20 水芳 101 的[真實關房、回讀、取消與復原驗收](SWEETFUN_MANUAL_BOOKING_IMPLEMENTATION_2026-10-24.md#正式房況驗收台灣時間-18441846)已完成，原可售 1 已恢復；下一步是觀測首筆真實旅客操作、輪替手動 credential，並另行處理全館庫存觀測、OTA 身分及財務帳本整合。OTA 補登與房晚／金額更正仍不開放。
 
 2026-10-19 完整歷史匯入預覽與既有已售月曆樣式已由 PR #55 合併並發布，正式站已唯讀驗證；真實訂單仍待使用者按最後匯入確認。後續發布必須套用[開通、匯入與月曆發布檢查](ONBOARDING_RELEASE_GATES_2026-10-19.md)，來源衝突仍需個別核對。
 
