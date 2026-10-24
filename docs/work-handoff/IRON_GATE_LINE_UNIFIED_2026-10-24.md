@@ -1,6 +1,6 @@
 # 水芳 LINE OA 統一流程：Iron Gate 後端契約
 
-狀態：分支已實作並通過離線測試；本次程式尚未合併或部署，推送與 CI 狀態以 PR 為準。LINE OA 的啟用旗標在 Gmail 服務，預設關閉。
+狀態：執行程式 `9a11207eed72500cdfb5d12c6f62feee431d0fab` 已推送至草稿 PR #37，四項 CI 全數通過；Vercel 正式環境的**無網域候選** `dpl_5UHaDG1yuif1N3LLyKJwTgfdoDn6` 已 Ready，但尚未指派正式網域，也未合併。`iron-gate-green.vercel.app` 仍指向舊部署 `dpl_FGwTLAdcZ5ah8TStZDVQDJsmSm6f`。LINE OA 的啟用旗標在 Gmail 服務，正式環境目前未設定。
 
 ## 範圍
 
@@ -17,4 +17,4 @@
 
 Gmail 服務提交後必須用原 request key 查 receipt，再查每筆 booking、版本、狀態、房晚與金額；房態 batch 另查每格 manual block 和房態。收據代表 Iron Gate 正本已變更，通路 `sync_pending` 仍需 worker 後續核對。
 
-本地 `npm run check` 及 `npm test` 通過（200 pass、9 skip）。正式發布前仍須完成兩個 repo 的 PR／CI、零流量候選、grant 與來源狀態檢查，以及本次發布授權；啟用旗標與真實 LINE 操作另行驗證。
+本地 `npm run check` 及 `npm test` 通過（200 pass、9 skip）。配對的 GCO 草稿 PR #96 執行程式 `8cb5546c18508f2a36ebc588a6dbf89cc1c9aba0` 與發布控制 `e8a9e7e105f6e3a5ffbf113030ac9309eeceb952` 已通過離線與 CI；其正式服務仍是 `gmail-order-handler-line-hold-400` 100%。正式發布前仍須核對當下 grant／來源／通路狀態、驗證受保護候選、取得本次發布授權，並用真實 LINE 操作核對正本與通路回讀。
