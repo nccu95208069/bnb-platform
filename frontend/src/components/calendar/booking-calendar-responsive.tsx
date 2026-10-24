@@ -9,6 +9,7 @@ import { OsPaymentPanel } from "@/components/payments/os-payment-panel";
 
 import { CalendarPrivacy } from "./calendar-privacy";
 import { CalendarToolbar } from "./calendar-toolbar";
+import { ManualBookingDialog } from "./manual-booking-dialog";
 import {
   useCallback,
   useEffect,
@@ -240,6 +241,7 @@ const uiLocale = useIntlLocale();
     setMonthTarget(month);
   }, [historyRevision]);
   const [reloadKey, setReloadKey] = useState(0);
+  const [manualMode, setManualMode] = useState<"create" | "amend" | "cancel" | null>(null);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
   const [editsHydrated, setEditsHydrated] = useState(false);
   const previousView = useRef<CalendarView>(view);
@@ -258,6 +260,8 @@ const uiLocale = useIntlLocale();
     read: readCalendar, onProperties: setProperties, onAccessLost: accessLost,
   });
   const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
+  const manualEnabled = data?.iron_gate_manual_enabled === true && !requestFailed &&
+    !loading && !error;
   const displayPeriod = useMemo(() => {
     if (view === "month") {
       return {
@@ -819,6 +823,8 @@ const uiLocale = useIntlLocale();
           </div>
 
           <div className="flex items-center gap-2">
+            {manualEnabled && <Button size="sm" onClick={() => setManualMode("create")}>
+              新增水芳訂單</Button>}
             <div className="relative w-56">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -994,6 +1000,10 @@ const uiLocale = useIntlLocale();
         paymentWorkspace={
           data?.source?.read_only && selectedBooking?.snapshot_only ? (
             <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">目前為唯讀快照。請重新載入並確認最新訂單後，再登錄付款。</p>
+          ) : data?.source?.read_only && selectedBooking &&
+            selectedBooking.iron_gate_source === "os" ? (
+            <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+              此筆手動訂單的收付款尚未接上 Iron Gate，請先依現行財務流程處理並核對。</p>
           ) : data?.source?.read_only && selectedBooking && permissions.viewPrices && !selectedBooking.source_conflict ? (
             <OsPaymentPanel key={selectedBooking.order_id} property={selectedBooking.property_id} order={selectedBooking.order_id} canRecord={permissions.recordPayments} onChange={() => setReloadKey(v=>v+1)} />
           ) : PAYMENT_SANDBOX && selectedBooking && permissions.viewPrices ? (
@@ -1009,7 +1019,21 @@ const uiLocale = useIntlLocale();
         onRecordPayment={recordPayment}
         onUpdateBooking={updateBooking}
         onCancelBooking={cancelBooking}
+        onManualEdit={manualEnabled && selectedBooking?.iron_gate_source === "os" &&
+          ["verified", "not_required"].includes(selectedBooking.iron_gate_channel_sync ?? "") &&
+          !selectedBooking.iron_gate_source_review ?
+          () => setManualMode("amend") : undefined}
+        onManualCancel={manualEnabled && selectedBooking?.iron_gate_source === "os" &&
+          ["verified", "not_required"].includes(selectedBooking.iron_gate_channel_sync ?? "") &&
+          !selectedBooking.iron_gate_source_review ?
+          () => setManualMode("cancel") : undefined}
       />
+      {manualMode && <ManualBookingDialog open mode={manualMode}
+        bookingId={selectedBooking?.iron_gate_booking_id}
+        inventoryVersion={Number(data?.source?.private_snapshot_version ?? 0)}
+        defaultDate={anchorDate}
+        onClose={() => setManualMode(null)}
+        onDone={() => { setManualMode(null); setSelectedId(null); setReloadKey(value => value + 1); }} />}
     </div>
   );
 }

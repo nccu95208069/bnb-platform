@@ -195,12 +195,19 @@ function calendarBooking(booking: Record<string, unknown>,
     external_order_no: externalOrderNo, property_id: 'sweetfun', property_name: '水芳 Sweetfun',
     room_id: `sweetfun-${roomNumber}`, room_number: roomNumber,
     guest_name: name, guest_name_kind: name === '姓名待核' ? 'missing' : 'real',
-    platform: PLATFORM[rawPlatform] ?? 'other', check_in: checkIn, check_out: checkOut,
+    platform: PLATFORM[rawPlatform] ??
+      (booking.source === 'os' || booking.source === 'line' ? 'direct' : 'other'),
+    check_in: checkIn, check_out: checkOut,
     booked_at: bookedAt,
     room_rate: 0, payment_status: 'unknown', reservation_status: 'confirmed',
     notes: null, payments: [], audit_log: [], extra_guest_count: 0,
     extra_bed_count: 0, pet_count: 0, baby_supplies: [], service_note: null,
     source_read_only: true, snapshot_only: snapshotOnly,
+    iron_gate_booking_id: String(booking.id),
+    iron_gate_booking_version: Number(booking.version),
+    iron_gate_source: booking.source as CalendarBooking['iron_gate_source'],
+    iron_gate_channel_sync: booking.channelSyncState as CalendarBooking['iron_gate_channel_sync'],
+    iron_gate_source_review: booking.sourceReviewRequired === true,
     requirements_known: false, payment_unconfirmed: true,
     source_payment_label: '財務仍以原帳本為準，未遷入此訂房檢視',
     price_hidden: true };
@@ -267,6 +274,11 @@ export async function readSweetfunIronGateCalendar(start: string, end: string,
       if (!object(item) || !UUID.test(String(item.id)) ||
         item.propertyId !== config.grant.propertyId ||
         item.workspaceId !== config.grant.workspaceId ||
+        !Number.isSafeInteger(item.version) || Number(item.version) < 1 ||
+        !['os', 'line', 'website', 'external'].includes(String(item.source)) ||
+        !['not_required', 'pending', 'verified', 'review_required']
+          .includes(String(item.channelSyncState)) ||
+        typeof item.sourceReviewRequired !== 'boolean' ||
         !['confirmed', 'cancelled', 'held'].includes(String(item.status)) ||
         !Array.isArray(item.stays) || item.stays.length > 32 ||
         seenBookings.has(String(item.id)))

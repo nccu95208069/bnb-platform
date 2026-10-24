@@ -218,13 +218,17 @@ function saveReceipt(state: PropertyState, principal: Principal, requestKey: str
     propertyId: state.propertyId,
     action, requestHash: hash, response });
 }
-function publicBooking(booking: Booking, principal: Principal): Record<string, unknown> {
+function publicBooking(booking: Booking, principal: Principal,
+  state: PropertyState): Record<string, unknown> {
   const result: Record<string, unknown> = {
     id: booking.id, workspaceId: booking.workspaceId, propertyId: booking.propertyId,
     version: booking.version, status: booking.status, channelSyncState: booking.channelSyncState,
     stays: booking.stays, createdAt: booking.createdAt, source: booking.source,
   };
-  if (lineManagesAll(principal)) result.sourceReviewRequired = booking.lineOverridePending === true;
+  if (principal.origin === "os" || lineManagesAll(principal))
+    result.sourceReviewRequired = booking.lineOverridePending === true ||
+      state.sourceLinks.some((link) => link.bookingId === booking.id && link.diverged);
+  if (principal.origin === "os") result.bookedAt = booking.bookedAt;
   // Field grants are server-authenticated. Public website queries use a separate order credential.
   if ((principal.origin === "os" || principal.origin === "line") &&
     principal.fields.includes("guest_name")) {
@@ -348,6 +352,7 @@ function verifyAmend(input: AmendBookingInput): void {
   if ("notes" in input.changes) nullableText(input.changes.notes, 2048);
   if ("totalCents" in input.changes && input.changes.totalCents !== null &&
     (!Number.isSafeInteger(input.changes.totalCents) || input.changes.totalCents! < 0)) reject("INVALID_AMOUNT");
+  if (input.reason !== undefined) nonempty(input.reason, 500);
 }
 function requireLineMutation(principal: Principal, state: PropertyState, booking: Booking): void {
   if (!lineManagesAll(principal) || !principal.grantId)
@@ -362,10 +367,11 @@ function requireLineMutation(principal: Principal, state: PropertyState, booking
   if (netReceived(booking) !== 0) reject("LINE_PAYMENT_REQUIRES_REVIEW", 409);
   requireLineStockWindow(state, nightsFor(booking.stays, state.roomIds));
 }
-function requireLineStockWindow(state: PropertyState, cells: Night[]): void {
+function requireLineStockWindow(state: PropertyState, cells: Night[],
+  code = "LINE_STOCK_NOT_OBSERVED"): void {
   const end = state.channel.stockObservedThrough;
   if (end && cells.some((cell) => cell.date > end))
-    reject("LINE_STOCK_NOT_OBSERVED", 409);
+    reject(code, 409);
 }
 function verifyLineInventoryInput(input: LineInventoryInput): Night {
   if (!input || !Number.isSafeInteger(input.expectedInventoryVersion) ||
@@ -395,8 +401,7 @@ function requireLineInventory(principal: Principal, state: PropertyState,
   }
   return cell;
 }
-function requireLineChangeFields(principal: Principal, changes: AmendBookingInput["changes"]): void {
-  if (principal.origin !== "line") return;
+function requireAmendFields(principal: Principal, changes: AmendBookingInput["changes"]): void {
   const grants: [keyof AmendBookingInput["changes"], string][] = [
     ["guestName", "guest_name"], ["contact", "contact"], ["notes", "notes"],
     ["totalCents", "money"],
@@ -492,7 +497,8 @@ function changedNights(before: Night[], after: Night[]): boolean {
 }
 
 function emit(tx: TransactionContext, state: PropertyState, type: EventType,
-  booking: Booking | null, principal: Principal, requestKey: string | null): void {
+  booking: Booking | null, principal: Principal, requestKey: string | null,
+  reason?: string): void {
   const at = new Date().toISOString();
   tx.emit({ eventId: crypto.randomUUID(), at, type,
     propertyId: state.propertyId, bookingId: booking?.id ?? null,
@@ -502,7 +508,8 @@ function emit(tx: TransactionContext, state: PropertyState, type: EventType,
     bookingVersion: booking?.version ?? null, bookingStatus: booking?.status ?? null,
     inventoryVersion: state.version, actorOrigin: principal.origin,
     actorClientId: principal.clientId, actorSubjectId: principal.subjectId,
-    actorGrantId: principal.grantId ?? null, requestKey });
+    actorGrantId: principal.grantId ?? null, requestKey,
+    ...(reason ? { reason } : {}) });
 }
 
 export class IronGateService {
@@ -565,6 +572,11 @@ export class IronGateService {
       const cells = nightsFor(input.stays, state.roomIds);
       if (principal.origin === "line") requireLineStockWindow(state, cells);
       if (hasConflict(state, cells)) reject("ROOM_CONFLICT", 409);
+      if (principal.origin === "os" && state.channel.mode === "owlnest") {
+        if (state.channel.sourceReadbackEnabled !== true || !state.channel.grantId ||
+          !state.channel.stockObservedThrough) reject("CHANNEL_CREATE_NOT_READY", 409);
+        requireLineStockWindow(state, cells, "CHANNEL_STOCK_NOT_OBSERVED");
+      }
       const operationKey = state.channel.mode === "owlnest" ? crypto.randomUUID() : null;
       const booking: Booking = {
         id: crypto.randomUUID(), workspaceId: state.workspaceId, propertyId, version: 1,
@@ -735,7 +747,7 @@ export class IronGateService {
       requireLineStockWindow(state, next);
       if (hasConflict(state, next, bookingId)) reject("ROOM_CONFLICT", 409);
     }
-    if (action === "amend") requireLineChangeFields(principal, (input as AmendBookingInput).changes);
+    if (action === "amend") requireAmendFields(principal, (input as AmendBookingInput).changes);
     const hash = await digest({ action: `booking:${action}`, bookingId,
       ...(action === "amend" ? { input } : input) });
     const signed = await signLinePreview(this.linePreviewSecret, principal, propertyId,
@@ -768,11 +780,13 @@ export class IronGateService {
       if (booking.version !== input.expectedBookingVersion) reject("VERSION_CONFLICT", 409);
       if (booking.status === "cancelled") reject("ORDER_CANCELLED", 409);
       if (principal.origin === "line") requireLineMutation(principal, state, booking);
+      if (principal.origin === "os" && booking.source === "external")
+        reject("SOURCE_AMEND_REQUIRES_REVIEW", 409);
       const baselineReadbackNeeded = principal.origin === "line" &&
         booking.channelSyncState === "not_required";
-      requireLineChangeFields(principal, input.changes);
+      requireAmendFields(principal, input.changes);
       let roomNightsChanged = false;
-      const current = principal.origin === "line" ? nightsFor(booking.stays, state.roomIds) : [];
+      const current = nightsFor(booking.stays, state.roomIds);
       let next: Night[] = current;
       const unverifiableSourceEdit = principal.origin === "line" &&
         (("contact" in input.changes && input.changes.contact !== booking.contact) ||
@@ -780,10 +794,14 @@ export class IronGateService {
       if ("stays" in input.changes) {
         next = nightsFor(input.changes.stays!, state.roomIds);
         if (principal.origin === "line") requireLineStockWindow(state, next);
-        roomNightsChanged = changedNights(
-          principal.origin === "line" ? current : nightsFor(booking.stays, state.roomIds), next);
-        if (roomNightsChanged && state.channel.mode !== "none" && principal.origin !== "line")
-          reject("CHANNEL_AMENDMENT_UNIMPLEMENTED", 409);
+        roomNightsChanged = changedNights(current, next);
+        if (roomNightsChanged && state.channel.mode === "owlnest" && principal.origin === "os") {
+          if (booking.source !== "os" || booking.channelSyncState !== "verified" ||
+            !state.channel.ready || state.channel.sourceReadbackEnabled !== true ||
+            !state.channel.grantId) reject("CHANNEL_AMENDMENT_NOT_READY", 409);
+          requireLineStockWindow(state, uniqueNights([...current, ...next]),
+            "CHANNEL_STOCK_NOT_OBSERVED");
+        }
         if (roomNightsChanged && hasConflict(state, next, booking.id)) reject("ROOM_CONFLICT", 409);
         booking.stays = structuredClone(input.changes.stays!);
       }
@@ -794,7 +812,8 @@ export class IronGateService {
       booking.version++;
       if (principal.origin === "line") flagLineSourceReview(state, booking, current, next,
         unverifiableSourceEdit);
-      if (principal.origin === "line" && (roomNightsChanged || baselineReadbackNeeded)) {
+      if (state.channel.mode === "owlnest" && roomNightsChanged ||
+        principal.origin === "line" && baselineReadbackNeeded) {
         const before = new Set(current.map(keyOf)), after = new Set(next.map(keyOf));
         const cells: DesiredCell[] = baselineReadbackNeeded && !roomNightsChanged ?
           next.map((cell) => ({ ...cell, desired: "closed" as const })) : [
@@ -815,7 +834,7 @@ export class IronGateService {
       if (roomNightsChanged || baselineReadbackNeeded) state.version++;
       const response = makeBookingReceipt(state, booking);
       saveReceipt(state, principal, requestKey, "booking:amend", hash, { ...response });
-      emit(tx, state, "booking.amended", booking, principal, requestKey);
+      emit(tx, state, "booking.amended", booking, principal, requestKey, input.reason);
       return response;
     });
   }
@@ -879,7 +898,7 @@ export class IronGateService {
     if (principal.origin === "line" && !lineManagesAll(principal) &&
       (booking.source !== "line" || booking.sourceKey !== `line:${principal.grantId}`))
       reject("BOOKING_NOT_FOUND", 404);
-    const projection = publicBooking(booking, principal);
+    const projection = publicBooking(booking, principal, state);
     return principal.origin === "line" ? { ...projection,
       inventoryVersion: state.version, authorityEpoch: state.authorityEpoch,
       readOnly: state.readOnly === true,
@@ -936,7 +955,7 @@ export class IronGateService {
         sourceHash: state.sweetfunImport.sourceHash } : null;
     return { propertyId, inventoryVersion: state.version,
       authorityEpoch: state.authorityEpoch, readOnly: state.readOnly === true,
-      snapshot, bookings: page.map((booking) => publicBooking(booking, principal)), nextCursor,
+      snapshot, bookings: page.map((booking) => publicBooking(booking, principal, state)), nextCursor,
       ...(principal.origin === "line" ? { lineScope: lineScope(principal) } : {}) };
   }
 
@@ -1130,10 +1149,12 @@ export class IronGateService {
       inventoryVersion: state.version, authorityEpoch: state.authorityEpoch,
       readOnly: state.readOnly === true,
       bookings: bookings.map((booking) => {
-        const projected = publicBooking(booking, principal);
+        const projected = publicBooking(booking, principal, state);
         return { id: projected.id, version: booking.version, propertyId: projected.propertyId,
           workspaceId: projected.workspaceId, status: projected.status,
-          stays: projected.stays,
+          stays: projected.stays, source: projected.source,
+          channelSyncState: projected.channelSyncState,
+          sourceReviewRequired: projected.sourceReviewRequired,
           ...(principal.fields.includes("guest_name") ?
             { guestName: projected.guestName,
               ...(projected.sourceCalendar ?
@@ -1209,11 +1230,14 @@ export class IronGateService {
 
   async cancelBooking(principal: Principal, propertyId: string, bookingId: string, requestKey: string,
     expectedBookingVersion: number, expectedInventoryVersion: number,
-    linePreviewToken: string | null = null): Promise<BookingReceipt> {
+    linePreviewToken: string | null = null, reason?: string): Promise<BookingReceipt> {
     uuid(propertyId); uuid(bookingId); uuid(requestKey);
     if (!Number.isSafeInteger(expectedBookingVersion) || !Number.isSafeInteger(expectedInventoryVersion))
       reject("INVALID_VERSION");
-    const hash = await digest({ action: "booking:cancel", bookingId, expectedBookingVersion, expectedInventoryVersion });
+    if (reason !== undefined) nonempty(reason, 500);
+    if (principal.origin === "line" && reason !== undefined) reject("INVALID_INPUT");
+    const hash = await digest({ action: "booking:cancel", bookingId, expectedBookingVersion,
+      expectedInventoryVersion, reason });
     const linePreviewExpiry = principal.origin === "line" && this.linePreviewSecret !== null ?
       await verifyLinePreview(this.linePreviewSecret, linePreviewToken, principal, propertyId,
         expectedInventoryVersion, hash, "cancel", bookingId, expectedBookingVersion) : null;
@@ -1264,7 +1288,7 @@ export class IronGateService {
       state.version++;
       const response = makeBookingReceipt(state, booking);
       saveReceipt(state, principal, requestKey, "booking:cancel", hash, { ...response });
-      emit(tx, state, "booking.cancelled", booking, principal, requestKey);
+      emit(tx, state, "booking.cancelled", booking, principal, requestKey, reason);
       return response;
     });
   }

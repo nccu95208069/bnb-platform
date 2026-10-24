@@ -10,6 +10,7 @@ import { readCalendarSources, calendarReadError, type CalendarReadEvent } from "
 import { readBookingSnapshot } from "@/lib/booking-sources/snapshot";
 import { activeSources } from "@/lib/booking-sources/config";
 import { ironGateCalendarConfig, readSweetfunIronGateCalendar } from "@/lib/booking-sources/iron-gate-calendar.server";
+import { ironGateManualConfig } from "@/lib/booking-sources/iron-gate-manual.server";
 import { type NextRequest, NextResponse } from "next/server";
 import { getVercelOidcToken } from "@vercel/oidc";
 
@@ -243,6 +244,11 @@ export async function GET(request: NextRequest) {
           ...ig.bookings, ...(other?.bookings ?? []),
         ], principal);
         const preview = ig.mode === "snapshot_preview";
+        let manualEnabled = false;
+        if (!preview && ["owner", "admin", "god"].includes(principal.role) &&
+          (principal.allProperties || principal.propertyIds.includes("sweetfun"))) {
+          try { ironGateManualConfig(); manualEnabled = true; } catch { /* closed by default */ }
+        }
         const source = preview ? {
           label: "Iron Gate 固定快照預覽", observed_at: ig.observedAt,
           private_snapshot_at: ig.snapshotCapturedAt!,
@@ -278,6 +284,7 @@ export async function GET(request: NextRequest) {
           source_errors: other?.errors ?? [], source_warnings: other?.warnings ?? [],
           guest_access: { available: ownerAccessConfigured(), authenticated: true },
           data_mode: preview ? "iron_gate_snapshot_preview" : "iron_gate_booking_only",
+          iron_gate_manual_enabled: manualEnabled,
         }, { headers });
       }
       const result = await readCalendarSources(definitions, start, end, principal.viewPrices, {

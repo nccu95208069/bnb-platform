@@ -40,28 +40,39 @@ export async function reconcileChannelOperation({ propertyId, operationKey,
     };
     const matches = (cell) => desired.get(`${cell.roomId}|${cell.date}`) === "closed"
       ? cell.count === 0 || cell.isLock : cell.count > 0 && !cell.isLock;
-    const before = await inspect();
-    const unsatisfied = before.cells.filter((cell) => !matches(cell));
-    for (const cell of unsatisfied) {
-      const target = desired.get(`${cell.roomId}|${cell.date}`);
-      try {
-        await provider.setNight(propertyId, { roomId: cell.roomId, date: cell.date,
-          desired: target, operationKey });
-      } catch {
-        // An unknown write outcome must be resolved by observation. Do not
-        // issue the same write again or continue changing other nights.
-        break;
+    let after = await inspect();
+    // A move must never reopen old nights until every new night has been
+    // observed closed. The operation fence remains in place throughout both
+    // phases, including when a provider write has an unknown outcome.
+    for (const target of ["closed", "open"]) {
+      if (target === "open" && after.cells.some((cell) =>
+        desired.get(`${cell.roomId}|${cell.date}`) === "closed" && !matches(cell))) break;
+      const unsatisfied = after.cells.filter((cell) =>
+        desired.get(`${cell.roomId}|${cell.date}`) === target && !matches(cell));
+      let unknown = false;
+      for (const cell of unsatisfied) {
+        try {
+          await provider.setNight(propertyId, { roomId: cell.roomId, date: cell.date,
+            desired: target, operationKey });
+        } catch {
+          // Never issue another PUT after an unknown outcome. Re-observe the
+          // whole operation and leave any unresolved nights under review.
+          unknown = true;
+          break;
+        }
       }
-    }
-    let after = unsatisfied.length ? await inspect() : before;
-    // OwlNest acknowledges a stock PUT before its calendar GET always reflects
-    // the new cell. Wait only for fresh observations; never issue a second PUT.
-    if (unsatisfied.length && !after.cells.every(matches)) {
-      for (const delay of [3000, 5000, 8000, 12000]) {
-        await wait(delay);
+      if (unsatisfied.length) {
         after = await inspect();
-        if (after.cells.every(matches)) break;
+        // OwlNest may acknowledge a PUT before its calendar GET reflects it.
+        for (const delay of [3000, 5000, 8000, 12000]) {
+          if (after.cells.filter((cell) =>
+            desired.get(`${cell.roomId}|${cell.date}`) === target).every(matches)) break;
+          await wait(delay);
+          after = await inspect();
+        }
       }
+      if (unknown || after.cells.some((cell) =>
+        desired.get(`${cell.roomId}|${cell.date}`) === target && !matches(cell))) break;
     }
     return recordReadback({ propertyId, operationKey, providerVersion: after.providerVersion,
       observedAt: after.observedAt, cells: after.cells });

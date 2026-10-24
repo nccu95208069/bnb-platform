@@ -77,3 +77,61 @@ test("delayed OwlNest visibility is resolved by fresh GETs without a second PUT"
   assert.equal(postWriteReads, 2);
   assert.ok(readbacks[0].cells.every((cell) => cell.count === 0 && cell.isLock));
 });
+
+test("moving a booking verifies new closed nights before reopening old nights", async () => {
+  const oldRoom = rooms[0], newRoom = rooms[1];
+  const stock = new Map([[oldRoom, { count: 0, isLock: true }],
+    [newRoom, { count: 1, isLock: false }]]);
+  const writes = [], observations = [];
+  const result = await reconcileChannelOperation({ propertyId, operationKey,
+    withPropertyLease: async (_id, fn) => fn(), wait: async () => {},
+    loadOperation: async () => ({ key: operationKey, state: "sync_pending", cells: [
+      { roomId: oldRoom, date: "2026-11-10", desired: "open" },
+      { roomId: newRoom, date: "2026-11-10", desired: "closed" },
+    ] }),
+    recordReadback: async (evidence) => evidence,
+    provider: {
+      observe: async () => {
+        const current = { observedAt: new Date().toISOString(), providerVersion: "v1",
+          cells: [oldRoom, newRoom].map((roomId) =>
+            ({ roomId, date: "2026-11-10", ...stock.get(roomId) })) };
+        observations.push(current);
+        return current;
+      },
+      setNight: async (_id, input) => {
+        writes.push(input.desired);
+        if (input.desired === "open") {
+          assert.ok(observations.at(-1).cells.find((cell) => cell.roomId === newRoom).isLock);
+        }
+        stock.set(input.roomId, input.desired === "closed" ?
+          { count: 0, isLock: true } : { count: 1, isLock: false });
+      },
+    },
+  });
+  assert.deepEqual(writes, ["closed", "open"]);
+  assert.ok(result.cells.every((cell) =>
+    cell.roomId === newRoom ? cell.isLock : !cell.isLock));
+});
+
+test("an unverified new closure leaves old nights closed", async () => {
+  const oldRoom = rooms[0], newRoom = rooms[1];
+  const writes = [];
+  const result = await reconcileChannelOperation({ propertyId, operationKey,
+    withPropertyLease: async (_id, fn) => fn(), wait: async () => {},
+    loadOperation: async () => ({ key: operationKey, state: "sync_pending", cells: [
+      { roomId: oldRoom, date: "2026-11-10", desired: "open" },
+      { roomId: newRoom, date: "2026-11-10", desired: "closed" },
+    ] }),
+    recordReadback: async (evidence) => evidence,
+    provider: {
+      observe: async () => ({ observedAt: new Date().toISOString(), providerVersion: "v1",
+        cells: [
+          { roomId: oldRoom, date: "2026-11-10", count: 0, isLock: true },
+          { roomId: newRoom, date: "2026-11-10", count: 1, isLock: false },
+        ] }),
+      setNight: async (_id, input) => { writes.push(input.desired); },
+    },
+  });
+  assert.deepEqual(writes, ["closed"]);
+  assert.equal(result.cells.find((cell) => cell.roomId === oldRoom).isLock, true);
+});

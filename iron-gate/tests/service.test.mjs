@@ -19,7 +19,9 @@ function setup(channel = "none") {
   const repository = new MemoryPropertyRepository();
   repository.seed({ workspaceId, propertyId, roomIds: [roomId], version: 1, authorityEpoch: 7,
     channel: { mode: channel, ready: channel === "owlnest", websiteSalesEnabled: channel === "none",
-      grantId: channel === "owlnest" ? channelGrantId : null, websiteBindingId },
+      grantId: channel === "owlnest" ? channelGrantId : null, websiteBindingId,
+      sourceReadbackEnabled: channel === "owlnest",
+      stockObservedThrough: channel === "owlnest" ? "2026-12-31" : null },
     sourceGrants: [{ grantId: sourceGrantId, sourceSystem: "ota", sourceAccount: "synthetic-account", active: true }],
     bookings: [], sourceLinks: [], operations: [], fences: [], manualBlocks: [], receipts: [] });
   return { repository, service: new IronGateService(repository) };
@@ -139,7 +141,8 @@ test("cancellation retains the order and frees local-only inventory", async () =
   const { service, repository } = setup();
   const actor = principal();
   const created = await service.createBooking(actor, propertyId, key(), bookingInput());
-  const cancelled = await service.cancelBooking(actor, propertyId, created.bookingId, key(), 1, 2);
+  const cancelled = await service.cancelBooking(actor, propertyId, created.bookingId, key(), 1, 2,
+    null, "Synthetic owner correction");
   assert.equal(cancelled.operationState, "local_only");
   const state = await repository.read(propertyId);
   assert.equal(state.bookings.length, 1);
@@ -148,6 +151,7 @@ test("cancellation retains the order and frees local-only inventory", async () =
   assert.deepEqual(audit.map((record) => record.type), ["booking.created", "booking.cancelled"]);
   assert.equal(audit[1].bookingStatus, "cancelled");
   assert.equal(audit[1].actorSubjectId, actor.subjectId);
+  assert.equal(audit[1].reason, "Synthetic owner correction");
   const availability = await service.availability(actor, propertyId, "2026-11-10", "2026-11-11");
   assert.equal(availability.cells[0].state, "unsold");
 });
@@ -160,6 +164,9 @@ test("calendar snapshot reads booking and sparse room nights in one authorized s
   assert.equal(result.inventoryVersion, 2);
   assert.equal(result.bookings.length, 1);
   assert.equal(result.bookings[0].guestName, "Synthetic Guest");
+  assert.equal(result.bookings[0].source, "os");
+  assert.equal(result.bookings[0].channelSyncState, "not_required");
+  assert.equal(result.bookings[0].sourceReviewRequired, false);
   assert.equal(result.bookings[0].contact, undefined);
   assert.deepEqual(result.bookings[0].stayAmountsCents, undefined);
   assert.equal(result.bookings[0].totalCents, undefined);
@@ -1074,6 +1081,9 @@ test("OwlNest external cancellation stays under review until provider evidence e
 
 test("OwlNest source changes fence stock before any booking is marked applied", async () => {
   const { service, repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.channel.sourceReadbackEnabled = false;
+  });
   const source = principal("source");
   const incoming = await service.applySourceEvent(source, key(), sourceInput());
   assert.equal(incoming.reason, "CHANNEL_UPSERT_REQUIRES_READBACK");
@@ -1616,6 +1626,78 @@ test("amendment atomically moves room nights and rejects conflicting destination
   const unchanged = (await repository.read(propertyId)).bookings.find((item) => item.id === original.bookingId);
   assert.equal(unchanged.stays[0].checkIn, "2026-11-12");
   assert.equal(unchanged.version, 2);
+});
+
+test("OS room move on OwlNest fences both stays until close and open readback", async () => {
+  const { service, repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.channel.sourceReadbackEnabled = true;
+    state.channel.stockObservedThrough = "2026-12-31";
+  });
+  const actor = principal("os", { actions: [...principal().actions, "booking:amend"] });
+  const channel = principal("channel");
+  const created = await service.createBooking(actor, propertyId, key(), bookingInput());
+  let state = await repository.read(propertyId);
+  await service.recordChannelReadback(channel, { propertyId,
+    operationKey: created.operationKey, providerVersion: "synthetic-create",
+    observedAt: new Date(Date.now() + 1000).toISOString(),
+    cells: observed(state.operations[0].cells) });
+  state = await repository.read(propertyId);
+  const moved = await service.amendBooking(actor, propertyId, created.bookingId, key(), {
+    expectedBookingVersion: state.bookings[0].version, expectedInventoryVersion: state.version,
+    reason: "Synthetic date correction",
+    changes: { stays: [{ checkIn: "2026-11-12", checkOut: "2026-11-13", roomIds: [roomId] }] },
+  });
+  assert.equal(moved.operationState, "sync_pending");
+  state = await repository.read(propertyId);
+  const operation = state.operations.at(-1);
+  assert.deepEqual(operation.cells.map((cell) => [cell.date, cell.desired]), [
+    ["2026-11-12", "closed"], ["2026-11-10", "open"], ["2026-11-11", "open"],
+  ]);
+  assert.deepEqual(state.fences[0].cells.map((cell) => cell.date).sort(),
+    ["2026-11-10", "2026-11-11", "2026-11-12"]);
+  await assert.rejects(service.amendBooking(actor, propertyId, created.bookingId, key(), {
+    expectedBookingVersion: state.bookings[0].version, expectedInventoryVersion: state.version,
+    changes: { stays: [{ checkIn: "2026-11-13", checkOut: "2026-11-14", roomIds: [roomId] }] },
+  }), errorCode("CHANNEL_AMENDMENT_NOT_READY"));
+  const verified = await service.recordChannelReadback(channel, { propertyId,
+    operationKey: moved.operationKey, providerVersion: "synthetic-move",
+    observedAt: new Date(Date.now() + 1000).toISOString(),
+    cells: observed(operation.cells) });
+  assert.equal(verified.state, "sync_verified");
+  state = await repository.read(propertyId);
+  assert.equal(state.fences.length, 0);
+  assert.equal(state.bookings[0].stays[0].checkIn, "2026-11-12");
+  assert.equal(repository.auditRecords(propertyId).find((item) =>
+    item.type === "booking.amended").reason, "Synthetic date correction");
+});
+
+test("OS OwlNest create needs readback capability and observed stock window", async () => {
+  const { service, repository } = setup("owlnest");
+  await repository.transact(propertyId, state => {
+    state.channel.sourceReadbackEnabled = false;
+  });
+  await assert.rejects(service.createBooking(principal(), propertyId, key(),
+    bookingInput()), errorCode("CHANNEL_CREATE_NOT_READY"));
+  await repository.transact(propertyId, state => {
+    state.channel.sourceReadbackEnabled = true;
+    state.channel.stockObservedThrough = "2026-11-10";
+  });
+  await assert.rejects(service.createBooking(principal(), propertyId, key(),
+    bookingInput()), errorCode("CHANNEL_STOCK_NOT_OBSERVED"));
+  assert.equal((await repository.read(propertyId)).bookings.length, 0);
+});
+
+test("OS cannot silently amend a source order", async () => {
+  const { service, repository } = setup();
+  const imported = await service.applySourceEvent(principal("source"), key(), sourceInput());
+  const state = await repository.read(propertyId);
+  await assert.rejects(service.amendBooking(principal("os", {
+    actions: [...principal().actions, "booking:amend"],
+  }), propertyId, imported.bookingId, key(), {
+    expectedBookingVersion: 1, expectedInventoryVersion: state.version,
+    changes: { guestName: "Manual correction" },
+  }), errorCode("SOURCE_AMEND_REQUIRES_REVIEW"));
 });
 
 test("native paid booking requires settlement before cancellation; refund stays append-only", async () => {

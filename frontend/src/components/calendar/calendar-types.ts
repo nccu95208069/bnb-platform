@@ -77,6 +77,11 @@ export type CalendarBooking = {
   baby_supplies: BabySupplyKey[];
   service_note: string | null;
   source_read_only?: boolean;
+  iron_gate_booking_id?: string;
+  iron_gate_booking_version?: number;
+  iron_gate_source?: "os" | "line" | "website" | "external";
+  iron_gate_channel_sync?: "not_required" | "pending" | "verified" | "review_required";
+  iron_gate_source_review?: boolean;
   snapshot_only?: boolean;
   payment_unconfirmed?: boolean;
   requirements_known?: boolean;
@@ -116,6 +121,7 @@ export type CalendarResponse = {
   guest_access?: { available: boolean; authenticated: boolean };
   data_mode?: string;
   price_hidden?: boolean;
+  iron_gate_manual_enabled?: boolean;
 };
 
 export type CalendarPeriod = {

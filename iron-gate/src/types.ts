@@ -198,6 +198,7 @@ export type AmendBookingInput = {
   expectedBookingVersion: number;
   expectedInventoryVersion: number;
   changes: Partial<Pick<Booking, "stays" | "guestName" | "contact" | "notes" | "totalCents">>;
+  reason?: string;
 };
 
 export type PaymentEventInput = {
@@ -296,6 +297,7 @@ export type AuditRecord = {
   actorSubjectId: string;
   actorGrantId: string | null;
   requestKey: string | null;
+  reason?: string;
 };
 
 export type TransactionContext = {

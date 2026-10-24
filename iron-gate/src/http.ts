@@ -105,7 +105,7 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         }
         if (parts.length === 5 && request.method === "PATCH") {
           const value = await body(request);
-          exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "changes"]);
+          exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "changes"], ["reason"]);
           const result = await service.amendBooking(principal, propertyId, parts[4], requestKey(request),
             value as AmendBookingInput, request.headers.get("x-iron-gate-line-preview"));
           return json(result, result.operationState === "sync_pending" ? 202 : 200);
@@ -127,10 +127,10 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         }
         if (parts.length === 6 && parts[5] === "cancel" && request.method === "POST") {
           const value = await body(request);
-          exact(value, ["expectedBookingVersion", "expectedInventoryVersion"]);
+          exact(value, ["expectedBookingVersion", "expectedInventoryVersion"], ["reason"]);
           const result = await service.cancelBooking(principal, propertyId, parts[4], requestKey(request),
             value.expectedBookingVersion as number, value.expectedInventoryVersion as number,
-            request.headers.get("x-iron-gate-line-preview"));
+            request.headers.get("x-iron-gate-line-preview"), value.reason as string | undefined);
           return json(result, result.operationState === "sync_pending" ? 202 : 200);
         }
         if (parts.length === 6 && parts[5] === "payment-events" && request.method === "POST") {

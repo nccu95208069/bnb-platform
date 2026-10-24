@@ -39,7 +39,8 @@ function config(preview = false) {
 
 function fixture({ version = 7, sold = true, blocked = true, preview = false } = {}) {
   const booking = { id: '66666666-6666-4666-8666-666666666666',
-    workspaceId, propertyId, version: 1, status: 'confirmed',
+    workspaceId, propertyId, version: 1, status: 'confirmed', source: 'os',
+    channelSyncState: 'pending', sourceReviewRequired: false,
     stays: [{ checkIn: '2026-10-25', checkOut: '2026-10-26', roomIds: [roomIds['101']] }],
     guestName: 'Sample Guest' };
   const page = { propertyId, inventoryVersion: version, authorityEpoch: preview ? 0 : 1,
@@ -98,6 +99,10 @@ test('calendar reads signed booking plus inventory, preserving blocked room nigh
   assert.equal(result.bookings[0].guest_name, 'Sample Guest');
   assert.equal(result.bookings[0].price_hidden, true);
   assert.equal(result.bookings[0].payment_status, 'unknown');
+  assert.equal(result.bookings[0].iron_gate_booking_version, 1);
+  assert.equal(result.bookings[0].iron_gate_source, 'os');
+  assert.equal(result.bookings[0].iron_gate_channel_sync, 'pending');
+  assert.equal(result.bookings[0].platform, 'direct');
   assert.equal(result.bookings[1].room_number, '102');
   assert.equal(result.bookings[1].source_conflict, true);
 });

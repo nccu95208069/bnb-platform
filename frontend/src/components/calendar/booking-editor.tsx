@@ -813,6 +813,8 @@ export function BookingDetailsPanel({
   paymentWorkspace,
   onUpdateBooking,
   onCancelBooking,
+  onManualEdit,
+  onManualCancel,
 }: {
   booking: CalendarBooking | null;
   orderSegments: CalendarBooking[];
@@ -823,6 +825,8 @@ export function BookingDetailsPanel({
   paymentWorkspace?: React.ReactNode;
   onUpdateBooking: (input: UpdateBookingInput) => void;
   onCancelBooking: (reason: string) => void;
+  onManualEdit?: () => void;
+  onManualCancel?: () => void;
 }) {
 const uiLocale = useIntlLocale();
 
@@ -893,6 +897,26 @@ const uiLocale = useIntlLocale();
                   ? uiText("已取消")
                   : uiText("{0} · {1}{2}", [PLATFORM_LABELS[booking.platform] ?? booking.platform,PAYMENT_LABELS[booking.payment_status],stayNightCount(booking) > 1 ? ` · 連住 ${stayNightCount(booking)} 晚` : ""])}
               </div>
+
+              {booking.iron_gate_channel_sync && (
+                <div role="status" className="rounded-xl border bg-muted/40 px-3 py-2 text-sm">
+                  <div>{uiText("Iron Gate 訂單已記錄")}</div>
+                  <div>{uiText("OwlNest 房況：")}{uiText(({
+                    not_required: "無需同步", pending: "同步中，尚未驗證",
+                    verified: "已回讀驗證", review_required: "需人工核對",
+                  })[booking.iron_gate_channel_sync])}</div>
+                  {booking.iron_gate_source_review &&
+                    <div className="text-amber-800">{uiText("訂單來源有差異，需人工核對")}</div>}
+                </div>
+              )}
+
+              {(onManualEdit || onManualCancel) &&
+                <div className="grid grid-cols-2 gap-2">
+                  {onManualEdit && <Button variant="outline" onClick={onManualEdit}>
+                    修改訂單</Button>}
+                  {onManualCancel && <Button variant="outline" onClick={onManualCancel}>
+                    取消訂單</Button>}
+                </div>}
 
               {booking.reservation_status !== "cancelled" &&
                 (permissions.recordPayments || permissions.editBookings) && (
