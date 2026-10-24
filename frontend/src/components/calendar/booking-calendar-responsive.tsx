@@ -351,7 +351,9 @@ const uiLocale = useIntlLocale();
   }, [edits, editsHydrated]);
 
   useEffect(() => {
-    if (!PAYMENT_SANDBOX && !LIVE_SHEET && !data?.source?.automatic_sync) return;
+    // A slow calendar read must be allowed to settle. Starting another
+    // refresh invalidates its response and can leave the loading state stuck.
+    if (loading || refreshing || (!PAYMENT_SANDBOX && !LIVE_SHEET && !data?.source?.automatic_sync)) return;
     const refresh = () => {
       if (!document.hidden) setReloadKey((value) => value + 1);
     };
@@ -363,11 +365,11 @@ const uiLocale = useIntlLocale();
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, [data?.source?.automatic_sync]);
+  }, [data?.source?.automatic_sync, loading, refreshing]);
 
 
   const sourceChanged = useCallback(() => setReloadKey(value => value + 1), []);
-  useCalendarRevision((data?.properties ?? []).map(p => p.id).filter(id => id === 'sweetfun' || id === 'offland').sort().join(','), !PAYMENT_SANDBOX && !!data?.source?.automatic_sync, sourceChanged);
+  useCalendarRevision((data?.properties ?? []).map(p => p.id).filter(id => id === 'sweetfun' || id === 'offland').sort().join(','), !PAYMENT_SANDBOX && !loading && !refreshing && !!data?.source?.automatic_sync, sourceChanged);
 
   const rawEditedBookings = useMemo(
     () =>
@@ -889,7 +891,7 @@ const uiLocale = useIntlLocale();
       {data?.guest_access?.available && <CalendarPrivacy authenticated={data.guest_access.authenticated} />}
 
       {query.trim() && <section className="m-2 rounded-xl border bg-card p-3 md:m-0" aria-label={uiText("搜尋結果")}>
-        <h2 className="text-sm font-semibold">{uiText("搜尋結果 ·")}{filteredBookings.length} {uiText("筆（2025–2027）")}</h2>
+        <h2 className="text-sm font-semibold">{uiText("搜尋結果 ·")}{filteredBookings.length} {uiText(BOUNDED_MONTH ? "筆（目前日曆區間）" : "筆（2025–2027）")}</h2>
         <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">
           {filteredBookings.slice(0,50).map(booking=><button key={booking.id} className="block w-full rounded border p-2 text-left text-sm hover:bg-muted" onClick={()=>setSelectedId(booking.id)}>
             <span className="block">{booking.check_in}–{booking.check_out} · {booking.room_number} · {booking.guest_name}</span>
