@@ -174,6 +174,13 @@ so the new reader remains closed and the live Sheet remains the Offland
 calendar source. No live writer change or production authority switch is
 claimed. The Stage 1 and Stage 3 gates remain open.
 
+The Iron Gate backend code was also built and deployed to production as
+`dpl_GgAAFdJXLBRyK5JBst5QBiZ5Q3u3`. Vercel alias readback confirmed
+`iron-gate-green.vercel.app` points there and the deployment is `READY`;
+an unauthenticated `/v1/properties/<synthetic-id>` request returned the
+expected `401`, showing the production runtime is initialized and still
+requires a grant. OFFLAND remains read-only epoch 0 with no credentials.
+
 At approximately 02:42 Taipei time, the hash-bound initial snapshot was
 imported into the dedicated Supabase project using a short-lived restricted
 `iron_gate_shadow_import` login and the reviewed idempotent seed script.
