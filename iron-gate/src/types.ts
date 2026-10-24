@@ -106,7 +106,16 @@ export type SourceLink = {
   lastAppliedBookingVersion: number;
   diverged: boolean;
   tombstoneNights: Night[];
+  /** Immutable first new-order mail evidence; never replaced by later source versions. */
+  firstNewOrderNotification?: FirstNewOrderNotification;
 };
+
+export type FirstNewOrderNotification = Readonly<{
+  schema: 1;
+  receivedAt: string;
+  sourceVersion: string;
+  requestKey: string;
+}>;
 
 export type ChannelOperation = {
   key: string;
@@ -151,6 +160,8 @@ export type PropertyState = {
   authorityEpoch: number;
   /** A prepared import remains unable to accept writes until a separate cutover gate lifts it. */
   readOnly?: boolean;
+  /** First guaranteed full Taipei day with immutable first-notification capture. */
+  reportingPolicy?: { schema: 1; authorityEpoch: number; notificationCoverageFrom: string; recordedAt: string };
   /** Restricted provenance for a prepared OS candidate. Never included in API projections. */
   osImport?: { sourceHash: string; workspaceVersion: number; propertySnapshot: Record<string, unknown> };
   /** Restricted source and exception evidence for a read-only Sweetfun Sheet candidate. */
@@ -283,6 +294,8 @@ export type EventType =
   | "payment.recorded" | "source.applied" | "source.review_required"
   | "inventory.blocked" | "inventory.opened"
   | "source.facts_enriched"
+  | "source.notification_recorded"
+  | "reporting.policy_recorded"
   | "channel.verified" | "channel.review_required";
 
 export type PendingEvent = {

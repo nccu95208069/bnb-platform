@@ -6,8 +6,12 @@
 `BusinessPulseData` object at the top level. It uses one current property snapshot
 and every canonical booking, including recent orders whose stays are beyond the
 calendar snapshot window. Only `confirmed` bookings contribute to sales and room
-nights. Daily order totals use verified source booking dates in `Asia/Taipei`;
-`createdAt` and import timestamps are never substitutes.
+nights. Daily order totals use the first new-order notification day in
+`Asia/Taipei`, following the owner's 2026-10-24 decision. Original `bookedAt`
+remains independent; historical/other-source date fallbacks are explicitly
+labelled. `createdAt` and import timestamps are never substitutes. Immutable
+source evidence, comparison coverage and bounded recovery are documented in
+[notification reporting](NOTIFICATION_REPORTING.md).
 
 This endpoint requires a dedicated opaque credential with `origin: "service"`,
 `actions: ["booking:aggregate"]`, `fields: []`, the intended property/workspace, and

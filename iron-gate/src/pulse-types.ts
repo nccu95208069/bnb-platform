@@ -14,7 +14,11 @@ export interface PulseOrder {
 }
 
 export interface OrderRow {
+  /** Verified original booking date; never replaced by a notification timestamp. */
   bookingDate: string | null;
+  /** Day used for daily reporting; optional only for the legacy upstream. */
+  countedDate?: string | null;
+  dateBasis?: "notification" | "booking-date" | "unknown";
   platform: string;
   room: string;
   guestName: string;
@@ -106,6 +110,21 @@ export interface PulseData {
   verdict: { level: "up" | "flat" | "down" | "quiet"; headline: string; basis: string };
   actions: PulseAction[];
   summaryText: string;
-  meta: { orderCount: number; generatedAt: string };
+  meta: {
+    orderCount: number;
+    generatedAt: string;
+    source?: string;
+    inventoryVersion?: number;
+    authorityEpoch?: number;
+    unknownBookingDateOrders?: number;
+    dailyOrderDateBasis?: "new-order-notification";
+    notificationDateOrders?: number;
+    bookingDateFallbackOrders?: number;
+    unknownDailyDateOrders?: number;
+    dailyComparisonComparable?: boolean;
+    notificationCoverageFrom?: string | null;
+    unpricedBookings?: number;
+    warnings?: string[];
+  };
 }
 

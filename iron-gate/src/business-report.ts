@@ -1,6 +1,7 @@
 import { computeBusinessMetrics, type BusinessBooking, type BusinessPulseData } from "./business-metrics.ts";
 import { GateError } from "./errors.ts";
 import type { Booking, NightPrice, PropertyState } from "./types.ts";
+import { firstNotificationAt, notificationCoverageFrom } from "./source-notification.ts";
 
 export type BusinessReport = BusinessPulseData & {
   meta: BusinessPulseData["meta"] & {
@@ -137,6 +138,7 @@ export function createBusinessReport(state: PropertyState,
         ...(amounts ? { amountCents: amounts[index] } : {}) };
     }));
     return { id: booking.id, status: booking.status, bookedAt: bookedOn(booking),
+      firstNotificationAt: firstNotificationAt(state, booking),
       platform: channel.name, totalCents: booking.totalCents, paid: paid(booking),
       // Guest names, contact, notes, source aliases and external references never
       // enter the calculator; all guest labels are its fixed neutral placeholder.
@@ -145,7 +147,8 @@ export function createBusinessReport(state: PropertyState,
   let report: BusinessPulseData;
   try {
     report = computeBusinessMetrics(input, { now, source: "iron-gate",
-      sourceUpdatedAt: null, rooms: [...rooms.values()], propertyName: "民宿" });
+      sourceUpdatedAt: null, rooms: [...rooms.values()], propertyName: "民宿",
+      notificationCoverageFrom: notificationCoverageFrom(state, now) });
   } catch { invalidReport(); }
   if (unknownPlatformBookings) report.meta.warnings.push(
     `${unknownPlatformBookings} 筆訂單的來源平台無法確認，歸入其他。`);

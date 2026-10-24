@@ -7,6 +7,7 @@ import type {
 } from "./types.ts";
 import { GateError } from "./errors.ts";
 import { createBusinessReport, type BusinessReport } from "./business-report.ts";
+import { firstGmailNotification, GMAIL_NOTIFICATION_SUBJECT } from "./source-notification.ts";
 export { GateError } from "./errors.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -1883,6 +1884,14 @@ export class IronGateService {
         link.lastAppliedBookingVersion = booking.version;
         link.diverged = false;
         if (input.kind === "cancel") link.tombstoneNights = cells;
+      }
+      // The authenticated Gmail writer only creates an unlinked booking for a
+      // new-order notice. Preserve that first notice independently of bookedAt;
+      // amendments, cancellations, receipts and source-fact repairs never move it.
+      if (!linkedBooking && input.kind === "upsert" && principal.subjectId === GMAIL_NOTIFICATION_SUBJECT) {
+        const notification = firstGmailNotification(input.sourceSystem, input.sourceVersion,
+          requestKey, booking.createdAt);
+        if (notification) link.firstNewOrderNotification = notification;
       }
       const channelNeeded = sourceReadback && (input.kind === "cancel" || !linkedBooking ||
         linkedBooking.channelSyncState !== "verified" || changedNights(oldCells, cells));
