@@ -377,6 +377,12 @@ function requireLineStockWindow(state: PropertyState, cells: Night[],
   if (end && cells.some((cell) => cell.date > end))
     reject(code, 409);
 }
+function requireOsStockWindow(state: PropertyState, cells: Night[]): void {
+  const from = state.channel.stockObservedFrom;
+  const through = state.channel.stockObservedThrough;
+  if (!from || !through || cells.some((cell) => cell.date < from || cell.date > through))
+    reject("CHANNEL_STOCK_NOT_OBSERVED", 409);
+}
 function verifyLineInventoryInput(input: LineInventoryInput): Night {
   if (!input || !Number.isSafeInteger(input.expectedInventoryVersion) ||
     input.expectedInventoryVersion < 0 || !["closed", "open"].includes(input.desired))
@@ -578,8 +584,9 @@ export class IronGateService {
       if (hasConflict(state, cells)) reject("ROOM_CONFLICT", 409);
       if (principal.origin === "os" && state.channel.mode === "owlnest") {
         if (state.channel.sourceReadbackEnabled !== true || !state.channel.grantId ||
-          !state.channel.stockObservedThrough) reject("CHANNEL_CREATE_NOT_READY", 409);
-        requireLineStockWindow(state, cells, "CHANNEL_STOCK_NOT_OBSERVED");
+          !state.channel.stockObservedFrom || !state.channel.stockObservedThrough)
+          reject("CHANNEL_CREATE_NOT_READY", 409);
+        requireOsStockWindow(state, cells);
       }
       const operationKey = state.channel.mode === "owlnest" ? crypto.randomUUID() : null;
       const booking: Booking = {
@@ -802,9 +809,10 @@ export class IronGateService {
         if (roomNightsChanged && state.channel.mode === "owlnest" && principal.origin === "os") {
           if (booking.source !== "os" || booking.channelSyncState !== "verified" ||
             !state.channel.ready || state.channel.sourceReadbackEnabled !== true ||
-            !state.channel.grantId) reject("CHANNEL_AMENDMENT_NOT_READY", 409);
-          requireLineStockWindow(state, uniqueNights([...current, ...next]),
-            "CHANNEL_STOCK_NOT_OBSERVED");
+            !state.channel.grantId || !state.channel.stockObservedFrom ||
+            !state.channel.stockObservedThrough)
+            reject("CHANNEL_AMENDMENT_NOT_READY", 409);
+          requireOsStockWindow(state, uniqueNights([...current, ...next]));
         }
         if (roomNightsChanged && hasConflict(state, next, booking.id)) reject("ROOM_CONFLICT", 409);
         booking.stays = structuredClone(input.changes.stays!);
@@ -1272,6 +1280,8 @@ export class IronGateService {
         reject("SOURCE_CANCEL_REQUIRES_REVIEW", 409);
       if (principal.origin === "os" && netReceived(booking) !== 0)
         reject("CANCELLATION_REQUIRES_SETTLEMENT", 409);
+      if (principal.origin === "os" && state.channel.mode === "owlnest")
+        requireOsStockWindow(state, nightsFor(booking.stays, state.roomIds));
       const previousSync = booking.channelSyncState;
       if (principal.origin === "line")
         flagLineSourceReview(state, booking, nightsFor(booking.stays, state.roomIds), []);

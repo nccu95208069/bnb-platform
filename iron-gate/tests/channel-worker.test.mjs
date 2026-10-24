@@ -15,7 +15,7 @@ function setup({ providerFails = false } = {}) {
     authorityEpoch: 1, readOnly: false,
     channel: { mode: "owlnest", ready: true, sourceReadbackEnabled: true,
       websiteSalesEnabled: false, grantId: channelGrant, websiteBindingId: null,
-      stockObservedThrough: "2099-12-31" },
+      stockObservedFrom: "2099-01-01", stockObservedThrough: "2099-12-31" },
     sourceGrants: [], bookings: [], sourceLinks: [], operations: [], fences: [],
     manualBlocks: [], receipts: [] });
   const service = new IronGateService(repository);

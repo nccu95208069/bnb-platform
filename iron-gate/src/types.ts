@@ -156,6 +156,8 @@ export type PropertyState = {
     sourceReadbackEnabled?: boolean;
     /** Last date whose complete room stock was observed at mode activation. */
     stockObservedThrough?: string;
+    /** First date of the same complete activation snapshot. */
+    stockObservedFrom?: string;
     grantId: string | null; websiteBindingId: string | null };
   /** Private durable dispatcher claim. Never auto-expire across an unknown provider write. */
   channelDispatch?: { claimId: string; operationKey: string;

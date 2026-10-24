@@ -96,11 +96,11 @@ export function planSweetfunChannelActivation(state, occupancy, manifest, snapsh
   next.version++;
   next.manualBlocks = blocks;
   next.channel = { mode: "owlnest", ready: true, sourceReadbackEnabled: true,
-    stockObservedThrough: end,
+    stockObservedFrom: today, stockObservedThrough: end,
     websiteSalesEnabled: false, grantId: manifest.channelGrantId, websiteBindingId: null };
   return { state: next, summary: { propertyId: state.propertyId,
     inventoryVersion: next.version, channelGrantId: manifest.channelGrantId,
-    observedCells: canonical.length, stockObservedThrough: end,
+    observedCells: canonical.length, stockObservedFrom: today, stockObservedThrough: end,
     occupiedCells: occupied.size,
     importedBlocks: blocks.length, snapshotHash, blockHash: hash(blocks) } };
 }

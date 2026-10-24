@@ -76,7 +76,7 @@ test("one authorized cron tick records exact provider readback and releases the 
     propertyId, roomIds: [roomId], version: 1, authorityEpoch: 1, readOnly: false,
     channel: { mode: "owlnest", ready: true, sourceReadbackEnabled: true,
       websiteSalesEnabled: false, grantId, websiteBindingId: null,
-      stockObservedThrough: "2099-12-31" },
+      stockObservedFrom: "2026-11-01", stockObservedThrough: "2099-12-31" },
     sourceGrants: [], bookings: [], sourceLinks: [], operations: [], fences: [],
     manualBlocks: [], receipts: [] });
   const service = new IronGateService(repository);

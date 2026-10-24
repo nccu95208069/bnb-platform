@@ -21,6 +21,7 @@ function setup(channel = "none") {
     channel: { mode: channel, ready: channel === "owlnest", websiteSalesEnabled: channel === "none",
       grantId: channel === "owlnest" ? channelGrantId : null, websiteBindingId,
       sourceReadbackEnabled: channel === "owlnest",
+      stockObservedFrom: channel === "owlnest" ? "2026-11-01" : null,
       stockObservedThrough: channel === "owlnest" ? "2026-12-31" : null },
     sourceGrants: [{ grantId: sourceGrantId, sourceSystem: "ota", sourceAccount: "synthetic-account", active: true }],
     bookings: [], sourceLinks: [], operations: [], fences: [], manualBlocks: [], receipts: [] });
@@ -1766,11 +1767,38 @@ test("OS OwlNest create needs readback capability and observed stock window", as
     bookingInput()), errorCode("CHANNEL_CREATE_NOT_READY"));
   await repository.transact(propertyId, state => {
     state.channel.sourceReadbackEnabled = true;
+    delete state.channel.stockObservedFrom;
+  });
+  await assert.rejects(service.createBooking(principal(), propertyId, key(),
+    bookingInput()), errorCode("CHANNEL_CREATE_NOT_READY"));
+  await repository.transact(propertyId, state => {
+    state.channel.stockObservedFrom = "2026-11-01";
     state.channel.stockObservedThrough = "2026-11-10";
   });
   await assert.rejects(service.createBooking(principal(), propertyId, key(),
     bookingInput()), errorCode("CHANNEL_STOCK_NOT_OBSERVED"));
   assert.equal((await repository.read(propertyId)).bookings.length, 0);
+});
+
+test("OS OwlNest writes stay within both ends of the observed stock window", async () => {
+  const { service, repository } = setup("owlnest");
+  const actor = principal("os", { actions: [...principal().actions, "booking:amend"] });
+  await assert.rejects(service.createBooking(actor, propertyId, key(), bookingInput(1, {
+    stays: [{ checkIn: "2026-10-31", checkOut: "2026-11-02", roomIds: [roomId] }],
+  })), errorCode("CHANNEL_STOCK_NOT_OBSERVED"));
+  const created = await service.createBooking(actor, propertyId, key(), bookingInput());
+  await repository.transact(propertyId, state => {
+    state.bookings[0].channelSyncState = "verified";
+    state.channel.stockObservedFrom = "2026-11-11";
+  });
+  const state = await repository.read(propertyId);
+  await assert.rejects(service.amendBooking(actor, propertyId, created.bookingId, key(), {
+    expectedBookingVersion: 1, expectedInventoryVersion: state.version,
+    changes: { stays: [{ checkIn: "2026-11-12", checkOut: "2026-11-13", roomIds: [roomId] }] },
+  }), errorCode("CHANNEL_STOCK_NOT_OBSERVED"));
+  await assert.rejects(service.cancelBooking(actor, propertyId, created.bookingId, key(),
+    1, state.version), errorCode("CHANNEL_STOCK_NOT_OBSERVED"));
+  assert.equal((await repository.read(propertyId)).bookings[0].status, "confirmed");
 });
 
 test("OS cannot silently amend a source order", async () => {

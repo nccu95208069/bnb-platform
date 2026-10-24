@@ -60,6 +60,7 @@ export function manualError(error: unknown, key?: string) {
       code === 'INVALID_AMOUNT' || code === 'INVALID_CURRENCY' ? 400 :
     code === 'ROOM_CONFLICT' || code.includes('VERSION') ||
       code.includes('NOT_READY') || code.includes('READ_ONLY') ||
+      code.includes('NOT_OBSERVED') ||
       code.includes('REQUIRES') || code === 'REFUND_EXCEEDS_RECEIVED' ||
       code === 'PAYMENT_EVENT_LIMIT' || code === 'PAYMENT_EVENT_EXISTS' ||
       code === 'PAYMENT_EVIDENCE_EXISTS' ||
