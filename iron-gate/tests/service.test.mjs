@@ -2219,7 +2219,7 @@ test("booking list uses scoped seek pagination and hides money without its grant
     { limit: 1, cursor: first.nextCursor, status: null, from: null, to: null }), errorCode("INVALID_CURSOR"));
 });
 
-test("OS attention list filters before pagination and binds the cursor to that filter", async () => {
+test("OS room attention stays visible ahead of cancellation history", async () => {
   const { service, repository } = setup();
   const writer = principal();
   const receipts = [];
@@ -2236,17 +2236,27 @@ test("OS attention list filters before pagination and binds the cursor to that f
     await service.cancelBooking(writer, propertyId, receipt.bookingId, key(),
       receipt.bookingVersion, state.version);
   }
+  await repository.transact(propertyId, (state) => {
+    state.bookings.find((item) => item.id === receipts[0].bookingId).channelSyncState =
+      "action_required";
+    state.bookings.find((item) => item.id === receipts[1].bookingId).channelSyncState =
+      "review_required";
+  });
   const reader = principal("os", { actions: ["booking:read"], fields: [] });
   const options = { limit: 1, status: null, from: null, to: null, attention: true };
   const first = await service.listBookings(reader, propertyId, { ...options, cursor: null });
   assert.equal(first.bookings.length, 1);
-  assert.equal(first.bookings[0].status, "cancelled");
   assert.ok(first.nextCursor);
   const second = await service.listBookings(reader, propertyId,
     { ...options, cursor: first.nextCursor });
   assert.equal(second.bookings.length, 1);
-  assert.notEqual(second.bookings[0].id, first.bookings[0].id);
+  assert.deepEqual(new Set([first.bookings[0].id, second.bookings[0].id]),
+    new Set(receipts.slice(0, 2).map((item) => item.bookingId)));
   assert.equal(second.nextCursor, null);
+  const cancelled = await service.listBookings(reader, propertyId,
+    { limit: 50, cursor: null, status: "cancelled", from: null, to: null });
+  assert.deepEqual(new Set(cancelled.bookings.map((item) => item.id)),
+    new Set(receipts.slice(1).map((item) => item.bookingId)));
   await assert.rejects(service.listBookings(reader, propertyId,
     { ...options, attention: false, cursor: first.nextCursor }), errorCode("INVALID_CURSOR"));
   await assert.rejects(service.listBookings(principal("line", { actions: ["booking:read"] }),

@@ -197,6 +197,7 @@ export type IronGateRoomActionRow = {
 export async function listIronGateRoomActions(
   store: CustomerStore, accountId: string, slug: string, propertyId: string,
   cursor: string | null, config: IronGateReadConfig, send: typeof fetch = fetch,
+  view: "active" | "cancelled" = "active",
 ): Promise<{ rows: IronGateRoomActionRow[]; nextCursor: string | null }> {
   if (!UUID.test(propertyId) || cursor !== null && !/^[A-Za-z0-9_-]{1,512}$/.test(cursor))
     throw new Error("INVALID_INPUT");
@@ -204,7 +205,9 @@ export async function listIronGateRoomActions(
   if (!grant) throw new Error("NOT_FOUND");
   const url = new URL(`${configuredBaseUrl(config.baseUrl)}/v1/properties/${propertyId}/bookings`);
   url.searchParams.set("limit", "50");
-  url.searchParams.set("attention", "true");
+  if (view === "active") url.searchParams.set("attention", "true");
+  else if (view === "cancelled") url.searchParams.set("status", "cancelled");
+  else throw new Error("INVALID_INPUT");
   if (cursor) url.searchParams.set("cursor", cursor);
   const proof = await signCurrentIronGateMembership(store, accountId, slug,
     new Request(url, { method: "GET" }), grant, config.proofSecret);
@@ -253,8 +256,9 @@ export async function listIronGateRoomActions(
         ["totalCents", "currency", "paymentSummary"].some((key) => key in value) ||
       !safeBookingShape(value, claims.fields.includes("money")))
       throw new Error("IRON_GATE_READ_FAILED");
-    if (value.status !== "cancelled" && !["action_required", "pending", "review_required"]
-      .includes(String(value.channelSyncState))) continue;
+    if (view === "active" && !["action_required", "pending", "review_required"]
+      .includes(String(value.channelSyncState)) ||
+      view === "cancelled" && value.status !== "cancelled") continue;
     const cells = (value.lineChannelPending ?? []) as { desired: "open" | "closed" }[];
     rows.push({ id: value.id, status: value.status as IronGateRoomActionRow["status"],
       channelSyncState: value.channelSyncState as IronGateRoomActionRow["channelSyncState"],

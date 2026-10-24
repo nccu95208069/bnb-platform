@@ -26,7 +26,7 @@ function waitingAge(createdAt: string): string {
 
 export default async function Page({ params, searchParams }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ property?: string; cursor?: string }>;
+  searchParams: Promise<{ property?: string; cursor?: string; view?: string }>;
 }) {
   const { slug } = await params;
   if (!enabled()) return <main className="p-10">新客戶入口尚未開放。</main>;
@@ -48,11 +48,12 @@ export default async function Page({ params, searchParams }: {
       grant.propertyId === property.id));
   const search = await searchParams;
   const property = allowed.find((item) => item.id === search.property) ?? allowed[0];
+  const selectedView = search.view === "cancelled" ? "cancelled" : "active";
   if (!property) return <main className="p-10">此旅宿沒有可檢視的房態。</main>;
   let result;
   try {
     result = await listIronGateRoomActions(store, account.id, slug, property.id,
-      typeof search.cursor === "string" ? search.cursor : null, config);
+      typeof search.cursor === "string" ? search.cursor : null, config, fetch, selectedView);
   } catch {
     return <main className="mx-auto max-w-4xl p-8">
       <h1 className="text-xl font-semibold">房態暫時無法讀取</h1>
@@ -61,16 +62,24 @@ export default async function Page({ params, searchParams }: {
   }
   return <main className="min-h-dvh bg-stone-50 p-4 text-slate-900 sm:p-8">
     <div className="mx-auto max-w-6xl">
-      <h1 className="text-2xl font-semibold">{workspace.name} · 房態待處理與已取消</h1>
+      <h1 className="text-2xl font-semibold">{workspace.name} · 房態交接</h1>
       <p className="mt-2 text-sm text-slate-600">Iron Gate 唯讀資料。LINE 群組中的訂單資訊卡可操作關房與開房；此處用於追蹤結果。</p>
       <WorkspaceNav data={data} current="orders" propertyId={property.id} />
       <nav aria-label="選擇旅宿" className="mb-5 flex flex-wrap gap-2">
         {allowed.map((item) => <a key={item.id}
           aria-current={item.id === property.id ? "page" : undefined}
           className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
-          href={`/w/${slug}/iron-gate-room-actions?property=${encodeURIComponent(item.id)}`}>{item.name}</a>)}
+          href={`/w/${slug}/iron-gate-room-actions?${new URLSearchParams({ property: item.id,
+            ...(selectedView === "cancelled" ? { view: "cancelled" } : {}) })}`}>{item.name}</a>)}
       </nav>
-      <p className="mb-4 text-sm text-slate-600">每頁最多檢視 50 筆訂單；僅顯示待處理、處理中、需核對及已取消訂單。</p>
+      <nav aria-label="房態檢視" className="mb-4 flex gap-3 text-sm">
+        <a aria-current={selectedView === "active" ? "page" : undefined} className="underline"
+          href={`/w/${slug}/iron-gate-room-actions?${new URLSearchParams({ property: property.id })}`}>待房態處理</a>
+        <a aria-current={selectedView === "cancelled" ? "page" : undefined} className="underline"
+          href={`/w/${slug}/iron-gate-room-actions?${new URLSearchParams({ property: property.id, view: "cancelled" })}`}>已取消訂單</a>
+      </nav>
+      <p className="mb-4 text-sm text-slate-600">每頁最多 50 筆；{selectedView === "active" ?
+        "顯示待員工操作、處理中與需人工核對的房態。" : "顯示保留紀錄的已取消訂單。"}</p>
       <ul className="space-y-3">
         {result.rows.map((row) => <li key={row.id} className="rounded-2xl border bg-white p-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -85,7 +94,8 @@ export default async function Page({ params, searchParams }: {
       </ul>
       {result.rows.length === 0 && <p className="rounded-xl border bg-white p-5">本頁沒有符合條件的訂單。</p>}
       {result.nextCursor && <a className="mt-5 inline-block rounded-xl bg-teal-800 px-5 py-3 text-white"
-        href={`/w/${slug}/iron-gate-room-actions?${new URLSearchParams({ property: property.id, cursor: result.nextCursor })}`}>
+        href={`/w/${slug}/iron-gate-room-actions?${new URLSearchParams({ property: property.id, cursor: result.nextCursor,
+          ...(selectedView === "cancelled" ? { view: "cancelled" } : {}) })}`}>
         下一頁</a>}
     </div>
   </main>;

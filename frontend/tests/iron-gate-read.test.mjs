@@ -106,6 +106,21 @@ test("room-action list is membership-scoped, paginated, and projects only safe f
     input.propertyId, cursor, input.config, send), /NOT_FOUND/);
 });
 
+test("cancelled history has its own server-filtered page", async () => {
+  const input = fixture("owner");
+  const cancelled = { ...input.booking, status: "cancelled", channelSyncState: "verified" };
+  const send = async (url) => {
+    assert.match(url, /status=cancelled/);
+    assert.doesNotMatch(url, /attention=true/);
+    return Response.json({ propertyId: input.propertyId,
+      bookings: [cancelled], nextCursor: null });
+  };
+  const result = await listIronGateRoomActions(input.store, input.accountId, input.slug,
+    input.propertyId, null, input.config, send, "cancelled");
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].status, "cancelled");
+});
+
 test("revoked membership, wrong IDs, and unsafe configuration fail closed", async () => {
   const input = fixture("owner");
   input.workspace.members[0].active = false;

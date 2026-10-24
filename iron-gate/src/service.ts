@@ -1186,7 +1186,7 @@ export class IronGateService {
     const result = state.bookings.filter((booking) =>
       (principal.origin !== "line" || lineManagesAll(principal) || booking.source === "line" &&
         booking.sourceKey === `line:${principal.grantId}`) &&
-      (!options.attention || booking.status === "cancelled" ||
+      (!options.attention ||
         ["action_required", "pending", "review_required"].includes(booking.channelSyncState)) &&
       (options.status === null || booking.status === options.status) &&
       (options.from === null || options.to === null || booking.stays.some((stay) =>
