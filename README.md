@@ -1,233 +1,84 @@
-# BnB Platform
+# Iron Gate
 
-2026-10-11 OS-04: owner-approved OS and LINE rollout is complete. Sweetfun and OFFLAND reminders are enabled for Taipei 09:00, with separately labeled unconfirmed room-night summaries. The new scheduler returned HTTP 200; one authorized synthetic LINE message has a persisted provider receipt and was visibly received in LINE desktop. First automatic arrival-note dispatch is due October 12 and has not yet been observed; physical-phone and external-customer acceptance remain open. See [release evidence](docs/work-handoff/OS_READINESS_2026-10-10.md#正式-line-啟用--2026-10-11).
+## Daily business reporting
 
-Current product/deployment context: [WORK_CONTEXT.md](WORK_CONTEXT.md). The owner-approved calendar pilot is live at [the customer entry](https://sweetfun-os.vercel.app/join); see [production verification and limits](docs/work-handoff/CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md#primary-domain-owner-pilot). The customer branch remains in draft PR #26. The older messaging subsystem overview below is historical context.
+`GET /v1/properties/:propertyId/business-report` returns the complete dashboard
+`BusinessPulseData` object at the top level. It uses one current property snapshot
+and every canonical booking, including recent orders whose stays are beyond the
+calendar snapshot window. Only `confirmed` bookings contribute to sales and room
+nights. Daily order totals use the first new-order notification day in
+`Asia/Taipei`, following the owner's 2026-10-24 decision. Original `bookedAt`
+remains independent; historical/other-source date fallbacks are explicitly
+labelled. `createdAt` and import timestamps are never substitutes. Immutable
+source evidence, comparison coverage and bounded recovery are documented in
+[notification reporting](NOTIFICATION_REPORTING.md).
 
-Happy House native website integration is now deployed on the OS primary domain after direct owner authorization. Scoped Email/expiry scheduling and both partner deployments are enabled; the owner’s own calendar approval/LINE pairing and real delivery acceptance are tracked in [the website integration release record](docs/work-handoff/WEBSITE_BOOKING_API_2026-10-07.md).
+This endpoint requires a dedicated opaque credential with `origin: "service"`,
+`actions: ["booking:aggregate"]`, `fields: []`, the intended property/workspace, and
+its current positive authority epoch. Existing `booking:read` credentials cannot
+access it. The service rechecks the epoch after authentication and refuses a
+shadow/read-only property. It never writes booking, inventory, payment or audit
+state. Credential issuance retains the existing maximum 30-day expiry; operators
+must rotate the reporting credential before expiry using the administrative
+credential directory. Runtime credentials cannot issue or renew credentials.
+Use the bounded [issuance and rotation runbook](REPORTING_CREDENTIAL_ROTATION.md)
+and `scripts/reporting-credential.mjs` for repeatable operator maintenance.
 
-> 民宿多渠道 AI 智能客服平台 — Multi-channel AI-powered Customer Service Platform for BnB
+The response contains no canonical property, workspace, booking or room IDs, no
+guest names/contact/notes, and no source aliases or OTA references. Optional
+guest labels are the constant `旅客`; legacy checkout identifiers are omitted.
+Public room numbers are recovered only from consistent imported evidence, with
+neutral room labels when evidence is absent. Arbitrary platform text is mapped to
+`其他`; only a fixed set of public channel names is exposed.
 
-BnB Platform 是一套專為民宿業者設計的智能客服系統，透過 Channel Adapter 架構整合多種通訊渠道（LINE、未來支援 Facebook Messenger / Instagram / Email），結合 RAG 知識檢索與大型語言模型，自動回覆房客常見問題。管理員可透過 Dashboard 即時監控對話、接管回覆、管理知識庫。
+Amounts are TWD booking revenue, not cash received. Verified explicit room-night
+prices from current LINE bookings take precedence. Imported source room prices are used
+only when they still reconcile to the authoritative total; otherwise revenue is
+allocated across room nights with an explicit quality warning. Missing dates or
+prices remain unknown. `meta` includes `inventoryVersion`, `authorityEpoch`,
+quality counts and `warnings`; `sourceUpdatedAt` is null because the property
+state does not expose a trustworthy last-source-update timestamp. `saleReady` is
+always false: confirmed-booking occupancy is not a promise of sellable stock.
+Responses are `private, no-store` and should be fetched by the dashboard server,
+with the reporting token kept out of browser code and logs.
 
-## 系統架構
+Iron Gate 是獨立的訂單與房晚權威服務。此目錄目前提供可執行的合成 API、PostgreSQL 儲存、館別隔離、憑證與唯讀 OS 影子比對。**已有受保護的 Preview 與固定 503 的 Production 空殼；尚未接管任何真實訂單。** 產品和 API 契約分別見 [Iron Gate v1](IRON_GATE_V1.md)、[API v1](API_V1.md) 與 [OpenAPI](openapi.yaml)。
 
-```mermaid
-flowchart TD
-    subgraph 通訊渠道
-        LINE[LINE]
-        FB[Facebook Messenger<br/><small>規劃中</small>]
-        IG[Instagram<br/><small>規劃中</small>]
-        Email[Email<br/><small>規劃中</small>]
-    end
+Sean 自用 OS、民宿客戶 OS 工作區與 Iron Gate 的目前／目標資料責任，見 [2026-10-20 業主對齊紀錄](../docs/work-handoff/SEAN_SAAS_IRON_GATE_DATA_BOUNDARY_2026-10-20.md)。
+水芳主表、Gmail check order、Sweetfun OS、LINE 官方帳號及訂單財務的逐階段遷移與切換檢查，見 [Sweetfun Sheet → Iron Gate 遷移計畫](SWEETFUN_SHEET_MIGRATION_PLAN_2026-10-20.md)；唯讀統計和目前工作分別見[來源盤點](SWEETFUN_MIGRATION_SOURCE_INVENTORY_2026-10-20.md)及[執行紀錄](SWEETFUN_MIGRATION_EXECUTION_2026-10-20.md)。
 
-    subgraph Backend["Backend（FastAPI）"]
-        WH[POST /api/v1/webhook/channel_name]
-        CA[ChannelAdapter<br/>parse_webhook → IncomingMessage]
-        AB[AIBrain.handle_message]
-        CS[ConversationService<br/>get_or_create · add_message · is_ai_mode]
-        RAG[RAGService.build_context<br/>pgvector 語意檢索]
-        LLM[LLMService.generate<br/>Claude claude-sonnet-4-5 / Gemini 2.0 Flash]
-        OUT[OutgoingMessage<br/>ChannelAdapter.send_message]
-    end
+水芳 LINE／Gmail 共用 OwlNest 房量的候選讀回協定與尚未完成的上線閘門，見[通路讀回候選](SWEETFUN_LINE_CHANNEL_READBACK.md)。
+水芳 LINE 唯讀群組試跑的憑證核發與回退步驟，見[唯讀試跑紀錄](SWEETFUN_LINE_READ_PILOT.md)。
+水芳 OS 日曆的預設關閉讀取候選及其限制見[日曆切換紀錄](OS_CALENDAR_HANDOFF_2026-10-21.md)。
+業主於 2026-10-21 決定先完成日曆格式、舊表轉換與逐筆核對，再補 Gmail 持續更新，最後才接 LINE／OwlNest；目前執行順序見[水芳日曆先行計畫](SWEETFUN_CALENDAR_FIRST_PLAN_2026-10-21.md)。
 
-    subgraph Frontend["Frontend（Next.js Dashboard）"]
-        CONV[對話列表與篩選]
-        CHAT[即時對話介面]
-        TAKE[接管 / 交回 AI]
-        DOC[RAG 知識庫管理]
-    end
+`src/channel-runner.mjs` 以注入的通路 adapter 逐房晚操作，並要求操作後重新讀回。`src/owlnest-web-readback.mjs` 的登入後日曆 GET 已用真實帳號唯讀驗證；`src/owlnest-stock-command.mjs` 與 `src/owlnest-web-provider.mjs` 依 OwlNest 網頁目前的表單請求建立**尚未接入正式流程**的寫入候選。真實 stock PUT、短暫關房與復原仍需在業主指定的安全房晚受控核對；目前沒有發送任何 OwlNest PUT。詳見 [OwlNest 接線調查](OWLNEST_API_STATUS.md)。
 
-    LINE & FB & IG & Email --> WH
-    WH --> CA --> AB --> CS
-    CS -->|AI 模式| RAG --> LLM --> OUT
-    OUT -->|回覆| LINE & FB & IG & Email
-    Frontend -.->|REST API| Backend
+## 本機驗證
+
+需要 Node.js 22.15 以上：
+
+```sh
+npm ci
+npm test
+npm run check
+npm run build
 ```
 
-### 核心流程
+`npm run build` 產生可直接由 Node.js 執行的 `dist/`，不需在正式執行時開啟實驗性 TypeScript 解析。`dist/` 是建置產物，不進 Git；`npm run start:built` 在缺少正式環境設定時會拒絕啟動。
 
-1. **Webhook 接收** — 各渠道訊息統一進入 `POST /api/v1/webhook/{channel_name}`
-2. **訊息解析** — `ChannelAdapter` 將渠道原始格式轉換為 `IncomingMessage`
-3. **對話管理** — `ConversationService` 建立或取得對話，記錄訊息歷史
-4. **AI 模式判斷** — 若為 AI 模式，進入 RAG + LLM 流程
-5. **知識檢索** — `RAGService` 透過 pgvector 語意搜尋相關民宿資料
-6. **回覆生成** — `LLMService` 使用 Claude claude-sonnet-4-5 或 Gemini 2.0 Flash 產生回覆
-7. **訊息發送** — 透過 `ChannelAdapter.send_message()` 回覆至對應渠道
+`npm run test:server` 會在本機 `127.0.0.1` 啟動短暫的合成 HTTP 測試。`npm run test:pg` 只接受明確指定的本機 `iron_gate_test` 資料庫；先以管理角色依序套用 [初始 schema](sql/001_property_store.sql) 與 [效能遷移](sql/002_policy_plan_and_credential_index.sql)，再配置單獨的 `iron_gate_runtime` 登入角色。測試資料不可指向正式資料庫。
 
-### Dashboard 功能
+`npm run test:restore` 要求 `IRON_GATE_PG_ADMIN_URL` 指向本機 `iron_gate_test`，以及可選的 `IRON_GATE_PG_BIN`（`pg_dump`／`pg_restore` 所在目錄）。它建立兩個一次性資料庫，產生合成訂單、房晚、事件、稽核與憑證，備份後還原並核對資料及受限執行角色，最後刪除一次性資料庫。這只驗證本機還原鏈路；正式館別仍需另做有紀錄的備份、還原與回滾演練。
 
-- 查看所有對話（支援 AI / Human 模式篩選）
-- 接管對話（takeover）— 切換至 Human 模式，AI 停止自動回覆
-- 交回 AI（release）— 恢復 AI 模式
-- Human 模式下管理員可直接發訊息給客人
-- RAG 知識庫管理 — 上傳 / 刪除 TXT、PDF、DOCX 文件
+`IRON_GATE_DATABASE_URL=... npm run check:property -- <property-uuid>` 對單一館別做**唯讀**完整性檢查：在同一個可重複讀取快照中核對有效訂單房晚、占房索引、待同步操作與 fence。它要求受限執行角色，僅輸出固定錯誤碼和計數，不列出訂單或客資；非零結束狀態會阻擋逐館切換。資料庫中的稽核與真實來源涵蓋仍須另行核對。
 
-## 技術棧
+`npm run start:private` 只綁定 `127.0.0.1`。它要求 `IRON_GATE_DATABASE_URL`、`IRON_GATE_OS_PROOF_SECRET`，並在啟動時驗證資料庫角色、RLS 與遠端 TLS。資料庫管理憑證與發證功能不在服務程序中。正式部署還需要專用資料庫、備份還原演練、身分配置、監控，以及逐館 writer 封寫與遷移核對。
 
-| 層級 | 技術 |
-|------|------|
-| **後端** | Python 3.12、FastAPI 0.115、SQLAlchemy 2 (async)、Pydantic v2、Alembic |
-| **資料庫** | PostgreSQL 16 + pgvector（向量語意搜尋） |
-| **LLM** | Anthropic Claude claude-sonnet-4-5、Google Gemini 2.0 Flash |
-| **前端** | Next.js 16、React 19、TypeScript 5、Tailwind CSS v4、shadcn/ui、Zustand |
-| **前端 BaaS** | Supabase（Auth + Realtime） |
-| **CI** | GitHub Actions — backend (ruff + pytest --cov) + frontend (eslint + build) 並行 |
-| **CD** | Vercel（前端）+ GHCR Docker Image（後端）；push to main 自動觸發 |
-| **建置工具** | hatchling（後端）、npm（前端）、Docker Compose（本地開發） |
+## Vercel 專案
 
-## 專案結構
+`api/index.mjs` 是獨立 Vercel 專案的 Node.js 入口；`vercel.json` 只把 `/v1/` 路徑導向它。建置先產生 `dist/`，公開靜態目錄 `public/` 保持空白。Preview 需要 `VERCEL_ENV=preview`、`IRON_GATE_PREVIEW_ENABLED=true`、伺服器端 `IRON_GATE_DATABASE_URL` 與 `IRON_GATE_OS_PROOF_SECRET`。Production 使用**獨立**的 `IRON_GATE_PRODUCTION_ENABLED=true`、`IRON_GATE_PRODUCTION_DATABASE_URL`、`IRON_GATE_PRODUCTION_OS_PROOF_SECRET`；目前未設定這些正式開關與憑證，故仍回 `503 SERVICE_UNAVAILABLE`。資料庫 URL 必須使用驗證主機名稱的 TLS，連線角色必須是受限的 `iron_gate_runtime` 成員；連線字串及 proof secret 不可提交到 Git 或放在瀏覽器環境變數。資料庫建立、管理帳號、遷移和發證都不由 Vercel 函式執行。
 
-```
-bnb-platform/
-├── .github/workflows/
-│   ├── ci.yml                  # CI：lint + test（push / PR to main）
-│   └── cd.yml                  # CD：deploy（push to main）
-├── frontend/                   # Next.js 前端
-│   ├── src/
-│   │   ├── app/                # App Router 頁面
-│   │   │   ├── conversations/  # 對話管理頁面
-│   │   │   ├── dashboard/      # 儀表板
-│   │   │   ├── documents/      # 知識庫管理
-│   │   │   └── settings/       # 設定
-│   │   ├── components/         # UI 元件（shadcn/ui）
-│   │   ├── lib/                # API client、types、utils
-│   │   └── stores/             # Zustand 狀態管理
-│   └── package.json
-└── services/
-    └── api/                    # FastAPI 後端
-        ├── app/
-        │   ├── api/            # REST API endpoints
-        │   ├── channels/       # Channel Adapters（LINE、registry）
-        │   │   ├── base.py     # ChannelAdapter 抽象基底類別
-        │   │   ├── line/       # LINE Channel Adapter
-        │   │   └── registry.py # Adapter 註冊機制
-        │   ├── core/           # Config、database 連線
-        │   ├── models/         # SQLAlchemy ORM models
-        │   ├── schemas/        # Pydantic request/response schemas
-        │   └── services/       # 業務邏輯
-        │       ├── ai_brain.py         # AI 訊息處理核心
-        │       ├── conversation.py     # 對話管理
-        │       ├── llm.py              # LLM 呼叫（Claude / Gemini）
-        │       ├── rag.py              # RAG 知識檢索
-        │       └── google_integration.py
-        ├── alembic/            # 資料庫 migration
-        ├── tests/              # pytest 測試
-        ├── Dockerfile
-        ├── docker-compose.yml  # 本地開發用
-        └── pyproject.toml
-```
+新 Vercel `sweetfuns-projects/iron-gate` 專案已配置三項 Preview 專用變數。Production 空殼固定回 503；受 Vercel 登入保護的 Preview 在完成受限資料庫檢查後，對未授權訂單請求回 401。專用 Supabase PostgreSQL 已建立。短生命週期函式使用 transaction pooler；程式每次讀寫都以明確 transaction 設定逐館 RLS。正式啟用前要在部署預覽中核對 OS 簽章的完整請求路徑與查詢字串。部署及資料庫準備狀態詳見 [部署清單](DEPLOYMENT_VERCEL_SUPABASE.md)。
 
-## 快速開始
-
-### 前置需求
-
-- [Docker](https://www.docker.com/) 與 Docker Compose
-- [Node.js](https://nodejs.org/) 20+（前端開發）
-- [Git](https://git-scm.com/)
-
-### 1. Clone 專案
-
-```bash
-git clone https://github.com/nccu95208069/bnb-platform.git
-cd bnb-platform
-```
-
-### 2. 啟動後端
-
-```bash
-# 建立環境變數檔
-cp services/api/.env.example services/api/.env
-# 編輯 .env，填入必要的 API Keys
-```
-
-`services/api/.env` 需要設定以下變數：
-
-| 變數 | 說明 |
-|------|------|
-| `DATABASE_URL` | PostgreSQL 連線字串（Docker Compose 預設已設定） |
-| `LINE_CHANNEL_SECRET` | LINE Messaging API Channel Secret |
-| `LINE_CHANNEL_ACCESS_TOKEN` | LINE Messaging API Channel Access Token |
-| `ANTHROPIC_API_KEY` | Anthropic API Key（使用 Claude 時） |
-| `GOOGLE_GEMINI_API_KEY` | Google Gemini API Key（使用 Gemini 時） |
-| `OPENAI_API_KEY` | OpenAI API Key（Embedding 用） |
-
-```bash
-# 啟動後端服務（FastAPI + PostgreSQL）
-cd services/api
-docker-compose up
-```
-
-後端 API 預設運行於 `http://localhost:8000`。
-
-### 3. 啟動前端
-
-```bash
-# 建立前端環境變數
-cp frontend/.env.example frontend/.env.local
-# 編輯 .env.local，填入 Supabase 設定
-```
-
-`frontend/.env.local` 需要設定：
-
-| 變數 | 說明 |
-|------|------|
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase 專案 URL |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase Anonymous Key |
-| `NEXT_PUBLIC_API_URL` | 後端 API URL（預設 `http://localhost:8000`） |
-
-```bash
-cd frontend
-npm install
-npm run dev
-```
-
-前端預設運行於 `http://localhost:3000`。
-
-## CI / CD
-
-### CI（持續整合）
-
-每次 push 或 PR 到 `main` 分支時自動觸發，backend 與 frontend 並行執行：
-
-```mermaid
-flowchart LR
-    subgraph Backend
-        B1[Ruff Lint] --> B2[Ruff Format Check] --> B3[pytest --cov]
-    end
-    subgraph Frontend
-        F1[npm ci] --> F2[ESLint] --> F3[Next.js Build]
-    end
-```
-
-- **Backend**: `ruff check` + `ruff format --check` + `pytest --cov`
-- **Frontend**: `eslint` + `next build`（含 TypeScript 型別檢查）
-- Branch protection: `main` 分支要求 CI 全部通過
-
-### CD（持續部署）
-
-Push 到 `main` 分支時自動部署：
-
-- **Frontend** → Vercel（需設定 `VERCEL_TOKEN`、`VERCEL_ORG_ID`、`VERCEL_PROJECT_ID`）
-- **Backend** → 建置 Docker Image 並推送至 GitHub Container Registry（GHCR）
-
-## 新增渠道
-
-BnB Platform 採用 **Channel Adapter Pattern**，新增通訊渠道只需三步：
-
-1. 在 `services/api/app/channels/` 下建立新目錄（如 `facebook/`）
-2. 實作 `ChannelAdapter` 抽象介面（`parse_webhook`、`send_message`）
-3. 在 `registry.py` 註冊新 Adapter
-
-無需修改核心業務邏輯，AI Brain、RAG、LLM 等服務完全解耦。
-
-## 未來規劃
-
-- [ ] 新增 Facebook Messenger / Instagram / Email 渠道
-- [ ] 多語言支援
-- [ ] 完善 Supabase Auth 整合
-- [ ] Google Calendar / Sheets 整合（訂房系統）
-
-## 授權
-
-Private Repository
+影子盤點工具 `npm run shadow:report -- report /absolute/private/os-workspace.json` 只輸出去個資報告；輸入檔仍含客資，必須保存在受控私密位置。它不會讀取或修改 OS，也不會啟用切換。現有 OS [只讀橋接](../docs/work-handoff/IRON_GATE_OS_PROOF_2026-10-13.md)預設關閉。
