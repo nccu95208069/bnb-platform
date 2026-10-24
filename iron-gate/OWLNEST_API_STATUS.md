@@ -1,5 +1,11 @@
 # OwlNest 登入後台接線調查
 
+## 2026-10-24 正式單房晚驗收（更新現況）
+
+水芳直訂已透過 Sweetfun OS 的獨立「同步房況」按鈕完成一次真實 OwlNest 寫入。指定 2027-03-20 的 101 房，OwlNest 原為 `count=1,is_lock=false`；合成直訂初次同步後，Iron Gate 作業 `752a511a-4e3a-47fc-b65b-219da6e0bd0e` 記錄原本開放並讀回 `count=0,is_lock=true`，重新載入 OwlNest 後畫面一致。OS 取消同一合成訂單後，作業 `b73bc7ef-539a-45d0-8ed5-588398178c37` 讀回 `count=1,is_lock=false`，OwlNest 畫面恢復原狀；房晚 fence、待派送作業均清空。PR #72 已合併並發布至 Iron Gate 正式站。下文較早日期的「未發出 PUT／尚未驗證」陳述是當時的調查紀錄，現況以上述結果為準。
+
+此驗收只覆蓋一個經核對的房晚與本系統自己的手動關房證據。舊館別 `stockObservedFrom` 仍空，跨房晚改期與無完整本單關房證據的取消仍受庫存窗口限制；不能由這次庫存讀回推定 OwlNest 訂單身分、全館房況或 OTA 來源唯一性。
+
 日期：2026-10-16（Asia/Taipei）
 
 使用者確認：此專案不申請 OwlNest 對外開放的正式 API；沿用「登入網站後呼叫後台」的方式。以下是現有程式的實際能力與 Iron Gate 尚缺的房量寫入證據。這裡的「後台請求」是 OwlNest 網頁自己使用的 HTTP 介面，不代表公開或穩定的第三方 API 契約。
