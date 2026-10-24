@@ -105,6 +105,7 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
 
   async function submit() {
     setError(""); setResult("");
+    let submittedKey: string | null = null;
     if (!canMutate) { setError("這張訂單目前不能手動修改或取消。"); return; }
     if (mode !== "cancel" && (!guestName.trim() || !roomNumbers.length ||
       !checkIn || !checkOut || checkOut <= checkIn)) {
@@ -131,6 +132,7 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
         return;
       }
       const key = crypto.randomUUID();
+      submittedKey = key;
       setRequestKey(key);
       const payload = mode === "create" ? { expectedInventoryVersion: inventoryVersion,
         stays: stay, guestName: guestName.trim(), contact: contact.trim() || null,
@@ -149,17 +151,26 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
         cache: "no-store", headers: { "content-type": "application/json",
           "idempotency-key": key }, body: JSON.stringify(payload) });
       const value = await responseJson(response);
-      if (value.outcome === "unknown") {
+      if (value.outcome === "unknown" || response.status >= 500 ||
+        response.ok && (typeof value.bookingId !== "string" || value.requestKey !== key)) {
         setResult("提交結果尚未確認。請用下方按鈕查詢原請求，暫時不要再次提交。");
         return;
       }
-      if (!response.ok) throw Error(String(value.code ?? ""));
+      if (!response.ok) {
+        setRequestKey(null);
+        setError(message(value.code));
+        return;
+      }
       setResult(value.operationState === "sync_pending" ?
         "訂單已記錄，OwlNest 房況同步中。" : "訂單已記錄並讀回確認。");
       onDone();
     } catch (err) {
-      setRequestKey(null);
-      setError(message(err instanceof Error ? err.message : ""));
+      if (submittedKey) {
+        setResult("提交結果尚未確認。請用下方按鈕查詢原請求，暫時不要再次提交。");
+      } else {
+        setRequestKey(null);
+        setError(message(err instanceof Error ? err.message : ""));
+      }
     }
     finally { setBusy(false); }
   }
