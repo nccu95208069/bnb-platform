@@ -812,6 +812,7 @@ test("LINE booking manual close needs staff action and own provider write proof"
   assert.equal(created.operationState, "action_required");
   assert.equal(state.operations.length, 0);
   assert.equal(state.bookings[0].channelSyncState, "action_required");
+  assert.equal(state.bookings[0].lineChannelActionRequiredAt, state.bookings[0].createdAt);
   const cells = state.bookings[0].lineChannelPending.map(({ roomId, date }) => ({ roomId, date }));
   const request = { expectedBookingVersion: 1, expectedInventoryVersion: state.version,
     desired: "closed", cells };
@@ -833,6 +834,7 @@ test("LINE booking manual close needs staff action and own provider write proof"
     cells: observed(state.operations[0].cells), appliedClosedCells: cells });
   state = await repository.read(propertyId);
   assert.equal(state.bookings[0].channelSyncState, "verified");
+  assert.equal(state.bookings[0].lineChannelActionRequiredAt, null);
   assert.equal(state.fences.length, 0);
 });
 
@@ -996,7 +998,7 @@ test("manual LINE date change closes acquired nights before safely opening forme
   });
   const service = new IronGateService(repository, "p".repeat(43));
   const actor = principal("line", { grantId: key(), actions: ["booking:read", "booking:create",
-    "booking:amend", "booking:manage_all", "inventory:write"] });
+    "booking:amend", "booking:manage_all", "inventory:write"], fields: ["notes"] });
   const input = bookingInput(1, { source: "line", channelPolicy: "manual" });
   const preview = await service.previewLineCreate(actor, propertyId, input);
   const created = await service.createBooking(actor, propertyId, key(), input, preview.previewToken);
@@ -1022,8 +1024,19 @@ test("manual LINE date change closes acquired nights before safely opening forme
     signedAmend.previewToken);
   state = await repository.read(propertyId);
   assert.equal(state.bookings[0].channelSyncState, "action_required");
+  assert.match(state.bookings[0].lineChannelActionRequiredAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.deepEqual(state.bookings[0].lineChannelPending.map(({ date, desired }) => [date, desired]),
     [["2026-11-10", "open"], ["2026-11-12", "closed"]]);
+  const waitingSince = state.bookings[0].lineChannelActionRequiredAt;
+  const metadata = { expectedBookingVersion: state.bookings[0].version,
+    expectedInventoryVersion: state.version, channelPolicy: "manual",
+    changes: { notes: "synthetic note" } };
+  const signedMetadata = await service.previewLineAction(actor, propertyId,
+    created.bookingId, "amend", metadata);
+  await service.amendBooking(actor, propertyId, created.bookingId, key(), metadata,
+    signedMetadata.previewToken);
+  state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].lineChannelActionRequiredAt, waitingSince);
   assert.equal(state.fences.find((fence) => fence.reason === "line_action_required")?.cells[0].date,
     "2026-11-10");
   const opening = { expectedBookingVersion: state.bookings[0].version,

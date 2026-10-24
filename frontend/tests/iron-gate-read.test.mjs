@@ -61,7 +61,7 @@ test("OS reads a manual LINE room status without accepting malformed pending cel
   const input = fixture("owner");
   const pending = [{ roomId: randomUUID(), date: "2026-11-10", desired: "closed" }];
   const booking = { ...input.booking, source: "line", channelSyncState: "action_required",
-    lineChannelPending: pending };
+    lineChannelPending: pending, lineChannelActionRequiredAt: "2026-11-01T00:00:00Z" };
   assert.deepEqual(await readIronGateBooking(input.store, input.accountId, input.slug,
     input.propertyId, input.bookingId, input.config,
     async () => Response.json(booking)), booking);
@@ -76,7 +76,8 @@ test("room-action list is membership-scoped, paginated, and projects only safe f
   const input = fixture("viewer_no_price"), cursor = "synthetic_Cursor_1";
   const pending = [{ roomId: randomUUID(), date: "2026-11-10", desired: "closed" }];
   const booking = { ...input.booking, source: "line", channelSyncState: "action_required",
-    lineChannelPending: pending, guestName: "Synthetic Guest" };
+    lineChannelPending: pending, lineChannelActionRequiredAt: "2026-11-01T00:00:00Z",
+    guestName: "Synthetic Guest" };
   const send = async (url, options) => {
     assert.match(url, /limit=50/);
     assert.match(url, /attention=true/);
@@ -91,7 +92,8 @@ test("room-action list is membership-scoped, paginated, and projects only safe f
   assert.deepEqual(await listIronGateRoomActions(input.store, input.accountId, input.slug,
     input.propertyId, cursor, input.config, send), { rows: [{
     id: input.bookingId, status: "confirmed", channelSyncState: "action_required",
-    guestName: "Synthetic Guest", createdAt: booking.createdAt, stays: [],
+    guestName: "Synthetic Guest", createdAt: booking.createdAt,
+    actionRequiredAt: booking.lineChannelActionRequiredAt, stays: [],
     pendingClose: 1, pendingOpen: 0,
   }], nextCursor: "next_Cursor_2" });
   await assert.rejects(listIronGateRoomActions(input.store, input.accountId, input.slug,

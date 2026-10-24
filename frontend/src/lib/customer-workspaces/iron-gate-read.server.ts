@@ -20,7 +20,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const RESPONSE_FIELDS = new Set(["id", "workspaceId", "propertyId", "version", "status",
   "channelSyncState", "stays", "createdAt", "source", "guestName", "contact", "notes",
-  "totalCents", "currency", "paymentSummary", "hold", "lineChannelPending"]);
+  "totalCents", "currency", "paymentSummary", "hold", "lineChannelPending",
+  "lineChannelActionRequiredAt"]);
 const HOLD_FIELDS = new Set(["schema", "scope", "startedAt", "expiresAt", "state",
   "convertedAt", "releasedAt", "latePaymentReview"]);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -45,6 +46,13 @@ function safeBookingShape(booking: Record<string, unknown>, canReadMoney: boolea
   if ("totalCents" in booking && booking.totalCents !== null &&
     (!Number.isSafeInteger(booking.totalCents) || Number(booking.totalCents) < 0)) return false;
   if ("currency" in booking && booking.currency !== "TWD") return false;
+  if ("lineChannelActionRequiredAt" in booking &&
+    booking.lineChannelActionRequiredAt !== null &&
+    (typeof booking.lineChannelActionRequiredAt !== "string" ||
+      !INSTANT.test(booking.lineChannelActionRequiredAt))) return false;
+  if (booking.channelSyncState === "action_required" &&
+    (typeof booking.lineChannelActionRequiredAt !== "string" ||
+      !INSTANT.test(booking.lineChannelActionRequiredAt))) return false;
   if ("lineChannelPending" in booking && (!Array.isArray(booking.lineChannelPending) ||
     booking.lineChannelPending.length > 4096 || booking.lineChannelPending.some((cell) =>
       !object(cell) || Object.keys(cell).sort().join(",") !== "date,desired,roomId" ||
@@ -188,6 +196,7 @@ export type IronGateRoomActionRow = {
   channelSyncState: "not_required" | "action_required" | "pending" | "verified" | "review_required";
   guestName: string | null;
   createdAt: string;
+  actionRequiredAt: string | null;
   stays: { checkIn: string; checkOut: string; roomIds: string[] }[];
   pendingClose: number;
   pendingOpen: number;
@@ -264,6 +273,8 @@ export async function listIronGateRoomActions(
       channelSyncState: value.channelSyncState as IronGateRoomActionRow["channelSyncState"],
       guestName: typeof value.guestName === "string" ? value.guestName : null,
       createdAt: value.createdAt as string,
+      actionRequiredAt: typeof value.lineChannelActionRequiredAt === "string" ?
+        value.lineChannelActionRequiredAt : null,
       stays: value.stays as IronGateRoomActionRow["stays"],
       pendingClose: cells.filter((cell) => cell.desired === "closed").length,
       pendingOpen: cells.filter((cell) => cell.desired === "open").length });

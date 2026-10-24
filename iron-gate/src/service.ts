@@ -227,7 +227,15 @@ function linePendingCells(baseline: Night[], current: Night[]): DesiredCell[] {
 function linePendingFenceKey(bookingId: string): string { return `line:action:${bookingId}`; }
 function updateLinePending(state: PropertyState, booking: Booking, current: Night[]): void {
   const baseline = booking.lineChannelBaselineNights ?? [];
-  booking.lineChannelPending = linePendingCells(baseline, current);
+  const pending = linePendingCells(baseline, current);
+  const previous = booking.lineChannelPending ?? [];
+  const sameWork = previous.length === pending.length && previous.every((cell, index) =>
+    keyOf(cell) === keyOf(pending[index]) && cell.desired === pending[index].desired);
+  booking.lineChannelActionRequiredAt = pending.length ?
+    booking.channelSyncState === "action_required" && sameWork &&
+      booking.lineChannelActionRequiredAt ? booking.lineChannelActionRequiredAt :
+      new Date().toISOString() : null;
+  booking.lineChannelPending = pending;
   booking.channelOperationKey = null;
   booking.channelSyncState = booking.lineChannelPending.length ? "action_required" :
     baseline.length ? "verified" : "not_required";
@@ -279,6 +287,9 @@ function publicBooking(booking: Booking, principal: Principal): Record<string, u
   if ((principal.origin === "os" || lineManagesAll(principal)) &&
     booking.lineChannelPending !== undefined)
     result.lineChannelPending = structuredClone(booking.lineChannelPending);
+  if ((principal.origin === "os" || lineManagesAll(principal)) &&
+    booking.lineChannelActionRequiredAt !== undefined)
+    result.lineChannelActionRequiredAt = booking.lineChannelActionRequiredAt;
   if (lineManagesAll(principal)) result.sourceReviewRequired = booking.lineOverridePending === true;
   if (lineManagesAll(principal)) result.bookedAt = booking.bookedAt;
   // Field grants are server-authenticated. Public website queries use a separate order credential.
@@ -788,17 +799,19 @@ export class IronGateService {
       // pre-write claim to the exact booking it will later read back.
       const bookingId = principal.origin === "line" ? requestKey : crypto.randomUUID();
       if (state.bookings.some((item) => item.id === bookingId)) reject("BOOKING_ID_CONFLICT", 409);
+      const createdAt = new Date().toISOString();
       const booking: Booking = {
         id: bookingId, workspaceId: state.workspaceId, propertyId, version: 1,
         status: "confirmed", channelSyncState: manual ? "action_required" :
           operationKey ? "pending" : "not_required",
         channelOperationKey: operationKey, stays: structuredClone(input.stays),
         ...(manual ? { lineChannelBaselineNights: [],
-          lineChannelPending: cells.map((cell) => ({ ...cell, desired: "closed" as const })) } : {}),
+          lineChannelPending: linePendingCells([], cells),
+          lineChannelActionRequiredAt: createdAt } : {}),
         guestName: input.guestName, contact: input.contact, notes: input.notes,
         totalCents: input.totalCents, currency: "TWD", bookedAt: input.bookedAt,
         ...(input.roomNightPrices ? { roomNightPrices: structuredClone(input.roomNightPrices) } : {}),
-        createdAt: new Date().toISOString(), source: input.source,
+        createdAt, source: input.source,
         sourceKey: input.source === "line" ? `line:${principal.grantId}` : null,
       };
       state.bookings.push(booking);

@@ -269,6 +269,7 @@ components:
             manageAll: { type: boolean, description: Present only on a separately marked all-bookings LINE grant. }
         status: { type: string, enum: [held, confirmed, cancelled] }
         channelSyncState: { type: string, enum: [not_required, action_required, pending, verified, review_required] }
+        lineChannelActionRequiredAt: { type: [string, 'null'], format: date-time, description: OS and LINE manage-all only; start of the current exact staff room-action set, null after the set is cleared. }
         lineChannelPending:
           type: array
           description: Present on OS and LINE manage-all reads; exact booking-bound nights still needing staff action.

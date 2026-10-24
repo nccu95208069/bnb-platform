@@ -19,7 +19,9 @@ const stateLabel: Record<string, string> = {
 };
 
 function waitingAge(createdAt: string): string {
-  const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(createdAt)) / 60_000));
+  const parsed = Date.parse(createdAt);
+  if (!Number.isFinite(parsed)) return "待核對";
+  const minutes = Math.max(0, Math.floor((Date.now() - parsed) / 60_000));
   return minutes >= 1440 ? `${Math.floor(minutes / 1440)} 天` :
     minutes >= 60 ? `${Math.floor(minutes / 60)} 小時` : `${minutes} 分鐘`;
 }
@@ -88,7 +90,8 @@ export default async function Page({ params, searchParams }: {
           </div>
           <p className="mt-2 text-sm">{row.stays.map((stay) => `${stay.checkIn} → ${stay.checkOut}`).join("、") || "住宿日期未填"}</p>
           <p className="mt-1 text-sm text-slate-600">待關 {row.pendingClose} 房晚 · 待開 {row.pendingOpen} 房晚</p>
-          <p className="mt-1 text-sm text-slate-600">建立後已過 {waitingAge(row.createdAt)}</p>
+          <p className="mt-1 text-sm text-slate-600">{row.channelSyncState === "action_required" ?
+            "待員工處理已過 " : "訂單建立後已過 "}{waitingAge(row.actionRequiredAt ?? row.createdAt)}</p>
           <p className="mt-1 break-all text-xs text-slate-500">訂單 {row.id}</p>
         </li>)}
       </ul>

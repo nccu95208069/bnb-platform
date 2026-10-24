@@ -61,6 +61,8 @@ export type Booking = {
   lineChannelBaselineNights?: Night[];
   /** Exact room-night work still requiring a separate staff confirmation. */
   lineChannelPending?: DesiredCell[];
+  /** When the current exact staff-action set first became required. */
+  lineChannelActionRequiredAt?: string | null;
   stays: Stay[];
   guestName: string | null;
   contact: string | null;
