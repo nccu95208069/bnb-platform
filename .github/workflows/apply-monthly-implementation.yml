@@ -1,0 +1,37 @@
+name: Apply reviewed monthly integration
+on:
+  push:
+    branches: [feat/dashboard-monthly-20261024]
+    paths: ['.github/workflows/apply-monthly-implementation.yml']
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply exact reviewed integration to this feature branch only
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = feat/dashboard-monthly-20261024
+          python - <<'PY'
+          import hashlib,pathlib,subprocess
+          p=pathlib.Path('iron-gate/src/business-metrics.ts')
+          assert hashlib.sha1(p.read_bytes()).hexdigest()=='9d870ad2e5a8bf5ef3aa48977b7e979de7b6e658'
+          s=p.read_text().replace('function normalizeBooking(input: BusinessBooking): NormalizedBooking {','export function normalizeBusinessBooking(input: BusinessBooking): NormalizedBooking {').replace('confirmed.map(normalizeBooking)','confirmed.map(normalizeBusinessBooking)')
+          p.write_text(s)
+          p=pathlib.Path('iron-gate/src/business-report.ts')
+          assert hashlib.sha1(p.read_bytes()).hexdigest()=='df70baf1b856a3331ebafa15e882b9ec62a0a651'
+          s=p.read_text().replace('import { GateError }','import { computeMonthlyBusinessMetrics, type MonthlyBusinessReport } from "./monthly-business-metrics.ts";\nimport { GateError }')
+          s=s.replace('export type BusinessReport = BusinessPulseData & {','export type BusinessReport = BusinessPulseData & {\n  monthly: MonthlyBusinessReport | null;')
+          s=s.replace('  return { ...report, meta:','  // Isolate a monthly-only data problem from the already-live daily report.\n  let monthly: MonthlyBusinessReport | null = null;\n  try {\n    monthly = computeMonthlyBusinessMetrics(input, { now, roomCount: state.roomIds.length });\n  } catch { /* Monthly consumers show unavailable; never substitute a zero report. */ }\n  return { ...report, monthly, meta:')
+          p.write_text(s)
+          subprocess.run(['git','add','iron-gate/src/business-metrics.ts','iron-gate/src/business-report.ts'],check=True)
+          assert sorted(subprocess.check_output(['git','diff','--cached','--name-only']).decode().splitlines())==['iron-gate/src/business-metrics.ts','iron-gate/src/business-report.ts']
+          PY
+          git config user.name 'Dashboard migration automation'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: wire monthly aggregation into the existing scoped business report'
+          git push origin HEAD:refs/heads/feat/dashboard-monthly-20261024
