@@ -1,9 +1,11 @@
 import { computeBusinessMetrics, type BusinessBooking, type BusinessPulseData } from "./business-metrics.ts";
+import { computeMonthlyBusinessMetrics, type MonthlyBusinessReport } from "./monthly-business-metrics.ts";
 import { GateError } from "./errors.ts";
 import type { Booking, NightPrice, PropertyState } from "./types.ts";
 import { firstNotificationAt, notificationCoverageFrom } from "./source-notification.ts";
 
 export type BusinessReport = BusinessPulseData & {
+  monthly: MonthlyBusinessReport | null;
   meta: BusinessPulseData["meta"] & {
     inventoryVersion: number;
     authorityEpoch: number;
@@ -152,6 +154,11 @@ export function createBusinessReport(state: PropertyState,
   } catch { invalidReport(); }
   if (unknownPlatformBookings) report.meta.warnings.push(
     `${unknownPlatformBookings} 筆訂單的來源平台無法確認，歸入其他。`);
-  return { ...report, meta: { ...report.meta, inventoryVersion: state.version,
+  // Isolate a monthly-only data problem from the already-live daily report.
+  let monthly: MonthlyBusinessReport | null = null;
+  try {
+    monthly = computeMonthlyBusinessMetrics(input, { now, roomCount: state.roomIds.length });
+  } catch { /* Monthly consumers show unavailable; never substitute a zero report. */ }
+  return { ...report, monthly, meta: { ...report.meta, inventoryVersion: state.version,
     authorityEpoch: state.authorityEpoch, readOnly: false, saleReady: false, unknownPlatformBookings } };
 }

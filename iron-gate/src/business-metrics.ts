@@ -148,7 +148,7 @@ function allocate(cents: number, count: number, index: number): number {
   return Math.floor(cents / count) + (index < cents % count ? 1 : 0);
 }
 
-function normalizeBooking(input: BusinessBooking): NormalizedBooking {
+export function normalizeBusinessBooking(input: BusinessBooking): NormalizedBooking {
   if (!input.id?.trim() || (input.totalCents !== null && !validCents(input.totalCents)) || !Array.isArray(input.stays) || input.stays.length === 0) invalidInput();
   const amountKnown = input.totalCents !== null;
   const totalCents = input.totalCents ?? 0;
@@ -277,7 +277,7 @@ export function computeBusinessMetrics(
     } else canonical.set(key, booking);
   }
   const confirmed = [...canonical.values()].filter((booking) => booking.status === "confirmed");
-  const orders = confirmed.map(normalizeBooking);
+  const orders = confirmed.map(normalizeBusinessBooking);
   const unknown = orders.filter((order) => order.bookedOn === null);
   const unknownDaily = orders.filter((order) => order.countedOn === null);
   const notificationDateOrders = orders.filter((order) => order.dateBasis === "notification").length;
