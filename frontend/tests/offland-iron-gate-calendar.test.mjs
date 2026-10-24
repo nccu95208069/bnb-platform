@@ -87,4 +87,13 @@ test('Offland authority flag requires an independent epoch and a single villa ro
   const good = config();
   assert.equal(good.propertyKey, 'offland');
   assert.deepEqual(Object.keys(good.roomIds), ['包棟']);
+  const inherited = offlandIronGateCalendarConfig({
+    IRON_GATE_OFFLAND_CALENDAR_ENABLED: 'true',
+    IRON_GATE_OFFLAND_CALENDAR_GRANT: JSON.stringify(grant),
+    IRON_GATE_OFFLAND_ROOM_IDS: JSON.stringify({ '包棟': roomId }),
+    IRON_GATE_SWEETFUN_OS_PROOF_SECRET: secret,
+    IRON_GATE_OFFLAND_BASE_URL: 'https://iron-gate.example/',
+    IRON_GATE_OFFLAND_AUTHORITY_EPOCH: '1',
+  });
+  assert.equal(inherited.proofSecret, secret);
 });

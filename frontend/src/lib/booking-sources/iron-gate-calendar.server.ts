@@ -136,7 +136,10 @@ export function offlandIronGateCalendarConfig(
     if (authority === preview) throw Error();
     const grant = JSON.parse(env.IRON_GATE_OFFLAND_CALENDAR_GRANT ?? 'null') as unknown;
     const roomIds = JSON.parse(env.IRON_GATE_OFFLAND_ROOM_IDS ?? 'null') as unknown;
-    const secret = env.IRON_GATE_OFFLAND_OS_PROOF_SECRET ?? '';
+    // Iron Gate verifies one server-side OS proof key across property-scoped
+    // grants. Reuse the existing key without copying it into another env var.
+    const secret = env.IRON_GATE_OFFLAND_OS_PROOF_SECRET ??
+      env.IRON_GATE_SWEETFUN_OS_PROOF_SECRET ?? '';
     const epoch = authority ? Number(env.IRON_GATE_OFFLAND_AUTHORITY_EPOCH) : 0;
     const version = preview ? Number(env.IRON_GATE_OFFLAND_SNAPSHOT_VERSION) : null;
     const sourceHash = preview ? env.IRON_GATE_OFFLAND_SNAPSHOT_HASH ?? null : null;
