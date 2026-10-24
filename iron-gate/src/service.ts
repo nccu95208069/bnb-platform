@@ -513,7 +513,8 @@ function requireOsStockWindow(state: PropertyState, cells: Night[]): void {
 }
 function verifiedOwnManualClose(state: PropertyState, booking: Booking, cells: Night[]): boolean {
   const operation = state.operations.find((item) => item.key === booking.channelOperationKey);
-  if (!operation || operation.bookingId !== booking.id ||
+  if (booking.source !== "os" || booking.channelSyncState !== "verified" ||
+    !operation || operation.bookingId !== booking.id ||
     operation.state !== "sync_verified" || operation.manualInitialClose !== true ||
     operation.ownCloseWriteRequired !== true ||
     operation.initialOpenPreflight?.status !== "open" ||
