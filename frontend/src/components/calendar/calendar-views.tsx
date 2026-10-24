@@ -6,11 +6,12 @@ import {useT} from "@/components/i18n/language-provider";
 import { PaymentBadge } from "./payment-badge";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useMonthPosition } from "./use-month-position";
-import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
+import { BedDouble, ChevronUp, LoaderCircle, LogIn, LogOut, Moon } from "lucide-react";
 
 import { GuestRemarks, remarksFor, BookingIdentity, bookingIdentityText, realGuestName } from "./booking-identity";
 import { layoutMonthWeek, monthBookingFontSize, monthWeekPresentation } from "./month-layout";
 import { useCalendarPreferences } from "./calendar-preferences";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type {
@@ -344,9 +345,10 @@ const uiLocale = useIntlLocale();
 // month boundaries without React replacing the scroll container's children.
 const LazyMonthPanel = memo(function LazyMonthPanel({ monthStart, covered,
   viewportHeight, fontScale, desktop, bookings, rooms, properties,
-  onSelectBooking, onSelectDay, root, initialActive }: CalendarViewProps & {
+  onSelectBooking, onSelectDay, root, initialActive, failed, onRetry }: CalendarViewProps & {
   monthStart: string; covered: boolean; viewportHeight: number;
   fontScale: number; desktop: boolean; initialActive: boolean;
+  failed: boolean; onRetry?: () => void;
   root: RefObject<HTMLDivElement | null>;
 }) {
   const uiLocale = useIntlLocale();
@@ -381,15 +383,28 @@ const LazyMonthPanel = memo(function LazyMonthPanel({ monthStart, covered,
 
   return <div ref={ref} data-position-month={monthStart}
     style={near && covered ? { minHeight: viewportHeight } : { height: Math.max(height, viewportHeight) }}
-    className="bg-card">
+    className={cn("bg-card", !(near && covered) && "flex flex-col")}>
     {near && covered ? <MonthPanel monthStart={monthStart} covered
       viewportHeight={viewportHeight} fontScale={fontScale} desktop={desktop}
       bookings={bookings} rooms={rooms} properties={properties}
       onSelectBooking={onSelectBooking} onSelectDay={onSelectDay} /> :
-      <div className="sticky top-0 flex h-8 items-center justify-between border-y bg-background px-3">
-        <span className="font-semibold">{formatMonthLabel(monthStart, uiLocale)}</span>
-        {near && !covered && <span className="text-xs text-muted-foreground">{uiText('訂單尚未載入')}</span>}
-      </div>}
+      <>
+        <div className="sticky top-0 flex h-8 shrink-0 items-center border-y bg-background px-3">
+          <span className="font-semibold">{formatMonthLabel(monthStart, uiLocale)}</span>
+        </div>
+        {near && !covered && <div role={failed ? "alert" : "status"}
+          aria-live={failed ? "assertive" : "polite"}
+          className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4 text-center text-sm text-muted-foreground">
+          {failed ? <Button variant="outline" size="sm" onClick={onRetry}>
+            {uiText("此月份暫時無法讀取，點此重試")}
+          </Button> : <>
+            <span aria-hidden="true" className="animate-spin text-primary motion-reduce:animate-none">
+              <LoaderCircle className="size-7" />
+            </span>
+            <span>{uiText("讀取訂單與房況中")}</span>
+          </>}
+        </div>}
+      </>}
   </div>;
 });
 
@@ -398,6 +413,8 @@ export function MonthScroller({
   coveredMonths,
   targetMonth,
   targetRevision,
+  failedMonth,
+  onRetry,
   bookings,
   rooms,
   properties,
@@ -410,6 +427,8 @@ export function MonthScroller({
   targetMonth: string;
   targetDate?: string;
   targetRevision?: number;
+  failedMonth?: string;
+  onRetry?: () => void;
   onVisibleMonthChange: (month: string) => void;
 }) {
   const uiText = useT();
@@ -455,6 +474,8 @@ export function MonthScroller({
           key={monthStart}
           monthStart={monthStart}
           covered={!coveredMonths || coveredMonths.includes(monthStart)}
+          failed={failedMonth === monthStart}
+          onRetry={onRetry}
           initialActive={monthStart === targetMonth}
           root={scrollRef}
           viewportHeight={viewportHeight}

@@ -261,6 +261,7 @@ const uiLocale = useIntlLocale();
     setMonthTarget(month);
   }, [historyRevision, cancelScrollCommit]);
   const [reloadKey, setReloadKey] = useState(0);
+  const retryCalendar = useCallback(() => setReloadKey((value) => value + 1), []);
   const [manualMode, setManualMode] = useState<"create" | "amend" | "cancel" | "sync" | null>(null);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
   const [editsHydrated, setEditsHydrated] = useState(false);
@@ -968,7 +969,7 @@ const uiLocale = useIntlLocale();
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setReloadKey((value) => value + 1)}
+            onClick={retryCalendar}
           >
             {uiText("重試")}</Button>
         </div>
@@ -995,6 +996,8 @@ const uiLocale = useIntlLocale();
                   const period = fetchPeriod(month, "month", true);
                   return hasCalendarCoverage(data, period.start, period.end);
                 })}
+                failedMonth={error && !loading ? previewMonth : undefined}
+                onRetry={retryCalendar}
                 targetMonth={monthTarget}
                 targetDate={anchorDate}
                 targetRevision={todayRequest + historyRevision}
