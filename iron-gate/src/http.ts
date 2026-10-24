@@ -1,5 +1,5 @@
 import { GateError, IronGateService } from "./service.ts";
-import type { AmendBookingInput, CreateBookingInput, CreateHoldInput, ExtendHoldInput, LineInventoryInput, LineInventoryBatchInput, LineBulkCancelInput, PaymentEventInput,
+import type { AmendBookingInput, CreateBookingInput, CreateHoldInput, ExtendHoldInput, LineInventoryInput, LineInventoryBatchInput, LineBulkCancelInput, LineChannelActionInput, PaymentEventInput,
   Principal, ReadbackInput, SourceEventInput, SourceFactsInput, SourceOrderLookupInput } from "./types.ts";
 
 export type Authenticate = (request: Request) => Promise<Principal | null>;
@@ -63,20 +63,20 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         parts.length === 4 && request.method === "POST") {
         const value = await body(request);
         exact(value, ["expectedInventoryVersion", "stays", "guestName", "contact", "notes", "totalCents", "bookedAt", "source"],
-          ["roomNightPrices"]);
+          ["roomNightPrices", "channelPolicy"]);
         return json(await service.previewLineCreate(principal, parts[2], value as CreateBookingInput));
       }
       if (parts[1] === "properties" && parts[2] && parts.length === 4 &&
         parts[3] === "line-bulk-cancel-previews" && request.method === "POST") {
         const value = await body(request);
-        exact(value, ["expectedInventoryVersion", "bookings"]);
+        exact(value, ["expectedInventoryVersion", "bookings"], ["channelPolicy"]);
         return json(await service.previewLineBulkCancel(principal, parts[2],
           value as LineBulkCancelInput));
       }
       if (parts[1] === "properties" && parts[2] && parts.length === 4 &&
         parts[3] === "line-bulk-cancels" && request.method === "POST") {
         const value = await body(request);
-        exact(value, ["expectedInventoryVersion", "bookings"]);
+        exact(value, ["expectedInventoryVersion", "bookings"], ["channelPolicy"]);
         return json(await service.bulkCancelLineBookings(principal, parts[2],
           requestKey(request), value as LineBulkCancelInput,
           request.headers.get("x-iron-gate-line-preview")), 202);
@@ -114,6 +114,16 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         parts[3] === "line-capabilities" && request.method === "GET") {
         return json(await service.lineCapabilities(principal, parts[2]));
       }
+      if (parts[1] === "properties" && parts[2] && parts[3] === "line-channel-actions") {
+        if (parts.length === 6 && parts[4] === "requests" && request.method === "GET") {
+          const result = await service.requestResult(principal, parts[2], parts[5]);
+          if (!result.bookingId || !result.operationKey || !Array.isArray(result.cells))
+            throw new GateError("REQUEST_NOT_FOUND", 404);
+          return json(result);
+        }
+        if (parts.length === 5 && request.method === "GET")
+          return json(await service.lineChannelAction(principal, parts[2], parts[4]));
+      }
       if (parts[1] === "properties" && parts[2] && parts[3] === "bookings") {
         const propertyId = parts[2];
         if (parts.length === 4 && request.method === "GET") {
@@ -127,7 +137,7 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         if (parts.length === 4 && request.method === "POST") {
           const value = await body(request);
           exact(value, ["expectedInventoryVersion", "stays", "guestName", "contact", "notes", "totalCents", "bookedAt", "source"],
-            ["roomNightPrices"]);
+            ["roomNightPrices", "channelPolicy"]);
           const result = await service.createBooking(principal, propertyId, requestKey(request),
             value as CreateBookingInput, request.headers.get("x-iron-gate-line-preview"));
           return json(result, result.operationState === "sync_pending" ? 202 : 201);
@@ -137,7 +147,8 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         }
         if (parts.length === 5 && request.method === "PATCH") {
           const value = await body(request);
-          exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "changes"]);
+          exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "changes"],
+            ["channelPolicy"]);
           const result = await service.amendBooking(principal, propertyId, parts[4], requestKey(request),
             value as AmendBookingInput, request.headers.get("x-iron-gate-line-preview"));
           return json(result, result.operationState === "sync_pending" ? 202 : 200);
@@ -151,18 +162,32 @@ export function createHandler(service: IronGateService, authenticate: Authentica
           if (!input || typeof input !== "object" || Array.isArray(input))
             throw new GateError("INVALID_INPUT", 400);
           exact(input as Record<string, unknown>, ["expectedBookingVersion", "expectedInventoryVersion"],
-            value.action === "amend" ? ["changes"] : []);
+            value.action === "amend" ? ["changes", "channelPolicy"] : ["channelPolicy"]);
           if (value.action === "amend" && !("changes" in input))
             throw new GateError("INVALID_INPUT", 400);
           return json(await service.previewLineAction(principal, propertyId, parts[4],
             value.action, input as AmendBookingInput));
         }
+        if (parts.length === 6 && parts[5] === "line-channel-action-previews" && request.method === "POST") {
+          const value = await body(request);
+          exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "desired", "cells"]);
+          return json(await service.previewLineChannelAction(principal, propertyId, parts[4],
+            value as LineChannelActionInput));
+        }
+        if (parts.length === 6 && parts[5] === "line-channel-actions" && request.method === "POST") {
+          const value = await body(request);
+          exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "desired", "cells"]);
+          return json(await service.requestLineChannelAction(principal, propertyId, parts[4],
+            requestKey(request), value as LineChannelActionInput,
+            request.headers.get("x-iron-gate-line-preview")), 202);
+        }
         if (parts.length === 6 && parts[5] === "cancel" && request.method === "POST") {
           const value = await body(request);
-          exact(value, ["expectedBookingVersion", "expectedInventoryVersion"]);
+          exact(value, ["expectedBookingVersion", "expectedInventoryVersion"], ["channelPolicy"]);
           const result = await service.cancelBooking(principal, propertyId, parts[4], requestKey(request),
             value.expectedBookingVersion as number, value.expectedInventoryVersion as number,
-            request.headers.get("x-iron-gate-line-preview"));
+            request.headers.get("x-iron-gate-line-preview"),
+            value.channelPolicy as "manual" | undefined);
           return json(result, result.operationState === "sync_pending" ? 202 : 200);
         }
         if (parts.length === 6 && parts[5] === "payment-events" && request.method === "POST") {
@@ -275,7 +300,8 @@ export function createHandler(service: IronGateService, authenticate: Authentica
       if (parts[1] === "inventory-operations" && parts[2] && parts[3] === "readback" &&
         parts.length === 4 && request.method === "POST") {
         const value = await body(request);
-        exact(value, ["propertyId", "providerVersion", "observedAt", "cells"]);
+        exact(value, ["propertyId", "providerVersion", "observedAt", "cells"],
+          ["appliedClosedCells"]);
         const result = await service.recordChannelReadback(principal,
           { ...value, operationKey: parts[2] } as ReadbackInput);
         return json(result, result.state === "review_required" ? 409 : 200);

@@ -1,5 +1,5 @@
 export type BookingStatus = "held" | "confirmed" | "cancelled";
-export type ChannelSyncState = "not_required" | "pending" | "verified" | "review_required";
+export type ChannelSyncState = "not_required" | "action_required" | "pending" | "verified" | "review_required";
 export type OperationState = "sync_pending" | "sync_verified" | "review_required";
 export type Action =
   | "booking:read"
@@ -57,6 +57,10 @@ export type Booking = {
   status: BookingStatus;
   channelSyncState: ChannelSyncState;
   channelOperationKey: string | null;
+  /** LINE manual policy: provider-proven closed nights before any unconfirmed local edit. */
+  lineChannelBaselineNights?: Night[];
+  /** Exact room-night work still requiring a separate staff confirmation. */
+  lineChannelPending?: DesiredCell[];
   stays: Stay[];
   guestName: string | null;
   contact: string | null;
@@ -126,6 +130,15 @@ export type ChannelOperation = {
   createdAt: string;
   verifiedAt: string | null;
   providerVersion: string | null;
+  /** Present only for staff-confirmed, booking-bound LINE operations. */
+  lineGrantId?: string;
+  lineActorId?: string;
+  /** A pre-existing closed cell cannot prove it was closed for this booking. */
+  ownCloseWriteRequired?: boolean;
+  /** Bounded owner-login failures before a manual review, with no provider write. */
+  preflightFailures?: number;
+  /** A successful alert callback acknowledgement; retry until it is recorded. */
+  reviewAlertedAt?: string;
   observations?: {
     observedAt: string;
     providerVersion: string;
@@ -138,7 +151,7 @@ export type ChannelOperation = {
 export type Fence = {
   key: string;
   cells: Night[];
-  reason: "channel_pending" | "source_review";
+  reason: "channel_pending" | "source_review" | "line_action_required";
 };
 
 export type RequestReceipt = {
@@ -194,6 +207,8 @@ export type CreateBookingInput = {
   roomNightPrices?: NightPrice[];
   bookedAt: string | null;
   source: "os" | "line" | "website";
+  /** Opt-in rollout policy, bound into the LINE preview and request receipt. */
+  channelPolicy?: "manual";
 };
 
 export type LineInventoryInput = {
@@ -209,6 +224,13 @@ export type LineInventoryBatchInput = {
   desired: "closed" | "open";
 };
 
+export type LineChannelActionInput = {
+  expectedBookingVersion: number;
+  expectedInventoryVersion: number;
+  desired: "closed" | "open";
+  cells: Night[];
+};
+
 export type CreateHoldInput = Omit<CreateBookingInput, "source">;
 
 export type ExtendHoldInput = {
@@ -220,11 +242,13 @@ export type AmendBookingInput = {
   expectedBookingVersion: number;
   expectedInventoryVersion: number;
   changes: Partial<Pick<Booking, "stays" | "guestName" | "contact" | "notes" | "totalCents" | "roomNightPrices">>;
+  channelPolicy?: "manual";
 };
 
 export type LineBulkCancelInput = {
   expectedInventoryVersion: number;
   bookings: { bookingId: string; expectedBookingVersion: number }[];
+  channelPolicy?: "manual";
 };
 
 export type PaymentEventInput = {
@@ -276,13 +300,15 @@ export type ReadbackInput = {
   providerVersion: string;
   observedAt: string;
   cells: ObservedCell[];
+  /** Cells with an acknowledged PUT by this exact operation. */
+  appliedClosedCells?: Night[];
 };
 
 export type BookingReceipt = {
   bookingId: string;
   bookingVersion: number;
   inventoryVersion: number;
-  operationState: OperationState | "local_only";
+  operationState: OperationState | "local_only" | "not_required" | "action_required";
   operationKey: string | null;
   refundReviewRequired: boolean;
   sourceReviewRequired?: boolean;
@@ -296,7 +322,7 @@ export type EventType =
   | "source.facts_enriched"
   | "source.notification_recorded"
   | "reporting.policy_recorded"
-  | "channel.verified" | "channel.review_required";
+  | "channel.requested" | "channel.verified" | "channel.review_required";
 
 export type PendingEvent = {
   eventId: string;

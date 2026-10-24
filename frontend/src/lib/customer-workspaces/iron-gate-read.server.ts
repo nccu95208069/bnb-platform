@@ -20,7 +20,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const RESPONSE_FIELDS = new Set(["id", "workspaceId", "propertyId", "version", "status",
   "channelSyncState", "stays", "createdAt", "source", "guestName", "contact", "notes",
-  "totalCents", "currency", "paymentSummary", "hold"]);
+  "totalCents", "currency", "paymentSummary", "hold", "lineChannelPending"]);
 const HOLD_FIELDS = new Set(["schema", "scope", "startedAt", "expiresAt", "state",
   "convertedAt", "releasedAt", "latePaymentReview"]);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -33,7 +33,8 @@ function object(value: unknown): value is Record<string, unknown> {
 function safeBookingShape(booking: Record<string, unknown>, canReadMoney: boolean): boolean {
   if (!Number.isSafeInteger(booking.version) || Number(booking.version) < 1 ||
     !["held", "confirmed", "cancelled"].includes(String(booking.status)) ||
-    !["not_required", "pending", "verified", "review_required"].includes(String(booking.channelSyncState)) ||
+    !["not_required", "action_required", "pending", "verified", "review_required"]
+      .includes(String(booking.channelSyncState)) ||
     !["os", "line", "website", "external"].includes(String(booking.source)) ||
     typeof booking.createdAt !== "string" || !INSTANT.test(booking.createdAt) ||
     !Array.isArray(booking.stays) || booking.stays.length > 32) return false;
@@ -44,6 +45,12 @@ function safeBookingShape(booking: Record<string, unknown>, canReadMoney: boolea
   if ("totalCents" in booking && booking.totalCents !== null &&
     (!Number.isSafeInteger(booking.totalCents) || Number(booking.totalCents) < 0)) return false;
   if ("currency" in booking && booking.currency !== "TWD") return false;
+  if ("lineChannelPending" in booking && (!Array.isArray(booking.lineChannelPending) ||
+    booking.lineChannelPending.length > 4096 || booking.lineChannelPending.some((cell) =>
+      !object(cell) || Object.keys(cell).sort().join(",") !== "date,desired,roomId" ||
+      !UUID.test(String(cell.roomId)) || typeof cell.date !== "string" ||
+      !DATE.test(cell.date) || !["open", "closed"].includes(String(cell.desired)))))
+    return false;
   for (const stay of booking.stays) {
     if (!object(stay) || Object.keys(stay).some((key) => !["checkIn", "checkOut", "roomIds"].includes(key)) ||
       typeof stay.checkIn !== "string" || !DATE.test(stay.checkIn) ||
@@ -173,6 +180,90 @@ export async function readIronGateBooking(
     !safeBookingShape(booking, claims.fields.includes("money")))
     throw new Error("IRON_GATE_READ_FAILED");
   return booking;
+}
+
+export type IronGateRoomActionRow = {
+  id: string;
+  status: "held" | "confirmed" | "cancelled";
+  channelSyncState: "not_required" | "action_required" | "pending" | "verified" | "review_required";
+  guestName: string | null;
+  createdAt: string;
+  stays: { checkIn: string; checkOut: string; roomIds: string[] }[];
+  pendingClose: number;
+  pendingOpen: number;
+};
+
+/** One bounded, membership-scoped page for the read-only room action and cancelled view. */
+export async function listIronGateRoomActions(
+  store: CustomerStore, accountId: string, slug: string, propertyId: string,
+  cursor: string | null, config: IronGateReadConfig, send: typeof fetch = fetch,
+): Promise<{ rows: IronGateRoomActionRow[]; nextCursor: string | null }> {
+  if (!UUID.test(propertyId) || cursor !== null && !/^[A-Za-z0-9_-]{1,512}$/.test(cursor))
+    throw new Error("INVALID_INPUT");
+  const grant = config.grants.find((item) => item.propertyId === propertyId);
+  if (!grant) throw new Error("NOT_FOUND");
+  const url = new URL(`${configuredBaseUrl(config.baseUrl)}/v1/properties/${propertyId}/bookings`);
+  url.searchParams.set("limit", "50");
+  if (cursor) url.searchParams.set("cursor", cursor);
+  const proof = await signCurrentIronGateMembership(store, accountId, slug,
+    new Request(url, { method: "GET" }), grant, config.proofSecret);
+  const claims = JSON.parse(Buffer.from(proof.split(".")[0], "base64url").toString("utf8")) as {
+    fields: string[];
+  };
+  let response: Response;
+  try {
+    response = await send(url.toString(), { method: "GET", headers: {
+      authorization: `Bearer ${grant.token}`, "x-iron-gate-os-proof": proof,
+    }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(3000) });
+  } catch { throw new Error("IRON_GATE_READ_FAILED"); }
+  if (!response.ok) throw new Error("IRON_GATE_READ_FAILED");
+  const length = Number(response.headers.get("content-length") ?? "0");
+  if (!Number.isSafeInteger(length) || length > 512 * 1024) throw new Error("IRON_GATE_READ_FAILED");
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("IRON_GATE_READ_FAILED");
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > 512 * 1024) { await reader.cancel(); throw new Error("IRON_GATE_READ_FAILED"); }
+      chunks.push(value);
+    }
+  } catch { throw new Error("IRON_GATE_READ_FAILED"); }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  let raw: unknown;
+  try { raw = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
+  catch { throw new Error("IRON_GATE_READ_FAILED"); }
+  if (!object(raw) || raw.propertyId !== propertyId || !Array.isArray(raw.bookings) ||
+    raw.bookings.length > 50 || !(raw.nextCursor === null || typeof raw.nextCursor === "string" &&
+    /^[A-Za-z0-9_-]{1,512}$/.test(raw.nextCursor))) throw new Error("IRON_GATE_READ_FAILED");
+  const rows: IronGateRoomActionRow[] = [];
+  for (const value of raw.bookings) {
+    if (!object(value) || typeof value.id !== "string" || !UUID.test(value.id) ||
+      value.propertyId !== propertyId || value.workspaceId !== grant.workspaceId ||
+      !claims.fields.includes("guest_name") && "guestName" in value ||
+      !claims.fields.includes("contact") && "contact" in value ||
+      !claims.fields.includes("notes") && "notes" in value ||
+      !claims.fields.includes("money") &&
+        ["totalCents", "currency", "paymentSummary"].some((key) => key in value) ||
+      !safeBookingShape(value, claims.fields.includes("money")))
+      throw new Error("IRON_GATE_READ_FAILED");
+    if (value.status !== "cancelled" && !["action_required", "pending", "review_required"]
+      .includes(String(value.channelSyncState))) continue;
+    const cells = (value.lineChannelPending ?? []) as { desired: "open" | "closed" }[];
+    rows.push({ id: value.id, status: value.status as IronGateRoomActionRow["status"],
+      channelSyncState: value.channelSyncState as IronGateRoomActionRow["channelSyncState"],
+      guestName: typeof value.guestName === "string" ? value.guestName : null,
+      createdAt: value.createdAt as string,
+      stays: value.stays as IronGateRoomActionRow["stays"],
+      pendingClose: cells.filter((cell) => cell.desired === "closed").length,
+      pendingOpen: cells.filter((cell) => cell.desired === "open").length });
+  }
+  return { rows, nextCursor: raw.nextCursor as string | null };
 }
 
 /** Read-only shadow tag projection. No tag writer or catalog writer is exposed by OS. */

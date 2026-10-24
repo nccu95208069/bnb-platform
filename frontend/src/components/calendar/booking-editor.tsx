@@ -956,6 +956,12 @@ const uiLocale = useIntlLocale();
                   />
                   <DetailRow label={uiText("OTA 訂單編號")} value={booking.external_order_no || uiText("來源未提供")} />
                   <DetailRow label={uiText("OwlNest 訂單編號")} value={booking.owlnest_order_no || uiText("來源未提供")} />
+                  {booking.channel_sync_state && <DetailRow label={uiText("OwlNest 房態")} value={uiText(({
+                    not_required: "無待辦房晚", action_required: "待員工按鈕確認",
+                    pending: "處理中，待逐格讀回", verified: "已逐格核對",
+                    review_required: "需人工核對",
+                  } as const)[booking.channel_sync_state]) +
+                    (booking.channel_pending_nights ? ` · ${booking.channel_pending_nights} 晚` : "")} />}
                   <DetailRow
                     label={uiText("系統內部 ID")}
                     value={booking.order_id}

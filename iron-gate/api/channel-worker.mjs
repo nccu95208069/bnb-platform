@@ -135,12 +135,12 @@ export function createChannelWorkerFetch(env = process.env, dependencies = {}) {
               throw Error("CHANNEL_ALERT_UNAVAILABLE");
             }
           } });
-        return { propertyId, grantId, repository, worker };
+        return { propertyId, grantId, repository, worker, alertUrl };
       })().catch((error) => {
         if (error?.message !== "UNSAFE_DATABASE_ROLE_OR_SCHEMA") ready = undefined;
         throw error;
       });
-      const { propertyId, grantId, repository, worker } = await ready;
+      const { propertyId, grantId, repository, worker, alertUrl } = await ready;
       const state = await repository.read(propertyId);
       if (!state || state.channel?.grantId !== grantId || state.readOnly !== false ||
         state.channel?.mode !== "owlnest" || state.channel?.ready !== true ||
@@ -150,6 +150,19 @@ export function createChannelWorkerFetch(env = process.env, dependencies = {}) {
         origin: "channel", workspaceId: state.workspaceId,
         propertyIds: [propertyId], authorityEpoch: state.authorityEpoch,
         actions: ["channel:verify"], fields: [], grantId };
+      if (env.IRON_GATE_CHANNEL_NOTICE_RETRY_ENABLED === "true") {
+        const retryUrl = new URL(alertUrl);
+        retryUrl.pathname = "/internal/iron-gate-channel-alert-retry";
+        try {
+          const retry = await (dependencies.alertFetch ?? fetch)(retryUrl, {
+            method: "POST", cache: "no-store", redirect: "error",
+            signal: AbortSignal.timeout(8000),
+            headers: { authorization: "Bearer " + env.IRON_GATE_CHANNEL_ALERT_TOKEN,
+              "content-type": "application/json" }, body: "{}",
+          });
+          if (!retry?.ok) console.error("channel_notice_retry_failed", { propertyId });
+        } catch { console.error("channel_notice_retry_failed", { propertyId }); }
+      }
       const result = await worker.runOne(principal, propertyId);
       return response(result.state === "review_required" ? 409 : 200, result.state);
     } catch (error) {

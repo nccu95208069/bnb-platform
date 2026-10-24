@@ -25,6 +25,32 @@ export function createChannelWorker({ repository, service, propertyConfigs,
         state.channel.ready !== true || state.channel.sourceReadbackEnabled !== true ||
         state.channel.grantId !== principal.grantId)
         throw Error("CHANNEL_WORKER_PROPERTY_NOT_READY");
+      // Alert delivery is independent of the provider write. A failed GCO
+      // callback is retried on later cron ticks with the same operation key.
+      const unalerted = state.operations.find((operation) => operation.lineGrantId &&
+        operation.state === "review_required" && !operation.reviewAlertedAt);
+      if (unalerted) {
+        try {
+          await onReview({ propertyId, operationKey: unalerted.key, status: "review_required" });
+          await repository.transact(propertyId, (draft) => {
+            const current = draft.operations.find((operation) => operation.key === unalerted.key);
+            if (current?.state === "review_required" && !current.reviewAlertedAt)
+              current.reviewAlertedAt = new Date().toISOString();
+          });
+        } catch { /* The durable review remains unacknowledged for the next tick. */ }
+      }
+      const claim = state.channelDispatch;
+      if (claim && state.operations.some((operation) => operation.key === claim.operationKey &&
+        operation.lineGrantId && operation.state === "sync_pending")) {
+        try {
+          const result = await service.reviewUndispatchedLineOperation(principal, propertyId,
+            claim.operationKey, "stale-claim");
+          if (result.state === "review_required")
+            return { state: "review_required", propertyId, operationKey: claim.operationKey };
+        } catch (error) {
+          if (error?.code !== "CHANNEL_CLAIM_NOT_STALE") throw error;
+        }
+      }
       const page = await service.pendingChannelOperations(principal, propertyId, 1);
       if (page.propertyId !== propertyId || !Array.isArray(page.operations) ||
         page.operations.length > 1) throw Error("CHANNEL_WORKER_INVALID_PAGE");
@@ -34,7 +60,19 @@ export function createChannelWorker({ repository, service, propertyConfigs,
       // A failed owner login has not reached OwlNest. Check it before the
       // durable dispatch claim, so a transient auth outage cannot strand a
       // pending operation in manual recovery.
-      if (!provider) await getAuthorization(propertyId);
+      if (!provider) {
+        try { await getAuthorization(propertyId); }
+        catch (error) {
+          if (state.operations.some((operation) => operation.key === operationKey &&
+            operation.lineGrantId)) {
+            const result = await service.reviewUndispatchedLineOperation(principal, propertyId,
+              operationKey, "preflight");
+            if (result.state === "review_required")
+              return { state: "review_required", propertyId, operationKey };
+          }
+          throw error;
+        }
+      }
       let result;
       try {
         result = await reconcileChannelOperation({ propertyId, operationKey,
@@ -45,8 +83,12 @@ export function createChannelWorker({ repository, service, propertyConfigs,
       } catch (error) {
         // Claim remains in review/active. A notification failure must not
         // trigger another provider write or erase the original error.
-        await onReview({ propertyId, operationKey, status: "dispatch_unknown" })
-          .catch(() => {});
+        // A concurrent tick can observe an already claimed property. That is
+        // normal overlap, not a failed room action for the LINE group.
+        if (!["CHANNEL_PROPERTY_CLAIMED", "CHANNEL_OPERATION_NOT_DISPATCHABLE"]
+          .includes(error?.message))
+          await onReview({ propertyId, operationKey, status: "dispatch_unknown" })
+            .catch(() => {});
         throw error;
       }
       if (result?.operationKey !== operationKey ||

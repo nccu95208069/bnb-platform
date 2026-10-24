@@ -71,6 +71,7 @@ components:
           items: { $ref: '#/components/schemas/NightPrice' }
         bookedAt: { type: [string, 'null'], format: date }
         source: { type: string, enum: [os, line, website] }
+        channelPolicy: { type: string, enum: [manual], description: LINE manage-all only; booking commits with action_required and no OwlNest operation until a second staff confirmation. }
     NightPrice:
       type: object
       additionalProperties: false
@@ -107,6 +108,26 @@ components:
               roomId: { type: string, format: uuid }
               date: { type: string, format: date }
         desired: { type: string, enum: [closed, open] }
+    LineChannelAction:
+      type: object
+      additionalProperties: false
+      required: [expectedBookingVersion, expectedInventoryVersion, desired, cells]
+      properties:
+        expectedBookingVersion: { type: integer, minimum: 1 }
+        expectedInventoryVersion: { type: integer, minimum: 0 }
+        desired: { type: string, enum: [closed, open] }
+        cells:
+          type: array
+          minItems: 1
+          maxItems: 4096
+          description: Exact sorted pending cells for one booking and one direction.
+          items:
+            type: object
+            additionalProperties: false
+            required: [roomId, date]
+            properties:
+              roomId: { type: string, format: uuid }
+              date: { type: string, format: date }
     BookingReceipt:
       type: object
       additionalProperties: false
@@ -115,7 +136,7 @@ components:
         bookingId: { type: string, format: uuid }
         bookingVersion: { type: integer, minimum: 1 }
         inventoryVersion: { type: integer, minimum: 0 }
-        operationState: { type: string, enum: [local_only, sync_pending, sync_verified, review_required] }
+        operationState: { type: string, enum: [local_only, not_required, action_required, sync_pending, sync_verified, review_required] }
         operationKey: { type: [string, 'null'], format: uuid }
         sourceReviewRequired: { type: boolean, description: External source facts still need reconciliation after a LINE edit. }
         refundReviewRequired: { type: boolean }
@@ -162,6 +183,7 @@ components:
       properties:
         expectedBookingVersion: { type: integer, minimum: 1 }
         expectedInventoryVersion: { type: integer, minimum: 0 }
+        channelPolicy: { type: string, enum: [manual], description: LINE manage-all only. }
         changes:
           type: object
           additionalProperties: false
@@ -246,7 +268,18 @@ components:
             grantId: { type: string, format: uuid }
             manageAll: { type: boolean, description: Present only on a separately marked all-bookings LINE grant. }
         status: { type: string, enum: [held, confirmed, cancelled] }
-        channelSyncState: { type: string, enum: [not_required, pending, verified, review_required] }
+        channelSyncState: { type: string, enum: [not_required, action_required, pending, verified, review_required] }
+        lineChannelPending:
+          type: array
+          description: Present on OS and LINE manage-all reads; exact booking-bound nights still needing staff action.
+          items:
+            type: object
+            additionalProperties: false
+            required: [roomId, date, desired]
+            properties:
+              roomId: { type: string, format: uuid }
+              date: { type: string, format: date }
+              desired: { type: string, enum: [closed, open] }
         stays:
           type: array
           items: { $ref: '#/components/schemas/Stay' }
@@ -473,12 +506,14 @@ components:
       properties:
         expectedBookingVersion: { type: integer, minimum: 1 }
         expectedInventoryVersion: { type: integer, minimum: 0 }
+        channelPolicy: { type: string, enum: [manual], description: LINE manage-all only. }
     LineBulkCancel:
       type: object
       additionalProperties: false
       required: [expectedInventoryVersion, bookings]
       properties:
         expectedInventoryVersion: { type: integer, minimum: 0 }
+        channelPolicy: { type: string, enum: [manual], description: LINE manage-all only. }
         bookings:
           type: array
           minItems: 2
@@ -607,7 +642,8 @@ paths:
       description: >-
         PII-free. A LINE operator proof is required. Returns propertyId,
         inventoryVersion, authorityEpoch, readOnly, lineScope, channelReady,
-        stockObservedThrough, canCreate, canAmend, canCancel and canInventory. A candidate Cloud Run
+        stockObservedThrough, canCreate, canAmend, canCancel, canInventory and
+        canManualChannel. A candidate Cloud Run
         revision checks these values before receiving traffic.
       parameters:
         - { $ref: '#/components/parameters/PropertyId' }
@@ -857,6 +893,71 @@ paths:
         '200': { description: Signed private preview token and bound versions }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/bookings/{bookingId}/line-channel-action-previews:
+    post:
+      operationId: previewLineChannelAction
+      summary: Preview one staff-confirmed booking-bound OwlNest close or open
+      description: >-
+        The exact pending room nights, booking version, target-cell state, actor,
+        grant and request body are signed for 15 minutes. A different booking,
+        changed target cell or old button cannot be confirmed. No OwlNest work
+        is queued by this preview.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { $ref: '#/components/parameters/BookingId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LineChannelAction' }
+      responses:
+        '200': { description: Exact private preview and signed token }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/bookings/{bookingId}/line-channel-actions:
+    post:
+      operationId: requestLineChannelAction
+      summary: Request OwlNest work after a second staff confirmation
+      description: >-
+        Requires Idempotency-Key and X-Iron-Gate-Line-Preview. One transaction
+        swaps the pending booking fence for an operation fence. Only exact
+        provider readback can mark the work verified; review states retain the
+        fence. Opening former nights requires all new nights to be closed first.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { $ref: '#/components/parameters/BookingId' }
+        - { $ref: '#/components/parameters/RequestKey' }
+        - { name: X-Iron-Gate-Line-Preview, in: header, required: true,
+            schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LineChannelAction' }
+      responses:
+        '202': { description: Durable channel operation queued; provider result still pending }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/line-channel-actions/{operationKey}:
+    get:
+      operationId: getLineChannelAction
+      summary: Read one operation's exact provider verification state
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { name: operationKey, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Scoped operation state and exact room-night cells }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/properties/{propertyId}/line-channel-actions/requests/{requestKey}:
+    get:
+      operationId: getLineChannelRequest
+      summary: Reconcile an uncertain staff request by its original receipt key
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { name: requestKey, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200': { description: Original request receipt only }
+        '403': { $ref: '#/components/responses/Forbidden' }
   /v1/properties/{propertyId}/line-bulk-cancel-previews:
     post:
       operationId: previewLineBulkCancel

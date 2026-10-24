@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { ironGateReadConfig, readIronGateBooking, readIronGateTags } from
+import { ironGateReadConfig, listIronGateRoomActions, readIronGateBooking, readIronGateTags } from
   "../src/lib/customer-workspaces/iron-gate-read.server.ts";
 
 const secret = "synthetic-iron-gate-proof-secret-32-bytes";
@@ -55,6 +55,54 @@ test("read-only OS gateway signs a fresh member and enforces the response field 
   ]) await assert.rejects(readIronGateBooking(input.store, input.accountId, input.slug,
     input.propertyId, input.bookingId, input.config,
     async () => Response.json({ ...input.booking, ...extra })), /IRON_GATE_READ_FAILED/);
+});
+
+test("OS reads a manual LINE room status without accepting malformed pending cells", async () => {
+  const input = fixture("owner");
+  const pending = [{ roomId: randomUUID(), date: "2026-11-10", desired: "closed" }];
+  const booking = { ...input.booking, source: "line", channelSyncState: "action_required",
+    lineChannelPending: pending };
+  assert.deepEqual(await readIronGateBooking(input.store, input.accountId, input.slug,
+    input.propertyId, input.bookingId, input.config,
+    async () => Response.json(booking)), booking);
+  await assert.rejects(readIronGateBooking(input.store, input.accountId, input.slug,
+    input.propertyId, input.bookingId, input.config,
+    async () => Response.json({ ...booking,
+      lineChannelPending: [{ ...pending[0], guestName: "hidden" }] })),
+  /IRON_GATE_READ_FAILED/);
+});
+
+test("room-action list is membership-scoped, paginated, and projects only safe fields", async () => {
+  const input = fixture("viewer_no_price"), cursor = "synthetic_Cursor_1";
+  const pending = [{ roomId: randomUUID(), date: "2026-11-10", desired: "closed" }];
+  const booking = { ...input.booking, source: "line", channelSyncState: "action_required",
+    lineChannelPending: pending, guestName: "Synthetic Guest" };
+  const send = async (url, options) => {
+    assert.match(url, /limit=50/);
+    assert.match(url, /cursor=synthetic_Cursor_1/);
+    const claims = JSON.parse(Buffer.from(options.headers["x-iron-gate-os-proof"].split(".")[0],
+      "base64url").toString("utf8"));
+    assert.equal(claims.subjectId, input.accountId);
+    assert.equal(claims.pathAndQuery, new URL(url).pathname + new URL(url).search);
+    return Response.json({ propertyId: input.propertyId, bookings: [booking,
+      { ...input.booking, id: randomUUID() }], nextCursor: "next_Cursor_2" });
+  };
+  assert.deepEqual(await listIronGateRoomActions(input.store, input.accountId, input.slug,
+    input.propertyId, cursor, input.config, send), { rows: [{
+    id: input.bookingId, status: "confirmed", channelSyncState: "action_required",
+    guestName: "Synthetic Guest", createdAt: booking.createdAt, stays: [],
+    pendingClose: 1, pendingOpen: 0,
+  }], nextCursor: "next_Cursor_2" });
+  await assert.rejects(listIronGateRoomActions(input.store, input.accountId, input.slug,
+    input.propertyId, "bad.cursor", input.config, send), /INVALID_INPUT/);
+  await assert.rejects(listIronGateRoomActions(input.store, input.accountId, input.slug,
+    input.propertyId, cursor, input.config,
+    async () => Response.json({ propertyId: input.propertyId,
+      bookings: [{ ...booking, propertyId: randomUUID() }], nextCursor: null })),
+  /IRON_GATE_READ_FAILED/);
+  input.workspace.members[0].active = false;
+  await assert.rejects(listIronGateRoomActions(input.store, input.accountId, input.slug,
+    input.propertyId, cursor, input.config, send), /NOT_FOUND/);
 });
 
 test("revoked membership, wrong IDs, and unsafe configuration fail closed", async () => {

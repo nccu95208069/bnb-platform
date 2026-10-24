@@ -51,6 +51,17 @@ async function createPending(set) {
   return result.operationKey;
 }
 
+async function markManual(set, operationKey) {
+  await set.repository.transact(propertyId, (state) => {
+    const operation = state.operations.find((item) => item.key === operationKey);
+    operation.lineGrantId = crypto.randomUUID();
+    operation.lineActorId = "synthetic-line-actor";
+    const booking = state.bookings.find((item) => item.id === operation.bookingId);
+    booking.lineChannelBaselineNights = [];
+    booking.lineChannelPending = operation.cells;
+  });
+}
+
 test("worker commits a fresh exact provider readback before releasing the claim", async () => {
   const set = setup(), operationKey = await createPending(set);
   const result = await set.worker.runOne(set.channel, propertyId);
@@ -99,4 +110,59 @@ test("login failure before dispatch leaves the pending operation unclaimed", asy
   assert.equal(state.channelDispatch, undefined);
   assert.equal(state.operations[0].key, operationKey);
   assert.equal(state.operations[0].state, "sync_pending");
+});
+
+test("an overlapping cron tick does not report a normal active claim as group failure", async () => {
+  const set = setup(), operationKey = await createPending(set);
+  await set.repository.transact(propertyId, (state) => {
+    state.channelDispatch = { claimId: crypto.randomUUID(), operationKey,
+      state: "active", claimedAt: new Date().toISOString() };
+  });
+  await assert.rejects(set.worker.runOne(set.channel, propertyId),
+    { message: "CHANNEL_PROPERTY_CLAIMED" });
+  assert.equal(set.writes(), 0);
+  assert.deepEqual(set.alerts, []);
+});
+
+test("three manual LINE login failures become fenced review and retry the alert callback", async () => {
+  const set = setup(), operationKey = await createPending(set);
+  await markManual(set, operationKey);
+  let attempts = 0, alerts = 0;
+  const worker = createChannelWorker({ repository: set.repository, service: set.service,
+    propertyConfigs: { [propertyId]: { hotelId: 6188, roomIds: { [roomId]: 29260 } } },
+    getAuthorization: async () => { attempts++; throw Error("SYNTHETIC_LOGIN_FAILED"); },
+    onReview: async (item) => {
+      assert.equal(item.operationKey, operationKey);
+      assert.equal(item.status, "review_required");
+      alerts++;
+      if (alerts === 1) throw Error("SYNTHETIC_CALLBACK_FAILED");
+    } });
+  await assert.rejects(worker.runOne(set.channel, propertyId), { message: "SYNTHETIC_LOGIN_FAILED" });
+  await assert.rejects(worker.runOne(set.channel, propertyId), { message: "SYNTHETIC_LOGIN_FAILED" });
+  assert.equal((await worker.runOne(set.channel, propertyId)).state, "review_required");
+  assert.equal(attempts, 3);
+  let state = await set.repository.read(propertyId);
+  assert.equal(state.operations[0].state, "review_required");
+  assert.equal(state.bookings[0].channelSyncState, "review_required");
+  assert.equal(state.fences.length, 1);
+  assert.equal((await worker.runOne(set.channel, propertyId)).state, "idle");
+  assert.equal((await worker.runOne(set.channel, propertyId)).state, "idle");
+  state = await set.repository.read(propertyId);
+  assert.equal(alerts, 2);
+  assert.ok(state.operations[0].reviewAlertedAt);
+});
+
+test("an abandoned manual dispatch claim becomes review without a second provider write", async () => {
+  const set = setup(), operationKey = await createPending(set);
+  await markManual(set, operationKey);
+  await set.repository.transact(propertyId, (state) => {
+    state.channelDispatch = { claimId: crypto.randomUUID(), operationKey,
+      state: "active", claimedAt: new Date(Date.now() - 8 * 60_000).toISOString() };
+  });
+  assert.equal((await set.worker.runOne(set.channel, propertyId)).state, "review_required");
+  const state = await set.repository.read(propertyId);
+  assert.equal(state.operations[0].state, "review_required");
+  assert.equal(state.channelDispatch.state, "active");
+  assert.equal(set.writes(), 0);
+  assert.equal(state.fences.length, 1);
 });

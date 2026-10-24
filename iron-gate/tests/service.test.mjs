@@ -794,6 +794,271 @@ test("LINE manual close and open pass through canonical blocks and exact OwlNest
     "2026-11-11")).cells[0].state, "unsold");
 });
 
+test("LINE booking manual close needs staff action and own provider write proof", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const service = new IronGateService(repository, "p".repeat(43));
+  const actor = principal("line", { grantId: key(), subjectId: "staff-one",
+    actions: ["booking:read", "booking:create", "booking:manage_all", "inventory:write"] });
+  const input = bookingInput(1, { source: "line", channelPolicy: "manual" });
+  const preview = await service.previewLineCreate(actor, propertyId, input);
+  await repository.transact(propertyId, (state) => { state.version++; });
+  const created = await service.createBooking(actor, propertyId, key(), input,
+    preview.previewToken);
+  let state = await repository.read(propertyId);
+  assert.equal(created.operationState, "action_required");
+  assert.equal(state.operations.length, 0);
+  assert.equal(state.bookings[0].channelSyncState, "action_required");
+  const cells = state.bookings[0].lineChannelPending.map(({ roomId, date }) => ({ roomId, date }));
+  const request = { expectedBookingVersion: 1, expectedInventoryVersion: state.version,
+    desired: "closed", cells };
+  const action = await service.previewLineChannelAction(actor, propertyId, created.bookingId, request);
+  await repository.transact(propertyId, (unrelated) => { unrelated.version++; });
+  await assert.rejects(service.requestLineChannelAction({ ...actor, subjectId: "staff-two" },
+    propertyId, created.bookingId, key(), request, action.previewToken),
+  errorCode("LINE_PREVIEW_REQUIRED"));
+  const operationKey = key();
+  const submitted = await service.requestLineChannelAction(actor, propertyId,
+    created.bookingId, operationKey, request, action.previewToken);
+  assert.equal(submitted.operationKey, operationKey);
+  assert.deepEqual(await service.requestLineChannelAction(actor, propertyId,
+    created.bookingId, operationKey, request, action.previewToken), submitted);
+  state = await repository.read(propertyId);
+  assert.equal(state.operations.length, 1);
+  await service.recordChannelReadback(principal("channel"), { propertyId, operationKey,
+    observedAt: new Date().toISOString(), providerVersion: "synthetic-closed",
+    cells: observed(state.operations[0].cells), appliedClosedCells: cells });
+  state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].channelSyncState, "verified");
+  assert.equal(state.fences.length, 0);
+});
+
+test("LINE cancelled booking holds former nights until staff verifies manual open", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const service = new IronGateService(repository, "p".repeat(43));
+  const actor = principal("line", { grantId: key(), actions: ["booking:read", "booking:create",
+    "booking:cancel", "booking:manage_all", "inventory:write"] });
+  const input = bookingInput(1, { source: "line", channelPolicy: "manual" });
+  const preview = await service.previewLineCreate(actor, propertyId, input);
+  const created = await service.createBooking(actor, propertyId, key(), input, preview.previewToken);
+  let state = await repository.read(propertyId);
+  const cells = state.bookings[0].lineChannelPending.map(({ roomId, date }) => ({ roomId, date }));
+  const close = { expectedBookingVersion: 1, expectedInventoryVersion: state.version,
+    desired: "closed", cells };
+  const closePreview = await service.previewLineChannelAction(actor, propertyId,
+    created.bookingId, close);
+  const closeKey = key();
+  await service.requestLineChannelAction(actor, propertyId, created.bookingId,
+    closeKey, close, closePreview.previewToken);
+  state = await repository.read(propertyId);
+  await service.recordChannelReadback(principal("channel"), { propertyId, operationKey: closeKey,
+    observedAt: new Date().toISOString(), providerVersion: "closed",
+    cells: observed(state.operations[0].cells), appliedClosedCells: cells });
+  state = await repository.read(propertyId);
+  const cancel = { expectedBookingVersion: state.bookings[0].version,
+    expectedInventoryVersion: state.version, channelPolicy: "manual" };
+  const cancelPreview = await service.previewLineAction(actor, propertyId,
+    created.bookingId, "cancel", cancel);
+  await service.cancelBooking(actor, propertyId, created.bookingId, key(),
+    cancel.expectedBookingVersion, cancel.expectedInventoryVersion,
+    cancelPreview.previewToken, cancel.channelPolicy);
+  state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].channelSyncState, "action_required");
+  assert.equal(state.operations.length, 1);
+  assert.equal(state.fences.find((fence) => fence.reason === "line_action_required")?.cells.length, 2);
+  assert.equal((await service.availability(actor, propertyId, "2026-11-10", "2026-11-11"))
+    .cells[0].state, "blocked");
+  await assert.rejects(service.createBooking(principal(), propertyId, key(),
+    bookingInput(state.version)), errorCode("ROOM_CONFLICT"));
+  const opening = { expectedBookingVersion: state.bookings[0].version,
+    expectedInventoryVersion: state.version, desired: "open", cells };
+  const openingPreview = await service.previewLineChannelAction(actor, propertyId,
+    created.bookingId, opening);
+  const openKey = key();
+  await service.requestLineChannelAction(actor, propertyId, created.bookingId,
+    openKey, opening, openingPreview.previewToken);
+  state = await repository.read(propertyId);
+  assert.equal(state.fences.some((fence) => fence.reason === "line_action_required"), false);
+  assert.equal(state.fences.some((fence) => fence.key === openKey), true);
+  await service.recordChannelReadback(principal("channel"), { propertyId, operationKey: openKey,
+    observedAt: new Date().toISOString(), providerVersion: "opened",
+    cells: observed(state.operations[1].cells) });
+  state = await repository.read(propertyId);
+  assert.equal(state.fences.length, 0);
+  assert.equal(state.bookings[0].channelSyncState, "not_required");
+});
+
+test("cancelling an unclosed manual LINE booking needs no OwlNest open", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const service = new IronGateService(repository, "p".repeat(43));
+  const actor = principal("line", { grantId: key(), actions: ["booking:read", "booking:create",
+    "booking:cancel", "booking:manage_all", "inventory:write"] });
+  const input = bookingInput(1, { source: "line", channelPolicy: "manual" });
+  const preview = await service.previewLineCreate(actor, propertyId, input);
+  const created = await service.createBooking(actor, propertyId, key(), input, preview.previewToken);
+  const state = await repository.read(propertyId);
+  const cancel = { expectedBookingVersion: 1, expectedInventoryVersion: state.version,
+    channelPolicy: "manual" };
+  const signed = await service.previewLineAction(actor, propertyId,
+    created.bookingId, "cancel", cancel);
+  const receipt = await service.cancelBooking(actor, propertyId, created.bookingId, key(),
+    1, state.version, signed.previewToken, "manual");
+  assert.equal(receipt.operationState, "not_required");
+  const after = await repository.read(propertyId);
+  assert.equal(after.operations.length, 0);
+  assert.equal(after.fences.length, 0);
+  assert.equal(after.bookings[0].channelSyncState, "not_required");
+});
+
+test("manual LINE close refuses pre-closed stock without its own write evidence", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const service = new IronGateService(repository, "p".repeat(43));
+  const actor = principal("line", { grantId: key(), actions: ["booking:read", "booking:create",
+    "booking:manage_all", "inventory:write"] });
+  const input = bookingInput(1, { source: "line", channelPolicy: "manual" });
+  const preview = await service.previewLineCreate(actor, propertyId, input);
+  const receipt = await service.createBooking(actor, propertyId, key(), input, preview.previewToken);
+  const state = await repository.read(propertyId);
+  const cells = state.bookings[0].lineChannelPending.map(({ roomId, date }) => ({ roomId, date }));
+  const action = { expectedBookingVersion: 1, expectedInventoryVersion: state.version,
+    desired: "closed", cells };
+  const signed = await service.previewLineChannelAction(actor, propertyId, receipt.bookingId, action);
+  const operationKey = key();
+  await service.requestLineChannelAction(actor, propertyId, receipt.bookingId,
+    operationKey, action, signed.previewToken);
+  const readback = await service.recordChannelReadback(principal("channel"), { propertyId,
+    operationKey, observedAt: new Date().toISOString(), providerVersion: "preclosed",
+    cells: observed(cells.map((cell) => ({ ...cell, desired: "closed" }))),
+    appliedClosedCells: [] });
+  assert.equal(readback.state, "review_required");
+  const after = await repository.read(propertyId);
+  assert.equal(after.bookings[0].channelSyncState, "review_required");
+  assert.equal(after.fences.length, 1);
+});
+
+test("manual LINE date change closes acquired nights before safely opening former nights", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const service = new IronGateService(repository, "p".repeat(43));
+  const actor = principal("line", { grantId: key(), actions: ["booking:read", "booking:create",
+    "booking:amend", "booking:manage_all", "inventory:write"] });
+  const input = bookingInput(1, { source: "line", channelPolicy: "manual" });
+  const preview = await service.previewLineCreate(actor, propertyId, input);
+  const created = await service.createBooking(actor, propertyId, key(), input, preview.previewToken);
+  let state = await repository.read(propertyId);
+  const original = state.bookings[0].lineChannelPending.map(({ roomId, date }) => ({ roomId, date }));
+  const close = { expectedBookingVersion: 1, expectedInventoryVersion: state.version,
+    desired: "closed", cells: original };
+  const signedClose = await service.previewLineChannelAction(actor, propertyId, created.bookingId, close);
+  const closeKey = key();
+  await service.requestLineChannelAction(actor, propertyId, created.bookingId,
+    closeKey, close, signedClose.previewToken);
+  await service.recordChannelReadback(principal("channel"), { propertyId, operationKey: closeKey,
+    observedAt: new Date().toISOString(), providerVersion: "initial-close",
+    cells: observed(original.map((cell) => ({ ...cell, desired: "closed" }))),
+    appliedClosedCells: original });
+  state = await repository.read(propertyId);
+  const amend = { expectedBookingVersion: state.bookings[0].version,
+    expectedInventoryVersion: state.version, channelPolicy: "manual",
+    changes: { stays: [{ checkIn: "2026-11-11", checkOut: "2026-11-13", roomIds: [roomId] }] } };
+  const signedAmend = await service.previewLineAction(actor, propertyId,
+    created.bookingId, "amend", amend);
+  await service.amendBooking(actor, propertyId, created.bookingId, key(), amend,
+    signedAmend.previewToken);
+  state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].channelSyncState, "action_required");
+  assert.deepEqual(state.bookings[0].lineChannelPending.map(({ date, desired }) => [date, desired]),
+    [["2026-11-10", "open"], ["2026-11-12", "closed"]]);
+  assert.equal(state.fences.find((fence) => fence.reason === "line_action_required")?.cells[0].date,
+    "2026-11-10");
+  const opening = { expectedBookingVersion: state.bookings[0].version,
+    expectedInventoryVersion: state.version, desired: "open",
+    cells: [{ roomId, date: "2026-11-10" }] };
+  await assert.rejects(service.previewLineChannelAction(actor, propertyId,
+    created.bookingId, opening), errorCode("LINE_CLOSE_FIRST"));
+  const acquired = { ...opening, desired: "closed", cells: [{ roomId, date: "2026-11-12" }] };
+  const signedAcquired = await service.previewLineChannelAction(actor, propertyId,
+    created.bookingId, acquired);
+  const acquiredKey = key();
+  await service.requestLineChannelAction(actor, propertyId, created.bookingId,
+    acquiredKey, acquired, signedAcquired.previewToken);
+  await service.recordChannelReadback(principal("channel"), { propertyId,
+    operationKey: acquiredKey, observedAt: new Date().toISOString(),
+    providerVersion: "new-close", cells: observed([{ roomId, date: "2026-11-12", desired: "closed" }]),
+    appliedClosedCells: acquired.cells });
+  state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].channelSyncState, "action_required");
+  const signedOpen = await service.previewLineChannelAction(actor, propertyId,
+    created.bookingId, { ...opening, expectedBookingVersion: state.bookings[0].version,
+      expectedInventoryVersion: state.version });
+  const openKey = key();
+  await service.requestLineChannelAction(actor, propertyId, created.bookingId, openKey,
+    { ...opening, expectedBookingVersion: state.bookings[0].version,
+      expectedInventoryVersion: state.version }, signedOpen.previewToken);
+  await service.recordChannelReadback(principal("channel"), { propertyId,
+    operationKey: openKey, observedAt: new Date().toISOString(), providerVersion: "old-open",
+    cells: observed([{ roomId, date: "2026-11-10", desired: "open" }]) });
+  state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].channelSyncState, "verified");
+  assert.equal(state.bookings[0].lineChannelPending.length, 0);
+  assert.equal(state.fences.length, 0);
+});
+
+test("legacy LINE provider status cannot become a fabricated manual open baseline", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const service = new IronGateService(repository, "p".repeat(43));
+  const actor = principal("line", { grantId: key(), actions: ["booking:read", "booking:create",
+    "booking:amend", "booking:cancel", "booking:manage_all", "inventory:write"],
+    fields: ["notes"] });
+  const input = bookingInput(1, { source: "line" });
+  const preview = await service.previewLineCreate(actor, propertyId, input);
+  const created = await service.createBooking(actor, propertyId, key(), input,
+    preview.previewToken);
+  let state = await repository.read(propertyId);
+  await service.recordChannelReadback(principal("channel"), { propertyId,
+    operationKey: created.operationKey, observedAt: new Date().toISOString(),
+    providerVersion: "legacy-close", cells: observed(state.operations[0].cells) });
+  state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].channelSyncState, "verified");
+  assert.equal(state.bookings[0].lineChannelBaselineNights, undefined);
+  const metadata = { expectedBookingVersion: state.bookings[0].version,
+    expectedInventoryVersion: state.version, channelPolicy: "manual",
+    changes: { notes: "synthetic note" } };
+  const signed = await service.previewLineAction(actor, propertyId, created.bookingId,
+    "amend", metadata);
+  await service.amendBooking(actor, propertyId, created.bookingId, key(), metadata,
+    signed.previewToken);
+  state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].lineChannelBaselineNights, undefined);
+  const cancel = { expectedBookingVersion: state.bookings[0].version,
+    expectedInventoryVersion: state.version, channelPolicy: "manual" };
+  await assert.rejects(service.previewLineAction(actor, propertyId, created.bookingId,
+    "cancel", cancel), errorCode("LINE_CHANNEL_BASELINE_UNPROVEN"));
+  assert.equal((await repository.read(propertyId)).bookings[0].status, "confirmed");
+});
+
 test("LINE room batch is one signed operation and refuses a partly occupied batch", async () => {
   const { repository } = setup("owlnest");
   await repository.transact(propertyId, (state) => {

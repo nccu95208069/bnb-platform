@@ -77,6 +77,8 @@ export type CalendarBooking = {
   baby_supplies: BabySupplyKey[];
   service_note: string | null;
   source_read_only?: boolean;
+  channel_sync_state?: "not_required" | "action_required" | "pending" | "verified" | "review_required";
+  channel_pending_nights?: number;
   snapshot_only?: boolean;
   payment_unconfirmed?: boolean;
   requirements_known?: boolean;

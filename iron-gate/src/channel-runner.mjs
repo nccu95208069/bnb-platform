@@ -42,11 +42,13 @@ export async function reconcileChannelOperation({ propertyId, operationKey,
       ? cell.count === 0 || cell.isLock : cell.count > 0 && !cell.isLock;
     const before = await inspect();
     const unsatisfied = before.cells.filter((cell) => !matches(cell));
+    const appliedClosedCells = [];
     for (const cell of unsatisfied) {
       const target = desired.get(`${cell.roomId}|${cell.date}`);
       try {
         await provider.setNight(propertyId, { roomId: cell.roomId, date: cell.date,
           desired: target, operationKey });
+        if (target === "closed") appliedClosedCells.push({ roomId: cell.roomId, date: cell.date });
       } catch {
         // An unknown write outcome must be resolved by observation. Do not
         // issue the same write again or continue changing other nights.
@@ -64,6 +66,7 @@ export async function reconcileChannelOperation({ propertyId, operationKey,
       }
     }
     return recordReadback({ propertyId, operationKey, providerVersion: after.providerVersion,
-      observedAt: after.observedAt, cells: after.cells });
+      observedAt: after.observedAt, cells: after.cells,
+      ...(operation.ownCloseWriteRequired === true ? { appliedClosedCells } : {}) });
   });
 }
