@@ -226,3 +226,25 @@ test('a server error after commit remains an unknown result recoverable by the o
   const recovered = await manualRequestResult(owner, c, requestKey, send);
   assert.equal(recovered.bookingId, (await repository.read(propertyId)).bookings[0].id);
 });
+
+test('a successful create response cannot confirm mismatched booking facts on readback', async () => {
+  const submitted = { expectedInventoryVersion: 1, stays: stay(),
+    guestName: 'Synthetic Guest', contact: 'synthetic-contact', notes: 'synthetic note',
+    totalCents: 100000, bookedAt: '2026-10-24' };
+  for (const [field, changed] of Object.entries({ guestName: 'Another Guest',
+    contact: 'different-contact', notes: 'different note', totalCents: 1,
+    bookedAt: '2026-10-23', version: 2 })) {
+    const { repository, send } = setup(), c = config(), requestKey = key();
+    const alteredReadback = async (url, init) => {
+      const response = await send(url, init);
+      if (init.method !== 'GET' || !/\/bookings\/[0-9a-f-]{36}$/.test(new URL(url).pathname))
+        return response;
+      const booking = await response.json();
+      return Response.json({ ...booking, [field]: changed });
+    };
+    await assert.rejects(createManualBooking(owner, c, submitted, requestKey,
+      alteredReadback), /MANUAL_READBACK_MISMATCH/, field);
+    assert.equal((await repository.read(propertyId)).bookings.length, 1);
+    assert.equal((await manualRequestResult(owner, c, requestKey, send)).bookingVersion, 1);
+  }
+});

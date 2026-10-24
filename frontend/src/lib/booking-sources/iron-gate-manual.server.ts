@@ -167,7 +167,8 @@ function bookingPath(config: ManualConfig, bookingId?: string): string {
 function ensureBooking(raw: Record<string, unknown>, config: ManualConfig, id: string): void {
   if (raw.id !== id || raw.workspaceId !== config.grant.workspaceId ||
     raw.propertyId !== config.grant.propertyId ||
-    !Number.isSafeInteger(raw.version) || !Array.isArray(raw.stays))
+    !Number.isSafeInteger(raw.version) || Number(raw.version) < 1 ||
+    !Array.isArray(raw.stays))
     throw Error('MANUAL_READBACK_MISMATCH');
 }
 function sameStays(a: unknown, b: Stay[]): boolean {
@@ -269,7 +270,11 @@ export async function createManualBooking(principal: Principal, config: ManualCo
   const observed = await readAfterWrite(config, principal, String(result.bookingId), send);
   ensureBooking(observed, config, String(result.bookingId));
   if (observed.status !== 'confirmed' || !sameStays(observed.stays, wanted) ||
-    observed.source !== 'os') throw Error('MANUAL_READBACK_MISMATCH');
+    observed.source !== 'os' || observed.version !== result.bookingVersion ||
+    observed.guestName !== payload.guestName || observed.contact !== payload.contact ||
+    observed.notes !== payload.notes || observed.totalCents !== payload.totalCents ||
+    observed.bookedAt !== payload.bookedAt)
+    throw Error('MANUAL_READBACK_MISMATCH');
   return { bookingId: result.bookingId, bookingVersion: observed.version,
     inventoryVersion: result.inventoryVersion, operationState: result.operationState,
     channelSyncState: observed.channelSyncState, requestKey };
