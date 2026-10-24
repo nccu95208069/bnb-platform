@@ -5,6 +5,8 @@ export interface BusinessBooking {
   id: string;
   status: string;
   bookedAt: string | null;
+  /** Verified immutable first new-order notification time; never an import or update time. */
+  firstNotificationAt?: string | null;
   platform: string;
   totalCents: number | null;
   paid: boolean;
@@ -26,6 +28,8 @@ export interface BusinessMetricsOptions {
   sourceUpdatedAt?: string | null;
   rooms?: readonly string[];
   propertyName?: string;
+  /** Trusted start of complete notification capture, never inferred from observed orders. */
+  notificationCoverageFrom?: string | null;
 }
 
 type DailyPoint = { date: string; orders: number; amount: number };
@@ -37,6 +41,12 @@ export type BusinessPulseData = Omit<PulseData, "last7" | "meta"> & {
     sourceUpdatedAt: string | null;
     currency: "TWD";
     orderCountBasis: "canonical-booking";
+    dailyOrderDateBasis: "new-order-notification";
+    notificationDateOrders: number;
+    bookingDateFallbackOrders: number;
+    unknownDailyDateOrders: number;
+    dailyComparisonComparable: boolean;
+    notificationCoverageFrom: string | null;
     unknownBookingDateOrders: number;
     unknownBookingDateAmount: number;
     unpricedBookings: number;
@@ -62,6 +72,8 @@ type NormalizedStay = {
 type NormalizedBooking = {
   id: string;
   bookedOn: string | null;
+  countedOn: string | null;
+  dateBasis: "notification" | "booking-date" | "unknown";
   platform: string;
   cents: number;
   amountKnown: boolean;
@@ -188,8 +200,13 @@ function normalizeBooking(input: BusinessBooking): NormalizedBooking {
       merged.push({ room: night.room, checkIn: night.date, checkOut: addDays(night.date, 1), nights: 1, cents: night.cents });
     }
   }
+  const bookedOn = bookedDay(input.bookedAt);
+  const notificationOn = input.firstNotificationAt == null ? null : bookedDay(input.firstNotificationAt);
+  if (input.firstNotificationAt != null && (!input.firstNotificationAt.includes("T") || notificationOn === null)) invalidInput();
   return {
-    id: input.id.trim(), bookedOn: bookedDay(input.bookedAt), platform: platformName(input.platform),
+    id: input.id.trim(), bookedOn, countedOn: notificationOn ?? bookedOn,
+    dateBasis: notificationOn ? "notification" : bookedOn ? "booking-date" : "unknown",
+    platform: platformName(input.platform),
     cents: totalCents, amountKnown, paid: input.paid === true,
     guestName: input.guestName?.trim() || NEUTRAL_GUEST_LABEL,
     nights, stays: merged,
@@ -219,7 +236,7 @@ function leadDays(order: NormalizedBooking): number | null {
 
 function detail(order: NormalizedBooking): OrderRow {
   return {
-    bookingDate: order.bookedOn, platform: order.platform,
+    bookingDate: order.bookedOn, countedDate: order.countedOn, dateBasis: order.dateBasis, platform: order.platform,
     room: [...new Set(order.nights.map((night) => night.room))].join("、"),
     guestName: order.guestName, checkIn: order.checkIn, nights: order.nights.length,
     leadDays: leadDays(order), amount: order.cents / 100,
@@ -241,6 +258,9 @@ export function computeBusinessMetrics(
   const last7From = addDays(today, -7);
   const prev7From = addDays(today, -14);
   const prev7To = addDays(today, -8);
+  const notificationCoverageFrom = options.notificationCoverageFrom ?? null;
+  if (notificationCoverageFrom !== null && !validDay(notificationCoverageFrom)) invalidInput();
+  const notificationHistoryComplete = notificationCoverageFrom !== null && notificationCoverageFrom <= prev7From;
   const generatedAt = now.toISOString();
   const asOf = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(now);
   const canonical = new Map<string, BusinessBooking>();
@@ -259,12 +279,17 @@ export function computeBusinessMetrics(
   const confirmed = [...canonical.values()].filter((booking) => booking.status === "confirmed");
   const orders = confirmed.map(normalizeBooking);
   const unknown = orders.filter((order) => order.bookedOn === null);
+  const unknownDaily = orders.filter((order) => order.countedOn === null);
+  const notificationDateOrders = orders.filter((order) => order.dateBasis === "notification").length;
+  const bookingDateFallbackOrders = orders.filter((order) => order.dateBasis === "booking-date").length;
   const unpriced = orders.filter((order) => !order.amountKnown);
-  const between = (from: string, to: string) => orders.filter((order) => order.bookedOn !== null && order.bookedOn >= from && order.bookedOn <= to);
+  const between = (from: string, to: string) => orders.filter((order) => order.countedOn !== null && order.countedOn >= from && order.countedOn <= to);
   const bookedYesterday = between(yesterday, yesterday);
   const bookedToday = between(today, today);
   const bookedLast7 = between(last7From, yesterday);
   const bookedPrev7 = between(prev7From, prev7To);
+  const mixedDateBases = new Set([...bookedLast7, ...bookedPrev7].map((order) => order.dateBasis)).size > 1;
+  const dailyComparisonComparable = notificationHistoryComplete && unknownDaily.length === 0 && unpriced.length === 0 && !mixedDateBases;
   const yesterdayStats = stats(bookedYesterday);
   const todayStats = stats(bookedToday);
   const last7Stats = stats(bookedLast7);
@@ -294,7 +319,7 @@ export function computeBusinessMetrics(
     const prior = stats(bookedPrev7.filter((order) => order.platform === name));
     const sharePct = last7Stats.amount > 0 ? current.amount / last7Stats.amount * 100 : 0;
     const prevSharePct = prev7Stats.amount > 0 ? prior.amount / prev7Stats.amount * 100 : null;
-    return { name, ...current, sharePct, prevSharePct, deltaPp: prevSharePct === null ? null : sharePct - prevSharePct };
+    return { name, ...current, sharePct, prevSharePct, deltaPp: !dailyComparisonComparable || prevSharePct === null ? null : sharePct - prevSharePct };
   }).sort((a, b) => b.amount - a.amount || a.name.localeCompare(b.name));
   const soldNights = bookedLast7.flatMap((order) => order.nights);
   const roomsSold = rooms.map((room) => {
@@ -310,13 +335,17 @@ export function computeBusinessMetrics(
   }))).sort((a, b) => a.room.localeCompare(b.room));
   const checkOutsCount = orders.reduce((sum, order) => sum + order.stays.filter((stay) => stay.checkOut === today).length, 0);
   const amountDelta = (sumCents(bookedLast7.map((order) => order.cents)) - sumCents(bookedPrev7.map((order) => order.cents))) / 100;
-  const amountDeltaPct = prev7Stats.amount > 0 ? amountDelta / prev7Stats.amount * 100 : null;
+  const amountDeltaPct = dailyComparisonComparable && prev7Stats.amount > 0 ? amountDelta / prev7Stats.amount * 100 : null;
   const money = (amount: number) => `NT$${amount.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
-  const basis = `近 7 天接單 ${last7Stats.orders} 筆、${money(last7Stats.amount)}；前 7 天 ${prev7Stats.orders} 筆、${money(prev7Stats.amount)}。`;
+  const basis = `近 7 天有效訂單 ${last7Stats.orders} 筆、${money(last7Stats.amount)}；前 7 天 ${prev7Stats.orders} 筆、${money(prev7Stats.amount)}。新來源依首次新單通知日，歷史及其他來源依原下訂日。`;
   let verdict: PulseData["verdict"];
-  if (unknown.length > 0 || unpriced.length > 0) {
-    const missing = [unknown.length > 0 ? `${unknown.length} 筆缺下訂日期` : "", unpriced.length > 0 ? `${unpriced.length} 筆缺訂房金額` : ""].filter(Boolean).join("、");
-    verdict = { level: "flat", headline: `${missing}，接單統計尚未完整`, basis: `${basis}接單依已知下訂日期統計，金額僅加總已知部分；房況仍包含全部有效訂單。` };
+  if (unknownDaily.length > 0 || unpriced.length > 0) {
+    const missing = [unknownDaily.length > 0 ? `${unknownDaily.length} 筆缺統計日期` : "", unpriced.length > 0 ? `${unpriced.length} 筆缺訂房金額` : ""].filter(Boolean).join("、");
+    verdict = { level: "flat", headline: `${missing}，接單統計尚未完整`, basis: `${basis}接單依已知統計日期計算，金額僅加總已知部分；房況仍包含全部有效訂單。` };
+  } else if (mixedDateBases) {
+    verdict = { level: "flat", headline: "新單通知日與原下訂日混合，暫不判斷增減", basis };
+  } else if (!notificationHistoryComplete) {
+    verdict = { level: "flat", headline: "通知日資料尚未涵蓋兩個完整 7 天區間，暫不判斷增減", basis };
   } else if (last7Stats.orders === 0 && prev7Stats.orders === 0) {
     verdict = { level: "quiet", headline: "最近 14 天沒有新訂單", basis };
   } else if (prev7Stats.amount === 0 && last7Stats.amount > 0) {
@@ -331,10 +360,16 @@ export function computeBusinessMetrics(
   }
   const warnings: string[] = [];
   const estimatedNightRevenueOrders = orders.filter((order) => order.estimatedNightRevenue).length;
-  if (unknown.length > 0) warnings.push(`${unknown.length} 筆訂單沒有可驗證的下訂日期，未納入每日接單統計。`);
+  if (unknownDaily.length > 0) warnings.push(`${unknownDaily.length} 筆訂單缺少可驗證的新單通知日或原下訂日，未納入每日接單統計。`);
+  if (unknown.length > 0) warnings.push(`${unknown.length} 筆訂單未提供原下訂日期，不納入下訂提前天數；已有新單通知日的訂單仍納入每日統計。`);
+  if (bookingDateFallbackOrders > 0) warnings.push(`${bookingDateFallbackOrders} 筆歷史或其他來源訂單沿用原下訂日，未當作新單通知日。`);
+  if (mixedDateBases) warnings.push("近兩個 7 天區間含不同日期依據，暫不比較訂單與金額增減。");
+  if (!notificationHistoryComplete) warnings.push(notificationCoverageFrom
+    ? `新單通知資料自 ${notificationCoverageFrom} 起涵蓋完整日；尚未累積兩個完整 7 天區間，暫不比較增減。`
+    : "新單通知資料的完整涵蓋起日尚未確認，暫不比較增減；已知日期的訂單仍正常統計。");
   if (unpriced.length > 0) warnings.push(`${unpriced.length} 筆訂單缺訂房金額，仍計入訂單與房晚，金額僅加總已知部分。`);
   if (estimatedNightRevenueOrders > 0) warnings.push("部分訂單未提供逐房晚金額，房晚營收依住宿晚數分攤；訂單總額不變。");
-  const actions: PulseAction[] = unknown.length > 0 ? [{ level: "watch", title: "補齊下訂日期", evidence: warnings[0] }] : [];
+  const actions: PulseAction[] = unknownDaily.length > 0 ? [{ level: "watch", title: "確認訂單統計日期", evidence: warnings[0] }] : [];
   if (unpriced.length > 0) actions.push({ level: "watch", title: "補齊訂房金額", evidence: `${unpriced.length} 筆有效訂單尚未有可驗證金額。` });
   if (available.length > 0) actions.push({ level: "watch", title: `今晚有 ${available.length} 間未有確認訂單`, evidence: `未有確認訂單的房間：${available.join("、")}；可售狀態仍以訂房系統為準。` });
   if (actions.length === 0) actions.push({ level: "ok", title: "今晚所有房間都有確認訂單", evidence: `${occupiedTonight.length} 間房皆已有確認訂單。` });
@@ -358,7 +393,7 @@ export function computeBusinessMetrics(
       from: last7From, to: yesterday, ...last7Stats,
       vsPrev7: { ordersDelta: last7Stats.orders - prev7Stats.orders, amountDelta, amountDeltaPct },
       platforms, roomsSold, daily14: daily30.slice(-14), daily30, leadTimeMedianDays,
-      detail: between(last7From, today).sort((a, b) => (b.bookedOn ?? "").localeCompare(a.bookedOn ?? "") || a.checkIn.localeCompare(b.checkIn)).map(detail),
+      detail: between(last7From, today).sort((a, b) => (b.countedOn ?? "").localeCompare(a.countedOn ?? "") || a.checkIn.localeCompare(b.checkIn)).map(detail),
     },
     upcoming: stats(orders.filter((order) => order.checkIn > today)),
     grids: { recent7Nights, next7Nights }, verdict, actions,
@@ -372,6 +407,9 @@ export function computeBusinessMetrics(
     meta: {
       orderCount: orders.length, generatedAt, source: options.source ?? "iron-gate",
       sourceUpdatedAt: options.sourceUpdatedAt ?? null, currency: "TWD", orderCountBasis: "canonical-booking",
+      dailyOrderDateBasis: "new-order-notification", notificationDateOrders, bookingDateFallbackOrders,
+      unknownDailyDateOrders: unknownDaily.length, dailyComparisonComparable,
+      notificationCoverageFrom,
       unknownBookingDateOrders: unknown.length, unknownBookingDateAmount: stats(unknown).amount,
       unpricedBookings: unpriced.length,
       excludedUnconfirmedOrders: canonical.size - confirmed.length, duplicateBookingRecords,
