@@ -33,10 +33,15 @@ confirmed:
 - channel operation `7476c886-c115-4eda-8b1e-867ce50650a6` requires
   `closed` and retained a `channel_pending` fence until external readback.
 
+At 10:00:37 Asia/Taipei the next channel worker invocation read back the
+actual OwlNest stock as zero for the room-night. The operation became
+`sync_verified`, the booking's channel state became `verified`, and its
+temporary `channel_pending` fence disappeared at inventory version 58.
+The authenticated Sweetfun OS calendar was refreshed and showed the Agoda
+booking for room 302 on 2026-10-24 through 2026-10-25, not a review block.
+
 The original review receipt remains intact for audit. Guest details and
 database credentials are not stored in this repository. The private repair
 manifest was built from the original email and is not part of this commit.
 Do not reuse the script for another order; its identity, versions, source
-hash, room and date are intentionally fixed. A later readback must confirm
-the new channel operation is `sync_verified`, the pending fence is gone, and
-the OS calendar displays the booking rather than a review placeholder.
+hash, room and date are intentionally fixed.
