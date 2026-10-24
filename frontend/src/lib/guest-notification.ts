@@ -2,6 +2,8 @@ import type {Principal} from './workspace-auth/types.ts';
 import {redisCommand} from './workspace-auth/store.ts';
 export type NotificationState={version:number;notified:boolean;at:string;actor:string;actor_name:string;request_id:string};
 export const notificationKey=(property:string)=>`sweetfun-os:guest-notification:v1:${property}`;
+export const notificationOrderId=(order:string)=>
+ /^(?:SF-[a-f0-9]{20}|IG-[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/.test(order);
 export const canNotify=(actor:Principal)=>['owner','god','admin','housekeeper'].includes(actor.role);
 export function parseNotification(raw:unknown):NotificationState{
  const v=JSON.parse(String(raw));
@@ -12,7 +14,7 @@ export async function notificationStates(property:string){
  const result=await redisCommand(['HGETALL',notificationKey(property)]);
  if(!Array.isArray(result)||result.length%2)throw Error('UNAVAILABLE');
  const states:Record<string,NotificationState>={};
- for(let i=0;i<result.length;i+=2){if(typeof result[i]!=='string'||!/^SF-[a-f0-9]{20}$/.test(result[i]))throw Error('UNAVAILABLE');states[result[i]]=parseNotification(result[i+1]);}
+ for(let i=0;i<result.length;i+=2){if(typeof result[i]!=='string'||!notificationOrderId(result[i]))throw Error('UNAVAILABLE');states[result[i]]=parseNotification(result[i+1]);}
  return states;
 }
 export async function setNotification(property:string,order:string,notified:boolean,version:number,requestId:string,actor:Principal){
