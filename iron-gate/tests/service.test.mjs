@@ -951,6 +951,43 @@ test("manual LINE close refuses pre-closed stock without its own write evidence"
   assert.equal(after.fences.length, 1);
 });
 
+test("manual LINE close cannot verify against a replacement booking", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const service = new IronGateService(repository, "p".repeat(43));
+  const actor = principal("line", { grantId: key(), actions: ["booking:read", "booking:create",
+    "booking:manage_all", "inventory:write"] });
+  const input = bookingInput(1, { source: "line", channelPolicy: "manual" });
+  const preview = await service.previewLineCreate(actor, propertyId, input);
+  const receipt = await service.createBooking(actor, propertyId, key(), input, preview.previewToken);
+  let state = await repository.read(propertyId);
+  const cells = state.bookings[0].lineChannelPending.map(({ roomId, date }) => ({ roomId, date }));
+  const action = { expectedBookingVersion: 1, expectedInventoryVersion: state.version,
+    desired: "closed", cells };
+  const signed = await service.previewLineChannelAction(actor, propertyId, receipt.bookingId, action);
+  const operationKey = key();
+  await service.requestLineChannelAction(actor, propertyId, receipt.bookingId,
+    operationKey, action, signed.previewToken);
+  // A later source takeover is not proof that this close belongs to the
+  // original booking, even when OwlNest now reads closed on every cell.
+  await repository.transact(propertyId, (draft) => {
+    draft.bookings[0].status = "cancelled";
+    draft.bookings.push({ ...structuredClone(draft.bookings[0]), id: key(),
+      status: "confirmed", channelOperationKey: null });
+  });
+  state = await repository.read(propertyId);
+  const result = await service.recordChannelReadback(principal("channel"), { propertyId,
+    operationKey, observedAt: new Date().toISOString(), providerVersion: "replacement-closed",
+    cells: observed(state.operations[0].cells), appliedClosedCells: cells });
+  assert.equal(result.state, "review_required");
+  const after = await repository.read(propertyId);
+  assert.equal(after.bookings[0].channelSyncState, "review_required");
+  assert.equal(after.fences.some((fence) => fence.key === operationKey), true);
+});
+
 test("manual LINE date change closes acquired nights before safely opening former nights", async () => {
   const { repository } = setup("owlnest");
   await repository.transact(propertyId, (state) => {

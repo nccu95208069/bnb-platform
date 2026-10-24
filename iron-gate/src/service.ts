@@ -1950,8 +1950,11 @@ export class IronGateService {
       // the same channel operation still owns these exact room nights.
       const correctBooking = booking ? booking.channelOperationKey === operation.key &&
         operation.cells.every((cell) => cell.desired === "closed" ?
-          booking.status === "confirmed" && currentNights.has(keyOf(cell)) ||
-          !currentNights.has(keyOf(cell)) && hasConflict(state, [cell], booking.id, operation.key) :
+          operation.ownCloseWriteRequired === true ?
+            booking.status === "confirmed" && currentNights.has(keyOf(cell)) :
+            booking.status === "confirmed" && currentNights.has(keyOf(cell)) ||
+              !currentNights.has(keyOf(cell)) && hasConflict(state, [cell], booking.id,
+                operation.key) :
           (booking.status === "confirmed" || booking.status === "cancelled") &&
           !currentNights.has(keyOf(cell)) &&
           !hasConflict(state, [cell], booking.id, operation.key)) :
