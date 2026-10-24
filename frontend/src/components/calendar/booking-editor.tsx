@@ -818,6 +818,7 @@ export function BookingDetailsPanel({
   onCancelBooking,
   onManualEdit,
   onManualCancel,
+  onManualSync,
 }: {
   booking: CalendarBooking | null;
   orderSegments: CalendarBooking[];
@@ -832,6 +833,7 @@ export function BookingDetailsPanel({
   onCancelBooking: (reason: string) => void;
   onManualEdit?: () => void;
   onManualCancel?: () => void;
+  onManualSync?: () => void;
 }) {
 const uiLocale = useIntlLocale();
 
@@ -932,7 +934,8 @@ const uiLocale = useIntlLocale();
                 <div role="status" className="rounded-xl border bg-muted/40 px-3 py-2 text-sm">
                   <div>{uiText("Iron Gate 訂單已記錄")}</div>
                   <div>{uiText("OwlNest 房況：")}{uiText(({
-                    not_required: "無需同步", pending: "同步中，尚未驗證",
+                    not_required: "無需同步", awaiting_manual_sync: "尚未同步，請按「同步房況」",
+                    pending: "同步中，尚未驗證",
                     verified: "已回讀驗證", review_required: "需人工核對",
                   })[booking.iron_gate_channel_sync])}</div>
                   {booking.iron_gate_source_review &&
@@ -940,8 +943,9 @@ const uiLocale = useIntlLocale();
                 </div>
               )}
 
-              {(onManualEdit || onManualCancel) &&
+              {(onManualEdit || onManualCancel || onManualSync) &&
                 <div className="grid grid-cols-2 gap-2">
+                  {onManualSync && <Button onClick={onManualSync}>同步房況</Button>}
                   {onManualEdit && <Button variant="outline" onClick={onManualEdit}>
                     {booking.iron_gate_source === "external" ? "更正旅客姓名" : "修改訂單"}</Button>}
                   {onManualCancel && <Button variant="outline" onClick={onManualCancel}>

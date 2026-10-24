@@ -56,6 +56,8 @@ export function manualError(error: unknown, key?: string) {
     code === 'MANUAL_FORBIDDEN' ? 403 :
     code === 'MANUAL_CONFIG_UNAVAILABLE' ? 404 :
     code.startsWith('MANUAL_INVALID') || code === 'MANUAL_REASON_REQUIRED' ||
+      code === 'MANUAL_GUEST_NAME_REQUIRED' || code === 'MANUAL_PRICE_REQUIRED' ||
+      code === 'GUEST_NAME_REQUIRED' || code === 'PRICE_REQUIRED' ||
       code === 'MANUAL_IDEMPOTENCY_KEY_REQUIRED' || code === 'FUTURE_RECEIPT' ||
       code === 'INVALID_AMOUNT' || code === 'INVALID_CURRENCY' ? 400 :
     code === 'ROOM_CONFLICT' || code.includes('VERSION') ||

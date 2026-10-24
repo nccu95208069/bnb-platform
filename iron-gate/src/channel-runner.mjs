@@ -5,7 +5,7 @@
  * whose setNight is an absolute, idempotent state change.
  */
 export async function reconcileChannelOperation({ propertyId, operationKey,
-  withPropertyLease, loadOperation, recordReadback, provider,
+  withPropertyLease, loadOperation, recordReadback, recordPreflight, provider,
   wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) }) {
   if (typeof withPropertyLease !== "function" || typeof loadOperation !== "function" ||
     typeof recordReadback !== "function" || typeof provider?.observe !== "function" ||
@@ -41,6 +41,18 @@ export async function reconcileChannelOperation({ propertyId, operationKey,
     const matches = (cell) => desired.get(`${cell.roomId}|${cell.date}`) === "closed"
       ? cell.count === 0 || cell.isLock : cell.count > 0 && !cell.isLock;
     let after = await inspect();
+    if (operation.manualInitialClose === true) {
+      if (typeof recordPreflight !== "function" ||
+        operation.initialOpenPreflight !== null)
+        throw Error("CHANNEL_PREFLIGHT_NOT_CONFIGURED");
+      const preflight = await recordPreflight({ propertyId, operationKey,
+        providerVersion: after.providerVersion, observedAt: after.observedAt,
+        cells: after.cells });
+      if (preflight?.state === "review_required") return preflight;
+      if (preflight?.state !== "sync_pending" ||
+        preflight.operationKey !== operationKey)
+        throw Error("CHANNEL_PREFLIGHT_INVALID_RESULT");
+    }
     // A move must never reopen old nights until every new night has been
     // observed closed. The operation fence remains in place throughout both
     // phases, including when a provider write has an unknown outcome.

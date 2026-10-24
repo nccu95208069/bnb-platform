@@ -28,3 +28,13 @@ test('manual booking writes stop when the browser cannot retain the recovery key
     { requestKey: key, mode: 'create', bookingId: null, createdAt: 1 }),
   /MANUAL_STORAGE_UNAVAILABLE/);
 });
+
+test('room-sync request keeps its booking identity across a reload', () => {
+  const values = new Map();
+  const storage = { getItem: name => values.get(name) ?? null,
+    setItem: (name, value) => values.set(name, value),
+    removeItem: name => values.delete(name) };
+  const pending = { requestKey: key, mode: 'sync', bookingId: otherKey, createdAt: 1 };
+  savePendingManualRequest(storage, pending);
+  assert.deepEqual(readPendingManualRequest(storage), pending);
+});

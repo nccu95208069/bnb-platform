@@ -1,5 +1,5 @@
 export type BookingStatus = "held" | "confirmed" | "cancelled";
-export type ChannelSyncState = "not_required" | "pending" | "verified" | "review_required";
+export type ChannelSyncState = "not_required" | "awaiting_manual_sync" | "pending" | "verified" | "review_required";
 export type OperationState = "sync_pending" | "sync_verified" | "review_required";
 export type Action =
   | "booking:read"
@@ -113,6 +113,10 @@ export type ChannelOperation = {
   createdAt: string;
   verifiedAt: string | null;
   providerVersion: string | null;
+  /** Manual OS close must observe every night open before any provider write. */
+  manualInitialClose?: boolean;
+  initialOpenPreflight?: { status: "open" | "blocked"; observedAt: string;
+    providerVersion: string; cells: ObservedCell[] };
   observations?: {
     observedAt: string;
     providerVersion: string;
@@ -258,7 +262,7 @@ export type BookingReceipt = {
   bookingId: string;
   bookingVersion: number;
   inventoryVersion: number;
-  operationState: OperationState | "local_only";
+  operationState: OperationState | "local_only" | "awaiting_manual_sync";
   operationKey: string | null;
   refundReviewRequired: boolean;
   sourceReviewRequired?: boolean;
@@ -266,6 +270,7 @@ export type BookingReceipt = {
 
 export type EventType =
   | "booking.created" | "booking.amended" | "booking.cancelled"
+  | "channel.sync_requested" | "channel.preflight_open"
   | "hold.created" | "hold.extended" | "hold.converted" | "hold.released"
   | "payment.recorded" | "source.applied" | "source.review_required"
   | "inventory.blocked" | "inventory.opened"

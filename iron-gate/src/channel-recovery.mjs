@@ -23,6 +23,39 @@ export async function recoverChannelClaim({ repository, service, provider,
     !["sync_pending", "review_required", "sync_verified"].includes(operation.state) ||
     !Array.isArray(operation.cells) || !operation.cells.length)
     throw Error("CHANNEL_RECOVERY_OPERATION_INVALID");
+  // An interrupted manual close cannot be proven by final stock alone. A
+  // pre-existing or independently closed night must never become "verified".
+  if (operation.manualInitialClose === true && operation.state !== "sync_verified") {
+    await repository.transact(propertyId, (current, tx) => {
+      const active = current.channelDispatch;
+      const pending = current.operations.find((item) => item.key === operation.key);
+      const booking = current.bookings.find((item) => item.id === pending?.bookingId);
+      if (active?.claimId !== expectedClaimId || active.operationKey !== operation.key ||
+        !["active", "review_required"].includes(active.state) ||
+        pending?.manualInitialClose !== true ||
+        !["sync_pending", "review_required"].includes(pending.state) ||
+        !booking || booking.channelOperationKey !== operation.key)
+        throw Error("CHANNEL_RECOVERY_CLAIM_MOVED");
+      if (pending.state === "sync_pending" || active.state === "active") {
+        pending.state = "review_required";
+        booking.channelSyncState = "review_required";
+        active.state = "review_required";
+        current.version++;
+        const at = new Date().toISOString();
+        tx.emit({ eventId: crypto.randomUUID(), at, type: "channel.review_required",
+          propertyId, bookingId: booking.id, bookingVersion: booking.version,
+          inventoryVersion: current.version });
+        tx.audit({ auditId: crypto.randomUUID(), at, type: "channel.review_required",
+          workspaceId: current.workspaceId, propertyId, bookingId: booking.id,
+          bookingVersion: booking.version, bookingStatus: booking.status,
+          inventoryVersion: current.version, actorOrigin: principal.origin,
+          actorClientId: principal.clientId, actorSubjectId: principal.subjectId,
+          actorGrantId: principal.grantId, requestKey: operation.key,
+          reason: "MANUAL_CLOSE_RECOVERY_UNPROVABLE" });
+      }
+    });
+    return { state: "review_required", operationKey: operation.key };
+  }
   const observed = await provider.observe(propertyId, operation.cells);
   const wanted = new Map(operation.cells.map((cell) =>
     [cell.roomId + "|" + cell.date, cell.desired]));

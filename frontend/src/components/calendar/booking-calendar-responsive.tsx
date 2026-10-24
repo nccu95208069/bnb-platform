@@ -269,7 +269,7 @@ const uiLocale = useIntlLocale();
     setMonthTarget(month);
   }, [historyRevision, cancelScrollCommit]);
   const [reloadKey, setReloadKey] = useState(0);
-  const [manualMode, setManualMode] = useState<"create" | "amend" | "cancel" | null>(null);
+  const [manualMode, setManualMode] = useState<"create" | "amend" | "cancel" | "sync" | null>(null);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
   const [editsHydrated, setEditsHydrated] = useState(false);
   const previousView = useRef<CalendarView>(view);
@@ -1079,20 +1079,26 @@ const uiLocale = useIntlLocale();
         onCancelBooking={cancelBooking}
         onManualEdit={manualEnabled && selectedBooking &&
           ["os", "external"].includes(selectedBooking.iron_gate_source ?? "") &&
-          ["verified", "not_required"].includes(selectedBooking.iron_gate_channel_sync ?? "") &&
+          ["verified", "not_required", "awaiting_manual_sync"].includes(
+            selectedBooking.iron_gate_channel_sync ?? "") &&
           !selectedBooking.iron_gate_source_review ?
           () => setManualMode("amend") : undefined}
         onManualCancel={manualEnabled && selectedBooking?.iron_gate_source === "os" &&
-          ["verified", "not_required"].includes(selectedBooking.iron_gate_channel_sync ?? "") &&
+          ["verified", "not_required", "awaiting_manual_sync"].includes(
+            selectedBooking.iron_gate_channel_sync ?? "") &&
           !selectedBooking.iron_gate_source_review ?
           () => setManualMode("cancel") : undefined}
+        onManualSync={manualEnabled && selectedBooking?.iron_gate_source === "os" &&
+          selectedBooking.iron_gate_channel_sync === "awaiting_manual_sync" &&
+          !selectedBooking.iron_gate_source_review ?
+          () => setManualMode("sync") : undefined}
       />
       {manualMode && <ManualBookingDialog open mode={manualMode}
         bookingId={selectedBooking?.iron_gate_booking_id}
         inventoryVersion={Number(data?.source?.private_snapshot_version ?? 0)}
         defaultDate={anchorDate}
         onClose={() => setManualMode(null)}
-        onDone={() => { setManualMode(null); setSelectedId(null); setReloadKey(value => value + 1); }} />}
+        onDone={() => setReloadKey(value => value + 1)} />}
     </div>
   );
 }

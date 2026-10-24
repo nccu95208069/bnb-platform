@@ -82,12 +82,15 @@ test("one authorized cron tick records exact provider readback and releases the 
   const service = new IronGateService(repository);
   const os = { clientId: "os", subjectId: "staff", origin: "os",
     workspaceId: "11111111-1111-4111-8111-111111111111", propertyIds: [propertyId],
-    authorityEpoch: 1, actions: ["booking:create"], fields: [] };
-  await service.createBooking(os, propertyId, crypto.randomUUID(), {
+    authorityEpoch: 1, actions: ["booking:create", "booking:amend"],
+    fields: ["guest_name", "money"] };
+  const created = await service.createBooking(os, propertyId, crypto.randomUUID(), {
     expectedInventoryVersion: 1,
     stays: [{ checkIn: "2026-11-10", checkOut: "2026-11-11", roomIds: [roomId] }],
-    guestName: null, contact: null, notes: null, totalCents: null,
+    guestName: "Synthetic Guest", contact: null, notes: null, totalCents: 10000,
     bookedAt: null, source: "os" });
+  await service.requestManualChannelSync(os, propertyId, created.bookingId,
+    crypto.randomUUID(), created.bookingVersion, created.inventoryVersion);
   let closed = false;
   const provider = { async observe(_propertyId, requested) {
     return { observedAt: new Date().toISOString(), providerVersion: closed ? "closed" : "open",

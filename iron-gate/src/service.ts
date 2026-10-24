@@ -228,7 +228,10 @@ function publicBooking(booking: Booking, principal: Principal,
   if (principal.origin === "os" || lineManagesAll(principal))
     result.sourceReviewRequired = booking.lineOverridePending === true ||
       state.sourceLinks.some((link) => link.bookingId === booking.id && link.diverged);
-  if (principal.origin === "os") result.bookedAt = booking.bookedAt;
+  if (principal.origin === "os") {
+    result.bookedAt = booking.bookedAt;
+    result.channelOperationKey = booking.channelOperationKey;
+  }
   // Field grants are server-authenticated. Public website queries use a separate order credential.
   if ((principal.origin === "os" || principal.origin === "line") &&
     principal.fields.includes("guest_name")) {
@@ -420,7 +423,8 @@ function requireAmendFields(principal: Principal, changes: AmendBookingInput["ch
     Principal["fields"][number]))) reject("FORBIDDEN", 403);
 }
 function operationState(state: PropertyState, booking: Booking): BookingReceipt["operationState"] {
-  if (state.channel.mode === "none") return "local_only";
+  if (state.channel.mode === "none" || booking.channelSyncState === "not_required") return "local_only";
+  if (booking.channelSyncState === "awaiting_manual_sync") return "awaiting_manual_sync";
   return booking.channelSyncState === "verified" ? "sync_verified" :
     booking.channelSyncState === "review_required" ? "review_required" : "sync_pending";
 }
@@ -567,6 +571,12 @@ export class IronGateService {
       authorize(principal, state, "booking:create", true);
       const prior = receiptFor(state, principal, requestKey, hash);
       if (prior) return prior.response as BookingReceipt;
+      if (principal.origin === "os") {
+        if (!principal.fields.includes("guest_name") || !principal.fields.includes("money"))
+          reject("FORBIDDEN", 403);
+        if (!input.guestName?.trim()) reject("GUEST_NAME_REQUIRED");
+        if (input.totalCents === null) reject("PRICE_REQUIRED");
+      }
       if (principal.origin === "line") {
         if (linePreviewExpiry === null || Date.now() >= linePreviewExpiry)
           reject("LINE_PREVIEW_REQUIRED", 409);
@@ -578,20 +588,18 @@ export class IronGateService {
       // Direct website writes require a one-use server-issued quote, including
       // local-only properties. A binding alone is never sale authorization.
       if (principal.origin === "website") reject("WEBSITE_QUOTE_REQUIRED", 409);
-      if (state.channel.mode === "owlnest" && !state.channel.ready) reject("SOURCE_UNAVAILABLE", 503);
+      if (state.channel.mode === "owlnest" && !state.channel.ready &&
+        principal.origin !== "os") reject("SOURCE_UNAVAILABLE", 503);
       const cells = nightsFor(input.stays, state.roomIds);
       if (principal.origin === "line") requireLineStockWindow(state, cells);
       if (hasConflict(state, cells)) reject("ROOM_CONFLICT", 409);
-      if (principal.origin === "os" && state.channel.mode === "owlnest") {
-        if (state.channel.sourceReadbackEnabled !== true || !state.channel.grantId ||
-          !state.channel.stockObservedFrom || !state.channel.stockObservedThrough)
-          reject("CHANNEL_CREATE_NOT_READY", 409);
-        requireOsStockWindow(state, cells);
-      }
-      const operationKey = state.channel.mode === "owlnest" ? crypto.randomUUID() : null;
+      const manualSync = principal.origin === "os" && state.channel.mode === "owlnest";
+      const operationKey = state.channel.mode === "owlnest" && !manualSync ?
+        crypto.randomUUID() : null;
       const booking: Booking = {
         id: crypto.randomUUID(), workspaceId: state.workspaceId, propertyId, version: 1,
-        status: "confirmed", channelSyncState: operationKey ? "pending" : "not_required",
+        status: "confirmed", channelSyncState: manualSync ? "awaiting_manual_sync" :
+          operationKey ? "pending" : "not_required",
         channelOperationKey: operationKey, stays: structuredClone(input.stays),
         guestName: input.guestName, contact: input.contact, notes: input.notes,
         totalCents: input.totalCents, currency: "TWD", bookedAt: input.bookedAt,
@@ -609,6 +617,48 @@ export class IronGateService {
       const response = makeBookingReceipt(state, booking);
       saveReceipt(state, principal, requestKey, "booking:create", hash, { ...response });
       emit(tx, state, "booking.created", booking, principal, requestKey);
+      return response;
+    });
+  }
+
+  async requestManualChannelSync(principal: Principal, propertyId: string, bookingId: string,
+    requestKey: string, expectedBookingVersion: number,
+    expectedInventoryVersion: number): Promise<BookingReceipt> {
+    uuid(propertyId); uuid(bookingId); uuid(requestKey);
+    if (!Number.isSafeInteger(expectedBookingVersion) || expectedBookingVersion < 1 ||
+      !Number.isSafeInteger(expectedInventoryVersion) || expectedInventoryVersion < 0)
+      reject("INVALID_VERSION");
+    const hash = await digest({ action: "channel:manual_sync", bookingId,
+      expectedBookingVersion, expectedInventoryVersion });
+    return this.repository.transact(propertyId, (state, tx) => {
+      authorize(principal, state, "booking:amend", true);
+      if (principal.origin !== "os") reject("FORBIDDEN", 403);
+      const prior = receiptFor(state, principal, requestKey, hash);
+      if (prior) return prior.response as BookingReceipt;
+      if (state.version !== expectedInventoryVersion) reject("VERSION_CONFLICT", 409);
+      const booking = state.bookings.find((item) => item.id === bookingId);
+      if (!booking) reject("BOOKING_NOT_FOUND", 404);
+      if (booking.version !== expectedBookingVersion) reject("VERSION_CONFLICT", 409);
+      if (booking.source !== "os" || booking.status !== "confirmed" ||
+        booking.channelSyncState !== "awaiting_manual_sync" ||
+        booking.channelOperationKey !== null) reject("CHANNEL_SYNC_NOT_READY", 409);
+      if (state.channel.mode !== "owlnest" || !state.channel.ready ||
+        state.channel.sourceReadbackEnabled !== true || !state.channel.grantId)
+        reject("CHANNEL_SYNC_NOT_READY", 409);
+      const cells = nightsFor(booking.stays, state.roomIds);
+      if (hasConflict(state, cells, booking.id)) reject("ROOM_CONFLICT", 409);
+      const operationKey = crypto.randomUUID();
+      booking.channelOperationKey = operationKey;
+      booking.channelSyncState = "pending";
+      state.operations.push({ key: operationKey, bookingId, bookingVersion: booking.version,
+        state: "sync_pending", cells: cells.map((cell) => ({ ...cell, desired: "closed" })),
+        createdAt: new Date().toISOString(), verifiedAt: null, providerVersion: null,
+        manualInitialClose: true });
+      state.fences.push({ key: operationKey, cells, reason: "channel_pending" });
+      state.version++;
+      const response = makeBookingReceipt(state, booking);
+      saveReceipt(state, principal, requestKey, "booking:amend", hash, { ...response });
+      emit(tx, state, "channel.sync_requested", booking, principal, requestKey);
       return response;
     });
   }
@@ -818,12 +868,15 @@ export class IronGateService {
         if (principal.origin === "line") requireLineStockWindow(state, next);
         roomNightsChanged = changedNights(current, next);
         if (roomNightsChanged && state.channel.mode === "owlnest" && principal.origin === "os") {
-          if (booking.source !== "os" || booking.channelSyncState !== "verified" ||
-            !state.channel.ready || state.channel.sourceReadbackEnabled !== true ||
-            !state.channel.grantId || !state.channel.stockObservedFrom ||
-            !state.channel.stockObservedThrough)
-            reject("CHANNEL_AMENDMENT_NOT_READY", 409);
-          requireOsStockWindow(state, uniqueNights([...current, ...next]));
+          if (booking.source !== "os" || !["verified", "awaiting_manual_sync"].includes(
+            booking.channelSyncState)) reject("CHANNEL_AMENDMENT_NOT_READY", 409);
+          if (booking.channelSyncState === "verified") {
+            if (!state.channel.ready || state.channel.sourceReadbackEnabled !== true ||
+              !state.channel.grantId || !state.channel.stockObservedFrom ||
+              !state.channel.stockObservedThrough)
+              reject("CHANNEL_AMENDMENT_NOT_READY", 409);
+            requireOsStockWindow(state, uniqueNights([...current, ...next]));
+          }
         }
         if (roomNightsChanged && hasConflict(state, next, booking.id)) reject("ROOM_CONFLICT", 409);
         booking.stays = structuredClone(input.changes.stays!);
@@ -837,7 +890,8 @@ export class IronGateService {
       if (principal.origin === "line") flagExternalSourceReview(state, booking, current, next,
         unverifiableSourceEdit);
       if (externalNameCorrection) flagExternalSourceReview(state, booking, current, next);
-      if (state.channel.mode === "owlnest" && roomNightsChanged ||
+      if (state.channel.mode === "owlnest" && roomNightsChanged &&
+        booking.channelSyncState !== "awaiting_manual_sync" ||
         principal.origin === "line" && baselineReadbackNeeded) {
         const before = new Set(current.map(keyOf)), after = new Set(next.map(keyOf));
         const cells: DesiredCell[] = baselineReadbackNeeded && !roomNightsChanged ?
@@ -1293,14 +1347,17 @@ export class IronGateService {
         reject("SOURCE_CANCEL_REQUIRES_REVIEW", 409);
       if (principal.origin === "os" && netReceived(booking) !== 0)
         reject("CANCELLATION_REQUIRES_SETTLEMENT", 409);
-      if (principal.origin === "os" && state.channel.mode === "owlnest")
+      if (principal.origin === "os" && state.channel.mode === "owlnest" &&
+        booking.channelSyncState !== "awaiting_manual_sync")
         requireOsStockWindow(state, nightsFor(booking.stays, state.roomIds));
       const previousSync = booking.channelSyncState;
       if (principal.origin === "line")
         flagExternalSourceReview(state, booking, nightsFor(booking.stays, state.roomIds), []);
       booking.status = "cancelled";
       booking.version++;
-      if (state.channel.mode === "owlnest") {
+      if (state.channel.mode === "owlnest" && previousSync === "awaiting_manual_sync") {
+        booking.channelSyncState = "not_required";
+      } else if (state.channel.mode === "owlnest") {
         const cells = nightsFor(booking.stays, state.roomIds);
         if (previousSync === "pending" || previousSync === "review_required") {
           const previous = state.operations.find((operation) => operation.key === booking.channelOperationKey);
@@ -1358,7 +1415,10 @@ export class IronGateService {
     const operation = state.operations.find((item) => item.key === operationKey);
     if (!operation) reject("OPERATION_NOT_FOUND", 404);
     return { key: operation.key, bookingId: operation.bookingId, state: operation.state,
-      cells: operation.cells, verifiedAt: operation.verifiedAt, providerVersion: operation.providerVersion };
+      cells: operation.cells, verifiedAt: operation.verifiedAt,
+      providerVersion: operation.providerVersion,
+      manualInitialClose: operation.manualInitialClose === true,
+      initialOpenPreflight: operation.initialOpenPreflight?.status ?? null };
   }
 
   async pendingChannelOperations(principal: Principal, propertyId: string,
@@ -1370,7 +1430,10 @@ export class IronGateService {
     authorize(principal, state, "channel:verify");
     if (principal.origin !== "channel" || !principal.grantId ||
       principal.grantId !== state.channel.grantId) reject("FORBIDDEN", 403);
-    const pending = state.operations.filter((operation) => operation.state === "sync_pending")
+    // A held property claim is deliberately not retried after an uncertain
+    // provider result. Recovery must resolve it before dispatch resumes.
+    const pending = (state.channelDispatch ? [] : state.operations)
+      .filter((operation) => operation.state === "sync_pending")
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt) ||
         left.key.localeCompare(right.key));
     return { propertyId, inventoryVersion: state.version,
@@ -1379,6 +1442,58 @@ export class IronGateService {
         bookingVersion: operation.bookingVersion, state: operation.state,
         createdAt: operation.createdAt, cells: operation.cells,
       })), hasMore: pending.length > limit };
+  }
+
+  async recordManualChannelPreflight(principal: Principal,
+    input: ReadbackInput): Promise<Record<string, unknown>> {
+    uuid(input.propertyId); uuid(input.operationKey); nonempty(input.providerVersion, 128);
+    const observed = timestamp(input.observedAt), now = Date.now();
+    if (observed > now + 60_000 || observed < now - 300_000) reject("STALE_READBACK", 409);
+    if (!Array.isArray(input.cells) || input.cells.length > 4096) reject("INVALID_INPUT");
+    return this.repository.transact(input.propertyId, (state, tx) => {
+      authorize(principal, state, "channel:verify", true);
+      if (principal.origin !== "channel" || !principal.grantId ||
+        principal.grantId !== state.channel.grantId) reject("FORBIDDEN", 403);
+      const operation = state.operations.find((item) => item.key === input.operationKey);
+      if (!operation || operation.manualInitialClose !== true ||
+        operation.state !== "sync_pending" ||
+        state.channelDispatch?.operationKey !== operation.key ||
+        state.channelDispatch.state !== "active") reject("CHANNEL_PREFLIGHT_NOT_READY", 409);
+      if (operation.initialOpenPreflight) reject("CHANNEL_PREFLIGHT_RECORDED", 409);
+      if (observed < timestamp(operation.createdAt)) reject("STALE_READBACK", 409);
+      const expected = operation.cells.map(keyOf).sort();
+      const actual: string[] = [];
+      for (const cell of input.cells) {
+        if (!cell || Object.keys(cell).sort().join(",") !== "count,date,isLock,roomId" ||
+          !state.roomIds.includes(uuid(cell.roomId)) ||
+          !Number.isSafeInteger(cell.count) || cell.count < 0 || cell.count > 100 ||
+          typeof cell.isLock !== "boolean") reject("INVALID_INPUT");
+        dayNumber(cell.date);
+        actual.push(keyOf(cell));
+      }
+      actual.sort();
+      if (actual.length !== expected.length ||
+        actual.some((cell, index) => cell !== expected[index])) reject("INVALID_INPUT");
+      const open = operation.cells.every((cell) => cell.desired === "closed") &&
+        input.cells.every((cell) => cell.count > 0 && !cell.isLock);
+      operation.initialOpenPreflight = { status: open ? "open" : "blocked",
+        observedAt: input.observedAt, providerVersion: input.providerVersion,
+        cells: structuredClone(input.cells) };
+      const booking = state.bookings.find((item) => item.id === operation.bookingId);
+      if (!booking || booking.channelOperationKey !== operation.key ||
+        booking.channelSyncState !== "pending" || booking.status !== "confirmed")
+        reject("CHANNEL_PREFLIGHT_NOT_READY", 409);
+      if (!open) {
+        operation.state = "review_required";
+        booking.channelSyncState = "review_required";
+      }
+      state.version++;
+      emit(tx, state, open ? "channel.preflight_open" : "channel.review_required",
+        booking, principal, operation.key);
+      return { operationKey: operation.key, state: operation.state,
+        bookingId: booking.id, bookingVersion: booking.version,
+        inventoryVersion: state.version };
+    });
   }
 
   async recordChannelReadback(principal: Principal, input: ReadbackInput): Promise<Record<string, unknown>> {
@@ -1414,6 +1529,11 @@ export class IronGateService {
       const providerMatches = complete && input.cells.every((cell) =>
         desiredByCell.get(keyOf(cell)) === "closed" ? cell.count === 0 || cell.isLock :
           cell.count > 0 && !cell.isLock);
+      const manualPreflightValid = operation.manualInitialClose !== true ||
+        operation.state === "sync_pending" &&
+        operation.initialOpenPreflight?.status === "open" &&
+        state.channelDispatch?.operationKey === operation.key &&
+        state.channelDispatch.state === "active";
       const currentNights = new Set(booking?.status === "confirmed" ?
         nightsFor(booking.stays, state.roomIds).map(keyOf) : []);
       // Payment or guest-detail edits may advance the booking version while
@@ -1434,8 +1554,9 @@ export class IronGateService {
       operation.observations ??= [];
       if (operation.observations.length >= 1000) reject("READBACK_LIMIT_REACHED", 409);
       operation.observations.push({ observedAt: input.observedAt, providerVersion: input.providerVersion,
-        cells: structuredClone(input.cells), exact: providerMatches, accepted: providerMatches && correctBooking });
-      if (!providerMatches || !correctBooking) {
+        cells: structuredClone(input.cells), exact: providerMatches,
+        accepted: providerMatches && correctBooking && manualPreflightValid });
+      if (!providerMatches || !correctBooking || !manualPreflightValid) {
         operation.state = "review_required";
         if (booking) booking.channelSyncState = "review_required";
       } else {

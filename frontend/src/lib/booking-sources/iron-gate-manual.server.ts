@@ -229,7 +229,7 @@ export async function previewManualBooking(principal: Principal, config: ManualC
   const checked = await checkLocalNights(principal, config, wanted,
     expectedInventoryVersion, send);
   return { ...checked, localRoomNightsAvailable: true,
-    externalStockVerified: false, channelEffect: 'close_pending_readback' };
+    externalStockVerified: false, channelEffect: 'manual_sync_required' };
 }
 
 export async function previewManualAmend(principal: Principal, config: ManualConfig,
@@ -242,14 +242,15 @@ export async function previewManualAmend(principal: Principal, config: ManualCon
   if (before.source !== 'os' || before.status !== 'confirmed' ||
     before.version !== input.expectedBookingVersion) throw Error('MANUAL_VERSION_CONFLICT');
   if (before.sourceReviewRequired === true ||
-    !['verified', 'not_required'].includes(String(before.channelSyncState)))
+    !['verified', 'not_required', 'awaiting_manual_sync'].includes(String(before.channelSyncState)))
     throw Error('CHANNEL_AMENDMENT_NOT_READY');
   const wanted = stays(input.stays, config);
   const checked = await checkLocalNights(principal, config, wanted,
     version(input.expectedInventoryVersion), send, before.stays as Stay[]);
   return { ...checked, bookingVersion: before.version,
     localRoomNightsAvailable: true, externalStockVerified: false,
-    channelEffect: 'close_new_then_open_old_pending_readback' };
+    channelEffect: before.channelSyncState === 'awaiting_manual_sync' ?
+      'manual_sync_required' : 'close_new_then_open_old_pending_readback' };
 }
 
 export async function createManualBooking(principal: Principal, config: ManualConfig,
@@ -259,9 +260,13 @@ export async function createManualBooking(principal: Principal, config: ManualCo
     'notes', 'totalCents', 'bookedAt']);
   const expectedInventoryVersion = version(input.expectedInventoryVersion);
   const wanted = stays(input.stays, config);
+  const guestName = nullable(input.guestName, 200)?.trim();
+  const totalCents = money(input.totalCents);
+  if (!guestName) throw Error('MANUAL_GUEST_NAME_REQUIRED');
+  if (totalCents === null) throw Error('MANUAL_PRICE_REQUIRED');
   const payload = { expectedInventoryVersion, stays: wanted,
-    guestName: nullable(input.guestName, 200), contact: nullable(input.contact, 256),
-    notes: nullable(input.notes, 2048), totalCents: money(input.totalCents),
+    guestName, contact: nullable(input.contact, 256),
+    notes: nullable(input.notes, 2048), totalCents,
     bookedAt: input.bookedAt == null ? null : date(input.bookedAt), source: 'os' };
   await checkLocalNights(principal, config, wanted, expectedInventoryVersion, send);
   const result = await callIronGate(config, principal, 'POST', bookingPath(config), payload,
@@ -271,6 +276,11 @@ export async function createManualBooking(principal: Principal, config: ManualCo
   ensureBooking(observed, config, String(result.bookingId));
   if (observed.status !== 'confirmed' || !sameStays(observed.stays, wanted) ||
     observed.source !== 'os' || observed.version !== result.bookingVersion ||
+    !['awaiting_manual_sync', 'local_only'].includes(String(result.operationState)) ||
+    (result.operationState === 'awaiting_manual_sync' &&
+      observed.channelSyncState !== 'awaiting_manual_sync') ||
+    (result.operationState === 'local_only' &&
+      observed.channelSyncState !== 'not_required') ||
     observed.guestName !== payload.guestName || observed.contact !== payload.contact ||
     observed.notes !== payload.notes || observed.totalCents !== payload.totalCents ||
     observed.bookedAt !== payload.bookedAt)
@@ -278,6 +288,40 @@ export async function createManualBooking(principal: Principal, config: ManualCo
   return { bookingId: result.bookingId, bookingVersion: observed.version,
     inventoryVersion: result.inventoryVersion, operationState: result.operationState,
     channelSyncState: observed.channelSyncState, requestKey };
+}
+
+export async function startManualRoomSync(principal: Principal, config: ManualConfig,
+  bookingId: string, input: unknown, requestKey: string, send: typeof fetch = fetch) {
+  if (!UUID.test(bookingId) || !UUID.test(requestKey) || !object(input))
+    throw Error('MANUAL_INVALID_INPUT');
+  exact(input, ['expectedBookingVersion', 'expectedInventoryVersion']);
+  const expectedBookingVersion = version(input.expectedBookingVersion, 1);
+  const expectedInventoryVersion = version(input.expectedInventoryVersion);
+  const before = await callIronGate(config, principal, 'GET', bookingPath(config, bookingId),
+    null, null, send);
+  ensureBooking(before, config, bookingId);
+  if (before.version !== expectedBookingVersion || before.source !== 'os' ||
+    before.status !== 'confirmed' ||
+    before.channelSyncState !== 'awaiting_manual_sync' ||
+    before.sourceReviewRequired === true) throw Error('CHANNEL_SYNC_NOT_READY');
+  const result = await callIronGate(config, principal, 'POST',
+    `${bookingPath(config, bookingId)}/sync-room-status`,
+    { expectedBookingVersion, expectedInventoryVersion }, requestKey, send);
+  if (result.operationState !== 'sync_pending' || !UUID.test(String(result.operationKey)))
+    throw Error('MANUAL_READBACK_MISMATCH');
+  const after = await readAfterWrite(config, principal, bookingId, send);
+  ensureBooking(after, config, bookingId);
+  const pending = after.version === before.version && after.channelSyncState === 'pending';
+  const verified = after.version === Number(before.version) + 1 &&
+    after.channelSyncState === 'verified';
+  if (!(pending || verified) || after.status !== 'confirmed' ||
+    after.channelOperationKey !== result.operationKey ||
+    !sameStays(after.stays, before.stays as Stay[]))
+    throw Error('MANUAL_READBACK_MISMATCH');
+  return { bookingId, bookingVersion: after.version,
+    inventoryVersion: result.inventoryVersion,
+    operationState: after.channelSyncState === 'verified' ? 'sync_verified' : result.operationState,
+    channelSyncState: after.channelSyncState, requestKey };
 }
 
 export async function amendManualBooking(principal: Principal, config: ManualConfig,
@@ -301,7 +345,7 @@ export async function amendManualBooking(principal: Principal, config: ManualCon
   if (!['os', 'external'].includes(String(before.source)) || before.status !== 'confirmed' ||
     before.version !== input.expectedBookingVersion) throw Error('MANUAL_VERSION_CONFLICT');
   if (before.sourceReviewRequired === true ||
-    !['verified', 'not_required'].includes(String(before.channelSyncState)))
+    !['verified', 'not_required', 'awaiting_manual_sync'].includes(String(before.channelSyncState)))
     throw Error('CHANNEL_AMENDMENT_NOT_READY');
   if (externalNameOnly) {
     if (Object.keys(changes).length !== 1 || typeof changes.guestName !== 'string' ||
@@ -341,7 +385,7 @@ export async function cancelManualBooking(principal: Principal, config: ManualCo
   if (before.source !== 'os' || before.status !== 'confirmed' ||
     before.version !== input.expectedBookingVersion) throw Error('MANUAL_VERSION_CONFLICT');
   if (before.sourceReviewRequired === true ||
-    !['verified', 'not_required'].includes(String(before.channelSyncState)))
+    !['verified', 'not_required', 'awaiting_manual_sync'].includes(String(before.channelSyncState)))
     throw Error('CHANNEL_CANCELLATION_NOT_READY');
   const payload = { expectedBookingVersion: version(input.expectedBookingVersion, 1),
     expectedInventoryVersion: version(input.expectedInventoryVersion), reason: reason(input.reason) };

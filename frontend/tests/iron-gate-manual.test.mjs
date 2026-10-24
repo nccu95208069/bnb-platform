@@ -7,7 +7,7 @@ import { createChannelWorker } from '../../iron-gate/src/channel-worker.mjs';
 import { manualError } from '../src/lib/booking-sources/iron-gate-manual-route.server.ts';
 import { createOsMemberProofVerifier } from '../../iron-gate/src/os-member-proof.mjs';
 import { ironGateManualConfig, previewManualBooking, previewManualAmend, createManualBooking,
-  amendManualBooking, cancelManualBooking, manualRequestResult } from
+  amendManualBooking, cancelManualBooking, manualRequestResult, startManualRoomSync } from
   '../src/lib/booking-sources/iron-gate-manual.server.ts';
 import { ironGateManualPaymentConfig, readManualPayment, recordManualPayment,
   manualPaymentRequestResult } from
@@ -92,7 +92,14 @@ test('OS direct lifecycle verifies every OwlNest transition before the next writ
     expectedInventoryVersion: 1, stays: stay(), guestName: 'Synthetic Guest',
     contact: null, notes: null, totalCents: 100000, bookedAt: null,
   }, key(), send);
-  assert.equal(created.channelSyncState, 'pending');
+  assert.equal(created.channelSyncState, 'awaiting_manual_sync');
+  assert.equal((await repository.read(propertyId)).fences.length, 0);
+  assert.equal((await worker.runOne(channel, propertyId)).state, 'idle');
+  const requested = await startManualRoomSync(owner, c, created.bookingId, {
+    expectedBookingVersion: created.bookingVersion,
+    expectedInventoryVersion: created.inventoryVersion,
+  }, key(), send);
+  assert.equal(requested.channelSyncState, 'pending');
   assert.equal((await repository.read(propertyId)).fences.length, 1);
   assert.equal((await worker.runOne(channel, propertyId)).state, 'sync_verified');
   let state = await repository.read(propertyId);
@@ -184,6 +191,42 @@ test('manual gateway stays closed without both explicit switches', () => {
   assert.equal(c.grant.propertyId, propertyId);
 });
 
+test('manual create requires guest name and price before writing', async () => {
+  const { repository, send } = setup('owlnest'), c = config();
+  const input = { expectedInventoryVersion: 1, stays: stay(),
+    guestName: 'Synthetic Guest', contact: null, notes: null,
+    totalCents: 100000, bookedAt: null };
+  await assert.rejects(createManualBooking(owner, c,
+    { ...input, guestName: ' ' }, key(), send), /MANUAL_GUEST_NAME_REQUIRED/);
+  await assert.rejects(createManualBooking(owner, c,
+    { ...input, totalCents: null }, key(), send), /MANUAL_PRICE_REQUIRED/);
+  assert.equal((await repository.read(propertyId)).bookings.length, 0);
+});
+
+test('lost sync response is recoverable and does not dispatch another close', async () => {
+  const { repository, send } = setup('owlnest'), c = config();
+  const created = await createManualBooking(owner, c, {
+    expectedInventoryVersion: 1, stays: stay(), guestName: 'Synthetic Guest',
+    contact: null, notes: null, totalCents: 100000, bookedAt: null,
+  }, key(), send);
+  const syncKey = key();
+  const loseResponse = async (url, init) => {
+    const response = await send(url, init);
+    if (init.method === 'POST' && new URL(url).pathname.endsWith('/sync-room-status'))
+      throw Error('synthetic connection reset after commit');
+    return response;
+  };
+  await assert.rejects(startManualRoomSync(owner, c, created.bookingId, {
+    expectedBookingVersion: created.bookingVersion,
+    expectedInventoryVersion: created.inventoryVersion,
+  }, syncKey, loseResponse), /MANUAL_RESULT_UNKNOWN/);
+  const receipt = await manualRequestResult(owner, c, syncKey, send);
+  assert.equal(receipt.operationState, 'sync_pending');
+  const state = await repository.read(propertyId);
+  assert.equal(state.operations.length, 1);
+  assert.equal(state.bookings[0].channelSyncState, 'pending');
+});
+
 test('unobserved stock is a definitive conflict, while a lost write stays unknown', async () => {
   const rejected = manualError(Error('CHANNEL_STOCK_NOT_OBSERVED'), key());
   assert.equal(rejected.status, 409);
@@ -237,7 +280,7 @@ test('manual payment gateway blocks another property and preserves ambiguous wri
   const { repository, send } = setup(), c = config();
   const created = await createManualBooking(owner, c, {
     expectedInventoryVersion: 1, stays: stay(), guestName: 'Synthetic Guest',
-    contact: null, notes: null, totalCents: null, bookedAt: null,
+    contact: null, notes: null, totalCents: 100000, bookedAt: null,
   }, key(), send);
   let calls = 0;
   await assert.rejects(readManualPayment({ ...owner, allProperties: false,
@@ -327,7 +370,7 @@ test('a lost create response is recovered by its original key without a second w
   };
   await assert.rejects(createManualBooking(owner, c, {
     expectedInventoryVersion: 1, stays: stay(), guestName: 'Synthetic Guest',
-    contact: null, notes: null, totalCents: null, bookedAt: null,
+    contact: null, notes: null, totalCents: 100000, bookedAt: null,
   }, requestKey, loseResponse), /MANUAL_RESULT_UNKNOWN/);
   const recovered = await manualRequestResult(owner, c, requestKey, send);
   assert.equal(recovered.bookingId, (await repository.read(propertyId)).bookings[0].id);
@@ -344,7 +387,7 @@ test('a server error after commit remains an unknown result recoverable by the o
   };
   await assert.rejects(createManualBooking(owner, c, {
     expectedInventoryVersion: 1, stays: stay(), guestName: 'Synthetic Guest',
-    contact: null, notes: null, totalCents: null, bookedAt: null,
+    contact: null, notes: null, totalCents: 100000, bookedAt: null,
   }, requestKey, serverErrorAfterCommit), /MANUAL_RESULT_UNKNOWN/);
   const recovered = await manualRequestResult(owner, c, requestKey, send);
   assert.equal(recovered.bookingId, (await repository.read(propertyId)).bookings[0].id);
