@@ -347,6 +347,31 @@ function publicBooking(booking: Booking, principal: Principal,
               : `J:${String(row.values[9] ?? "").trim()}`))
           ? { sourceOrderRef: groupKey } : {}) };
     }
+    const offland = booking.offlandSnapshot;
+    const offlandRows = offland?.rows;
+    const offlandKey = typeof offland?.groupKey === "string" ? offland.groupKey : null;
+    if (!booking.sourceCalendar && Array.isArray(offlandRows) && offlandRows.length &&
+      booking.source === "external") {
+      const unique = (column: number): string | null => {
+        const values = [...new Set(offlandRows.map((row: { values?: unknown[] }) =>
+          String(row.values?.[column] ?? "").trim()))].filter(Boolean);
+        return values.length === 1 ? values[0] : null;
+      };
+      const sourceOrderRef = principal.fields.includes("money") &&
+        booking.version === 1 &&
+        (/^Q:[A-Za-z0-9-]{8,128}$/.test(offlandKey ?? "") ||
+          /^J:[A-Za-z0-9_-]{8,100}$/.test(offlandKey ?? "")) &&
+        offlandRows.every((row: { values?: unknown[] }) =>
+          offlandKey === (offlandKey?.startsWith("Q:")
+            ? `Q:${String(row.values?.[16] ?? "").trim()}`
+            : `J:${String(row.values?.[9] ?? "").trim()}`))
+        ? offlandKey : null;
+      result.sourceCalendar = { platform: unique(2),
+        ...(principal.fields.includes("money") ?
+          { externalOrderNo: unique(16),
+            ...(sourceOrderRef ? { sourceOrderRef } : {}) } : {}),
+        bookedAt: booking.bookedAt };
+    }
   }
   if ((principal.origin === "os" || principal.origin === "line") &&
     principal.fields.includes("contact")) result.contact = booking.contact;
@@ -386,6 +411,19 @@ function calendarStayAmounts(booking: Booking): number[] | null {
   if (booking.totalCents === null || !Number.isSafeInteger(booking.totalCents) ||
     booking.totalCents < 0 || booking.stays.some((stay) => stay.roomIds.length !== 1)) return null;
   if (booking.stays.length === 1) return [booking.totalCents];
+  if (Array.isArray(booking.roomNightPrices) &&
+    booking.roomNightPrices.length === booking.stays.length &&
+    booking.stays.every((stay) => stay.roomIds.length === 1 &&
+      dayNumber(stay.checkOut) - dayNumber(stay.checkIn) === 1)) {
+    const byCell = new Map(booking.roomNightPrices.map((price) =>
+      [`${price.roomId}:${price.date}`, price.amountCents]));
+    const amounts = booking.stays.map((stay) =>
+      byCell.get(`${stay.roomIds[0]}:${stay.checkIn}`));
+    if (byCell.size === booking.stays.length &&
+      amounts.every((amount) => Number.isSafeInteger(amount) && amount! >= 0) &&
+      amounts.reduce<number>((sum, amount) => sum + Number(amount), 0) === booking.totalCents)
+      return amounts as number[];
+  }
   // A newer source event supplies only a whole-order amount. Historical
   // imported rows cannot prove its current per-night distribution.
   if (booking.sourceCalendar) return null;
@@ -1356,11 +1394,12 @@ export class IronGateService {
         attention: Boolean(options.attention),
         to: options.to, createdAt: last.createdAt, id: last.id }))
         .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") : null;
+    const imported = state.sweetfunImport ?? state.offlandImport;
     const snapshot = state.readOnly === true && state.authorityEpoch === 0 &&
-      state.sweetfunImport && typeof state.sweetfunImport.capturedAt === "string" &&
-      typeof state.sweetfunImport.sourceHash === "string"
-      ? { capturedAt: state.sweetfunImport.capturedAt,
-        sourceHash: state.sweetfunImport.sourceHash } : null;
+      imported && typeof imported.capturedAt === "string" &&
+      typeof imported.sourceHash === "string"
+      ? { capturedAt: imported.capturedAt,
+        sourceHash: imported.sourceHash } : null;
     return { propertyId, inventoryVersion: state.version,
       authorityEpoch: state.authorityEpoch, readOnly: state.readOnly === true,
       snapshot, bookings: page.map((booking) => publicBooking(booking, principal, state)), nextCursor,

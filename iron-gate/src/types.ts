@@ -89,6 +89,8 @@ export type Booking = {
   osSnapshot?: Record<string, unknown>;
   /** Restricted original room-night rows for a read-only Sweetfun Sheet candidate. */
   sweetfunSnapshot?: Record<string, unknown>;
+  /** Restricted original room-night rows for an OFFLAND Sheet candidate. */
+  offlandSnapshot?: Record<string, unknown>;
 };
 
 export type PaymentMetadata = {
@@ -190,6 +192,8 @@ export type PropertyState = {
   osImport?: { sourceHash: string; workspaceVersion: number; propertySnapshot: Record<string, unknown> };
   /** Restricted source and exception evidence for a read-only Sweetfun Sheet candidate. */
   sweetfunImport?: Record<string, unknown>;
+  /** Restricted provenance for a read-only OFFLAND Sheet candidate. */
+  offlandImport?: Record<string, unknown>;
   channel: { mode: "none" | "owlnest"; ready: boolean; websiteSalesEnabled: boolean;
     /** Disabled until source events have a durable OwlNest operation dispatcher. */
     sourceReadbackEnabled?: boolean;
