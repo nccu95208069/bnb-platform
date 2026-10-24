@@ -26,7 +26,6 @@ export async function bindingWorkspace(store: CustomerStore, binding: WebsiteBin
        !Number.isFinite(Date.parse(binding.emptyCalendarCoverage.confirmedAt)))) throw Error("SOURCE_COVERAGE");
   if (binding.admission === "owner_approval" && !["empty", "sheet", "calendar"].includes(property.setup?.mode ?? ""))
     throw Error("SOURCE_COVERAGE");
-  if (w.sourceConnections?.some(c => c.propertyId === property.id)) throw Error("BINDING_UNAVAILABLE");
   bindingCoverage(property, binding.config);
   if (binding.offers.some(o => o.roomIds.some(id => !property.rooms.some(r => r.id === id)))) throw Error("BINDING_UNAVAILABLE");
   return { raw: saved.raw, workspace: w, property };
@@ -35,8 +34,7 @@ function availableRooms(workspace: Workspace, property: Property, offer: RoomOff
   const free = offer.roomIds.filter(id => {
     const window = { checkIn: stay.checkIn, checkOut: stay.checkOut, roomIds: [id] };
     return !workspace.bookings.some(b => b.propertyId === property.id && occupiesInventory(b) && bookingsOverlap(b, window)) &&
-      !workspace.blocks?.some(b => b.propertyId === property.id && b.status === "active" && bookingsOverlap(b, window)) &&
-      !workspace.integrationFences?.some(f => f.propertyId === property.id && bookingsOverlap(f, window));
+      !workspace.blocks?.some(b => b.propertyId === property.id && b.status === "active" && bookingsOverlap(b, window));
   });
   return offer.wholeHouse ? (free.length === offer.roomIds.length ? free : []) : free;
 }
@@ -185,7 +183,7 @@ async function reserve(store: CustomerStore, snapshot: Snapshot<WebsiteBinding> 
     }), payments: [], contact: `${normalized.phone} / ${normalized.email}`, notes: normalized.note || null,
     status: "held", hold: { schema: 1, scope: "platform_only", startedAt: at, expiresAt: new Date(now.getTime() + 86400000).toISOString(), state: "active" },
     platform: "Official Website", bookedAt: businessDate(at), bookedAtSource: "manual", bookedAtTimeZone: "Asia/Taipei",
-    guestNotified: false, createdAt: at, actor: `website:${binding.id}`, entry: "os", requestKey: key, requestHash,
+    guestNotified: false, createdAt: at, updatedAt: at, actor: `website:${binding.id}`, entry: "os", requestKey: key, requestHash,
     website: { bindingId: binding.id, quoteId, requestId: key, reference, email: normalized.email, phone: normalized.phone,
       adults: quote.stay.adults, children: quote.stay.children, roomTypeId: offer.id,
       acceptedTerms: { transferInstructions: binding.config.transferInstructions, cancellationPolicy: binding.config.cancellationPolicy },

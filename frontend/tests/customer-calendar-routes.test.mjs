@@ -26,8 +26,8 @@ async function setup(t) {
     account = await login(f.store, {
       mode: "register",
       email: "calendar-route@example.test",
-      password: "Synthetic calendar passphrase!",
-      confirmPassword: "Synthetic calendar passphrase!",
+      password: "Synthetic calendar passphrase 1!",
+      confirmPassword: "Synthetic calendar passphrase 1!",
     });
   const w = await f.current();
   w.members[0].accountId = account.id;

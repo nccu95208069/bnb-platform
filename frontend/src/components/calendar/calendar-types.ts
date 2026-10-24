@@ -47,6 +47,12 @@ export type CalendarBooking = {
   id: string;
   sheet_row_id: string;
   order_id: string;
+  /** Stable manual-contact status identity; preserves marks from the former Sheet calendar. */
+  notification_order_id?: string;
+  /** Existing OS payment ledger identity for an unchanged imported Iron Gate order. */
+  payment_order_id?: string;
+  source_booking_version?: number;
+  source_legacy_payment?: boolean;
   external_order_no: string | null;
   owlnest_order_no?: string | null;
   property_id: string;
@@ -66,7 +72,11 @@ export type CalendarBooking = {
   check_out: string;
   booked_at: string | null;
   room_rate: number;
+  /** Verified whole-order amount in cents; may lack a trustworthy per-room split. */
+  source_order_total_cents?: number;
   payment_status: PaymentStatus;
+  /** Verified server projection for payment review while room prices remain hidden. */
+  payment_review_status?: "paid" | "deposit";
   reservation_status: ReservationStatus;
   notes: string | null;
   payments: PaymentRecord[];
@@ -94,6 +104,8 @@ export type CalendarBooking = {
   source_identity_kind?: "parent_order" | "row";
   nightly_amounts?: { date: string; amount: number }[];
   source_segment_ids?: string[];
+  // Calendar-only span; the underlying rows keep independent order/payment IDs.
+  visual_source_ids?: string[];
   stay_nights?: number;
   price_hidden?: boolean;
 };

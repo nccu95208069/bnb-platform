@@ -9,7 +9,7 @@ import type {PaymentMethod} from '@/components/calendar/calendar-types';
 import {Button} from '@/components/ui/button';
 const nowTaipei=()=>new Date(Date.now()+8*3600000).toISOString().slice(0,16);
 type Check=Omit<OrderCheck,'ledger'>&{ledger:LedgerView}&{can_record:boolean;sheet_write_enabled:boolean;payment_accounts:PaymentAccount[];payment_status:keyof typeof PAYMENT_LABELS};
-export function OsPaymentPanel({property,order,canRecord,onChange}:{property:string;order:string;canRecord:boolean;onChange:()=>void}){
+export function OsPaymentPanel({property,order,sourceBookingId,canRecord,onChange}:{property:string;order:string;sourceBookingId?:string;canRecord:boolean;onChange:()=>void}){
  const locale=useIntlLocale(),t=useT(),money=(n:number)=>formatMoney(n,locale);
  const [check,setCheck]=useState<Check|null>(null),[error,setError]=useState(''),[reload,setReload]=useState(0);
  const [recovery,setRecovery]=useState<PaymentRecovery|null>(null);
@@ -21,13 +21,13 @@ export function OsPaymentPanel({property,order,canRecord,onChange}:{property:str
  const [access,setAccess]=useState<'idle'|'checking'|'ready'|'error'>('idle');
  useEffect(()=>{
   const controller=new AbortController();
-  fetch(`/api/v1/order-payments?property=${encodeURIComponent(property)}&order=${encodeURIComponent(order)}`,{cache:'no-store',signal:controller.signal}).then(async r=>{
+  fetch(`/api/v1/order-payments?property=${encodeURIComponent(property)}&order=${encodeURIComponent(order)}${sourceBookingId?`&ig_booking=${encodeURIComponent(sourceBookingId)}`:''}`,{cache:'no-store',signal:controller.signal}).then(async r=>{
    const data=await r.json();if(!r.ok)throw new Error(data.detail);
    setRecovery(data.recovery??null);setCheck(data.recovery?null:data);
    if((data.recovery?.ledger??data.ledger).receipts.some((r:ReceiptView)=>r.sheet_sync?.state==='pending')){setOpen(false);setPending(null);}
   }).catch(e=>{if(e.name!=='AbortError'){setCheck(null);setError(e.message);}});
   return ()=>controller.abort();
- },[property,order,reload]);
+ },[property,order,sourceBookingId,reload]);
  const receipts=check?.ledger.receipts??recovery?.ledger.receipts??[],pendingReceipt=receipts.find(r=>r.sheet_sync?.state==='pending');
  const roomReceived=roomPaymentCents(check?.finance_received??0,receipts)/100;
  const remaining=Math.max(0,Math.round(((check?.total??0)-roomReceived)*100)/100);
@@ -35,8 +35,9 @@ export function OsPaymentPanel({property,order,canRecord,onChange}:{property:str
  async function submit(retry?:ReceiptView){
   if(!retry&&!check)return;const sheetWrite=check?.sheet_write_enabled??recovery?.sheet_write_enabled??!!retry?.sheet_sync;setBusy(true);setError('');setSuccess('');
   try{
-   const input=retry?{property_id:property,order_id:order,action:'retry_sync',request_id:retry.request_id}:pending??{
+   const input=retry?{property_id:property,order_id:order,...(sourceBookingId?{ig_booking_id:sourceBookingId}:{}),action:'retry_sync',request_id:retry.request_id}:pending??{
     property_id:property,order_id:order,expected_version:check?.ledger.version,source_version:check?.source_version,request_id:crypto.randomUUID(),
+    ...(sourceBookingId?{ig_booking_id:sourceBookingId}:{}),
     amount:mode==='paid'?0:Number(amount),payment_type:mode==='paid'?'full':other?'other':confirmed?'balance':'deposit',payment_method:mode==='paid'?'other':method,status_only:mode==='paid',
     received_at:mode==='paid'?new Date().toISOString():new Date(at+':00+08:00').toISOString(),note,settles_room:mode==='paid'||(!other&&confirmed),
     ...(mode==='receipt'&&needsAccount?(account?{payment_account_id:account}:{payment_account_name:accountName,payment_account_last_digits:digits}):{})
@@ -53,10 +54,10 @@ export function OsPaymentPanel({property,order,canRecord,onChange}:{property:str
   setAccess('checking');setError('');
   try{const r=await fetch('/api/v1/order-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({property_id:property,action:'check_sheet_access'})}),data=await r.json();if(!r.ok||!data.verified)throw new Error(data.detail||'主表連線尚未確認。');setAccess('ready');}catch(e){setAccess('error');setError(e instanceof Error?e.message:'主表連線尚未確認。');}
  }
- function begin(){void checkAccess();setOpen(true);setMode('receipt');setAmount('');setMethod('bank_transfer');setAccount('');setAccountName('');setDigits('');setAt(nowTaipei());setNote('');setOther(false);setConfirmed(false);setSuccess('');setError('');}
+ function begin(nextMode:'receipt'|'paid'='receipt'){void checkAccess();setOpen(true);setMode(nextMode);setAmount('');setMethod('bank_transfer');setAccount('');setAccountName('');setDigits('');setAt(nowTaipei());setNote('');setOther(false);setConfirmed(false);setSuccess('');setError('');}
  const field='mt-1 block w-full min-w-0 rounded border p-2';
  return <section className="space-y-3 rounded-xl border p-3" aria-label={t('OS 付款紀錄')}>
-  <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{t('付款紀錄')}</h3>{check&&canRecord&&check.can_record&&!open&&!pendingReceipt&&<Button size="sm" onClick={begin}>{t('登記收款')}</Button>}</div>
+  <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-semibold">{t('付款紀錄')}</h3>{check&&canRecord&&check.can_record&&!open&&!pendingReceipt&&<div className="flex flex-wrap gap-2"><Button size="sm" onClick={()=>begin('receipt')}>{t('登記收款')}</Button>{check.payment_status!=='paid'&&<Button size="sm" variant="outline" onClick={()=>begin('paid')}>{t('登記房費已收')}</Button>}</div>}</div>
   {error&&<p role="alert" className="text-sm text-red-700">{t(error)}</p>}{success&&<p role="status" className="text-sm text-green-700">{t(success)}</p>}
   {!check&&!recovery&&!error&&<p>{t('讀取付款紀錄…')}</p>}{!check&&(error||recovery)&&<Button variant="outline" onClick={()=>{setError('');setReload(v=>v+1);}}>{t('重新載入')}</Button>}
   {recovery&&<p role="status" className="text-sm text-amber-800">{t(recovery.detail)}</p>}
@@ -64,7 +65,7 @@ export function OsPaymentPanel({property,order,canRecord,onChange}:{property:str
   {check&&<>
    <p className="text-sm">{t(PAYMENT_LABELS[check.payment_status])} · {t('整張訂單')} {check.rooms.join('、')} · {check.nights} {t('房晚')} · {t('房費')} {money(check.total)}</p>
    <p className="text-xs text-muted-foreground">{check.sheet_write_enabled?t('登記後同步 main sheet 的付款狀態及收款註記。'):t('付款紀錄保存在 OS。')}{t(' OTA 代收不代表已撥款到旅宿。')}</p>
-   {check.source_paid&&<p className="text-xs text-muted-foreground">{t('主表已標記付清；若要補登明細，請確認沒有重複入帳。')}</p>}
+   {check.source_paid&&<p className="text-xs text-muted-foreground">{t('來源已標記付清；若要補登明細，請確認沒有重複入帳。')}</p>}
    <p className="text-xs">{t('已登記房費：')}{money(roomReceived)}{t('／其他費用：')}{money(receipts.filter(r=>r.payment_type==='other').reduce((s,r)=>s+r.amount,0))}</p>
    {!!check.finance_received&&<p className="text-xs text-muted-foreground">{t('已包含財務登記的房費 ')}{money(check.finance_received)}{t('，請勿重複登記。')}</p>}
    {open&&<form className="space-y-3 border-t pt-3" onSubmit={e=>{e.preventDefault();void submit();}}>

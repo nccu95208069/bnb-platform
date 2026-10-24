@@ -38,7 +38,7 @@ export default function CalendarAccessPage() {
       {error && <p role="alert" className="text-sm text-red-700">{uiText(error)}</p>}
       <button disabled={busy} className="w-full rounded-lg bg-slate-900 px-4 py-3 font-medium text-white disabled:opacity-50">{busy ? uiText("登入中…") : uiText("登入")}</button>
       <p className="text-xs text-slate-500">{uiText("管理員已設定帳號密碼者可直接登入；收到邀請信者請先開啟連結設定密碼。登入會在此瀏覽器保留 30 天。")}</p>
-      <a href="/forgot-password" className="block text-center text-sm underline">{uiText("忘記密碼？請管理員協助")}</a>
+      <a href="/forgot-password" className="block text-center text-sm underline">{uiText("忘記密碼？寄送重設連結")}</a>
     </form>
   </main>;
 }

@@ -24,6 +24,7 @@ export default async function Page({
     month?: string;
     day?: string;
     room?: string;
+    imported?: string;
   }>;
 }) {
   const { slug } = await params;
@@ -54,9 +55,16 @@ export default async function Page({
   }
   const { workspace, member } = loaded;
   const query = await searchParams;
+  const calendarView = view(workspace, member);
+  const selectedPropertyId = calendarView.properties.some((property) => property.id === query.property)
+    ? query.property
+    : calendarView.properties[0]?.id;
+  const importedBatch = workspace.importBatches?.find((batch) =>
+    batch.id === query.imported && batch.propertyId === selectedPropertyId && !batch.undo,
+  );
   return (
     <CustomerCalendar
-      initial={view(workspace, member)}
+      initial={calendarView}
       initialPropertyId={query.property}
       initialMonth={
         typeof query.month === "string" &&
@@ -70,6 +78,7 @@ export default async function Page({
           : undefined
       }
       initialRoom={query.room}
+      importedCount={importedBatch?.bookingIds.length}
     />
   );
 }

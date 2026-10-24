@@ -1,19 +1,12 @@
 # Work Handoff Index — 2026-09-05
 
-2026-10-20 資料責任對齊：[Sean Sweetfun OS、BnB SaaS OS 與 Iron Gate 的三個角色、目前 Sheet 匯入落點與目標權威](SEAN_SAAS_IRON_GATE_DATA_BOUNDARY_2026-10-20.md)。目前客戶工作區測試仍在 Sweetfun OS 網站內，確認匯入寫入 OS 工作區；Iron Gate 尚未接管真實訂單。
+2026-10-24 Sweetfun 手動訂單：[隔離實作、驗證與正式啟用前的來源／財務限制](SWEETFUN_MANUAL_BOOKING_IMPLEMENTATION_2026-10-24.md)。目前只提供預設關閉的水芳直訂新增、修改、取消入口，尚未對正式資料或 OwlNest 寫入。
 
-2026-10-20 水芳遷移規劃：[主訂房 Sheet、Gmail、Sweetfun OS、LINE 與訂單財務逐階段轉入 Iron Gate](../../iron-gate/SWEETFUN_SHEET_MIGRATION_PLAN_2026-10-20.md)；[來源盤點](../../iron-gate/SWEETFUN_MIGRATION_SOURCE_INVENTORY_2026-10-20.md)與[執行紀錄](../../iron-gate/SWEETFUN_MIGRATION_EXECUTION_2026-10-20.md)。已建立私人來源副本，尚未匯入或切換真實訂單。
+2026-10-16 onboarding and standard-workbook release: [3,000-row import, customer password and sharing-guide improvements](ONBOARDING_CLARITY_2026-10-16.md#production-release--2026-10-16) and [v5 booking last-updated time](STANDARD_SHEET_V5_UPDATED_AT_2026-10-16.md#發布與資料邊界) are live on `https://sweetfun-os.vercel.app` from `c4ac224` / Vercel `dpl_4EEqMUY4hPNm3oXN1yzU5zt6Ha6d`.
 
-2026-10-20 Sean 自用版對接檢查：[Sweetfun OS 工作台在水芳遷移後的日曆、訂單、收款與財務讀取相容性及驗收門檻](SEAN_OS_IRON_GATE_READINESS_2026-10-20.md)。現有 Iron Gate 查詢投影與 Sean 工作台尚未完成對接，不可只改日曆來源就宣稱切換完成。
+2026-10-15 website flow repair: [503 root cause, current Studio booking dependencies, isolated end-to-end verification, deployment evidence and pending authenticated live acceptance](WEBSITE_BOOKING_FLOW_2026-10-15.md).
 
-2026-10-20 Sean 自用版資料契約：[Iron Gate 現有儲存／讀取結構與 Sweetfun OS 的逐項缺口及真實匯入前待決事項](SEAN_OS_IRON_GATE_SCHEMA_GAPS_2026-10-20.md)。區分尚未保存的語意與已保存但未向工作台讀取的欄位。
-
-2026-10-12 BETA self-service correction: [owner-led website admission without preregistered email, confirmed static-source inventory gate, connected-calendar gaps, and deployment order](BETA_SELF_SERVICE_OS_ADMISSION_2026-10-12.md). A pending Studio UUID site can be approved by a newly verified owner with sales off; a confirmed ICS, Sheet, CSV or Excel snapshot can share inventory only when its coverage contains the entire advertised period and the owner acknowledges manual updates.
-
-2026-10-12 BETA-02/03 pilots: [愉園 and 蘭城 Booking.com source options, physical-room questions, and separate calendar acceptance](BETA_PILOTS_YUYUAN_LANCHENG_2026-10-12.md). Public labels are not room inventory; both owner mappings and real source samples await verification. Sales remain disabled.
-
-2026-10-12 BNB-SAAS v1 coordination: [shared tenant/property/room/order identity, event authority and replay contract](BNB_V1_SHARED_ID_EVENT_CONTRACT_2026-10-12.md). The OS branch adds bounded Excel/CSV file intake to the existing per-property import preview and commit path, plus a default-disabled tenant event readback receipt; synthetic two-tenant and stale-quote checks pass. Real samples, tenant Gmail/LINE/OwlNest senders and public-sales gates remain open.
-
+2026-10-14 settings and calendar follow-up: [grouped Sweetfun OS settings, browser-persisted appearance, Auto and loose-to-compact month-week sizing, two-line booking cards when space allows, compact unsold availability controls, dark-mode contrast correction, validation, and production release evidence](SETTINGS_APPEARANCE_2026-10-14.md). The latest unsold contrast revision is live on the primary domain as `dpl_HBSeHvEVGsqo83x2A3RPZFzmmQ3c`, based on the existing production source without the separate OS beta integration branch.
 2026-10-11 OS-04: owner-approved OS and LINE rollout is complete. Sweetfun and OFFLAND reminders are enabled for Taipei 09:00, with separately labeled unconfirmed room-night summaries. The new scheduler returned HTTP 200; one authorized synthetic LINE message has a persisted provider receipt and was visibly received in LINE desktop. First automatic arrival-note dispatch is due October 12 and has not yet been observed; physical-phone and external-customer acceptance remain open. See [release evidence](OS_READINESS_2026-10-10.md#正式-line-啟用--2026-10-11).
 
 2026-10-10 OS readiness: [unified workspace entry, onboarding repairs, daily observation verification and scoped arrival reminders](OS_READINESS_2026-10-10.md). Engineering and isolated acceptance are complete; the owner requested continuation and the UI is now deployed, with production source verification and a partial-source repair recorded in the report. Daily production observation is verified for both properties on October 8–10. LINE dispatch, external-customer acceptance and physical-device checks remain separate.
@@ -148,3 +141,12 @@ payment calendar. No live T-39 reads/writes or prediction claims are involved.
 The owner requested the complete main-Sheet notes in the legacy sold-calendar detail and explicitly authorized publication. See [implementation and verification](BOOKING_SOURCE_NOTES_2026-10-06.md).
 
 - [Calendar change intake and daily observation](CALENDAR_CHANGE_ENDPOINT_2026-10-07.md): receiver and daily observation live 2026-10-07 after owner approval; booking-assistant hooks deferred.
+
+- [Studio ordinary-email signup and automatic new-property notifications](STUDIO_EMAIL_ONBOARDING_2026-10-15.md) — implementation verified; production acceptance status is recorded in the report.
+# Latest: email cross-device sign-in
+
+See [EMAIL_CROSS_DEVICE_2026-10-16.md](EMAIL_CROSS_DEVICE_2026-10-16.md) for the released cross-device verification, original-device continuation, and email-input copy changes. OS, Guest v21 and Studio v66 are live. A real Gmail plus-address link was verified in Safari and the original Chrome page automatically resumed into the same account. This supersedes the same-browser restriction for newly issued links. PR #42 remains draft and unmerged; physical-phone and other-provider inbox acceptance are not claimed.
+
+The separate [legacy two-property calendar email recovery](LEGACY_CALENDAR_EMAIL_RECOVERY_2026-10-19.md) adds a one-time email reset link for active calendar members and the initial owner credential while retaining administrator-assisted recovery. The combined release and a new member email delivery are verified; the recipient's password change and fresh login remain to be confirmed.
+
+[Legacy calendar copy controls](LEGACY_CALENDAR_COPY_2026-10-20.md) are live on Sean version: the booking detail can copy visible guest names, provided formal order numbers and the separately labeled system-internal ID without using it as a source-order fallback. The separate batch-review workflow remains outside this release.

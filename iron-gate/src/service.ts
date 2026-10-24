@@ -1153,6 +1153,7 @@ export class IronGateService {
         return { id: projected.id, version: booking.version, propertyId: projected.propertyId,
           workspaceId: projected.workspaceId, status: projected.status,
           stays: projected.stays, source: projected.source,
+          bookedAt: projected.bookedAt,
           channelSyncState: projected.channelSyncState,
           sourceReviewRequired: projected.sourceReviewRequired,
           ...(principal.fields.includes("guest_name") ?

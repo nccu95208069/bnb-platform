@@ -83,7 +83,7 @@ export function ironGateManualConfig(env: NodeJS.ProcessEnv = process.env): Manu
     if (env.IRON_GATE_SWEETFUN_MANUAL_ENABLED !== 'true' ||
       env.CALENDAR_SOURCE !== 'sheet_snapshot') throw Error();
     const calendar = ironGateCalendarConfig(env);
-    if (calendar.mode !== 'authority') throw Error();
+    if (calendar.expectedAuthorityEpoch < 1) throw Error();
     const grant = JSON.parse(env.IRON_GATE_SWEETFUN_MANUAL_GRANT ?? 'null') as unknown;
     if (!object(grant) || Object.keys(grant).sort().join(',') !==
       'clientId,credentialId,propertyId,token,workspaceId' ||

@@ -25,7 +25,6 @@ export const PLATFORM_LABELS: Record<string, string> = {
   airbnb: "Airbnb",
   ctrip: "CTrip",
   owljourney: "OwlJourney",
-  owlnest: "奧丁丁／OwlNest",
   other: "其他",
 };
 
@@ -36,7 +35,6 @@ export const PLATFORM_STYLES: Record<string, string> = {
   airbnb: "calendar-platform calendar-platform-airbnb",
   ctrip: "calendar-platform calendar-platform-ctrip",
   owljourney: "calendar-platform calendar-platform-owljourney",
-  owlnest: "calendar-platform calendar-platform-other",
   other: "calendar-platform calendar-platform-other",
 };
 
@@ -53,6 +51,11 @@ export const PAYMENT_DOT_STYLES: Record<PaymentStatus, string> = {
   deposit: "bg-amber-500",
   unpaid: "bg-rose-500",
 };
+
+export function paymentStateForReview(booking: CalendarBooking): PaymentStatus | undefined {
+  if (booking.source_conflict) return undefined;
+  return booking.payment_review_status ?? (booking.price_hidden ? undefined : booking.payment_status);
+}
 
 export const PROPERTY_DOT_STYLES: Record<CalendarProperty["color"], string> = {
   emerald: "bg-emerald-500",
@@ -182,15 +185,12 @@ export function currentPeriod(anchorDate: string, view: CalendarView, locale="zh
   return monthCalendarPeriod(startOfMonth(anchorDate));
 }
 
-export function fetchPeriod(anchorDate: string, view: CalendarView,
-  fixedSnapshotPreview = false): CalendarPeriod {
+export function fetchPeriod(anchorDate: string, view: CalendarView): CalendarPeriod {
   if (view === "month") {
-    if (fixedSnapshotPreview) return monthCalendarPeriod(startOfMonth(anchorDate));
-    return {
-      start: "2025-01-01",
-      end: "2028-01-01",
-      label: "2025–2027",
-    };
+    // The month scroller changes the anchor as each month becomes visible.
+    // Fetch only that month's displayed grid; a three-year request exhausts
+    // the live booking source before the first calendar can render.
+    return monthCalendarPeriod(startOfMonth(anchorDate));
   }
 
   if (view === "week") {
@@ -202,6 +202,18 @@ export function fetchPeriod(anchorDate: string, view: CalendarView,
     start: anchorDate,
     end: addDays(anchorDate, 1),
     label: "single-day-window",
+  };
+}
+
+// Iron Gate can now return one consistent sparse calendar snapshot for a year.
+// Loading each calendar year once restores local month navigation in that year.
+export function sweetfunMonthWindow(anchorDate: string): CalendarPeriod {
+  const month = startOfMonth(anchorDate);
+  const year = Number(month.slice(0, 4));
+  return {
+    start: monthCalendarPeriod(`${year}-01-01`).start,
+    end: monthCalendarPeriod(`${year + 1}-01-01`).end,
+    label: formatMonthLabel(month),
   };
 }
 
@@ -324,12 +336,15 @@ export function coalesceContiguousBookings(bookings: CalendarBooking[]) {
         payment_unconfirmed: current.payment_unconfirmed || booking.payment_unconfirmed,
         source_notes_unconfirmed: current.source_notes_unconfirmed || booking.source_notes_unconfirmed || current.source_notes === undefined || booking.source_notes === undefined,
         payment_status: current.payment_status === booking.payment_status ? current.payment_status : "unknown",
+        payment_review_status: current.payment_review_status === booking.payment_review_status
+          ? current.payment_review_status : undefined,
         guest_name_sources: [...new Set([...(current.guest_name_sources ?? (current.guest_name_kind === "real" ? [current.guest_name] : [])), ...(booking.guest_name_sources ?? (booking.guest_name_kind === "real" ? [booking.guest_name] : []))])],
         guest_remarks: mergeGuestRemarks([...(current.guest_remarks ?? (current.guest_name_kind === "real" ? parseGuestRemarks(current.guest_name) : [])), ...(booking.guest_remarks ?? (booking.guest_name_kind === "real" ? parseGuestRemarks(booking.guest_name) : []))]),
         guest_name: current.guest_name_kind === "real" && booking.guest_name_kind === "real" && comparableGuestName(current.guest_name) !== comparableGuestName(booking.guest_name) ? "連住姓名待核對" : current.guest_name,
         guest_name_kind: current.guest_name_kind === "real" && (booking.guest_name_kind !== "real" || comparableGuestName(current.guest_name) !== comparableGuestName(booking.guest_name)) ? "missing" : current.guest_name_kind,
         check_out: booking.check_out > current.check_out ? booking.check_out : current.check_out,
         room_rate: current.room_rate + booking.room_rate,
+        price_hidden: current.price_hidden || booking.price_hidden,
         nightly_amounts: current.nightly_amounts && booking.nightly_amounts
           ? [...current.nightly_amounts, ...booking.nightly_amounts] : undefined,
         source_payment_label: current.source_payment_label === booking.source_payment_label

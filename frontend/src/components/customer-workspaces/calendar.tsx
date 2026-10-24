@@ -10,19 +10,21 @@ import { api, button, field, plusDays, secondary, today } from "./client";
 import { staysOf } from "@/lib/customer-workspaces/domain";
 import { WorkspaceNav } from "./workspace-nav";
 import { OrderDetail } from "./order-detail";
-import { MonthCalendar } from "./month-calendar";
+import { CustomerSoldMonth } from "./sold-month-calendar";
 export function CustomerCalendar({
   initial,
   initialPropertyId,
   initialMonth,
   initialDay,
   initialRoom,
+  importedCount,
 }: {
   initial: WorkspaceView;
   initialPropertyId?: string;
   initialMonth?: string;
   initialDay?: string;
   initialRoom?: string;
+  importedCount?: number;
 }) {
   const router = useRouter();
   const [data, setData] = useState(initial),
@@ -63,6 +65,7 @@ export function CustomerCalendar({
   const canWrite =
       ["owner", "admin", "housekeeper"].includes(data.role) &&
       !data.readiness?.[propertyId]?.connected &&
+      (property?.setup?.mode !== "sheet" || Boolean(property.setup.coverageFrom && property.setup.coverageTo)) &&
       (data.readiness?.[propertyId]?.complete ??
         (!data.onboarding || data.onboarding.complete)),
     checkOut = plusDays(checkIn, nights);
@@ -236,7 +239,7 @@ export function CustomerCalendar({
     );
   return (
     <main className="min-h-dvh bg-stone-50 p-4 text-slate-800 sm:p-8">
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-[1720px]">
         <header className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <a href="/workspaces" className="text-sm text-teal-800 underline">
@@ -280,6 +283,13 @@ export function CustomerCalendar({
           </div>
         </header>
         <WorkspaceNav data={data} current="calendar" propertyId={propertyId} />
+        {importedCount !== undefined && (
+          <p role="status" className="mt-5 rounded-2xl border border-teal-100 bg-teal-50 p-4 text-sm leading-7 text-teal-950">
+            {importedCount > 0
+              ? `匯入完成，${importedCount} 筆訂房已放進日曆。請核對房間與日期。`
+              : "資料檢查完成，這份來源沒有需要匯入的訂房。"}
+          </p>
+        )}
         {(data.readiness?.[propertyId]?.complete === false ||
           (!data.readiness &&
             data.onboarding &&
@@ -301,6 +311,12 @@ export function CustomerCalendar({
               完成資料核對
             </a>
             ，再新增訂房。
+          </p>
+        )}
+        {property?.setup?.mode === "sheet" && !property.setup.coverageTo && (
+          <p role="status" className="mt-4 rounded-xl bg-amber-50 p-4 text-sm leading-7">
+            歷史訂單可在日曆檢視；來源尚未確認完整的可售期間，空白日期不能視為空房。
+            請到 <a className="underline" href={`/w/${data.slug}/import?property=${encodeURIComponent(propertyId)}`}>匯入與核對來源</a> 設定核對期間。
           </p>
         )}
         {data.readiness?.[propertyId]?.coverageFrom && (
@@ -345,8 +361,7 @@ export function CustomerCalendar({
             </select>
           </label>
         )}
-        <MonthCalendar
-          loadWindow
+        <CustomerSoldMonth
           key={propertyId}
           data={data}
           propertyId={propertyId}

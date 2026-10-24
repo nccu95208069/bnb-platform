@@ -410,6 +410,8 @@ async function createBookingRecord(
     )
   )
     throw new Error("CALENDAR_SOURCE_OWNS_OCCUPANCY");
+  if (property.setup?.mode === "sheet" && (!property.setup.coverageFrom || !property.setup.coverageTo))
+    throw new Error("SOURCE_COVERAGE");
   const key = requestKey(input.requestKey),
     stays = normalizeStays(property, input);
   if (
@@ -537,6 +539,7 @@ async function createBookingRecord(
     } } : {}),
     guestNotified: false,
     createdAt: startedAt,
+    updatedAt: startedAt,
     actor: accountId,
     entry: "os",
     requestKey: key,

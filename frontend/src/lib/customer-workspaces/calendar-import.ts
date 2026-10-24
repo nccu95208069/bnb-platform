@@ -563,6 +563,7 @@ export async function commitCalendar(
       if (old) {
         old.calendar = { ...reference(row), batchId: old.calendar!.batchId };
         old.version++;
+        if ("payments" in old) old.updatedAt = at;
       }
     }
   for (const row of rows as CalendarPreviewRow[]) {
@@ -575,6 +576,7 @@ export async function commitCalendar(
           throw new Error("CANCELLATION_REQUIRES_SETTLEMENT");
         booking.status = "cancelled";
         booking.version++;
+        booking.updatedAt = at;
         bookingIds.push(booking.id);
       } else if (block) {
         block.status = "released";
@@ -628,6 +630,7 @@ export async function commitCalendar(
             notes: booking.notes === (booking.calendar?.sourceNotes ?? null)
               ? draft.notes ?? null : booking.notes,
             version: booking.version + 1,
+            updatedAt: at,
             calendar: reference(row),
           }
         : {
@@ -652,6 +655,7 @@ export async function commitCalendar(
             status: "confirmed",
             guestNotified: false,
             createdAt: at,
+            updatedAt: at,
             actor: accountId,
             entry: "calendar",
             calendar: reference(row),
@@ -862,6 +866,7 @@ export async function undoCalendar(
   if (!batch) throw new Error("NOT_FOUND");
   if (batch.undo) return batch.undo;
   if (input.version !== workspace.version) throw new Error("VERSION_CONFLICT");
+  const at = new Date().toISOString();
   const removed: string[] = [],
     skipped: string[] = [];
   const bookings = workspace.bookings.map((b) => {
@@ -877,7 +882,7 @@ export async function undoCalendar(
       return b;
     }
     removed.push(b.id);
-    return { ...b, status: "cancelled" as const, version: b.version + 1 };
+    return { ...b, status: "cancelled" as const, version: b.version + 1, updatedAt: at };
   });
   const blocks = (workspace.blocks ?? []).map((b) => {
     if (!batch.blockIds.includes(b.id)) return b;
@@ -892,8 +897,7 @@ export async function undoCalendar(
     removed.push(b.id);
     return { ...b, status: "released" as const, version: b.version + 1 };
   });
-  const undo = { removed, skipped },
-    at = new Date().toISOString();
+  const undo = { removed, skipped };
   const next: Workspace = {
     ...workspace,
     version: workspace.version + 1,

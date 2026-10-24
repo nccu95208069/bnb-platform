@@ -61,7 +61,6 @@ export async function setWebsiteSales(store: CustomerStore, accountId: string, s
     if (!holdsEnabled()) throw Error("HOLDS_UNAVAILABLE");
     if (!property.pricing?.enabled) throw Error("PRICING_NOT_ENABLED");
     nativeProperty(workspace, property);
-    if (workspace.sourceConnections?.some(c => c.propertyId === property.id)) throw Error("BINDING_UNAVAILABLE");
     bindingCoverage(property, binding.config);
     await bindingWorkspace(store, binding);
     if (binding.admission === "owner_approval" && property.setup?.mode === "empty" && input.confirmedEmptyCalendar !== true)

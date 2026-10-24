@@ -6,12 +6,19 @@ export async function mount(t, component, props = {}, hash = "") {
     url: "https://operations.test/" + hash,
   });
   const original = {};
+  // Calendar UI measures layout; jsdom does not provide these browser APIs.
   for (const key of [
     "window",
     "document",
     "location",
     "history",
     "FormData",
+    "getComputedStyle",
+    "MutationObserver",
+    "ResizeObserver",
+    "IntersectionObserver",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
     "IS_REACT_ACT_ENVIRONMENT",
   ])
     original[key] = globalThis[key];
@@ -21,6 +28,18 @@ export async function mount(t, component, props = {}, hash = "") {
     location: dom.window.location,
     history: dom.window.history,
     FormData: dom.window.FormData,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    MutationObserver: dom.window.MutationObserver,
+    ResizeObserver: class {
+      observe() {}
+      disconnect() {}
+    },
+    IntersectionObserver: class {
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: (callback) => setTimeout(callback, 0),
+    cancelAnimationFrame: (timer) => clearTimeout(timer),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   dom.window.HTMLDialogElement.prototype.showModal = function () {
@@ -28,6 +47,9 @@ export async function mount(t, component, props = {}, hash = "") {
   };
   dom.window.HTMLDialogElement.prototype.close = function () {
     this.open = false;
+  };
+  dom.window.HTMLElement.prototype.scrollTo = function ({ top }) {
+    this.scrollTop = top;
   };
   const { createRoot } = await import("react-dom/client");
   const root = createRoot(document.getElementById("root"));

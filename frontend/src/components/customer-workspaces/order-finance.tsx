@@ -37,14 +37,10 @@ export function OrderFinance({
   externalLocked?: boolean;
 }) {
   const summary = financeSummary(booking),
-    canRefundCancelledLine =
-      booking.status === "cancelled" &&
-      booking.lineOwner?.refundReviewRequired === true &&
-      ["owner", "admin"].includes(data.role),
+    cancelled = booking.status === "cancelled",
     canWrite =
-      (["owner", "admin", "housekeeper"].includes(data.role) &&
-        booking.status === "confirmed") ||
-      canRefundCancelledLine,
+      ["owner", "admin", "housekeeper"].includes(data.role) &&
+      booking.status === "confirmed",
     canManage =
       ["owner", "admin"].includes(data.role) && booking.status === "confirmed";
   const property = data.properties.find((p) => p.id === booking.propertyId);
@@ -55,7 +51,7 @@ export function OrderFinance({
     [accountLast4, setAccountLast4] = useState(""),
     [refundAllocation, setRefundAllocation] = useState("room");
   const [action, setAction] = useState("payment"),
-    [kind, setKind] = useState(canRefundCancelledLine ? "refund" : booking.payments.length ? "balance" : "deposit"),
+    [kind, setKind] = useState(booking.payments.length ? "balance" : "deposit"),
     [amount, setAmount] = useState(""),
     [method, setMethod] = useState(""),
     [note, setNote] = useState(""),
@@ -75,7 +71,6 @@ export function OrderFinance({
       `/api/customer-workspaces/${data.slug}/operations`,
     ),
     locked = command.busy || command.uncertain || externalLocked;
-  const paymentKind = canRefundCancelledLine ? "refund" : kind;
   useEffect(() => {
     onPendingChange?.(command.busy || command.uncertain);
   }, [command.busy, command.uncertain, onPendingChange]);
@@ -91,12 +86,12 @@ export function OrderFinance({
     if (action === "payment")
       input = {
         ...input,
-        kind: paymentKind,
+        kind,
         amount: amount === "" ? null : Number(amount),
         method,
         receiptAccountId:
           method === "現金" ? undefined : receiptAccountId || undefined,
-        allocation: paymentKind === "refund" ? refundAllocation : undefined,
+        allocation: kind === "refund" ? refundAllocation : undefined,
         note,
         receivedAt: receivedAt
           ? new Date(`${receivedAt}+08:00`).toISOString()
@@ -149,26 +144,31 @@ export function OrderFinance({
     <section className="mt-5 border-t pt-5">
       <div className="grid gap-3 sm:grid-cols-3">
         <p>
-          整筆應收
+          {cancelled ? "原房費" : "整筆應收"}
           <strong className="mt-1 block">{formatMoney(booking.total)}</strong>
         </p>
         <p>
-          累計房費實收
+          房費實收（扣除已退）
           <strong className="mt-1 block">
             {formatMoney(summary.received)}
           </strong>
         </p>
         <p>
-          尚待收款
+          {cancelled ? "原房費差額" : "尚待收款"}
           <strong className="mt-1 block">
             {formatMoney(summary.remaining)}
           </strong>
         </p>
       </div>
       <p className="mt-3 text-sm">
-        狀態：{financeLabels[summary.status]}
+        狀態：{summary.received === 0 && summary.refunds > 0 ? "已記錄退款，目前房費實收為零" : financeLabels[summary.status]}
         {summary.credit ? ` · 溢收 ${formatMoney(summary.credit)}` : ""}
       </p>
+      {cancelled && (
+        <p className="mt-2 text-sm text-slate-600">
+          訂單已取消，原房費差額不代表應補款；退款以收退款明細為準。
+        </p>
+      )}
       {booking.expectedDeposit != null && (
         <p className="mt-2 text-sm">
           約定訂金 {formatMoney(booking.expectedDeposit)} · 已登記為訂金{" "}
@@ -212,11 +212,6 @@ export function OrderFinance({
         </p>
       )}
       <h3 className="mt-5 font-semibold">收退款明細</h3>
-      {canRefundCancelledLine && (
-        <p role="status" className="my-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
-          此 LINE 訂單已取消但仍有實收，請先核對實際退款，再由屋主或管理員登記。登記不會代為轉帳；餘額歸零後才會清除待退款標記。
-        </p>
-      )}
       {!booking.payments.length && (
         <p className="my-3 text-sm text-slate-500">尚無逐筆收退款紀錄。</p>
       )}
@@ -287,15 +282,15 @@ export function OrderFinance({
           aria-expanded={formOpen}
           onClick={() => setFormOpen((open) => !open)}
         >
-          {formOpen ? "收起款項表單" : canRefundCancelledLine ? "登記已退款" : "＋已收款"}
+          {formOpen ? "收起收款表單" : "＋已收款"}
         </button>
       )}
       {canWrite && formOpen && (
         <form className="mt-5 space-y-4" onSubmit={submit}>
           <fieldset disabled={locked} className="space-y-4">
-            <legend className="mb-3 font-semibold">{canRefundCancelledLine ? "登記已退款" : "登記款項"}</legend>
+            <legend className="mb-3 font-semibold">登記款項</legend>
             <div className="flex flex-wrap gap-2">
-              {!canRefundCancelledLine && [
+              {[
                 ["payment", "收款／退款"],
                 ...(canManage
                   ? [
@@ -330,7 +325,7 @@ export function OrderFinance({
                   款項類別
                   <select
                     className={field}
-                    value={paymentKind}
+                    value={kind}
                     onChange={(e) => {
                       setKind(e.target.value);
                       if (
@@ -342,8 +337,7 @@ export function OrderFinance({
                     }}
                   >
                     {Object.entries(paymentLabels)
-                      .filter(([value]) => !canRefundCancelledLine || value === "refund")
-                      .filter(([value]) => value !== "refund" || canManage || canRefundCancelledLine)
+                      .filter(([value]) => value !== "refund" || canManage)
                       .map(([value, label]) => (
                         <option value={value} key={value}>
                           {value === "full" ? "付清剩餘房費" : label}
@@ -351,12 +345,12 @@ export function OrderFinance({
                       ))}
                   </select>
                 </label>
-                {paymentKind === "other" && (
+                {kind === "other" && (
                   <p className="text-sm text-slate-600">
                     此款項列入財務收款，不扣抵房費尾款。
                   </p>
                 )}
-                {paymentKind === "refund" && summary.extraReceived > 0 && (
+                {kind === "refund" && summary.extraReceived > 0 && (
                   <label className="block">
                     退款項目
                     <select
@@ -370,7 +364,7 @@ export function OrderFinance({
                   </label>
                 )}
                 <label className="block">
-                  本次{paymentKind === "refund" ? "退款" : "實收"}金額
+                  本次{kind === "refund" ? "退款" : "實收"}金額
                   <input
                     className={field}
                     type="number"
@@ -538,8 +532,8 @@ export function OrderFinance({
             )}
             {(action === "terms" ||
               (action === "payment" &&
-                paymentKind !== "refund" &&
-                paymentKind !== "other")) && (
+                kind !== "refund" &&
+                kind !== "other")) && (
               <label className="flex items-start gap-2 text-sm">
                 <input
                   className="mt-1"
@@ -589,7 +583,7 @@ export function OrderFinance({
         </form>
       )}
       {booking.status === "cancelled" && (
-        <p className="mt-4 text-sm">訂單已取消，歷史收退款紀錄保留。{canRefundCancelledLine ? " 請核對實際退款並登記。" : ""}</p>
+        <p className="mt-4 text-sm">訂單已取消，歷史收退款紀錄保留。</p>
       )}
       <p className="mt-4 text-xs text-slate-500">
         日期以臺北時間顯示 · {today()}

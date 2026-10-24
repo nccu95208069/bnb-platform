@@ -165,6 +165,7 @@ test("calendar snapshot reads booking and sparse room nights in one authorized s
   assert.equal(result.bookings.length, 1);
   assert.equal(result.bookings[0].guestName, "Synthetic Guest");
   assert.equal(result.bookings[0].source, "os");
+  assert.equal(result.bookings[0].bookedAt, "2026-10-13");
   assert.equal(result.bookings[0].channelSyncState, "not_required");
   assert.equal(result.bookings[0].sourceReviewRequired, false);
   assert.equal(result.bookings[0].contact, undefined);

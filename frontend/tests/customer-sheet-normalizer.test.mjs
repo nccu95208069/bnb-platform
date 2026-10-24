@@ -4,6 +4,7 @@ import {
   normalizeSheet,
   importFingerprint,
 } from "../src/lib/customer-workspaces/sheet-normalizer.ts";
+import { suggestFormat } from "../src/lib/customer-workspaces/format-assistant.ts";
 import {
   financeSummary,
   staysOf,
@@ -173,6 +174,56 @@ test("one bad date or room in an order prevents its other valid lines from being
     assert.deepEqual(order.sourceRows, [2, 3]);
     assert.ok(order.issues.length);
   }
+});
+test("old rows without order IDs are identified as past while current rows stay for review", () => {
+  const rows = normalized([
+    line("2025-10-01", "2025-10-02", "101", "", "2064", "", "Past Guest"),
+    line("2027-01-01", "2027-01-02", "101", "", "2500", "", "Future Guest"),
+  ]);
+  assert.equal(rows[0].draft, null);
+  assert.ok(rows[0].issues.includes("已在選定範圍之前退房"));
+  assert.ok(rows[0].issues.some((issue) => issue.includes("來源訂單編號")));
+  assert.equal(rows[1].draft, null);
+  assert.ok(!rows[1].issues.includes("已在選定範圍之前退房"));
+  assert.ok(rows[1].issues.some((issue) => issue.includes("來源訂單編號")));
+});
+test("Sweetfun history uses each unique J row ID as one booking when L is blank", async () => {
+  const historical = [
+    ["房型", "預定人姓名", "預定平台", "入住日期", "退房日期", "預訂日期", "房費", "已付", "備註", "唯一ID", "狀態", "訂單編號"],
+    ["101", "Historical Guest", "Booking", "2025/10/01", "2025/10/02", "2025/09/01", "2064", "", "", "row-a", "", ""],
+    ["102", "Current Guest", "Agoda", "2026/10/20", "2026/10/21", "2026/09/01", "2500", "", "", "row-b", "", ""],
+  ];
+  const suggestion = suggestFormat(historical, property);
+  assert.equal(suggestion.columns.sourceRowId, 9);
+  assert.equal(suggestion.missingOrderId, "source-row");
+  assert.equal(suggestion.granularity, "stay");
+  const config = {
+    ...mapping(), headerRow: suggestion.headerRow, columns: {
+      ...suggestion.columns, received: -1,
+    }, roomMap: suggestion.roomMap, amountBasis: suggestion.amountBasis,
+    receivedMeaning: "none", missingOrderId: suggestion.missingOrderId,
+    from: "2000-01-01",
+  };
+  const rows = normalizeSheet({ ...source([]), rows: historical }, config, property);
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((row) => row.issues.length === 0));
+  assert.deepEqual(rows.map((row) => row.draft.externalId), ["source-row:row-a", "source-row:row-b"]);
+  assert.deepEqual(rows.map((row) => row.draft.total), [2064, 2500]);
+  assert.equal(rows[0].draft.checkIn, "2025-10-01");
+  const duplicate = historical.map((row) => [...row]);
+  duplicate[2][9] = "row-a";
+  const conflicted = normalizeSheet({ ...source([]), rows: duplicate }, config, property);
+  assert.ok(conflicted.every((row) => row.draft === null && row.issues.some((issue) => issue.includes("重複來源列唯一ID"))));
+  const f = workspaceFixture();
+  const preview = await previewImport(...f.args, { ...source([]), rows: historical }, config);
+  assert.equal(preview.rows.length, 2);
+  assert.equal(preview.coverageFrom, undefined);
+  const batch = await commitImport(...f.args, preview.id, [2, 3]);
+  assert.equal(batch.bookingIds.length, 2);
+  const current = await f.current();
+  assert.deepEqual(current.bookings.map((booking) => booking.checkIn), ["2025-10-01", "2026-10-20"]);
+  assert.ok(current.bookings.every((booking) => booking.imported.externalId?.startsWith("source-row:")));
+  assert.equal(current.reviewRecords.length, 0);
 });
 test("same name without order IDs never joins nightly rows, and repeated room nights block an order", () => {
   const result = normalized([
@@ -352,6 +403,35 @@ test("group preview commits once, excludes gap nights, hides nightly prices from
   const undone = await undoImport(...f.args, batch.id, current.version);
   assert.deepEqual(undone.cancelled, [booking.id]);
   assert.equal((await f.current()).bookings[0].status, "cancelled");
+});
+test("full historical import keeps verified sale coverage as a separate, shorter interval", async () => {
+  const f = workspaceFixture();
+  const preview = await previewImport(...f.args, source([
+    line("2025-10-10", "2025-10-11", "101", "OLD"),
+    line("2026-10-20", "2026-10-21", "102", "CURRENT"),
+  ]), mapping({ from: "2000-01-01", coverageFrom: "2026-10-01",
+    coverageTo: "2027-10-01", coverageConfirmed: true }));
+  assert.equal(preview.coverageFrom, "2026-10-01");
+  assert.equal(preview.coverageTo, "2027-10-01");
+  await commitImport(...f.args, preview.id, [2, 3]);
+  const current = await f.current();
+  assert.equal(current.bookings.length, 2);
+  assert.equal(current.properties[0].setup.coverageFrom, "2026-10-01");
+  assert.equal(current.properties[0].setup.coverageTo, "2027-10-01");
+});
+test("past missing-ID rows do not create review records when a current order is imported", async () => {
+  const f = workspaceFixture();
+  const preview = await previewImport(...f.args, source([
+    line("2025-10-01", "2025-10-02", "101", "", "2064", "", "Past Guest"),
+    line("2027-01-01", "2027-01-02", "101", "CURRENT", "2500", "", "Future Guest"),
+  ]), mapping());
+  assert.ok(preview.rows[0].issues.includes("已在選定範圍之前退房"));
+  assert.equal(preview.rows[1].issues.length, 0);
+  await commitImport(...f.args, preview.id, [3]);
+  const current = await f.current();
+  assert.equal(current.bookings.length, 1);
+  assert.equal(current.bookings[0].guestName, "Future Guest");
+  assert.equal(current.reviewRecords?.length ?? 0, 0);
 });
 test("a conflicting multi-line order cannot be partially selected by its second source row", async () => {
   const f = workspaceFixture();

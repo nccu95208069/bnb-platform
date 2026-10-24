@@ -20,7 +20,7 @@ import { accountKey } from '../src/lib/customer-workspaces/auth.ts';
 test('isolated UUID site rehearses sales-off approval, synthetic hold, owner receipt, confirmed email and pause', async t => {
   const env = ['WEBSITE_BOOKING_STUDIO_CLIENTS', 'WEBSITE_BOOKING_STUDIO_EMAIL_CLIENT_IDS'];
   const previous = Object.fromEntries(env.map(key => [key, process.env[key]]));
-  t.after(() => { for (const key of env) previous[key] === undefined ? delete process.env[key] : process.env[key] = previous[key]; });
+  t.after(() => { for (const key of env) { if (previous[key] === undefined) delete process.env[key]; else process.env[key] = previous[key]; } });
   const f = await websiteFixture({ approve: false });
   const studio = { ...f.client, id: 'self-test-studio', site_ids: [], allow_new_sites: true };
   const siteId = randomUUID();
