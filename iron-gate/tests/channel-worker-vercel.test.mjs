@@ -140,3 +140,31 @@ test("channel review sends only scoped identifiers to the configured alert recei
   assert.equal(state.channelDispatch.state, "review_required");
   assert.equal(state.fences.length, 1);
 });
+
+test("enabled failure outbox retry uses the scoped endpoint without blocking channel work", async () => {
+  const repository = new MemoryPropertyRepository();
+  repository.seed({ workspaceId: "11111111-1111-4111-8111-111111111111",
+    propertyId, roomIds: [roomId], version: 1, authorityEpoch: 1, readOnly: false,
+    channel: { mode: "owlnest", ready: true, sourceReadbackEnabled: true,
+      websiteSalesEnabled: false, grantId, websiteBindingId: null },
+    sourceGrants: [], bookings: [], sourceLinks: [], operations: [], fences: [],
+    manualBlocks: [], receipts: [] });
+  const seen = [];
+  const handler = createChannelWorkerFetch({ ...env(),
+    IRON_GATE_CHANNEL_NOTICE_RETRY_ENABLED: "true" }, { repository,
+    service: new IronGateService(repository), pool: {},
+    assertRuntimeDatabase: async () => {},
+    alertFetch: async (url, init) => {
+      seen.push({ url: String(url), method: init.method, body: init.body,
+        authorization: init.headers.authorization });
+      return { ok: false };
+    } });
+  const result = await handler(call());
+  assert.equal(result.status, 200);
+  assert.deepEqual(await result.json(), { state: "idle" });
+  assert.deepEqual(seen, [{
+    url: "https://alerts.example.invalid/internal/iron-gate-channel-alert-retry",
+    method: "POST", body: "{}",
+    authorization: "Bearer " + env().IRON_GATE_CHANNEL_ALERT_TOKEN,
+  }]);
+});
