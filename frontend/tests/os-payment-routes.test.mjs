@@ -162,7 +162,7 @@ function setupIronGate(t,sourceOrderRef){
   IRON_GATE_SWEETFUN_BASE_URL:'https://iron-gate.example/',
   IRON_GATE_SWEETFUN_AUTHORITY_EPOCH:'1',
  });
- f.igBooking={id:bookingId,propertyId,workspaceId,status:'confirmed',version:1,
+ f.igBooking={id:bookingId,propertyId,workspaceId,source:'external',status:'confirmed',version:1,
   currency:'TWD',totalCents:400000,paymentReview:{status:'unknown',source:'unknown'},
   stays:[{checkIn:'2026-11-01',checkOut:'2026-11-02',roomIds:[roomIds['101']]}],
   ...(sourceOrderRef?{sourceCalendar:{sourceOrderRef}}:{})};

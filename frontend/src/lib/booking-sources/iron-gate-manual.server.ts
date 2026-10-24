@@ -105,7 +105,8 @@ export async function callIronGate(config: ManualConfig, principal: Principal,
   method: 'GET' | 'POST' | 'PATCH', path: string, body: unknown,
   requestKey: string | null, send: typeof fetch,
   actions: string[] = ['booking:read', 'booking:create', 'booking:amend', 'booking:cancel'],
-  fields: string[] = ['guest_name', 'contact', 'notes', 'money', 'payment_status']
+  fields: string[] = ['guest_name', 'contact', 'notes', 'money', 'payment_status'],
+  maxResponseBytes = 512 * 1024
 ): Promise<Record<string, unknown>> {
   member(principal);
   const url = `${config.calendar.baseUrl}${path}`;
@@ -144,9 +145,9 @@ export async function callIronGate(config: ManualConfig, principal: Principal,
   let raw: unknown;
   try {
     const declared = response.headers.get('content-length');
-    if (declared && (!/^\d+$/.test(declared) || Number(declared) > 512 * 1024)) throw Error();
+    if (declared && (!/^\d+$/.test(declared) || Number(declared) > maxResponseBytes)) throw Error();
     const text = await response.text();
-    if (Buffer.byteLength(text, 'utf8') > 512 * 1024) throw Error();
+    if (Buffer.byteLength(text, 'utf8') > maxResponseBytes) throw Error();
     raw = JSON.parse(text);
   } catch { throw Error(method === 'GET' ? 'MANUAL_READ_UNAVAILABLE' : 'MANUAL_RESULT_UNKNOWN'); }
   if (!object(raw)) throw Error(method === 'GET' ?

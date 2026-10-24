@@ -12,6 +12,7 @@ import type { CalendarResponse } from "@/components/calendar/calendar-types";
 import { activeSources } from "@/lib/booking-sources/config";
 import { ironGateCalendarConfig, readSweetfunIronGateCalendarSnapshot } from "@/lib/booking-sources/iron-gate-calendar.server";
 import { ironGateManualConfig } from "@/lib/booking-sources/iron-gate-manual.server";
+import { ironGateFinanceConfig } from "@/lib/booking-sources/iron-gate-finance.server";
 import { ironGateManualPaymentConfig } from "@/lib/booking-sources/iron-gate-manual-payment.server";
 import { type NextRequest, NextResponse } from "next/server";
 
@@ -267,7 +268,7 @@ export async function GET(request: NextRequest) {
         if (principal.viewPrices && ["owner", "admin", "god"].includes(principal.role) &&
           (principal.allProperties || principal.propertyIds.includes("sweetfun"))) {
           try { ironGateManualConfig(); manualEnabled = true; } catch { /* closed by default */ }
-          try { ironGateManualPaymentConfig(); manualPaymentEnabled = true; }
+          try { ironGateManualPaymentConfig(); ironGateFinanceConfig(); manualPaymentEnabled = true; }
           catch { /* separate money grant stays closed by default */ }
         }
         const source = { label: "Iron Gate 訂房紀錄", observed_at: ig.observedAt,

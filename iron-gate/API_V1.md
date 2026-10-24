@@ -15,6 +15,7 @@
 | `GET /v1/properties/{propertyId}/occupancy-summary` | 逐日 confirmed／held／blocked／unsold 數量與 fence 數；不含訂單或旅客資料，`saleReady=false` | 分析／定價服務專用的館別 grant 與正式資料涵蓋驗證 |
 | `GET /v1/properties/{propertyId}/housekeeping-turnovers` | 已確認訂單的退房日、房間與訂單 ID；不含旅客姓名／聯絡方式 | 清掃服務專用 grant、派工與清掃完成回報接線 |
 | `GET /v1/properties/{propertyId}/finance/ledger` | 財務 grant 分頁讀取 Iron Gate 收退款事實與憑據參照，不含旅客客資 | 舊 OS 期初款／匯入財務欄位無損對齊及真實憑據核實 |
+| `GET /v1/properties/{propertyId}/finance/direct-snapshot` | OS 財務 grant 一次讀取完整原生直訂、整單金額與收退款，含獨立財務 revision；不含客資 | [正式開關與權限啟用](../docs/work-handoff/SWEETFUN_DIRECT_FINANCE_2026-10-25.md)；不是歷史款項遷移 |
 | `POST /v1/properties/{propertyId}/bookings/{bookingId}/cancel` | 保留訂單、版本檢查；有 OwlNest 時維持 fence 直到開房讀回 | 實際付款／退款審核、外部取消責任分界 |
 | `GET /v1/properties/{propertyId}/requests/{requestKey}` | 同服務／grant 查持久原收據及目前訂單版本，撤銷憑證即時拒絕 | 正式保留期與營運清理流程 |
 | `POST /v1/source-events` | 來源帳號、前一來源版本、上次套用訂單版本、取消 tombstone、衝突停售 | 真實 provider 證據與排序規則、正式來源 grant 配置 |

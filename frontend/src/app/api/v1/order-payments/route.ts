@@ -31,6 +31,7 @@ async function ironGateContext(property:string,order:string,bookingId:string,
     throw new Error('INVALID_INPUT');
   const source=await readSweetfunIronGatePaymentOrder(bookingId.slice(3),actor,
     ironGateCalendarConfig());
+  if(source.source==='os')throw new Error('IRON_GATE_DIRECT_PAYMENT_REQUIRED');
   if(source.paymentOrderId!==order)throw new Error('SOURCE_CHANGED');
   const check=checkIronGatePaymentOrder(source,previous.ledger);
   check.finance_received=financeAllocated(await manualFinanceEntries(property),order);
@@ -50,7 +51,7 @@ async function context(source:ReturnType<typeof activeSources>[number],property:
   current.finance_received=financeAllocated(await manualFinanceEntries(property),order);
   return {check:current,raw};
 }
-const failures:Record<string,[number,string]>={ORDER_SYNC_PENDING:[409,'請先完成前一筆收款的主表同步，再登記新款項。'],PAYMENT_ACCOUNT_REQUIRED:[400,'請選擇或填入收款帳戶。'],SHEET_SYNC_REVIEW_REQUIRED:[503,'OS 已保存，但主表資料已變動。請先核對主表，再繼續同步同一筆款項。'],SHEET_SYNC_PERMISSION:[503,'OS 已保存，但主表寫入權限不足。請管理員恢復權限後繼續同步同一筆款項。'],SHEET_SYNC_PENDING:[503,'OS 已保存，主表尚未確認同步。請按「繼續同步主表」，不會重複收款。'],SHEET_PAYMENT_UNSUPPORTED:[400,'此旅宿尚未開放主表付款同步。'],SHEET_PAYMENT_PERMISSION:[503,'主表寫入權限不足，請聯絡管理員。'],SHEET_PAYMENT_FORMULA:[409,'付款欄有公式，請先由管理員核對主表。'],SHEET_NOTE_FULL:[409,'主表付款註記已滿，請由管理員核對。'],AMOUNT_EXCEEDS_TOTAL:[400,'本次加上 OS 已登記的房費超過訂單房費，請核對；額外收費請選其他款項。'],UNAUTHORIZED:[401,'請先登入。'],FORBIDDEN:[403,'此帳號沒有這間旅宿的付款權限。'],INVALID_INPUT:[400,'請確認金額、付款方式與日期時間。'],NOT_FOUND:[404,'來源訂單已變動或不存在，請重新整理日曆。'],SOURCE_CONFLICT:[409,'訂單資料有衝突，請先核對來源。'],SOURCE_CHANGED:[409,'訂單剛被更正，請等日曆同步後重新確認。'],VERSION_CONFLICT:[409,'付款或訂單資料已更新，請重新載入確認後再送出。'],IDEMPOTENCY_CONFLICT:[409,'同一次請求的內容不同，請重新載入。'],WRITE_UNCONFIRMED:[503,'可能已儲存，請使用原內容重試確認，勿另建一筆。'],RATE_LIMITED:[429,'操作過於頻繁，請稍後重試。']};
+const failures:Record<string,[number,string]>={IRON_GATE_DIRECT_PAYMENT_REQUIRED:[409,'新直訂請使用訂單內的收退款入口，財務頁會自動帶入。'],ORDER_SYNC_PENDING:[409,'請先完成前一筆收款的主表同步，再登記新款項。'],PAYMENT_ACCOUNT_REQUIRED:[400,'請選擇或填入收款帳戶。'],SHEET_SYNC_REVIEW_REQUIRED:[503,'OS 已保存，但主表資料已變動。請先核對主表，再繼續同步同一筆款項。'],SHEET_SYNC_PERMISSION:[503,'OS 已保存，但主表寫入權限不足。請管理員恢復權限後繼續同步同一筆款項。'],SHEET_SYNC_PENDING:[503,'OS 已保存，主表尚未確認同步。請按「繼續同步主表」，不會重複收款。'],SHEET_PAYMENT_UNSUPPORTED:[400,'此旅宿尚未開放主表付款同步。'],SHEET_PAYMENT_PERMISSION:[503,'主表寫入權限不足，請聯絡管理員。'],SHEET_PAYMENT_FORMULA:[409,'付款欄有公式，請先由管理員核對主表。'],SHEET_NOTE_FULL:[409,'主表付款註記已滿，請由管理員核對。'],AMOUNT_EXCEEDS_TOTAL:[400,'本次加上 OS 已登記的房費超過訂單房費，請核對；額外收費請選其他款項。'],UNAUTHORIZED:[401,'請先登入。'],FORBIDDEN:[403,'此帳號沒有這間旅宿的付款權限。'],INVALID_INPUT:[400,'請確認金額、付款方式與日期時間。'],NOT_FOUND:[404,'來源訂單已變動或不存在，請重新整理日曆。'],SOURCE_CONFLICT:[409,'訂單資料有衝突，請先核對來源。'],SOURCE_CHANGED:[409,'訂單剛被更正，請等日曆同步後重新確認。'],VERSION_CONFLICT:[409,'付款或訂單資料已更新，請重新載入確認後再送出。'],IDEMPOTENCY_CONFLICT:[409,'同一次請求的內容不同，請重新載入。'],WRITE_UNCONFIRMED:[503,'可能已儲存，請使用原內容重試確認，勿另建一筆。'],RATE_LIMITED:[429,'操作過於頻繁，請稍後重試。']};
 function failure(e:unknown){const code=e instanceof Error?e.message:'';const [status,detail]=failures[code]??[503,'付款服務暫時無法確認，請保留原內容重試。'];return NextResponse.json({code:failures[code]?code:'UNAVAILABLE',detail},{status,headers:privateHeaders});}
 export async function GET(request:NextRequest){try{
  const {actor,source,property,order}=await authorized(request,request.nextUrl.searchParams.get('property'),request.nextUrl.searchParams.get('order'));

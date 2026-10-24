@@ -1073,7 +1073,7 @@ const uiLocale = useIntlLocale();
               canRecord={permissions.recordPayments} onChange={() => setReloadKey(v => v + 1)} />
           ) : data?.source?.read_only && selectedBooking?.iron_gate_source === "os" ? (
             <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
-              此筆手動訂單的收付款功能尚未啟用，請先依現行財務流程處理並核對。</p>
+              此筆直訂的收退款功能尚未啟用，請先保留收付憑證，避免在其他入口重複登記。</p>
           ) : data?.source?.read_only && selectedBooking && permissions.viewPrices && !selectedBooking.source_conflict ? (
             <OsPaymentPanel key={selectedBooking.payment_order_id??selectedBooking.order_id} property={selectedBooking.property_id} order={selectedBooking.payment_order_id??selectedBooking.order_id} sourceBookingId={selectedBooking.order_id.startsWith('IG-')?selectedBooking.order_id:undefined} canRecord={permissions.recordPayments} onChange={() => setReloadKey(v=>v+1)} />
           ) : PAYMENT_SANDBOX && selectedBooking && permissions.viewPrices ? (

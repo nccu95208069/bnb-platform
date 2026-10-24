@@ -120,12 +120,12 @@ test('OS direct lifecycle verifies every OwlNest transition before the next writ
   assert.equal(state.fences.length, 0);
 
   const received = await recordManualPayment(owner, c, created.bookingId, {
-    expectedBookingVersion: state.bookings[0].version, kind: 'received',
+    expectedBookingVersion: state.bookings[0].version, kind: 'received', method: 'bank_transfer',
     amountCents: 40000, evidenceRef: 'synthetic received',
     occurredAt: '2026-10-24T00:00:00.000Z',
   }, key(), send);
   const refunded = await recordManualPayment(owner, c, created.bookingId, {
-    expectedBookingVersion: received.bookingVersion, kind: 'refunded',
+    expectedBookingVersion: received.bookingVersion, kind: 'refunded', method: 'bank_transfer', refundOfEventId: received.paymentEventId,
     amountCents: 40000, evidenceRef: 'synthetic refunded',
     occurredAt: '2026-10-24T00:00:00.000Z',
   }, key(), send);
@@ -249,7 +249,7 @@ test('fast OwlNest review is reported as review, not an unknown sync result', as
     if (init.method === 'POST' && new URL(url).pathname.endsWith('/sync-room-status')) {
       assert.equal((await worker.runOne(channel, propertyId)).state, 'review_required');
       await recordManualPayment(owner, c, created.bookingId, {
-        expectedBookingVersion: created.bookingVersion, kind: 'received',
+        expectedBookingVersion: created.bookingVersion, kind: 'received', method: 'bank_transfer',
         amountCents: 1000, evidenceRef: 'synthetic payment during review',
         occurredAt: '2026-10-24T00:00:00.000Z',
       }, key(), send);
@@ -288,7 +288,7 @@ test('manual direct receipts and refunds use Iron Gate exactly once and read bac
   const before = await readManualPayment(owner, c, created.bookingId, send);
   assert.equal(before.netReceivedCents, 0);
   const receivedKey = key();
-  const receivedInput = { expectedBookingVersion: before.version, kind: 'received',
+  const receivedInput = { expectedBookingVersion: before.version, kind: 'received', method: 'bank_transfer',
     amountCents: 40000, evidenceRef: 'synthetic bank receipt 1',
     occurredAt: '2026-10-24T00:00:00.000Z' };
   const received = await recordManualPayment(owner, c, created.bookingId,
@@ -306,10 +306,10 @@ test('manual direct receipts and refunds use Iron Gate exactly once and read bac
   assert.equal((await manualPaymentRequestResult(owner, c, receivedKey, send)).paymentEventId,
     receivedKey);
   await assert.rejects(recordManualPayment(owner, c, created.bookingId, {
-    ...receivedInput, expectedBookingVersion: 2, kind: 'refunded', amountCents: 50000,
+    ...receivedInput, expectedBookingVersion: 2, kind: 'refunded', refundOfEventId: receivedKey, amountCents: 50000,
   }, key(), send), /REFUND_EXCEEDS_RECEIVED/);
   const refunded = await recordManualPayment(owner, c, created.bookingId, {
-    ...receivedInput, expectedBookingVersion: 2, kind: 'refunded', amountCents: 15000,
+    ...receivedInput, expectedBookingVersion: 2, kind: 'refunded', refundOfEventId: receivedKey, amountCents: 15000,
     evidenceRef: 'synthetic refund 1',
   }, key(), send);
   assert.equal(refunded.netReceivedCents, 25000);
@@ -330,7 +330,7 @@ test('manual payment gateway blocks another property and preserves ambiguous wri
   async () => { calls++; throw Error('must not send'); }), /MANUAL_FORBIDDEN/);
   assert.equal(calls, 0);
   const requestKey = key();
-  const input = { expectedBookingVersion: 1, kind: 'received', amountCents: 10000,
+  const input = { expectedBookingVersion: 1, kind: 'received', method: 'bank_transfer', amountCents: 10000,
     evidenceRef: 'synthetic cash receipt', occurredAt: '2026-10-24T00:00:00.000Z' };
   const serverErrorAfterCommit = async (url, init) => {
     const response = await send(url, init);

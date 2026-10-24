@@ -1,6 +1,6 @@
+import { recordIntegratedPayment } from '@/lib/booking-sources/iron-gate-finance-payment.server';
 import { type NextRequest, NextResponse } from 'next/server';
-import { ironGateManualPaymentConfig, readManualPayment,
-  recordManualPayment } from '@/lib/booking-sources/iron-gate-manual-payment.server';
+import { ironGateManualPaymentConfig, readManualPayment } from '@/lib/booking-sources/iron-gate-manual-payment.server';
 import { manualBody, manualContext, manualError, privateHeaders,
   requestKey } from '@/lib/booking-sources/iron-gate-manual-route.server';
 
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest,
     const { principal } = await manualContext(request, true);
     key = requestKey(request);
     const { bookingId } = await context.params;
-    const result = await recordManualPayment(principal, ironGateManualPaymentConfig(),
+    const result = await recordIntegratedPayment(principal,
       bookingId, await manualBody(request), key);
     return NextResponse.json(result, { status: 201, headers: privateHeaders });
   } catch (error) { return manualError(error, key); }
