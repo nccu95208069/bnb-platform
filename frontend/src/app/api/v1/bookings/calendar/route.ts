@@ -10,7 +10,8 @@ import { readCalendarSources, calendarReadError, unconfirmedPayment, type Calend
 import { readBookingSnapshot } from "@/lib/booking-sources/snapshot";
 import type { CalendarResponse } from "@/components/calendar/calendar-types";
 import { activeSources } from "@/lib/booking-sources/config";
-import { ironGateCalendarConfig, readSweetfunIronGateCalendarSnapshot } from "@/lib/booking-sources/iron-gate-calendar.server";
+import { ironGateCalendarConfig, offlandIronGateCalendarConfig,
+  readSweetfunIronGateCalendarSnapshot } from "@/lib/booking-sources/iron-gate-calendar.server";
 import { ironGateManualConfig } from "@/lib/booking-sources/iron-gate-manual.server";
 import { ironGateManualPaymentConfig } from "@/lib/booking-sources/iron-gate-manual-payment.server";
 import { type NextRequest, NextResponse } from "next/server";
@@ -236,58 +237,87 @@ export async function GET(request: NextRequest) {
       // Hydrate the remaining authorized properties so the client can recover.
       const definitions = chosen.length ? chosen : authorized;
       if (!definitions.length) return NextResponse.json({ detail: '無法讀取此館別。' }, { status: 403, headers });
-      if (process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED === "true" &&
-          definitions.some(d => d.key === "sweetfun")) {
-        const offland = definitions.filter(d => d.key !== "sweetfun");
-        const [ig, other] = await Promise.all([
-          readSweetfunIronGateCalendarSnapshot(start, end, principal, ironGateCalendarConfig()),
-          offland.length ? readCalendarSources(offland, start, end, principal.viewPrices, {
+      const sweetfunIgEnabled = process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED === 'true';
+      const offlandIgEnabled = process.env.IRON_GATE_OFFLAND_CALENDAR_ENABLED === 'true';
+      const sweetfunIgRequested = sweetfunIgEnabled && definitions.some(d => d.key === 'sweetfun');
+      const offlandIgRequested = offlandIgEnabled && definitions.some(d => d.key === 'offland');
+      if (sweetfunIgRequested || offlandIgRequested) {
+        const sheetSources = definitions.filter(d =>
+          !(sweetfunIgRequested && d.key === 'sweetfun') &&
+          !(offlandIgRequested && d.key === 'offland'));
+        const [ig, other, offlandIg] = await Promise.all([
+          sweetfunIgRequested ? readSweetfunIronGateCalendarSnapshot(
+            start, end, principal, ironGateCalendarConfig()) : Promise.resolve(null),
+          sheetSources.length ? readCalendarSources(sheetSources, start, end, principal.viewPrices, {
             cache: configuredPrivateCalendarCache(), startedAt,
             snapshot: readBookingSnapshot, details: readOperationalSheet,
             payments: overlayPayments,
             report: event => { events.push(event); },
           }) : Promise.resolve(null),
+          offlandIgRequested ?
+            readSweetfunIronGateCalendarSnapshot(start, end, principal,
+              offlandIronGateCalendarConfig()) : Promise.resolve(null),
         ]);
-        let igPayments = ig.bookings;
+        let igPayments = ig?.bookings ?? [];
         let paymentWarning: CalendarResponse['source_warnings'] = [];
-        const imported = ig.bookings.filter(booking => booking.iron_gate_source !== 'os');
+        const imported = igPayments.filter(booking => booking.iron_gate_source !== 'os');
         if (principal.viewPrices && imported.length) {
           try {
             const overlaid = await overlayPayments(imported);
             const byId = new Map(overlaid.map(booking => [booking.id, booking]));
-            igPayments = ig.bookings.map(booking => byId.get(booking.id) ?? booking);
+            igPayments = igPayments.map(booking => byId.get(booking.id) ?? booking);
           }
-          catch { igPayments = ig.bookings.map(booking =>
+          catch { igPayments = igPayments.map(booking =>
             booking.iron_gate_source === 'os' ? booking : unconfirmedPayment(booking));
             paymentWarning = [{ property_id: 'sweetfun', label: 'Iron Gate 訂房紀錄', phase: 'payments' }]; }
         }
-        const bookings = projectBookings([...igPayments, ...(other?.bookings ?? [])], principal);
+        const bookings = projectBookings([...igPayments,
+          ...(offlandIg?.bookings ?? []), ...(other?.bookings ?? [])], principal);
         let manualEnabled = false;
         let manualPaymentEnabled = false;
-        if (principal.viewPrices && ["owner", "admin", "god"].includes(principal.role) &&
+        if (ig && principal.viewPrices && ["owner", "admin", "god"].includes(principal.role) &&
           (principal.allProperties || principal.propertyIds.includes("sweetfun"))) {
           try { ironGateManualConfig(); manualEnabled = true; } catch { /* closed by default */ }
           try { ironGateManualPaymentConfig(); manualPaymentEnabled = true; }
           catch { /* separate money grant stays closed by default */ }
         }
-        const source = { label: "Iron Gate 訂房紀錄", observed_at: ig.observedAt,
+        const source = ig ? { label: "Iron Gate 訂房紀錄", observed_at: ig.observedAt,
           read_only: true, automatic_sync: true, availability_authoritative: false,
           private_snapshot_version: String(ig.inventoryVersion),
           sync: { status: "confirming" as const, last_checked_at: ig.observedAt,
             last_successful_check_at: ig.observedAt, last_published_at: ig.observedAt,
             cutoff: ig.observedAt, interval_seconds: 0,
-            error_code: "OWLNEST_STOCK_NOT_VERIFIED" } };
+            error_code: "OWLNEST_STOCK_NOT_VERIFIED" } } : null;
         const missingPaymentNights = igPayments.filter(booking =>
           !booking.source_conflict && booking.payment_status === 'unknown').reduce((sum, booking) => {
           const from = Math.max(Date.parse(`${booking.check_in}T00:00:00Z`), startDate.getTime());
           const to = Math.min(Date.parse(`${booking.check_out}T00:00:00Z`), endDate.getTime());
           return sum + Math.max(0, Math.round((to - from) / DAY_MS));
         }, 0);
-        const sourceSummary = { rows: ig.soldRoomNights,
+        const sourceSummary = ig ? { rows: ig.soldRoomNights,
           accepted_rows: ig.soldRoomNights,
           quarantined_rows: 0, blocked_room_nights: ig.blockedRoomNights,
           missing_order_id: 0,
-          missing_payment_status: missingPaymentNights };
+          missing_payment_status: missingPaymentNights } : null;
+        const offlandSource = offlandIg ? { label: 'OFFLAND Iron Gate 訂房紀錄',
+          observed_at: offlandIg.observedAt, read_only: true,
+          automatic_sync: true, availability_authoritative: false,
+          private_snapshot_version: String(offlandIg.inventoryVersion),
+          sync: { status: 'confirming' as const,
+            last_checked_at: offlandIg.observedAt,
+            last_successful_check_at: offlandIg.observedAt,
+            last_published_at: offlandIg.observedAt,
+            cutoff: offlandIg.observedAt, interval_seconds: 0,
+            error_code: 'OWLNEST_STOCK_NOT_VERIFIED' } } : null;
+        const offlandSummary = offlandIg ? { rows: offlandIg.soldRoomNights,
+          accepted_rows: offlandIg.soldRoomNights,
+          quarantined_rows: 0,
+          blocked_room_nights: offlandIg.blockedRoomNights,
+          missing_order_id: 0,
+          missing_payment_status: offlandIg.soldRoomNights } : null;
+        const primarySource = source ?? offlandSource;
+        const primarySummary = sourceSummary ?? offlandSummary;
+        if (!primarySource || !primarySummary) throw Error('IRON_GATE_CALENDAR_UNAVAILABLE');
         return NextResponse.json({
           price_hidden: !principal.viewPrices,
           year: startDate.getUTCFullYear(), month: startDate.getUTCMonth() + 1,
@@ -299,8 +329,11 @@ export async function GET(request: NextRequest) {
           booking_segment_count: bookings.filter(b => !b.source_conflict).length,
           total_amount: bookings.filter(b => !b.source_conflict && !b.price_hidden)
             .reduce((sum, b) => sum + b.room_rate, 0),
-          bookings, source, source_summary: sourceSummary,
-          sources: [{ property_id: "sweetfun", source, summary: sourceSummary },
+          bookings, source: primarySource, source_summary: primarySummary,
+          sources: [...(source && sourceSummary ? [{ property_id: 'sweetfun',
+            source, summary: sourceSummary }] : []),
+            ...(offlandSource && offlandSummary ? [{ property_id: 'offland',
+              source: offlandSource, summary: offlandSummary }] : []),
             ...(other?.snapshots.map(({ definition, snapshot }) => ({
               property_id: definition.property.id, source: snapshot.source,
               summary: snapshot.summary })) ?? [])],
