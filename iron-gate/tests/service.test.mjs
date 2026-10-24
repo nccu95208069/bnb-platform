@@ -80,7 +80,8 @@ async function verifyManualSync(service, repository, requested) {
       ({ roomId, date, count: 1, isLock: false })) });
   const verified = await service.recordChannelReadback(channel, { propertyId,
     operationKey: requested.operationKey, providerVersion: "synthetic-closed",
-    observedAt: new Date().toISOString(), cells: observed(operation.cells) });
+    observedAt: new Date().toISOString(), cells: observed(operation.cells),
+    appliedClosedCells: operation.cells.map(({ roomId, date }) => ({ roomId, date })) });
   await repository.transact(propertyId, (state) => { state.channelDispatch = null; });
   return verified;
 }
@@ -2357,6 +2358,7 @@ test("manual sync button is scoped, versioned, and idempotent", async () => {
   const requested = await service.requestManualChannelSync(actor, propertyId,
     created.bookingId, requestKey, 1, state.version);
   assert.equal(requested.operationState, "sync_pending");
+  assert.equal((await repository.read(propertyId)).operations[0].ownCloseWriteRequired, true);
   assert.deepEqual(await service.requestManualChannelSync(actor, propertyId,
     created.bookingId, requestKey, 1, state.version), requested);
   await assert.rejects(service.requestManualChannelSync(actor, propertyId,
@@ -2365,7 +2367,7 @@ test("manual sync button is scoped, versioned, and idempotent", async () => {
   assert.equal((await repository.read(propertyId)).operations.length, 1);
 });
 
-test("unsynced OS stay edits remain local; verified OwlNest edits need observed stock window", async () => {
+test("unsynced OS stay edits remain local; verified OwlNest moves need observed stock window", async () => {
   const { service, repository } = setup("owlnest");
   const actor = principal("os", { actions: [...principal().actions, "booking:amend"] });
   const created = await service.createBooking(actor, propertyId, key(), bookingInput(1, {
@@ -2387,9 +2389,47 @@ test("unsynced OS stay edits remain local; verified OwlNest edits need observed 
     expectedBookingVersion: state.bookings[0].version, expectedInventoryVersion: state.version,
     changes: { stays: [{ checkIn: "2026-11-12", checkOut: "2026-11-13", roomIds: [roomId] }] },
   }), errorCode("CHANNEL_STOCK_NOT_OBSERVED"));
+  const cancelled = await service.cancelBooking(actor, propertyId, created.bookingId, key(),
+    state.bookings[0].version, state.version);
+  assert.equal(cancelled.operationState, "sync_pending");
+  assert.equal((await repository.read(propertyId)).bookings[0].status, "cancelled");
+});
+
+test("verified own manual close can be cancelled without a complete activation window", async () => {
+  const { service, repository } = setup("owlnest");
+  await repository.transact(propertyId, state => { state.channel.stockObservedFrom = null; });
+  const actor = principal("os", { actions: [...principal().actions, "booking:amend"] });
+  const created = await service.createBooking(actor, propertyId, key(), bookingInput(1, {
+    stays: [{ checkIn: "2026-11-10", checkOut: "2026-11-11", roomIds: [roomId] }],
+  }));
+  const requested = await requestSync(service, repository, created, actor);
+  assert.equal((await verifyManualSync(service, repository, requested)).state, "sync_verified");
+  const before = await repository.read(propertyId);
+  const booking = before.bookings[0];
+  const cancelled = await service.cancelBooking(actor, propertyId, booking.id, key(),
+    booking.version, before.version, null, "Synthetic test cleanup");
+  assert.equal(cancelled.operationState, "sync_pending");
+  const after = await repository.read(propertyId);
+  assert.equal(after.bookings[0].status, "cancelled");
+  assert.deepEqual(after.operations.at(-1).cells, [{ roomId, date: "2026-11-10", desired: "open" }]);
+});
+
+test("missing own-close proof cannot bypass the observed stock window", async () => {
+  const { service, repository } = setup("owlnest");
+  await repository.transact(propertyId, state => { state.channel.stockObservedFrom = null; });
+  const actor = principal("os", { actions: [...principal().actions, "booking:amend"] });
+  const created = await service.createBooking(actor, propertyId, key(), bookingInput(1, {
+    stays: [{ checkIn: "2026-11-10", checkOut: "2026-11-11", roomIds: [roomId] }],
+  }));
+  const requested = await requestSync(service, repository, created, actor);
+  await verifyManualSync(service, repository, requested);
+  await repository.transact(propertyId, state => {
+    state.operations[0].ownCloseWriteRequired = false;
+  });
+  const before = await repository.read(propertyId);
   await assert.rejects(service.cancelBooking(actor, propertyId, created.bookingId, key(),
-    state.bookings[0].version, state.version), errorCode("CHANNEL_STOCK_NOT_OBSERVED"));
-  assert.equal((await repository.read(propertyId)).bookings[0].status, "confirmed");
+    before.bookings[0].version, before.version, null, "Synthetic test cleanup"),
+  errorCode("CHANNEL_STOCK_NOT_OBSERVED"));
 });
 
 test("OS can correct only the name on a uniquely linked source order and keeps source review", async () => {
