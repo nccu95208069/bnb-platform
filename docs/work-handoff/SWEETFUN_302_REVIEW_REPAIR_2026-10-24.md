@@ -39,6 +39,9 @@ actual OwlNest stock as zero for the room-night. The operation became
 temporary `channel_pending` fence disappeared at inventory version 58.
 The authenticated Sweetfun OS calendar was refreshed and showed the Agoda
 booking for room 302 on 2026-10-24 through 2026-10-25, not a review block.
+Its detail view still omits the source order reference even though the
+authoritative source link exists; that display projection is separate from
+the completed occupancy and review-fence repair.
 
 The original review receipt remains intact for audit. Guest details and
 database credentials are not stored in this repository. The private repair
