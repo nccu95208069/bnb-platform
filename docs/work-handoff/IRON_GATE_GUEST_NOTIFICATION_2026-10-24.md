@@ -26,8 +26,19 @@ identity rather than its former `SF-` mark. It cannot change the mark. A later
 service-side opaque notification identity projection is needed for parity in
 that read-only role and for imported orders whose source version has changed.
 
-Verification: focused API, calendar, and UI tests; TypeScript; ESLint (zero
-errors, five unrelated existing warnings); and a production webpack build
-passed locally. This patch has not been released. Production behavior must be
-checked separately after deployment with an authenticated authorized member
-and a real readback.
+Verification: 19 focused API, calendar, and UI tests; TypeScript; ESLint
+(zero errors, five unrelated existing warnings); and a production webpack
+build passed locally. All three PR #63 CI jobs passed for code commit
+`2d3f2248c9c5d87d17a9d1311d287ee5d27a9015`.
+
+Owner-approved production release on 2026-10-24: the same code commit was
+staged as Vercel deployment `dpl_4rsuY8amYXu2hy2hkNtF9wMMdiic` with
+production configuration and no domain assignment. The cloud build and
+TypeScript passed. A read-only staged request reached the notification route
+and received the expected application `UNAUTHORIZED` response. The staged
+deployment was then promoted to `https://sweetfun-os.vercel.app`; an alias
+readback resolved to this deployment. In the authenticated owner browser,
+the October calendar loaded 153 room nights and a current booking detail
+showed its unmarked notification control. The post-promotion runtime-error
+query found no errors. No production notification mark was toggled as part
+of verification, so an authorized production POST/readback remains untested.
