@@ -11,6 +11,7 @@ import { IronGateManualPaymentPanel } from "@/components/payments/iron-gate-manu
 import { CalendarPrivacy } from "./calendar-privacy";
 import { CalendarToolbar } from "./calendar-toolbar";
 import { ManualBookingDialog } from "./manual-booking-dialog";
+import { ManualBookingFab } from "./manual-booking-fab";
 import {
   useCallback,
   useEffect,
@@ -769,9 +770,8 @@ const uiLocale = useIntlLocale();
   return (
     <div className="pb-0 md:space-y-2">
       {renderToolbar(data)}
-      {canCreateManual && <div className="px-2 py-2 md:hidden">
-        <Button className="w-full" size="sm" onClick={() => setManualMode("create")}>新增水芳訂單</Button>
-      </div>}
+      {canCreateManual && !manualMode && !selectedBooking && !mobileSearchOpen &&
+        <ManualBookingFab onActivate={() => setManualMode("create")} />}
       {PAYMENT_SANDBOX && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card p-3 text-sm">
           <div>
@@ -881,8 +881,6 @@ const uiLocale = useIntlLocale();
           </div>
 
           <div className="flex items-center gap-2">
-            {canCreateManual &&
-              <Button size="sm" onClick={() => setManualMode("create")}>新增水芳訂單</Button>}
             <div className="relative w-56">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
