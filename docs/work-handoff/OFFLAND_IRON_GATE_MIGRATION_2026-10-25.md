@@ -166,11 +166,13 @@ writer fences has been published as draft PRs
 [`gmail-check-order#97`](https://github.com/nccu95208069/gmail-check-order/pull/97).
 The updated OS candidate is READY in a protected Vercel preview
 (`dpl_GfF2LcGFoQxCTmPtta79pgqDW2G1`);
-its Offland flag is absent and defaults closed. The production alias remains
-on `dpl_6tdddv9FWVShckyVDPtCTFUvmuwr`. No database load, live writer change,
-production deployment, or production authority switch is claimed. The Stage
-1 and Stage 3 gates remain open; the live Sheet is still the Offland calendar
-source.
+its Offland flag is absent and defaults closed. The same tested frontend source
+was subsequently deployed to production as `dpl_6J1AFcGueU9MQgndtaiz7UJjUsfJ`;
+Vercel readback confirmed `READY` and alias `sweetfun-os.vercel.app`. A second
+environment metadata readback found no `OFFLAND` variables among 76 entries,
+so the new reader remains closed and the live Sheet remains the Offland
+calendar source. No database load, live writer change, or production authority
+switch is claimed. The Stage 1 and Stage 3 gates remain open.
 
 A source-only GCO release package was exported from pushed commit
 `ec69e50347a7cb00dfb4b20ec724f330d19c9378` (155 files; SHA-256
