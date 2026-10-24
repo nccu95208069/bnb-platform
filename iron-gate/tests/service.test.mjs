@@ -230,6 +230,12 @@ test("unchanged imported order exposes a scoped legacy payment link and booking 
   assert.equal(result.sourceCalendar.bookedAt, "2026-10-13");
   assert.equal(result.sourceCalendar.sourceOrderRef, "L:OBE12345678901234567890");
   assert.deepEqual(result.paymentReview, { status: "unknown", source: "unknown" });
+  const line = principal("line", { grantId: key(),
+    actions: ["booking:read", "booking:manage_all"], fields: ["guest_name", "money"] });
+  const lineView = await service.getBooking(line, propertyId, created.bookingId);
+  assert.equal(lineView.sourcePaymentFlag, "unknown");
+  assert.equal(lineView.roomNightPrices, undefined);
+  assert.equal(lineView.sourceCalendar.sourceOrderRef, "L:OBE12345678901234567890");
   const snapshot = await service.calendarSnapshot(owner, propertyId,
     "2026-11-01", "2026-12-01");
   assert.equal(snapshot.bookings[0].version, 1);
@@ -241,6 +247,30 @@ test("unchanged imported order exposes a scoped legacy payment link and booking 
   await repository.transact(propertyId, (state) => { state.bookings[0].version++; });
   const changed = await service.getBooking(owner, propertyId, created.bookingId);
   assert.equal("sourceOrderRef" in changed.sourceCalendar, false);
+});
+
+test("LINE receives only verified imported one-night payment evidence", async () => {
+  const { service, repository } = setup();
+  const created = await service.createBooking(principal(), propertyId, key(), bookingInput());
+  await repository.transact(propertyId, (state) => {
+    const booking = state.bookings[0];
+    booking.source = "external";
+    booking.stays = [{ checkIn: "2026-11-10", checkOut: "2026-11-11", roomIds: [roomId] }];
+    booking.sweetfunSnapshot = { rows: [{ roomFeeCents: 1200000,
+      values: ["101", "Synthetic Guest", "Booking", "2026/11/10", "2026/11/11",
+        "2026/10/13", "12000", "not_yet"] }] };
+  });
+  const actor = principal("line", { grantId: key(),
+    actions: ["booking:read", "booking:manage_all"], fields: ["guest_name", "money"] });
+  const unpaid = await service.getBooking(actor, propertyId, created.bookingId);
+  assert.equal(unpaid.sourcePaymentFlag, "unpaid");
+  assert.deepEqual(unpaid.roomNightPrices,
+    [{ roomId, date: "2026-11-10", amountCents: 1200000 }]);
+  await repository.transact(propertyId, (state) => {
+    state.bookings[0].sweetfunSnapshot.rows[0].values[7] = "done";
+  });
+  const paid = await service.getBooking(actor, propertyId, created.bookingId);
+  assert.equal(paid.sourcePaymentFlag, "paid");
 });
 
 test("OwlNest partial readback holds the fence; exact readback verifies it", async () => {
@@ -374,6 +404,7 @@ test("LINE direct create requires a fresh actor-bound preview and one inventory 
   const requestKey = key();
   const created = await service.createBooking(actor, propertyId, requestKey, input,
     preview.previewToken);
+  assert.equal(created.bookingId, requestKey);
   assert.equal(created.operationState, "sync_pending");
   assert.equal((await repository.read(propertyId)).bookings[0].sourceKey,
     `line:${actor.grantId}`);
@@ -383,6 +414,54 @@ test("LINE direct create requires a fresh actor-bound preview and one inventory 
     preview.previewToken), errorCode("VERSION_CONFLICT"));
   await assert.rejects(service.createBooking({ ...actor, subjectId: "other-staff" },
     propertyId, key(), input, preview.previewToken), errorCode("LINE_PREVIEW_REQUIRED"));
+});
+
+test("LINE room-night prices must exactly cover the booking and survive readback", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const service = new IronGateService(repository, "p".repeat(43));
+  const actor = principal("line", { grantId: key(), actions: ["booking:read", "booking:create"],
+    fields: ["guest_name", "money"] });
+  const input = bookingInput(1, { source: "line", roomNightPrices: [
+    { roomId, date: "2026-11-10", amountCents: 500000 },
+    { roomId, date: "2026-11-11", amountCents: 700000 },
+  ] });
+  const preview = await service.previewLineCreate(actor, propertyId, input);
+  const requestKey = key();
+  const receipt = await service.createBooking(actor, propertyId, requestKey, input,
+    preview.previewToken);
+  assert.equal(receipt.bookingId, requestKey);
+  const found = await service.getBooking(actor, propertyId, requestKey);
+  assert.deepEqual(found.roomNightPrices, input.roomNightPrices);
+  await assert.rejects(service.previewLineCreate(actor, propertyId, {
+    ...input, expectedInventoryVersion: 2,
+    roomNightPrices: [{ roomId, date: "2026-11-10", amountCents: 1200000 }],
+  }), errorCode("INVALID_NIGHT_PRICES"));
+});
+
+test("LINE accepts the existing assistant's sixty explicit room-night entries", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const service = new IronGateService(repository, "p".repeat(43));
+  const actor = principal("line", { grantId: key(),
+    actions: ["booking:read", "booking:create"] });
+  const day = (index) => new Date(Date.UTC(2026, 10, 10 + index)).toISOString().slice(0, 10);
+  const input = bookingInput(1, { source: "line", totalCents: 6000,
+    stays: Array.from({ length: 60 }, (_, index) => ({
+      checkIn: day(index), checkOut: day(index + 1), roomIds: [roomId] })),
+    roomNightPrices: Array.from({ length: 60 }, (_, index) => ({
+      roomId, date: day(index), amountCents: 100 })) });
+  const preview = await service.previewLineCreate(actor, propertyId, input);
+  const receipt = await service.createBooking(actor, propertyId, key(), input,
+    preview.previewToken);
+  assert.equal(receipt.operationState, "sync_pending");
+  assert.equal((await repository.read(propertyId)).operations[0].cells.length, 60);
 });
 
 test("LINE cannot create nights beyond the last complete OwlNest stock observation", async () => {
@@ -582,6 +661,72 @@ test("HTTP LINE cancel route commits only the signed versioned preview", async (
   assert.equal((await submitted.json()).operationState, "sync_pending");
 });
 
+test("LINE date batch cancellation is atomic, versioned, and replays one receipt", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const service = new IronGateService(repository, "p".repeat(43));
+  const actor = principal("line", { grantId: key(), actions: ["booking:read",
+    "booking:create", "booking:cancel", "booking:manage_all"] });
+  const channel = principal("channel");
+  const ids = [];
+  for (const [checkIn, checkOut] of [["2026-11-10", "2026-11-12"],
+    ["2026-11-13", "2026-11-15"]]) {
+    const state = await repository.read(propertyId);
+    const input = bookingInput(state.version, { source: "line",
+      stays: [{ checkIn, checkOut, roomIds: [roomId] }] });
+    const preview = await service.previewLineCreate(actor, propertyId, input);
+    const created = await service.createBooking(actor, propertyId, key(), input,
+      preview.previewToken);
+    ids.push(created.bookingId);
+    const operation = (await repository.read(propertyId)).operations.at(-1);
+    await service.recordChannelReadback(channel, { propertyId, operationKey: operation.key,
+      observedAt: new Date().toISOString(), providerVersion: "synthetic",
+      cells: observed(operation.cells) });
+  }
+  const state = await repository.read(propertyId);
+  const bookings = state.bookings.filter((booking) => ids.includes(booking.id))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  const input = { expectedInventoryVersion: state.version,
+    bookings: bookings.map((booking) => ({ bookingId: booking.id,
+      expectedBookingVersion: booking.version })) };
+  const preview = await service.previewLineBulkCancel(actor, propertyId, input);
+  assert.deepEqual(preview.bookingIds, input.bookings.map((item) => item.bookingId));
+  await assert.rejects(service.bulkCancelLineBookings({ ...actor, subjectId: "other" },
+    propertyId, key(), input, preview.previewToken), errorCode("LINE_PREVIEW_REQUIRED"));
+  const stale = { ...input, bookings: input.bookings.map((item, i) => i === 1 ?
+    { ...item, expectedBookingVersion: item.expectedBookingVersion + 1 } : item) };
+  await assert.rejects(service.previewLineBulkCancel(actor, propertyId, stale),
+    errorCode("VERSION_CONFLICT"));
+  assert.equal((await repository.read(propertyId)).bookings.filter((booking) =>
+    booking.status === "confirmed").length, 2);
+  await repository.transact(propertyId, (current) => {
+    current.bookings.find((booking) => booking.id === bookings[1].id).version++;
+  });
+  await assert.rejects(service.bulkCancelLineBookings(actor, propertyId, key(),
+    input, preview.previewToken), errorCode("VERSION_CONFLICT"));
+  assert.equal((await repository.read(propertyId)).bookings.filter((booking) =>
+    booking.status === "confirmed").length, 2);
+  await repository.transact(propertyId, (current) => {
+    current.bookings.find((booking) => booking.id === bookings[1].id).version--;
+  });
+  const requestKey = key();
+  const result = await service.bulkCancelLineBookings(actor, propertyId, requestKey,
+    input, preview.previewToken);
+  assert.deepEqual(result.bookingIds, preview.bookingIds);
+  assert.equal(result.operationState, "sync_pending");
+  assert.deepEqual(await service.bulkCancelLineBookings(actor, propertyId, requestKey,
+    input, preview.previewToken), result);
+  const after = await repository.read(propertyId);
+  assert.equal(after.bookings.filter((booking) => booking.status === "cancelled").length, 2);
+  assert.equal(after.operations.filter((operation) =>
+    result.operationKeys.includes(operation.key)).length, 2);
+  assert.deepEqual((await service.requestResult(actor, propertyId, requestKey)).bookingIds,
+    result.bookingIds);
+});
+
 test("LINE manual close and open pass through canonical blocks and exact OwlNest readback", async () => {
   const { repository } = setup("owlnest");
   await repository.transact(propertyId, (state) => {
@@ -647,6 +792,63 @@ test("LINE manual close and open pass through canonical blocks and exact OwlNest
   assert.equal(after.fences.length, 0);
   assert.equal((await service.availability(actor, propertyId, cell.date,
     "2026-11-11")).cells[0].state, "unsold");
+});
+
+test("LINE room batch is one signed operation and refuses a partly occupied batch", async () => {
+  const { repository } = setup("owlnest");
+  await repository.transact(propertyId, (state) => {
+    state.readOnly = false;
+    state.channel.sourceReadbackEnabled = true;
+  });
+  const service = new IronGateService(repository, "p".repeat(43));
+  const actor = principal("line", { grantId: key(),
+    actions: ["booking:read", "booking:manage_all", "inventory:write"] });
+  const cells = [{ roomId, date: "2026-11-10" }, { roomId, date: "2026-11-11" }];
+  const input = { expectedInventoryVersion: 1, cells, desired: "closed" };
+  await repository.transact(propertyId, (state) => { state.manualBlocks.push(cells[1]); });
+  await assert.rejects(service.previewLineInventoryBatch(actor, propertyId, input),
+    errorCode("ROOM_CONFLICT"));
+  assert.equal((await repository.read(propertyId)).operations.length, 0);
+  await repository.transact(propertyId, (state) => { state.manualBlocks = []; });
+  const handle = createHandler(service, async () => actor);
+  const base = `https://iron.invalid/v1/properties/${propertyId}`;
+  const prepared = await handle(new Request(base + "/inventory-batch-previews", {
+    method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify(input) }));
+  assert.equal(prepared.status, 200);
+  const preview = await prepared.json();
+  await assert.rejects(service.setLineInventoryBatch({ ...actor, subjectId: "other" },
+    propertyId, key(), input, preview.previewToken), errorCode("LINE_PREVIEW_REQUIRED"));
+  const requestKey = key();
+  const submitted = await handle(new Request(base + "/inventory-batches", {
+    method: "POST", headers: { "content-type": "application/json",
+      "idempotency-key": requestKey, "x-iron-gate-line-preview": preview.previewToken },
+    body: JSON.stringify(input) }));
+  assert.equal(submitted.status, 202);
+  const result = await submitted.json();
+  assert.equal(result.operationState, "sync_pending");
+  assert.deepEqual(result.cells, cells);
+  assert.deepEqual(await service.setLineInventoryBatch(actor, propertyId, requestKey,
+    input, preview.previewToken), result);
+  let state = await repository.read(propertyId);
+  assert.deepEqual(state.manualBlocks, cells);
+  const operation = state.operations.find((item) => item.key === result.operationKey);
+  assert.deepEqual(operation.cells.map((item) => item.desired), ["closed", "closed"]);
+  await service.recordChannelReadback(principal("channel"), { propertyId,
+    operationKey: operation.key, observedAt: new Date().toISOString(),
+    providerVersion: "synthetic", cells: observed(operation.cells) });
+  state = await repository.read(propertyId);
+  const open = { expectedInventoryVersion: state.version, cells, desired: "open" };
+  const openPreview = await service.previewLineInventoryBatch(actor, propertyId, open);
+  await service.setLineInventoryBatch(actor, propertyId, key(), open,
+    openPreview.previewToken);
+  state = await repository.read(propertyId);
+  assert.deepEqual(state.manualBlocks, []);
+  assert.equal(state.operations.at(-1).cells.length, 2);
+  await assert.rejects(service.previewLineInventoryBatch(actor, propertyId,
+    { ...open, expectedInventoryVersion: state.version, desired: "closed" }),
+  errorCode("ROOM_CONFLICT"));
+  assert.deepEqual(state.manualBlocks, []);
 });
 
 test("LINE manual opening rejects a separate unresolved fence", async () => {

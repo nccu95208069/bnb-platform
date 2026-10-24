@@ -44,6 +44,7 @@ export type Stay = {
 };
 
 export type Night = { roomId: string; date: string };
+export type NightPrice = Night & { amountCents: number };
 export type DesiredCell = Night & { desired: "open" | "closed" };
 export type ObservedCell = Night & { count: number; isLock: boolean };
 
@@ -60,6 +61,8 @@ export type Booking = {
   contact: string | null;
   notes: string | null;
   totalCents: number | null;
+  /** Exact, verified LINE room-night allocation; absent means unknown. */
+  roomNightPrices?: NightPrice[];
   currency: "TWD";
   bookedAt: string | null;
   createdAt: string;
@@ -176,6 +179,7 @@ export type CreateBookingInput = {
   contact: string | null;
   notes: string | null;
   totalCents: number | null;
+  roomNightPrices?: NightPrice[];
   bookedAt: string | null;
   source: "os" | "line" | "website";
 };
@@ -184,6 +188,12 @@ export type LineInventoryInput = {
   expectedInventoryVersion: number;
   roomId: string;
   date: string;
+  desired: "closed" | "open";
+};
+
+export type LineInventoryBatchInput = {
+  expectedInventoryVersion: number;
+  cells: { roomId: string; date: string }[];
   desired: "closed" | "open";
 };
 
@@ -197,7 +207,12 @@ export type ExtendHoldInput = {
 export type AmendBookingInput = {
   expectedBookingVersion: number;
   expectedInventoryVersion: number;
-  changes: Partial<Pick<Booking, "stays" | "guestName" | "contact" | "notes" | "totalCents">>;
+  changes: Partial<Pick<Booking, "stays" | "guestName" | "contact" | "notes" | "totalCents" | "roomNightPrices">>;
+};
+
+export type LineBulkCancelInput = {
+  expectedInventoryVersion: number;
+  bookings: { bookingId: string; expectedBookingVersion: number }[];
 };
 
 export type PaymentEventInput = {

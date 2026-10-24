@@ -1,7 +1,7 @@
 import type {
   Action, AmendBookingInput, Booking, BookingReceipt, CreateBookingInput, CreateHoldInput,
-  ExtendHoldInput, LineInventoryInput,
-  DesiredCell, Night, PaymentEventInput, Principal, PropertyRepository, PropertyState,
+  ExtendHoldInput, LineInventoryInput, LineInventoryBatchInput, LineBulkCancelInput,
+  DesiredCell, Night, NightPrice, PaymentEventInput, Principal, PropertyRepository, PropertyState,
   ReadbackInput, RequestReceipt, SourceEventInput, SourceFactsInput, SourceOrderLookupInput, Stay,
   TransactionContext, EventType,
 } from "./types.ts";
@@ -88,7 +88,7 @@ async function linePreviewKey(secret: string): Promise<CryptoKey> {
 }
 async function signLinePreview(secret: string, principal: Principal,
   propertyId: string, inventoryVersion: number, inputHash: string,
-  action: "create" | "amend" | "cancel" | "inventory" = "create", bookingId: string | null = null,
+  action: "create" | "amend" | "cancel" | "inventory" | "inventory-batch" | "bulk-cancel" = "create", bookingId: string | null = null,
   bookingVersion: number | null = null): Promise<{
     token: string; expiresAt: string;
   }> {
@@ -107,7 +107,7 @@ async function signLinePreview(secret: string, principal: Principal,
 }
 async function verifyLinePreview(secret: string, token: string | null | undefined,
   principal: Principal, propertyId: string, inventoryVersion: number,
-  inputHash: string, action: "create" | "amend" | "cancel" | "inventory" = "create",
+  inputHash: string, action: "create" | "amend" | "cancel" | "inventory" | "inventory-batch" | "bulk-cancel" = "create",
   bookingId: string | null = null, bookingVersion: number | null = null): Promise<number | null> {
   try {
     if (typeof token !== "string" || token.length > 2048) return null;
@@ -136,7 +136,7 @@ async function verifyLinePreview(secret: string, token: string | null | undefine
 }
 
 export function nightsFor(stays: Stay[], roomIds: string[]): Night[] {
-  if (!Array.isArray(stays) || stays.length < 1 || stays.length > 32) reject("INVALID_STAY");
+  if (!Array.isArray(stays) || stays.length < 1 || stays.length > 60) reject("INVALID_STAY");
   const allowed = new Set(roomIds);
   const result: Night[] = [];
   for (const stay of stays) {
@@ -225,16 +225,18 @@ function publicBooking(booking: Booking, principal: Principal): Record<string, u
     stays: booking.stays, createdAt: booking.createdAt, source: booking.source,
   };
   if (lineManagesAll(principal)) result.sourceReviewRequired = booking.lineOverridePending === true;
+  if (lineManagesAll(principal)) result.bookedAt = booking.bookedAt;
   // Field grants are server-authenticated. Public website queries use a separate order credential.
   if ((principal.origin === "os" || principal.origin === "line") &&
     principal.fields.includes("guest_name")) {
     result.guestName = booking.guestName;
-    if (principal.origin === "os" && booking.sourceCalendar) {
+    if ((principal.origin === "os" || lineManagesAll(principal)) && booking.sourceCalendar) {
       result.sourceCalendar = { ...booking.sourceCalendar, bookedAt: booking.bookedAt };
     }
     // The imported rows remain private evidence. Only unambiguous calendar
     // labels may leave that evidence, under the same OS guest grant.
-    const snapshot = principal.origin === "os" ? booking.sweetfunSnapshot : undefined;
+    const snapshot = principal.origin === "os" || lineManagesAll(principal) ?
+      booking.sweetfunSnapshot : undefined;
     const rows = snapshot?.rows;
     const groupKey = typeof snapshot?.groupKey === "string" ? snapshot.groupKey : null;
     if (!booking.sourceCalendar && Array.isArray(rows) && rows.length) {
@@ -283,6 +285,9 @@ function publicBooking(booking: Booking, principal: Principal): Record<string, u
   if (principal.origin === "line" && principal.fields.includes("money")) {
     result.totalCents = booking.totalCents;
     result.currency = booking.currency;
+    const prices = bookingNightPrices(booking);
+    if (prices) result.roomNightPrices = prices;
+    if (lineManagesAll(principal)) result.sourcePaymentFlag = sourcePaymentFlag(booking);
   }
   if (principal.origin === "os" && booking.hold) {
     const hold = booking.status === "held" && booking.hold.state === "active" &&
@@ -322,6 +327,44 @@ function calendarStayAmounts(booking: Booking): number[] | null {
   }
   return amounts.reduce((sum, amount) => sum + amount, 0) === booking.totalCents ? amounts : null;
 }
+function exactNightPrices(prices: NightPrice[] | undefined, cells: Night[], totalCents: number | null):
+  NightPrice[] | null {
+  if (!Array.isArray(prices) || prices.length !== cells.length || totalCents === null ||
+    prices.length > 4096) return null;
+  const expected = new Set(cells.map(keyOf));
+  const seen = new Set<string>();
+  let total = 0n;
+  for (const price of prices) {
+    if (!price || typeof price.roomId !== "string" || typeof price.date !== "string" ||
+      !Number.isSafeInteger(price.amountCents) || price.amountCents < 0 ||
+      !expected.has(keyOf(price)) || seen.has(keyOf(price))) return null;
+    seen.add(keyOf(price));
+    total += BigInt(price.amountCents);
+  }
+  if (seen.size !== expected.size || total !== BigInt(totalCents)) return null;
+  return structuredClone(prices);
+}
+function bookingNightPrices(booking: Booking): NightPrice[] | null {
+  const cells = nightsFor(booking.stays, [...new Set(booking.stays.flatMap((stay) => stay.roomIds))]);
+  const stored = exactNightPrices(booking.roomNightPrices, cells, booking.totalCents);
+  if (stored) return stored;
+  const amounts = calendarStayAmounts(booking);
+  if (!amounts || booking.stays.some((stay) => stay.roomIds.length !== 1 ||
+    dayNumber(stay.checkOut) - dayNumber(stay.checkIn) !== 1)) return null;
+  return exactNightPrices(booking.stays.map((stay, index) => ({
+    roomId: stay.roomIds[0], date: stay.checkIn, amountCents: amounts[index],
+  })), cells, booking.totalCents);
+}
+function sourcePaymentFlag(booking: Booking): "unpaid" | "paid" | "unknown" {
+  if (booking.source !== "external" || booking.version !== 1 ||
+    booking.sourceCalendar || !bookingNightPrices(booking)) return "unknown";
+  const rows = booking.sweetfunSnapshot?.rows;
+  if (!Array.isArray(rows) || !rows.length || rows.length !== booking.stays.length) return "unknown";
+  const flags = new Set(rows.map((row) => String(row.values?.[7] ?? "").trim()));
+  if (flags.size !== 1) return "unknown";
+  const flag = [...flags][0];
+  return flag === "not_yet" ? "unpaid" : flag === "done" ? "paid" : "unknown";
+}
 function verifyCreate(input: CreateBookingInput, principal: Principal): void {
   if (principal.origin !== input.source || !["os", "line", "website"].includes(input.source))
     reject("FORBIDDEN", 403);
@@ -334,6 +377,8 @@ function verifyCreate(input: CreateBookingInput, principal: Principal): void {
   if (input.totalCents !== null && (!Number.isSafeInteger(input.totalCents) || input.totalCents < 0))
     reject("INVALID_AMOUNT");
   if (input.bookedAt !== null) dayNumber(input.bookedAt);
+  if (input.roomNightPrices !== undefined && principal.origin !== "line")
+    reject("FORBIDDEN", 403);
 }
 function verifyAmend(input: AmendBookingInput): void {
   if (!Number.isSafeInteger(input.expectedBookingVersion) || input.expectedBookingVersion < 1 ||
@@ -341,7 +386,7 @@ function verifyAmend(input: AmendBookingInput): void {
     reject("INVALID_VERSION");
   if (!input.changes || Array.isArray(input.changes) || typeof input.changes !== "object") reject("INVALID_INPUT");
   const fields = Object.keys(input.changes);
-  if (!fields.length || fields.some((field) => !["stays", "guestName", "contact", "notes", "totalCents"].includes(field)))
+  if (!fields.length || fields.some((field) => !["stays", "guestName", "contact", "notes", "totalCents", "roomNightPrices"].includes(field)))
     reject("INVALID_INPUT");
   if ("guestName" in input.changes) nullableText(input.changes.guestName, 200);
   if ("contact" in input.changes) nullableText(input.changes.contact, 256);
@@ -360,6 +405,7 @@ function requireLineMutation(principal: Principal, state: PropertyState, booking
       !(booking.source === "external" && booking.channelSyncState === "not_required")))
     reject("LINE_BOOKING_NOT_READY", 409);
   if (netReceived(booking) !== 0) reject("LINE_PAYMENT_REQUIRES_REVIEW", 409);
+  if (sourcePaymentFlag(booking) === "paid") reject("LINE_PAYMENT_REQUIRES_REVIEW", 409);
   requireLineStockWindow(state, nightsFor(booking.stays, state.roomIds));
 }
 function requireLineStockWindow(state: PropertyState, cells: Night[]): void {
@@ -373,6 +419,35 @@ function verifyLineInventoryInput(input: LineInventoryInput): Night {
     reject("INVALID_INPUT");
   uuid(input.roomId); dayNumber(input.date);
   return { roomId: input.roomId, date: input.date };
+}
+function verifyLineInventoryBatchInput(input: LineInventoryBatchInput): Night[] {
+  if (!input || !Number.isSafeInteger(input.expectedInventoryVersion) ||
+    input.expectedInventoryVersion < 0 || !["closed", "open"].includes(input.desired) ||
+    !Array.isArray(input.cells) || input.cells.length < 1 || input.cells.length > 14)
+    reject("INVALID_INPUT");
+  let previous = "";
+  return input.cells.map((cell) => {
+    if (!cell || Object.keys(cell).sort().join(",") !== "date,roomId") reject("INVALID_INPUT");
+    uuid(cell.roomId); dayNumber(cell.date);
+    const key = keyOf(cell);
+    if (key <= previous) reject("INVALID_INPUT");
+    previous = key;
+    return { roomId: cell.roomId, date: cell.date };
+  });
+}
+function verifyLineBulkCancelInput(input: LineBulkCancelInput): void {
+  if (!input || !Number.isSafeInteger(input.expectedInventoryVersion) ||
+    input.expectedInventoryVersion < 0 || !Array.isArray(input.bookings) ||
+    input.bookings.length < 2 || input.bookings.length > 50) reject("INVALID_INPUT");
+  let previous = "";
+  for (const item of input.bookings) {
+    if (!item || Object.keys(item).sort().join(",") !== "bookingId,expectedBookingVersion" ||
+      !Number.isSafeInteger(item.expectedBookingVersion) || item.expectedBookingVersion < 1)
+      reject("INVALID_INPUT");
+    const id = uuid(item.bookingId);
+    if (id <= previous) reject("INVALID_INPUT");
+    previous = id;
+  }
 }
 function requireLineInventory(principal: Principal, state: PropertyState,
   input: LineInventoryInput): Night {
@@ -400,6 +475,7 @@ function requireLineChangeFields(principal: Principal, changes: AmendBookingInpu
   const grants: [keyof AmendBookingInput["changes"], string][] = [
     ["guestName", "guest_name"], ["contact", "contact"], ["notes", "notes"],
     ["totalCents", "money"],
+    ["roomNightPrices", "money"],
   ];
   if (grants.some(([field, grant]) => field in changes && !principal.fields.includes(grant as
     Principal["fields"][number]))) reject("FORBIDDEN", 403);
@@ -529,6 +605,9 @@ export class IronGateService {
       reject("LINE_CHANNEL_NOT_READY", 409);
     if (state.version !== input.expectedInventoryVersion) reject("VERSION_CONFLICT", 409);
     const cells = nightsFor(input.stays, state.roomIds);
+    if (input.roomNightPrices !== undefined &&
+      !exactNightPrices(input.roomNightPrices, cells, input.totalCents))
+      reject("INVALID_NIGHT_PRICES");
     requireLineStockWindow(state, cells);
     if (hasConflict(state, cells)) reject("ROOM_CONFLICT", 409);
     const hash = await digest({ action: "booking:create", input });
@@ -563,15 +642,24 @@ export class IronGateService {
       if (principal.origin === "website") reject("WEBSITE_QUOTE_REQUIRED", 409);
       if (state.channel.mode === "owlnest" && !state.channel.ready) reject("SOURCE_UNAVAILABLE", 503);
       const cells = nightsFor(input.stays, state.roomIds);
+      if (input.roomNightPrices !== undefined &&
+        !exactNightPrices(input.roomNightPrices, cells, input.totalCents))
+        reject("INVALID_NIGHT_PRICES");
       if (principal.origin === "line") requireLineStockWindow(state, cells);
       if (hasConflict(state, cells)) reject("ROOM_CONFLICT", 409);
       const operationKey = state.channel.mode === "owlnest" ? crypto.randomUUID() : null;
+      // LINE's durable request key is chosen before its existing V2 confirmation
+      // card. Giving the booking that ID lets the finance journal bind its
+      // pre-write claim to the exact booking it will later read back.
+      const bookingId = principal.origin === "line" ? requestKey : crypto.randomUUID();
+      if (state.bookings.some((item) => item.id === bookingId)) reject("BOOKING_ID_CONFLICT", 409);
       const booking: Booking = {
-        id: crypto.randomUUID(), workspaceId: state.workspaceId, propertyId, version: 1,
+        id: bookingId, workspaceId: state.workspaceId, propertyId, version: 1,
         status: "confirmed", channelSyncState: operationKey ? "pending" : "not_required",
         channelOperationKey: operationKey, stays: structuredClone(input.stays),
         guestName: input.guestName, contact: input.contact, notes: input.notes,
         totalCents: input.totalCents, currency: "TWD", bookedAt: input.bookedAt,
+        ...(input.roomNightPrices ? { roomNightPrices: structuredClone(input.roomNightPrices) } : {}),
         createdAt: new Date().toISOString(), source: input.source,
         sourceKey: input.source === "line" ? `line:${principal.grantId}` : null,
       };
@@ -736,6 +824,13 @@ export class IronGateService {
       if (hasConflict(state, next, bookingId)) reject("ROOM_CONFLICT", 409);
     }
     if (action === "amend") requireLineChangeFields(principal, (input as AmendBookingInput).changes);
+    if (action === "amend" && "roomNightPrices" in (input as AmendBookingInput).changes) {
+      const changes = (input as AmendBookingInput).changes;
+      const cells = nightsFor(changes.stays ?? booking.stays, state.roomIds);
+      if (!exactNightPrices(changes.roomNightPrices, cells,
+        changes.totalCents !== undefined ? changes.totalCents : booking.totalCents))
+        reject("INVALID_NIGHT_PRICES");
+    }
     const hash = await digest({ action: `booking:${action}`, bookingId,
       ...(action === "amend" ? { input } : input) });
     const signed = await signLinePreview(this.linePreviewSecret, principal, propertyId,
@@ -776,7 +871,14 @@ export class IronGateService {
       let next: Night[] = current;
       const unverifiableSourceEdit = principal.origin === "line" &&
         (("contact" in input.changes && input.changes.contact !== booking.contact) ||
-          ("notes" in input.changes && input.changes.notes !== booking.notes));
+          ("notes" in input.changes && input.changes.notes !== booking.notes) ||
+          ("roomNightPrices" in input.changes));
+      if ("roomNightPrices" in input.changes) {
+        const pricedCells = nightsFor(input.changes.stays ?? booking.stays, state.roomIds);
+        if (!exactNightPrices(input.changes.roomNightPrices, pricedCells,
+          input.changes.totalCents !== undefined ? input.changes.totalCents : booking.totalCents))
+          reject("INVALID_NIGHT_PRICES");
+      }
       if ("stays" in input.changes) {
         next = nightsFor(input.changes.stays!, state.roomIds);
         if (principal.origin === "line") requireLineStockWindow(state, next);
@@ -791,6 +893,10 @@ export class IronGateService {
       if ("contact" in input.changes) booking.contact = input.changes.contact!;
       if ("notes" in input.changes) booking.notes = input.changes.notes!;
       if ("totalCents" in input.changes) booking.totalCents = input.changes.totalCents!;
+      if ("roomNightPrices" in input.changes)
+        booking.roomNightPrices = structuredClone(input.changes.roomNightPrices!);
+      else if ("stays" in input.changes || "totalCents" in input.changes)
+        delete booking.roomNightPrices;
       booking.version++;
       if (principal.origin === "line") flagLineSourceReview(state, booking, current, next,
         unverifiableSourceEdit);
@@ -1098,6 +1204,60 @@ export class IronGateService {
     });
   }
 
+  async previewLineInventoryBatch(principal: Principal, propertyId: string,
+    input: LineInventoryBatchInput): Promise<Record<string, unknown>> {
+    uuid(propertyId); const cells = verifyLineInventoryBatchInput(input);
+    if (principal.origin !== "line" || !this.linePreviewSecret)
+      reject("LINE_PREVIEW_UNAVAILABLE", 503);
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    if (state.version !== input.expectedInventoryVersion) reject("VERSION_CONFLICT", 409);
+    for (const cell of cells) requireLineInventory(principal, state, {
+      ...cell, desired: input.desired, expectedInventoryVersion: input.expectedInventoryVersion });
+    const hash = await digest({ action: "inventory:batch-write", input });
+    const signed = await signLinePreview(this.linePreviewSecret, principal, propertyId,
+      state.version, hash, "inventory-batch");
+    return { propertyId, cells, desired: input.desired,
+      inventoryVersion: state.version, authorityEpoch: state.authorityEpoch,
+      expiresAt: signed.expiresAt, previewToken: signed.token,
+      channelSyncState: "preview_only" };
+  }
+
+  async setLineInventoryBatch(principal: Principal, propertyId: string, requestKey: string,
+    input: LineInventoryBatchInput, linePreviewToken: string | null): Promise<Record<string, unknown>> {
+    uuid(propertyId); uuid(requestKey); const cells = verifyLineInventoryBatchInput(input);
+    if (principal.origin !== "line" || !this.linePreviewSecret)
+      reject("LINE_PREVIEW_UNAVAILABLE", 503);
+    const hash = await digest({ action: "inventory:batch-write", input });
+    const expiry = await verifyLinePreview(this.linePreviewSecret, linePreviewToken, principal,
+      propertyId, input.expectedInventoryVersion, hash, "inventory-batch");
+    return this.repository.transact(propertyId, (state, tx) => {
+      authorize(principal, state, "inventory:write", true);
+      const prior = receiptFor(state, principal, requestKey, hash);
+      if (prior) return prior.response;
+      if (expiry === null || Date.now() >= expiry) reject("LINE_PREVIEW_REQUIRED", 409);
+      if (state.version !== input.expectedInventoryVersion) reject("VERSION_CONFLICT", 409);
+      // Check the entire batch before changing a single manual block.
+      for (const cell of cells) requireLineInventory(principal, state, {
+        ...cell, desired: input.desired, expectedInventoryVersion: input.expectedInventoryVersion });
+      const selected = new Set(cells.map(keyOf));
+      if (input.desired === "closed") state.manualBlocks.push(...cells);
+      else state.manualBlocks = state.manualBlocks.filter((item) => !selected.has(keyOf(item)));
+      const operationKey = crypto.randomUUID();
+      state.operations.push({ key: operationKey, bookingId: null, bookingVersion: 0,
+        state: "sync_pending", cells: cells.map((cell) => ({ ...cell, desired: input.desired })),
+        createdAt: new Date().toISOString(), verifiedAt: null, providerVersion: null });
+      state.fences.push({ key: operationKey, cells, reason: "channel_pending" });
+      state.version++;
+      const response = { propertyId, cells, desired: input.desired,
+        inventoryVersion: state.version, operationState: "sync_pending", operationKey };
+      saveReceipt(state, principal, requestKey, "inventory:write", hash, response);
+      emit(tx, state, input.desired === "closed" ? "inventory.blocked" : "inventory.opened",
+        null, principal, requestKey);
+      return response;
+    });
+  }
+
   // One versioned read supplies the OS booking calendar. The sparse cells are
   // derived from the same state as the bookings, so navigation does not need
   // repeated full-property reads for every booking page and 31-day segment.
@@ -1269,6 +1429,82 @@ export class IronGateService {
     });
   }
 
+  async previewLineBulkCancel(principal: Principal, propertyId: string,
+    input: LineBulkCancelInput): Promise<Record<string, unknown>> {
+    uuid(propertyId); verifyLineBulkCancelInput(input);
+    if (principal.origin !== "line" || !this.linePreviewSecret)
+      reject("LINE_PREVIEW_UNAVAILABLE", 503);
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    authorize(principal, state, "booking:cancel", true);
+    if (state.version !== input.expectedInventoryVersion) reject("VERSION_CONFLICT", 409);
+    for (const item of input.bookings) {
+      const booking = state.bookings.find((value) => value.id === item.bookingId);
+      if (!booking) reject("BOOKING_NOT_FOUND", 404);
+      if (booking.version !== item.expectedBookingVersion) reject("VERSION_CONFLICT", 409);
+      requireLineMutation(principal, state, booking);
+    }
+    const hash = await digest({ action: "booking:bulk-cancel", input });
+    const signed = await signLinePreview(this.linePreviewSecret, principal, propertyId,
+      state.version, hash, "bulk-cancel");
+    return { propertyId, inventoryVersion: state.version, authorityEpoch: state.authorityEpoch,
+      bookingIds: input.bookings.map((item) => item.bookingId),
+      expiresAt: signed.expiresAt, previewToken: signed.token,
+      channelSyncState: "preview_only" };
+  }
+
+  async bulkCancelLineBookings(principal: Principal, propertyId: string, requestKey: string,
+    input: LineBulkCancelInput, linePreviewToken: string | null = null): Promise<Record<string, unknown>> {
+    uuid(propertyId); uuid(requestKey); verifyLineBulkCancelInput(input);
+    if (principal.origin !== "line" || !this.linePreviewSecret)
+      reject("LINE_PREVIEW_UNAVAILABLE", 503);
+    const hash = await digest({ action: "booking:bulk-cancel", input });
+    const expiry = await verifyLinePreview(this.linePreviewSecret, linePreviewToken, principal,
+      propertyId, input.expectedInventoryVersion, hash, "bulk-cancel");
+    return this.repository.transact(propertyId, (state, tx) => {
+      authorize(principal, state, "booking:cancel", true);
+      const prior = receiptFor(state, principal, requestKey, hash);
+      if (prior) return prior.response;
+      if (expiry === null || Date.now() >= expiry) reject("LINE_PREVIEW_REQUIRED", 409);
+      if (state.version !== input.expectedInventoryVersion) reject("VERSION_CONFLICT", 409);
+      // Validate the complete set before touching any booking or channel cell.
+      const bookings = input.bookings.map((item) => {
+        const booking = state.bookings.find((value) => value.id === item.bookingId);
+        if (!booking) reject("BOOKING_NOT_FOUND", 404);
+        if (booking.version !== item.expectedBookingVersion) reject("VERSION_CONFLICT", 409);
+        requireLineMutation(principal, state, booking);
+        return booking;
+      });
+      const now = new Date().toISOString();
+      const operationKeys: string[] = [];
+      for (const booking of bookings) {
+        const cells = nightsFor(booking.stays, state.roomIds);
+        flagLineSourceReview(state, booking, cells, []);
+        booking.status = "cancelled";
+        booking.version++;
+        const operationKey = crypto.randomUUID();
+        operationKeys.push(operationKey);
+        booking.channelOperationKey = operationKey;
+        booking.channelSyncState = "pending";
+        state.operations.push({ key: operationKey, bookingId: booking.id,
+          bookingVersion: booking.version, state: "sync_pending",
+          cells: cells.map((cell) => ({ ...cell,
+            desired: booking.source === "external" ? "closed" as const : "open" as const })),
+          createdAt: now, verifiedAt: null, providerVersion: null });
+        state.fences.push({ key: operationKey, cells, reason: "channel_pending" });
+        emit(tx, state, "booking.cancelled", booking, principal, requestKey);
+      }
+      state.version++;
+      const response = { bookingIds: bookings.map((booking) => booking.id),
+        bookingVersions: bookings.map((booking) => booking.version),
+        inventoryVersion: state.version, operationState: "sync_pending",
+        operationKeys, sourceReviewRequired: bookings.some((booking) =>
+          booking.lineOverridePending === true) };
+      saveReceipt(state, principal, requestKey, "booking:cancel", hash, response);
+      return response;
+    });
+  }
+
   async requestResult(principal: Principal, propertyId: string, requestKey: string): Promise<Record<string, unknown>> {
     uuid(propertyId); uuid(requestKey);
     const state = await this.repository.read(propertyId);
@@ -1367,7 +1603,7 @@ export class IronGateService {
           !currentNights.has(keyOf(cell)) &&
           !hasConflict(state, [cell], booking.id, operation.key)) :
         operation.bookingId === null && operation.bookingVersion === 0 &&
-        operation.cells.length === 1 && operation.cells.every((cell) =>
+        operation.cells.length >= 1 && operation.cells.every((cell) =>
           cell.desired === "closed" ?
             state.manualBlocks.some((item) => keyOf(item) === keyOf(cell)) :
             !state.manualBlocks.some((item) => keyOf(item) === keyOf(cell)) &&

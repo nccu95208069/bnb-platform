@@ -58,14 +58,27 @@ components:
         stays:
           type: array
           minItems: 1
-          maxItems: 32
+          maxItems: 60
           items: { $ref: '#/components/schemas/Stay' }
         guestName: { type: [string, 'null'], maxLength: 200 }
         contact: { type: [string, 'null'], maxLength: 256 }
         notes: { type: [string, 'null'], maxLength: 2048 }
         totalCents: { type: [integer, 'null'], minimum: 0 }
+        roomNightPrices:
+          type: array
+          maxItems: 4096
+          description: LINE only; must exactly cover all room nights and sum to totalCents.
+          items: { $ref: '#/components/schemas/NightPrice' }
         bookedAt: { type: [string, 'null'], format: date }
         source: { type: string, enum: [os, line, website] }
+    NightPrice:
+      type: object
+      additionalProperties: false
+      required: [roomId, date, amountCents]
+      properties:
+        roomId: { type: string, format: uuid }
+        date: { type: string, format: date }
+        amountCents: { type: integer, minimum: 0 }
     LineInventory:
       type: object
       additionalProperties: false
@@ -74,6 +87,25 @@ components:
         expectedInventoryVersion: { type: integer, minimum: 0 }
         roomId: { type: string, format: uuid }
         date: { type: string, format: date }
+        desired: { type: string, enum: [closed, open] }
+    LineInventoryBatch:
+      type: object
+      additionalProperties: false
+      required: [expectedInventoryVersion, cells, desired]
+      properties:
+        expectedInventoryVersion: { type: integer, minimum: 0 }
+        cells:
+          type: array
+          minItems: 1
+          maxItems: 14
+          description: Sorted by roomId and date; no duplicates.
+          items:
+            type: object
+            additionalProperties: false
+            required: [roomId, date]
+            properties:
+              roomId: { type: string, format: uuid }
+              date: { type: string, format: date }
         desired: { type: string, enum: [closed, open] }
     BookingReceipt:
       type: object
@@ -96,7 +128,7 @@ components:
         stays:
           type: array
           minItems: 1
-          maxItems: 32
+          maxItems: 60
           items: { $ref: '#/components/schemas/Stay' }
         guestName: { type: [string, 'null'], maxLength: 200 }
         contact: { type: [string, 'null'], maxLength: 256 }
@@ -138,12 +170,16 @@ components:
             stays:
               type: array
               minItems: 1
-              maxItems: 32
+              maxItems: 60
               items: { $ref: '#/components/schemas/Stay' }
             guestName: { type: [string, 'null'], maxLength: 200 }
             contact: { type: [string, 'null'], maxLength: 256 }
             notes: { type: [string, 'null'], maxLength: 2048 }
             totalCents: { type: [integer, 'null'], minimum: 0 }
+            roomNightPrices:
+              type: array
+              maxItems: 4096
+              items: { $ref: '#/components/schemas/NightPrice' }
     PaymentEvent:
       type: object
       additionalProperties: false
@@ -403,6 +439,24 @@ components:
       properties:
         expectedBookingVersion: { type: integer, minimum: 1 }
         expectedInventoryVersion: { type: integer, minimum: 0 }
+    LineBulkCancel:
+      type: object
+      additionalProperties: false
+      required: [expectedInventoryVersion, bookings]
+      properties:
+        expectedInventoryVersion: { type: integer, minimum: 0 }
+        bookings:
+          type: array
+          minItems: 2
+          maxItems: 50
+          description: Complete booking IDs sorted ascending; all versions checked atomically.
+          items:
+            type: object
+            additionalProperties: false
+            required: [bookingId, expectedBookingVersion]
+            properties:
+              bookingId: { type: string, format: uuid }
+              expectedBookingVersion: { type: integer, minimum: 1 }
     SourceEvent:
       type: object
       additionalProperties: false
@@ -544,6 +598,47 @@ paths:
             schema: { $ref: '#/components/schemas/LineInventory' }
       responses:
         '200': { description: Local preflight and signed preview token }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/inventory-batch-previews:
+    post:
+      operationId: previewLineInventoryBatch
+      summary: Preview up to 14 room nights in the existing LINE inventory card
+      description: >-
+        One signed token binds the actor, exact sorted cells, desired state and
+        inventory version. Every cell must pass the canonical conflict check.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LineInventoryBatch' }
+      responses:
+        '200': { description: Private signed preview; no room change }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/inventory-batches:
+    post:
+      operationId: setLineInventoryBatch
+      summary: Atomically apply one confirmed room-night batch
+      description: >-
+        Requires Idempotency-Key and X-Iron-Gate-Line-Preview. Rechecks every
+        cell in one transaction, creates one channel operation and one fence,
+        then waits for exact OwlNest readback. Uncertain results are looked up
+        using the original request key.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { $ref: '#/components/parameters/RequestKey' }
+        - { name: X-Iron-Gate-Line-Preview, in: header, required: true,
+            schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LineInventoryBatch' }
+      responses:
+        '202': { description: Canonical room batch accepted; provider readback pending }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
   /v1/properties/{propertyId}/inventory:
@@ -726,6 +821,46 @@ paths:
                                  { $ref: '#/components/schemas/CancelBooking' }] }
       responses:
         '200': { description: Signed private preview token and bound versions }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/line-bulk-cancel-previews:
+    post:
+      operationId: previewLineBulkCancel
+      summary: Preview one atomic LINE cancellation of 2 to 50 complete bookings
+      description: >-
+        Validates every booking and issues one private 15-minute token bound to
+        the actor, grant, sorted booking IDs, their versions and inventory version.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LineBulkCancel' }
+      responses:
+        '200': { description: Signed private batch preview; no booking changed }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/properties/{propertyId}/line-bulk-cancels:
+    post:
+      operationId: bulkCancelLineBookings
+      summary: Cancel all selected bookings or none
+      description: >-
+        Requires Idempotency-Key and X-Iron-Gate-Line-Preview. Rechecks every
+        booking and payment guard inside one transaction. Creates per-booking
+        source review and channel operations; the response is sync_pending.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+        - { $ref: '#/components/parameters/RequestKey' }
+        - { name: X-Iron-Gate-Line-Preview, in: header, required: true,
+            schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LineBulkCancel' }
+      responses:
+        '202': { description: All local cancellations accepted; provider readbacks pending }
         '403': { $ref: '#/components/responses/Forbidden' }
         '409': { $ref: '#/components/responses/Conflict' }
   /v1/properties/{propertyId}/bookings/{bookingId}/payment-events:
