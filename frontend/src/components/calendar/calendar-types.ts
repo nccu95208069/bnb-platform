@@ -47,6 +47,12 @@ export type CalendarBooking = {
   id: string;
   sheet_row_id: string;
   order_id: string;
+  /** Stable manual-contact status identity; preserves marks from the former Sheet calendar. */
+  notification_order_id?: string;
+  /** Existing OS payment ledger identity for an unchanged imported Iron Gate order. */
+  payment_order_id?: string;
+  source_booking_version?: number;
+  source_legacy_payment?: boolean;
   external_order_no: string | null;
   owlnest_order_no?: string | null;
   property_id: string;
@@ -66,7 +72,11 @@ export type CalendarBooking = {
   check_out: string;
   booked_at: string | null;
   room_rate: number;
+  /** Verified whole-order amount in cents; may lack a trustworthy per-room split. */
+  source_order_total_cents?: number;
   payment_status: PaymentStatus;
+  /** Verified server projection for payment review while room prices remain hidden. */
+  payment_review_status?: "paid" | "deposit";
   reservation_status: ReservationStatus;
   notes: string | null;
   payments: PaymentRecord[];
@@ -77,6 +87,13 @@ export type CalendarBooking = {
   baby_supplies: BabySupplyKey[];
   service_note: string | null;
   source_read_only?: boolean;
+  channel_sync_state?: "not_required" | "action_required" | "pending" | "verified" | "review_required";
+  channel_pending_nights?: number;
+  iron_gate_booking_id?: string;
+  iron_gate_booking_version?: number;
+  iron_gate_source?: "os" | "line" | "website" | "external";
+  iron_gate_channel_sync?: "not_required" | "action_required" | "awaiting_manual_sync" | "pending" | "verified" | "review_required";
+  iron_gate_source_review?: boolean;
   snapshot_only?: boolean;
   payment_unconfirmed?: boolean;
   requirements_known?: boolean;
@@ -89,6 +106,8 @@ export type CalendarBooking = {
   source_identity_kind?: "parent_order" | "row";
   nightly_amounts?: { date: string; amount: number }[];
   source_segment_ids?: string[];
+  // Calendar-only span; the underlying rows keep independent order/payment IDs.
+  visual_source_ids?: string[];
   stay_nights?: number;
   price_hidden?: boolean;
 };
@@ -116,6 +135,8 @@ export type CalendarResponse = {
   guest_access?: { available: boolean; authenticated: boolean };
   data_mode?: string;
   price_hidden?: boolean;
+  iron_gate_manual_enabled?: boolean;
+  iron_gate_manual_payment_enabled?: boolean;
 };
 
 export type CalendarPeriod = {

@@ -8,6 +8,13 @@ type Profile = {
   email: string;
   workspaces: { id: string; slug: string; name: string }[];
 };
+const validSlug = (value: string) => /^[a-z0-9][a-z0-9-]{2,47}$/.test(value);
+const normalizeSlug = (value: string) => value.toLowerCase()
+  .replace(/[\s_]+/g, "-")
+  .replace(/[^a-z0-9-]/g, "")
+  .replace(/-+/g, "-")
+  .replace(/^-/, "")
+  .slice(0, 48);
 export function Onboarding({
   allowRegistration = false,
   googleConfigured = false,
@@ -174,11 +181,14 @@ export function Onboarding({
                           ? "new-password"
                           : "current-password"
                       }
-                      minLength={12}
+                      minLength={8}
                       maxLength={128}
                       required
                     />
                   </label>
+                )}
+                {mode === "register" && (
+                  <p className="text-sm text-slate-600">新密碼需 8～128 字元，包含英文字母、數字和特殊符號。</p>
                 )}
                 {mode === "register" && (
                   <label className="block">
@@ -188,7 +198,7 @@ export function Onboarding({
                       name="confirmPassword"
                       type="password"
                       autoComplete="new-password"
-                      minLength={12}
+                      minLength={8}
                       required
                     />
                   </label>
@@ -242,12 +252,7 @@ export function Onboarding({
                     onChange={(e) => {
                       setName(e.target.value);
                       if (!slugEdited)
-                        setSlug(
-                          e.target.value
-                            .toLowerCase()
-                            .replace(/[^a-z0-9-]/g, "")
-                            .slice(0, 48),
-                        );
+                        setSlug(normalizeSlug(e.target.value));
                     }}
                   />
                 </label>
@@ -259,14 +264,19 @@ export function Onboarding({
                     value={slug}
                     onChange={(e) => {
                       setSlugEdited(true);
-                      setSlug(e.target.value.toLowerCase());
+                      setSlug(normalizeSlug(e.target.value));
                     }}
                     pattern="[a-z0-9][a-z0-9-]{2,47}"
                   />
                   <span className="mt-2 block text-sm text-slate-500">
                     /w/{slug || "你的旅宿"}/calendar · 3～48
-                    個英文字母、數字或連字號
+                    個英文字母、數字或連字號；空白和底線會自動變成連字號
                   </span>
+                  {name.trim() && !validSlug(slug) && (
+                    <span role="status" className="mt-1 block text-sm text-amber-800">
+                      網址代稱至少要有 3 個英文字母或數字；可以用連字號分隔。
+                    </span>
+                  )}
                 </label>
                 <fieldset>
                   <legend className="mb-2">你如何接待客人？</legend>
@@ -287,7 +297,7 @@ export function Onboarding({
                 <button
                   className={button}
                   disabled={
-                    !kind || !name.trim() || !/^[a-z0-9][a-z0-9-]{2,47}$/.test(slug)
+                    !kind || !name.trim() || !validSlug(slug)
                   }
                   onClick={() => setStep(2)}
                 >
@@ -311,7 +321,8 @@ export function Onboarding({
                 </label>
                 <p className="text-sm text-slate-500">
                   每行一間，也可以用逗號分隔。
-                  {kind !== "rooms" && "包棟會占用上面全部房間。"}
+                  {kind === "mixed" && "只填實體房間，包棟不是額外一間房；包棟會占用上面全部房間。"}
+                  {kind === "villa" && "包棟會占用上面全部房間。"}
                 </p>
                 <div className="flex gap-3">
                   <button className={secondary} onClick={() => setStep(1)}>

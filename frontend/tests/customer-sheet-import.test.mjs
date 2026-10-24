@@ -284,6 +284,7 @@ test("undo cancels unchanged only, keeps modified bookings, retains audit and st
   assert.deepEqual(await undoImport(...args, batch.id, 1), result);
   w = await current(store);
   assert.equal(w.bookings[0].status, "cancelled");
+  assert.equal(w.bookings[0].updatedAt, w.audit.at(-1).at);
   assert.equal(w.bookings[1].status, "confirmed");
   assert.equal(w.audit.at(-1).action, "sheet.undo");
 });

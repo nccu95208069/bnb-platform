@@ -1,5 +1,14 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
+2026-10-24 水芳手動訂單：直訂新增、改房／改期、取消的 OS→Iron Gate 入口已正式發布；新單建立與 OwlNest 同步分成兩次明確操作。指定 2027-03-20 水芳 101 的[真實關房、回讀、取消與復原驗收](SWEETFUN_MANUAL_BOOKING_IMPLEMENTATION_2026-10-24.md#正式房況驗收台灣時間-18441846)已完成，原可售 1 已恢復；下一步是觀測首筆真實旅客操作、輪替手動 credential，並另行處理全館庫存觀測、OTA 身分及財務帳本整合。OTA 補登與房晚／金額更正仍不開放。
+
+2026-10-19 完整歷史匯入預覽與既有已售月曆樣式已由 PR #55 合併並發布，正式站已唯讀驗證；真實訂單仍待使用者按最後匯入確認。後續發布必須套用[開通、匯入與月曆發布檢查](ONBOARDING_RELEASE_GATES_2026-10-19.md)，來源衝突仍需個別核對。
+
+2026-10-19 首次開通後的 Sheet 連結直達唯讀預覽、無草稿列顯示來源原值與舊列略過，已[合併並發布至正式站](ONBOARDING_PREVIEW_FOLLOWUP_2026-10-19.md)；實際訂單匯入仍待使用者核對並確認。
+
+2026-10-19 開通網址與 Sheet 匯入第一頁的簡化、缺房間對應時停止自動預覽的修正均已合併並部署至正式站；登入的非營業工作區已驗證缺房間對應提示。其餘待驗收項目見[交接紀錄](ONBOARDING_SIMPLE_IMPORT_2026-10-19.md)。
+
+2026-10-16 標準帳本 v5：依業主決定增加訂單「最後更新時間」，保留原訂房日期；舊 v4 帳本守護式升級及缺失歷史時間留白詳見 [實作與發布邊界](STANDARD_SHEET_V5_UPDATED_AT_2026-10-16.md)。程式尚未部署。
 2026-10-11 OS-04: owner-approved OS and LINE rollout is complete. Sweetfun and OFFLAND reminders are enabled for Taipei 09:00, with separately labeled unconfirmed room-night summaries. The new scheduler returned HTTP 200; one authorized synthetic LINE message has a persisted provider receipt and was visibly received in LINE desktop. First automatic arrival-note dispatch is due October 12 and has not yet been observed; physical-phone and external-customer acceptance remain open. See [release evidence](OS_READINESS_2026-10-10.md#正式-line-啟用--2026-10-11).
 
 2026-10-10 release: [OS readiness production acceptance](OS_READINESS_2026-10-10.md) is live at runtime `5e80ee3`. Workspace entry and both legacy arrival-source views are verified using normal owner login; partial notes remain visible and explicitly unconfirmed. This October 10 checkpoint is superseded by the October 11 reminder activation above; broader INT-03 mapping remains open.
@@ -397,3 +406,9 @@ Do not switch the public application from anonymized demo mode until all items b
 # Calendar change intake — 2026-10-07 owner request
 
 See [calendar change intake and deferred producer coordination](CALENDAR_CHANGE_ENDPOINT_2026-10-07.md). Implement the OS receiver first and coordinate bnb-pricing now. **LINE / Gmail / OwlNest room-toggle callbacks with `訂房小助手` remain a required TODO, deferred until the receiver is ready and its current deployment is complete, per the owner's explicit instruction.** Do not mark those producer hooks connected based only on receiver completion.
+
+## Customer full-history import and month calendar — 2026-10-19
+
+See [full-history import and customer calendar parity](SHEET_FULL_HISTORY_CALENDAR_PARITY_2026-10-19.md) and the [release gates](ONBOARDING_RELEASE_GATES_2026-10-19.md). PR #55 is live; the real customer preview was checked without clicking final import. A row whose source identity, dates, room, or overlap cannot be validated remains a review item; investigate it before treating the calendar as complete or sale-ready.
+
+The 2026-10-20 owner decision simplifies the [Sheet import handoff](SHEET_IMPORT_SIMPLE_FLOW_2026-10-20.md): one explicit click may check and import a completely valid source, then open the calendar. Ambiguous or conflicting rows remain outside the automatic path; an approved onboarding link remains preview-only until the owner clicks import.

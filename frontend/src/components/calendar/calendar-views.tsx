@@ -4,13 +4,14 @@ import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 
 import { PaymentBadge } from "./payment-badge";
-import { useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { useMonthPosition } from "./use-month-position";
-import { BedDouble, ChevronUp, LogIn, LogOut, Moon } from "lucide-react";
+import { BedDouble, ChevronUp, LoaderCircle, LogIn, LogOut, Moon } from "lucide-react";
 
 import { GuestRemarks, remarksFor, BookingIdentity, bookingIdentityText, realGuestName } from "./booking-identity";
-import { fitMonthWeekLanes, layoutMonthWeek } from "./month-layout";
+import { layoutMonthWeek, monthBookingFontSize, monthWeekPresentation } from "./month-layout";
 import { useCalendarPreferences } from "./calendar-preferences";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import type {
@@ -21,6 +22,7 @@ import type {
 import {
   PLATFORM_LABELS,
   PLATFORM_STYLES,
+  paymentStateForReview,
   PROPERTY_DOT_STYLES,
   WEEKDAY_LABELS,
   addDays,
@@ -83,12 +85,12 @@ function BookingChip({
   return (
     <div className="flex min-w-0 items-center gap-1"><button
       type="button"
-      data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
+      data-payment-state={paymentStateForReview(booking)}
       onClick={() => onSelect(booking)}
       className={cn(
         "group flex w-full min-w-0 items-center gap-1.5 border text-left shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         compact
-          ? "min-h-7 py-1 px-1.5 text-[10px] sm:text-[11px]"
+          ? "min-h-7 py-1 px-1.5 text-[0.625rem] sm:text-[0.6875rem]"
           : "min-h-9 rounded-md px-2.5 py-1.5 text-xs",
         compact && !continuesBefore && "rounded-l-md",
         compact && continuesBefore && "rounded-l-none border-l-4",
@@ -117,7 +119,7 @@ function BookingChip({
       {!compact && (
         <>
           {nights > 1 && (
-            <span className="shrink-0 rounded-full bg-white/20 text-inherit px-1.5 py-0.5 text-[10px] font-semibold">
+            <span className="shrink-0 rounded-full bg-white/20 text-inherit px-1.5 py-0.5 text-[0.625rem] font-semibold">
               {uiText(progress ?? `連住 ${nights} 晚`)}
             </span>
           )}
@@ -132,7 +134,10 @@ function BookingChip({
 
 // Full channel names remain in accessible labels and booking details.
 const MONTH_PLATFORM_LABELS: Record<string, string> = {
-  direct: "直訂", booking: "Bkg", agoda: "Ago", airbnb: "Air", ctrip: "Trip", owljourney: "Owl", other: "其他",
+  direct: "直訂", booking: "Bkg", agoda: "Ago", airbnb: "Air", ctrip: "Trip", owljourney: "Owl", owlnest: "奧丁丁", other: "其他",
+};
+const MONTH_COMPACT_PLATFORM_LABELS: Record<string, string> = {
+  direct: "直", booking: "Bk", agoda: "Ag", airbnb: "Air", ctrip: "Tr", owljourney: "Owl", other: "其",
 };
 
 function chunkWeeks(days: string[]) {
@@ -145,15 +150,19 @@ function chunkWeeks(days: string[]) {
 
 function MonthPanel({
   monthStart,
+  covered = true,
   bookings,
   onSelectBooking,
   onSelectDay,
-  sectionRef,
   viewportHeight,
+  fontScale,
+  desktop,
 }: CalendarViewProps & {
   monthStart: string;
-  sectionRef: (node: HTMLElement | null) => void;
+  covered?: boolean;
   viewportHeight: number;
+  fontScale: number;
+  desktop: boolean;
 }) {
 const uiLocale = useIntlLocale();
 
@@ -164,7 +173,9 @@ const uiLocale = useIntlLocale();
   const weeks = chunkWeeks(dateRange(period.start, period.end));
   const expandedWeeks = useCalendarPreferences((s) => s.expandedWeeks);
   const setExpandedWeeks = useCalendarPreferences((s) => s.setExpandedWeeks);
-  const weekHeight = Math.max(60, Math.floor((viewportHeight - 58) / weeks.length));
+  const monthWeekAuto = useCalendarPreferences((s) => s.monthWeekAuto);
+  const monthWeekDensity = useCalendarPreferences((s) => s.monthWeekDensity);
+  const baseWeekHeight = Math.max(60 * fontScale, Math.floor((viewportHeight - 58 * fontScale) / weeks.length));
   const monthBookings = bookings.filter(
     (booking) =>
       booking.check_in < period.end && booking.check_out >= period.start,
@@ -187,11 +198,19 @@ const uiLocale = useIntlLocale();
     );
   }, 0);
 
+  if (!covered) return (
+    <section data-month={monthStart}
+      className="scroll-mt-2 bg-card" style={{ minHeight: viewportHeight }}>
+      <div className="sticky top-0 z-20 flex h-8 items-center justify-between border-y bg-background/95 px-3 backdrop-blur md:px-4">
+        <h2 className="text-base font-semibold">{formatMonthLabel(monthStart, uiLocale)}</h2>
+        <span className="text-xs text-muted-foreground">{uiText("訂單尚未載入")}</span>
+      </div>
+    </section>
+  );
+
   return (
     <section
-      ref={sectionRef}
       data-month={monthStart}
-      data-position-month={monthStart}
       className="scroll-mt-2 bg-card"
     >
       <div className="sticky top-0 z-20 flex items-center justify-between h-8 border-y bg-background/95 px-3 backdrop-blur md:px-4">
@@ -207,7 +226,7 @@ const uiLocale = useIntlLocale();
           <div
             key={weekday}
             className={cn(
-              "flex h-6 items-center justify-center border-r px-1 text-center text-[10px] font-semibold text-muted-foreground last:border-r-0 md:text-xs",
+              "flex h-6 items-center justify-center border-r px-1 text-center text-[0.625rem] font-semibold text-muted-foreground last:border-r-0 md:text-xs",
               index >= 5 && "bg-muted/45",
             )}
           >
@@ -221,16 +240,25 @@ const uiLocale = useIntlLocale();
         const expanded = expandedWeeks.includes(weekKey);
         const segments = layoutMonthWeek(monthBookings, week, addDays(week[6], 1));
         const laneCount = Math.max(0, ...segments.map(s => s.lane + 1));
-        const defaultLimit = fitMonthWeekLanes(weekHeight, laneCount);
+        const { height: weekHeight, visibleLanes: defaultLimit, twoLine } = monthWeekPresentation({ baseWeekHeight, viewportHeight, laneCount, fontScale, desktop, automatic: monthWeekAuto, density: monthWeekDensity });
         const limit = expanded ? Number.POSITIVE_INFINITY : defaultLimit;
         const weekHasOverflow = laneCount > defaultLimit;
         const visibleLanes = Math.min(laneCount, limit);
         const hidden = week.map((_, index) => segments.filter(s => s.lane >= limit && s.start <= index && s.end > index).length);
+        const bookingRows = Array.from({ length: visibleLanes }, (_, lane) => {
+          const hasRemarks = expanded && segments.some(s => s.lane === lane && remarksFor(s.booking).length);
+          return `${(expanded ? (hasRemarks ? 48 : 32) : twoLine ? 32 : 18) * fontScale}px`;
+        });
+        const gridTemplateRows = [
+          `${20 * fontScale}px`,
+          ...bookingRows,
+          ...(hidden.some(Boolean) ? [`${14 * fontScale}px`] : []),
+        ].join(" ");
 
         return (
           <div key={weekKey} className="border-b last:border-b-0" data-week={weekKey}>
             <div className="relative grid grid-cols-7 py-0.5"
-              style={{ minHeight: expanded ? undefined : weekHeight, gridTemplateRows: `20px ${Array.from({length:visibleLanes},(_,lane)=>expanded ? (segments.some(s=>s.lane===lane&&remarksFor(s.booking).length)?"48px":"32px") : "18px").join(" ")}${hidden.some(Boolean) ? " 14px" : ""}`, rowGap: 2 }}>
+              style={{ minHeight: expanded ? undefined : weekHeight, gridTemplateRows, rowGap: 2 * fontScale }}>
               <div className="pointer-events-none absolute inset-0 grid grid-cols-7" aria-hidden="true">
                 {week.map(date => <div key={date} className={cn("border-r last:border-r-0",
                   [0, 6].includes(parseIso(date).getUTCDay()) && "bg-muted/15",
@@ -242,12 +270,12 @@ const uiLocale = useIntlLocale();
                 const departures = monthBookings.filter(b => b.check_out === date).length;
                 return <div key={date} className="relative flex items-start justify-between px-1 md:px-2" style={{gridColumn: index + 1, gridRow: 1}}>
                   <button data-calendar-date={date} data-position-date={date} type="button" onClick={() => onSelectDay(date)}
-                    className={cn("flex size-5 items-center justify-center rounded-full text-[11px] font-semibold hover:bg-accent md:text-xs",
+                    className={cn("flex size-5 items-center justify-center rounded-full text-[0.6875rem] font-semibold hover:bg-accent md:text-xs",
                       !isSameMonth(date, monthStart) && "text-muted-foreground",
                       date === today && "bg-primary text-primary-foreground hover:bg-primary/90")}>
                     {parseIso(date).getUTCDate()}
                   </button>
-                  <div className="hidden gap-1 text-[9px] text-muted-foreground sm:flex md:text-[10px]">
+                  <div className="hidden gap-1 text-[0.5625rem] text-muted-foreground sm:flex md:text-[0.625rem]">
                     {arrivals > 0 && <span>{uiText("入")}{arrivals}</span>}
                     {departures > 0 && <span>{uiText("退")}{departures}</span>}
                   </div>
@@ -260,21 +288,24 @@ const uiLocale = useIntlLocale();
                 const label = `${PLATFORM_LABELS[booking.platform] ?? "其他"}｜${guestName || "姓名尚未開放"}｜${booking.property_name}｜${booking.room_number}｜${booking.check_in}–${booking.check_out}${nights > 1 ? `｜連住 ${nights} 晚` : ""}`;
                 return <button key={booking.id} type="button" title={uiText(label)} aria-label={uiText(label)}
                   data-stay-id={booking.id} data-stay-start={segment.start} data-stay-end={segment.end}
-                  data-payment-state={booking.price_hidden ? undefined : booking.payment_status}
+                  data-payment-state={paymentStateForReview(booking)}
                   onClick={() => onSelectBooking(booking)}
-                  style={{ gridColumn: `${segment.start + 1} / ${segment.end + 1}`, gridRow: segment.lane + 2 }}
-                  className={cn("relative z-10 mx-0.5 flex min-w-0 items-center gap-0.5 overflow-hidden rounded-[3px] px-0.5 text-left text-[10px] leading-none font-medium focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:mx-1 md:px-1 md:text-[11px]",
+                  style={{ gridColumn: `${segment.start + 1} / ${segment.end + 1}`, gridRow: segment.lane + 2, fontSize: monthBookingFontSize(fontScale, desktop), WebkitTextSizeAdjust: "none", textSizeAdjust: "none" }}
+                  className={cn("relative z-10 mx-0.5 flex min-w-0 items-center gap-0.5 overflow-hidden rounded-[3px] px-0.5 text-left leading-none font-medium focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:mx-1 md:px-1",
                     booking.source_conflict ? "bg-slate-200 text-slate-800 hover:bg-slate-300" : PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
                     segment.continuesBefore && "ml-0 rounded-l-none border-l-0 sm:ml-0 md:ml-0",
                     segment.continuesAfter && "mr-0 rounded-r-none border-r-0 sm:mr-0 md:mr-0")}>
                   {segment.continuesBefore && <span aria-hidden="true">‹</span>}
-                  <span className={cn("min-w-0 flex-1", !expanded && "truncate")}>
-                    <span className={cn("truncate leading-[12px]", expanded ? "block" : "inline")}>
-                      <span className="font-semibold">{booking.source_conflict ? uiText("待核對") : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
-                      <span className="ml-1 opacity-85">{booking.room_number}</span>
-                      {nights > 1 && <span className="ml-1">{nights}{uiText("晚")}</span>}
+                  <span className={cn("min-w-0 flex-1", !expanded && !twoLine && "truncate")}>
+                    <span className={cn("truncate", expanded || twoLine ? "block" : "inline")} style={{ lineHeight: `${12 * fontScale}px` }}>
+                      <span className="font-semibold">{booking.source_conflict ? uiText("待核對") : twoLine && !desktop ? MONTH_COMPACT_PLATFORM_LABELS[booking.platform] ?? "其" : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
+                      <span className={cn(twoLine ? "ml-0.5" : "ml-1", "opacity-85")}>{booking.room_number}</span>
+                      {nights > 1 && !twoLine && <span className="ml-1">{nights}{uiText("晚")}</span>}
                     </span>
-                    {guestName && <span className={cn("truncate pr-3 leading-[12px]", expanded ? "block" : "ml-1 inline")}>{guestName}</span>}
+                    {(guestName || twoLine) && <span className={cn("month-booking-guest truncate", expanded || twoLine ? "block" : "ml-1 inline")} style={{ lineHeight: `${12 * fontScale}px` }}>
+                      {twoLine && nights > 1 && segment.end - segment.start > 1 && <span className="mr-1">{nights}{uiText("晚")}</span>}
+                      {guestName || (twoLine ? booking.property_name : null)}
+                    </span>}
                     {expanded && <GuestRemarks booking={booking} compact limit={segment.end-segment.start>1?2:1} />}
                   </span>
                   <span className="absolute bottom-0.5 right-0.5"><PaymentBadge booking={booking} compact /></span>
@@ -285,7 +316,7 @@ const uiLocale = useIntlLocale();
                 style={{gridColumn: index + 1, gridRow: visibleLanes + 2}}
                 aria-expanded={false} aria-label={uiText("{0} 展開其餘訂單", [week[index]])}
                 onClick={() => setExpandedWeeks(current => current.includes(weekKey) ? current : [...current, weekKey])}
-                className="relative mx-0.5 min-w-0 truncate rounded px-0.5 text-left text-[9px] font-semibold text-muted-foreground hover:bg-accent sm:mx-1 md:text-[11px]">
+                className="relative mx-0.5 min-w-0 truncate rounded px-0.5 text-left text-[0.5625rem] font-semibold text-muted-foreground hover:bg-accent sm:mx-1 md:text-[0.6875rem]">
                 {uiText("還有")}{count} {uiText("筆")}</button>)}
             </div>
 
@@ -297,7 +328,7 @@ const uiLocale = useIntlLocale();
                     current.filter((value) => value !== weekKey),
                   )
                 }
-                className="flex w-full items-center justify-center gap-1 border-t bg-muted/20 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                className="flex w-full items-center justify-center gap-1 border-t bg-muted/20 py-1.5 text-[0.6875rem] font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground"
               >
                 <ChevronUp className="size-3" />
                 {uiText("收合這一列")}</button>
@@ -309,10 +340,81 @@ const uiLocale = useIntlLocale();
   );
 }
 
+// Keep the scroll track and its measured heights stable while only building
+// the expensive booking grid around the viewport. Native momentum can cross
+// month boundaries without React replacing the scroll container's children.
+const LazyMonthPanel = memo(function LazyMonthPanel({ monthStart, covered,
+  viewportHeight, fontScale, desktop, bookings, rooms, properties,
+  onSelectBooking, onSelectDay, root, initialActive, failed, onRetry }: CalendarViewProps & {
+  monthStart: string; covered: boolean; viewportHeight: number;
+  fontScale: number; desktop: boolean; initialActive: boolean;
+  failed: boolean; onRetry?: () => void;
+  root: RefObject<HTMLDivElement | null>;
+}) {
+  const uiLocale = useIntlLocale();
+  const uiText = useT();
+  const ref = useRef<HTMLDivElement>(null);
+  const [near, setNear] = useState(initialActive);
+  const [height, setHeight] = useState(viewportHeight);
+
+  useEffect(() => {
+    const node = ref.current;
+    const container = root.current;
+    if (!node || !container) return;
+    const observer = new IntersectionObserver(entries => {
+      setNear(entries.some(entry => entry.isIntersecting));
+    }, { root: container, rootMargin: '900px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [root]);
+
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node || !near || !covered) return;
+    const measure = () => {
+      const next = Math.ceil(node.getBoundingClientRect().height);
+      setHeight(current => Math.abs(current - next) > 1 ? next : current);
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [near, covered]);
+
+  return <div ref={ref} data-position-month={monthStart}
+    style={near && covered ? { minHeight: viewportHeight } : { height: Math.max(height, viewportHeight) }}
+    className={cn("bg-card", !(near && covered) && "flex flex-col")}>
+    {near && covered ? <MonthPanel monthStart={monthStart} covered
+      viewportHeight={viewportHeight} fontScale={fontScale} desktop={desktop}
+      bookings={bookings} rooms={rooms} properties={properties}
+      onSelectBooking={onSelectBooking} onSelectDay={onSelectDay} /> :
+      <>
+        <div className="sticky top-0 flex h-8 shrink-0 items-center border-y bg-background px-3">
+          <span className="font-semibold">{formatMonthLabel(monthStart, uiLocale)}</span>
+        </div>
+        {near && !covered && <div role={failed ? "alert" : "status"}
+          aria-live={failed ? "assertive" : "polite"}
+          className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-4 text-center text-sm text-muted-foreground">
+          {failed ? <Button variant="outline" size="sm" onClick={onRetry}>
+            {uiText("此月份暫時無法讀取，點此重試")}
+          </Button> : <>
+            <span aria-hidden="true" className="animate-spin text-primary motion-reduce:animate-none">
+              <LoaderCircle className="size-7" />
+            </span>
+            <span>{uiText("讀取訂單與房況中")}</span>
+          </>}
+        </div>}
+      </>}
+  </div>;
+});
+
 export function MonthScroller({
   months,
+  coveredMonths,
   targetMonth,
   targetRevision,
+  failedMonth,
+  onRetry,
   bookings,
   rooms,
   properties,
@@ -321,43 +423,69 @@ export function MonthScroller({
   onSelectDay,
 }: CalendarViewProps & {
   months: string[];
+  coveredMonths?: string[];
   targetMonth: string;
   targetDate?: string;
   targetRevision?: number;
+  failedMonth?: string;
+  onRetry?: () => void;
   onVisibleMonthChange: (month: string) => void;
 }) {
+  const uiText = useT();
   const scrollRef = useRef<HTMLDivElement>(null);
   const [viewportHeight, setViewportHeight] = useState(520);
+  const [fontScale, setFontScale] = useState(1);
+  const [desktop, setDesktop] = useState(false);
+  const callbacks = useRef({ onSelectBooking, onSelectDay });
+  useLayoutEffect(() => { callbacks.current = { onSelectBooking, onSelectDay }; }, [onSelectBooking, onSelectDay]);
+  const selectBooking = useCallback((booking: CalendarBooking) => callbacks.current.onSelectBooking(booking), []);
+  const selectDay = useCallback((day: string) => callbacks.current.onSelectDay(day), []);
   useLayoutEffect(() => {
     const container = scrollRef.current;
     if (!container) return;
-    const measure = () => setViewportHeight(Math.max(320, Math.floor(window.innerHeight - container.getBoundingClientRect().top - (window.innerWidth >= 768 ? 24 : 12))));
+    const measure = () => {
+      setViewportHeight(Math.max(320, Math.floor(window.innerHeight - container.getBoundingClientRect().top - (window.innerWidth >= 768 ? 24 : 12))));
+      setFontScale(parseFloat(getComputedStyle(document.documentElement).fontSize) / 16 || 1);
+      setDesktop(window.innerWidth >= 768);
+    };
     measure();
     const observer = new ResizeObserver(measure);
+    const fontObserver = new MutationObserver(measure);
     if (container.parentElement?.parentElement) observer.observe(container.parentElement.parentElement);
+    fontObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["style"] });
     window.addEventListener("resize", measure);
-    return () => { observer.disconnect(); window.removeEventListener("resize", measure); };
+    window.addEventListener("storage", measure);
+    return () => { observer.disconnect(); fontObserver.disconnect(); window.removeEventListener("resize", measure); window.removeEventListener("storage", measure); };
   }, []);
   // Month mode starts at the month header so no week is hidden above today.
-  useMonthPosition(scrollRef, targetMonth, targetRevision ?? 0, onVisibleMonthChange);
+  useMonthPosition(scrollRef, targetMonth, targetRevision ?? 0, onVisibleMonthChange, months[0]);
 
   return (
     <div
       ref={scrollRef}
       style={{ overflowAnchor: "none", height: viewportHeight }}
+      role="region"
+      aria-label={uiText("已售月曆，可上下捲動月份")}
+      tabIndex={0}
       className="overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm"
     >
       {months.map((monthStart) => (
-        <MonthPanel
+        <LazyMonthPanel
           key={monthStart}
           monthStart={monthStart}
+          covered={!coveredMonths || coveredMonths.includes(monthStart)}
+          failed={failedMonth === monthStart}
+          onRetry={onRetry}
+          initialActive={monthStart === targetMonth}
+          root={scrollRef}
           viewportHeight={viewportHeight}
+          fontScale={fontScale}
+          desktop={desktop}
           bookings={bookings}
           rooms={rooms}
           properties={properties}
-          onSelectBooking={onSelectBooking}
-          onSelectDay={onSelectDay}
-          sectionRef={() => {}}
+          onSelectBooking={selectBooking}
+          onSelectDay={selectDay}
         />
       ))}
     </div>
@@ -512,7 +640,7 @@ export function DayView({
                     </p>
                     <p className="mt-1 text-lg font-semibold">{room.label}</p>
                   </div>
-                  <span className="rounded-full bg-muted px-2 py-1 text-[10px] font-semibold">
+                  <span className="rounded-full bg-muted px-2 py-1 text-[0.625rem] font-semibold">
                     {current
                       ? arriving
                         ? uiText("今日入住")

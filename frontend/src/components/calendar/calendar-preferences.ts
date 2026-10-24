@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { localTodayIso } from "./calendar-utils";
+import { DEFAULT_MONTH_WEEK_DENSITY, normalizeMonthWeekDensity, restoredMonthWeekDensity } from "./month-layout";
 import type { Mission } from "@/lib/payment-workflow";
 import type { Channel, PricingPreview } from "@/lib/availability";
 import type { CalendarProperty, CalendarView } from "./calendar-types";
@@ -17,6 +18,10 @@ type CalendarNavigationRequest = {
 
 type CalendarPreferenceState = {
   expandedWeeks: string[];
+  monthWeekAuto: boolean;
+  setMonthWeekAuto: (value: boolean) => void;
+  monthWeekDensity: number;
+  setMonthWeekDensity: (value: number) => void;
   setExpandedWeeks: (
     value: string[] | ((current: string[]) => string[]),
   ) => void;
@@ -70,6 +75,10 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
   persist(
     (set) => ({
       expandedWeeks: [],
+      monthWeekAuto: true,
+      setMonthWeekAuto: (value) => set({ monthWeekAuto: value }),
+      monthWeekDensity: DEFAULT_MONTH_WEEK_DENSITY,
+      setMonthWeekDensity: (value) => set({ monthWeekDensity: normalizeMonthWeekDensity(value) }),
       setExpandedWeeks: (value) =>
         set((s) => ({
           expandedWeeks:
@@ -161,11 +170,17 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
     {
       name: "sweetfun-os-calendar-preferences",
       // Older storage includes anchorDate. Ignore it while retaining filters.
-      merge: (persisted, current) => ({
-        ...current,
-        ...(persisted as Partial<CalendarPreferenceState>),
-        anchorDate: current.anchorDate,
-      }),
+      merge: (persisted, current) => {
+        const saved = persisted as (Partial<CalendarPreferenceState> & { monthWeekSpacing?: unknown }) | undefined;
+        const weekDensity = restoredMonthWeekDensity(saved);
+        return {
+          ...current,
+          ...saved,
+          monthWeekAuto: weekDensity.automatic,
+          monthWeekDensity: weekDensity.density,
+          anchorDate: current.anchorDate,
+        };
+      },
       partialize: (state) => ({
         selectedPropertyIds: state.selectedPropertyIds,
         view: state.view,
@@ -173,6 +188,8 @@ export const useCalendarPreferences = create<CalendarPreferenceState>()(
         availabilityCycle: state.availabilityCycle,
         availabilityChannel: state.availabilityChannel,
         availabilityRoom: state.availabilityRoom,
+        monthWeekAuto: state.monthWeekAuto,
+        monthWeekDensity: state.monthWeekDensity,
       }),
     },
   ),

@@ -465,7 +465,9 @@ export function ServiceJoin({
                     <p className="mb-4 leading-7 service-text-muted">
                       {kind === "villa"
                         ? "包棟可先以「整棟」登記，也可填寫棟內各房間名稱。"
-                        : "請填寫房號或房間名稱，每行一間，也可用逗號分隔。"}
+                        : kind === "mixed"
+                          ? "只填實際存在的房間，每行一間。包棟不是另一間房；包棟訂單會占用這裡列出的全部房間。"
+                          : "請填寫房號或房間名稱，每行一間，也可用逗號分隔。"}
                     </p>
                     <label className="block">
                       {kind === "villa"
@@ -585,6 +587,14 @@ export function ServiceJoin({
                           <p className="mt-4 text-sm service-text-muted">
                             只用來核對你的房間與訂房格式；目前不會修改原表或持續同步。
                           </p>
+                          <a
+                            href="/guides/share-google-sheet"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-4 inline-block font-medium underline underline-offset-4 service-text-accent"
+                          >
+                            看圖文教學：如何分享 Google Sheet（另開分頁）
+                          </a>
                         </div>
                         {workflowEnabled ? (
                           <div className="space-y-3">
@@ -805,7 +815,7 @@ export function ServiceJoin({
                     已保存你的
                     {completedIntent === "join" ? "使用申請" : "諮詢需求"}。
                     {workflowEnabled && completedIntent === "join"
-                      ? "請先開啟確認信並設定密碼，再依指引核對資料格式。"
+                      ? "請先開啟確認信並設定密碼，再核對欄位與房間、預覽訂單並確認匯入；完成後才會建立日曆。"
                       : "服務人員將與你確認需求、資料格式與開通安排。"}
                   </p>
                   <p className="rounded-xl service-help-surface p-4 text-sm leading-7">

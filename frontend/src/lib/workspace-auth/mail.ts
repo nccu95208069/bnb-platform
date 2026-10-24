@@ -199,7 +199,10 @@ export async function sendOperatorIntakeNotification(
 // Called only with a stored applicant/account address and server-owned templates.
 // There is no endpoint accepting arbitrary recipients or message contents.
 export async function sendCustomerAuthMail(to: string, subject: string, text: string) {
-  if (!((subject === "旅宿工作區｜你的登入連結" && text.startsWith("請在剛才操作的同一個瀏覽器")) ||
+  if (!((subject === "旅宿工作區｜你的登入連結" &&
+          (text.startsWith("請在剛才操作的同一個瀏覽器") ||
+            text.startsWith("請在 15 分鐘內開啟下方連結，確認登入 "))) ||
+        (subject === "旅宿工作區｜你的登入碼" && text.startsWith("你的登入碼：")) ||
         (subject === "旅宿服務｜重新設定密碼" && text.startsWith("你剛剛要求重新設定旅宿工作區的密碼"))))
     throw new Error("INVALID_INPUT");
   return customerMail(to, subject, text, "auth");

@@ -69,26 +69,50 @@ export default async function Page({
     </main>;
 
     const calendarKind =
-      property.setup?.calendarKind ??
-      (initialProperty ? workspace.onboarding?.calendarKind : undefined) ??
-      (isCalendarKind(search.source) ? search.source : undefined);
+      search.source === "sheet"
+        ? undefined
+        : isCalendarKind(search.source)
+          ? search.source
+          : property.setup?.calendarKind ??
+            (initialProperty ? workspace.onboarding?.calendarKind : undefined);
+    const selectedSource = calendarKind ?? "sheet";
+    const sourceLinks = (
+      <nav aria-label="切換匯入來源" className="flex flex-wrap gap-2 bg-[#f4f7f4] px-4 pt-6 sm:px-[max(2rem,calc((100vw-56rem)/2))]">
+        {([[
+          "sheet",
+          "表格／Excel／CSV",
+        ], ["google_calendar", "Google 日曆"], ["ios_calendar", "iPhone／iPad"], ["android_calendar", "Android 日曆"]] as const).map(([source, label]) => (
+          <a
+            key={source}
+            href={`?${new URLSearchParams({ property: property.id, source })}`}
+            aria-current={selectedSource === source ? "page" : undefined}
+            className={`rounded-full border px-4 py-2.5 text-sm font-medium transition-colors ${selectedSource === source ? "border-teal-800 bg-teal-800 text-white" : "border-slate-200 bg-white text-slate-600 hover:border-teal-700 hover:text-teal-900"}`}
+          >
+            {label}
+          </a>
+        ))}
+      </nav>
+    );
     if (calendarKind)
       return (
-        <CalendarImport
-          slug={slug}
-          property={property}
-          initialKind={calendarKind}
-          initialStatus={await calendarStatus(
-            store,
-            account.id,
-            slug,
-            property.id,
-          )}
-          configured={calendarGoogleReady()}
-          syncReady={calendarSyncReady()}
-          connected={search.calendar === "connected"}
-          googleFailed={search.calendar === "failed"}
-        />
+        <>
+          {sourceLinks}
+          <CalendarImport
+            slug={slug}
+            property={property}
+            initialKind={calendarKind}
+            initialStatus={await calendarStatus(
+              store,
+              account.id,
+              slug,
+              property.id,
+            )}
+            configured={calendarGoogleReady()}
+            syncReady={calendarSyncReady()}
+            connected={search.calendar === "connected"}
+            googleFailed={search.calendar === "failed"}
+          />
+        </>
       );
     const journey =
       initialProperty && workspace.onboarding
@@ -99,22 +123,32 @@ export default async function Page({
           ).value
         : null;
     return (
-      <SheetImport
-        slug={slug}
-        property={property}
-        configured={Boolean(sharedSheetEmail()) || googleReady()}
-        connected={search.google === "connected"}
-        sharedUrl={
-          property.setup?.sheetUrl ??
-          (initialProperty ? workspace.onboarding?.sheetUrl : undefined)
-        }
-        shareEmail={sharedSheetEmail() ?? undefined}
-        helpMessage={journey?.message}
-        initialVersion={workspace.version}
-        initialBatches={(workspace.importBatches ?? []).filter(
-          (b) => b.propertyId === property.id,
-        )}
-      />
+      <>
+        {sourceLinks}
+        <SheetImport
+          slug={slug}
+          property={property}
+          configured={Boolean(sharedSheetEmail()) || googleReady()}
+          connected={search.google === "connected"}
+          sharedUrl={
+            property.setup?.sheetUrl ??
+            (initialProperty ? workspace.onboarding?.sheetUrl : undefined)
+          }
+          autoPreview={
+            initialProperty &&
+            Boolean(workspace.onboarding?.sheetUrl && workspace.onboarding.approvedAt) &&
+            !property.setup?.sheetUrl &&
+            !(workspace.importBatches ?? []).some((batch) => batch.propertyId === property.id) &&
+            (!search.source || search.source === "sheet")
+          }
+          shareEmail={sharedSheetEmail() ?? undefined}
+          helpMessage={journey?.message}
+          initialVersion={workspace.version}
+          initialBatches={(workspace.importBatches ?? []).filter(
+            (b) => b.propertyId === property.id,
+          )}
+        />
+      </>
     );
   } catch {
     return (

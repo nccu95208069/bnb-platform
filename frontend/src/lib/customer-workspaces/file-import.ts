@@ -5,6 +5,7 @@ import { digest } from "./auth.ts";
 import { importAccess } from "./sheet-import.ts";
 import type { SourceSnapshot } from "./customer-google.ts";
 import type { CustomerStore } from "./store.ts";
+import { IMPORT_MAX_COLUMNS, IMPORT_MAX_ROWS, importRowsTooLarge } from "./import-limits.ts";
 
 export const FILE_IMPORT_LIMIT = 3 * 1024 * 1024;
 const EXPANDED_LIMIT = 8 * 1024 * 1024;
@@ -119,17 +120,14 @@ export async function parseImportFile(buffer: Buffer, rawName: string) {
       const sheet = workbook.Sheets[title];
       if (sheet["!ref"]) {
         const bounds = XLSX.utils.decode_range(sheet["!ref"]);
-        if (bounds.e.r > 500 || bounds.e.c > 51)
+        if (bounds.e.r >= IMPORT_MAX_ROWS || bounds.e.c >= IMPORT_MAX_COLUMNS)
           throw new Error("FILE_IMPORT_SIZE");
       }
       const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
         header: 1, raw: false, dateNF: "yyyy-mm-dd", defval: "", blankrows: true,
       });
       const rows = matrix.map((row) => row.map(textCell));
-      if (
-        rows.length > 501 || rows.some((row) => row.length > 52 || row.some((cell) => cell.length > 2000)) ||
-        JSON.stringify(rows).length > 250000
-      ) throw new Error("FILE_IMPORT_SIZE");
+      if (importRowsTooLarge(rows)) throw new Error("FILE_IMPORT_SIZE");
       return { title: title.slice(0, 100), rows };
     }).filter((tab) => tab.rows.some((row) => row.some(Boolean)));
   } catch (error) {

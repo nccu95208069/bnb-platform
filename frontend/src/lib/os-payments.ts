@@ -6,6 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { CalendarBooking, PaymentRecord } from '../components/calendar/calendar-types';
 import { redisCommand } from './workspace-auth/store.ts';
 import type { Principal } from './workspace-auth/types.ts';
+import type { IronGatePaymentOrder } from './booking-sources/iron-gate-calendar.server.ts';
 
 export type SheetSync = { state:'pending'|'verified'; targets:{uid:string;fingerprint:string;payment_flag?:string}[]; paid:boolean; verified_at?:string; failure?:{code:string;at:string;requires_review:boolean} };
 export type Receipt = PaymentRecord & { status_only?:boolean; payment_account?:FinanceEntry['payment_account']; sheet_sync?:SheetSync; booking_version?:string; audit?:FinanceAuditEvent; actor: string; actor_name: string; note: string; settles_room: boolean; request_id: string; request_hash: string; mission_id: string; source_version: string };
@@ -13,16 +14,38 @@ export type Ledger = { version: number; receipts: Receipt[] };
 export type ReceiptView=Omit<Receipt,'sheet_sync'>&{sheet_sync?:Omit<SheetSync,'targets'>};
 export type LedgerView={version:number;receipts:ReceiptView[]};
 export type PaymentRecovery={ledger:LedgerView;can_record:boolean;sheet_write_enabled:boolean;code:string;detail:string};
-export type OrderCheck = { property_id: string; order_id: string; source_version: string; booking_version?:string; total: number; rooms: string[]; nights: number; source_paid: boolean; finance_received?:number; ledger: Ledger };
+export type OrderCheck = { property_id: string; order_id: string; source_version: string; booking_version?:string; total: number; rooms: string[]; nights: number; source_paid: boolean; legacy_imported?:boolean; finance_received?:number; ledger: Ledger };
 export const emptyLedger = (): Ledger => ({ version: 0, receipts: [] });
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export function canRecord(actor: Principal, property: string) {
   return actor.viewPrices && ['owner','god','admin','housekeeper'].includes(actor.role) && (actor.allProperties || actor.propertyIds.includes(property));
 }
 export function checkRows(rows: CalendarBooking[], property: string, order: string, ledger = emptyLedger()): OrderCheck {
-  const matches = rows.filter(b => b.property_id === property && b.order_id === order);
+  const matches = rows.filter(b => b.property_id === property &&
+    (b.payment_order_id ?? b.order_id) === order);
   if (!matches.length) throw new Error('NOT_FOUND');
   if (matches.some(b => b.source_conflict || b.reservation_status === 'cancelled')) throw new Error('SOURCE_CONFLICT');
+  const first=matches[0];
+  const ironGate=first.source_read_only && /^IG-[0-9a-f-]{36}$/i.test(first.order_id) &&
+    Number.isSafeInteger(first.source_booking_version) &&
+    Number.isSafeInteger(first.source_order_total_cents) &&
+    matches.every(b=>b.order_id===first.order_id &&
+      b.source_booking_version===first.source_booking_version &&
+      b.source_order_total_cents===first.source_order_total_cents &&
+      (b.payment_order_id??b.order_id)===order);
+  if (first.source_read_only && /^IG-[0-9a-f-]{36}$/i.test(first.order_id) && !ironGate)
+    throw new Error('SOURCE_CHANGED');
+  if(ironGate){
+    const sourceVersion=ironGateVersion(first.order_id.slice(3),
+      first.source_booking_version!,first.source_order_total_cents!);
+    return {property_id:property,order_id:order,source_version:sourceVersion,
+      booking_version:sourceVersion,total:first.source_order_total_cents!/100,
+      rooms:[...new Set(matches.map(b=>b.room_number))],
+      nights:matches.reduce((sum,b)=>sum+(Date.parse(`${b.check_out}T00:00:00Z`)-
+        Date.parse(`${b.check_in}T00:00:00Z`))/86400000,0),
+      source_paid:matches.every(b=>b.payment_review_status==='paid'),
+      legacy_imported:matches.every(b=>b.source_legacy_payment===true),ledger};
+  }
   return { property_id: property, order_id: order,
     source_version: digest(matches.map(b => [b.id,b.room_id,b.check_in,b.check_out,b.room_rate,b.payment_status]).sort((a,b)=>String(a[0]).localeCompare(String(b[0])))),
     booking_version: digest(matches.map(b => [b.id,b.room_id,b.check_in,b.check_out,b.room_rate]).sort((a,b)=>String(a[0]).localeCompare(String(b[0])))),
@@ -30,9 +53,19 @@ export function checkRows(rows: CalendarBooking[], property: string, order: stri
     rooms: [...new Set(matches.map(b=>b.room_number))], nights: matches.length,
     source_paid: matches.every(b=>b.payment_status==='paid'), ledger };
 }
+export function ironGateVersion(bookingId:string,version:number,totalCents:number):string {
+  return digest(['iron_gate',bookingId,version,totalCents]);
+}
+export function checkIronGatePaymentOrder(source:IronGatePaymentOrder,ledger=emptyLedger()):OrderCheck {
+  const version=ironGateVersion(source.bookingId,source.version,source.totalCents);
+  return {property_id:'sweetfun',order_id:source.paymentOrderId,
+    source_version:version,booking_version:version,total:source.totalCents/100,
+    rooms:source.rooms,nights:source.nights,source_paid:source.sourcePaid,
+    legacy_imported:source.legacyImported,ledger};
+}
 export function paymentStatus(check: OrderCheck): CalendarBooking['payment_status'] {
   const recordedRoomCents=roomPaymentCents(check.finance_received??0,check.ledger.receipts);
-  if (check.source_paid || (check.total>0 && recordedRoomCents>=Math.round(check.total*100)) || check.ledger.receipts.some(r=>r.settles_room && r.sheet_sync?.state!=='pending' && (r.booking_version ? r.booking_version===check.booking_version : r.source_version===check.source_version))) return 'paid';
+  if (check.source_paid || (check.total>0 && recordedRoomCents>=Math.round(check.total*100)) || check.ledger.receipts.some(r=>r.settles_room && r.sheet_sync?.state!=='pending' && (r.booking_version ? r.booking_version===check.booking_version : r.source_version===check.source_version || check.legacy_imported===true && r.sheet_sync?.state==='verified'))) return 'paid';
   if ((check.finance_received??0)>0||check.ledger.receipts.some(r=>r.amount>0&&r.payment_type!=='other')) return 'deposit';
   return 'unknown';
 }
@@ -100,13 +133,13 @@ export async function appendReceipt(check:OrderCheck,raw:string|null,receipt:Rec
 export async function overlayPayments(bookings:CalendarBooking[]):Promise<CalendarBooking[]> {
   const finance=new Map<string,FinanceEntry[]>();await Promise.all([...new Set(bookings.map(b=>b.property_id))].map(async property=>finance.set(property,await manualFinanceEntries(property))));
   const groups=new Map<string,CalendarBooking[]>();
-  for(const b of bookings)if(!b.source_conflict&&b.reservation_status!=='cancelled'){const key=ledgerKey(b.property_id,b.order_id);groups.set(key,[...(groups.get(key)??[]),b]);}
+  for(const b of bookings)if(!b.source_conflict&&b.reservation_status!=='cancelled'){const key=ledgerKey(b.property_id,b.payment_order_id??b.order_id);groups.set(key,[...(groups.get(key)??[]),b]);}
   const entries=[...groups.entries()]; if(!entries.length)return bookings;
   const values=await redisCommand(['MGET',...entries.map(([key])=>key)]) as (string|null)[];
   if(!Array.isArray(values)||values.length!==entries.length||values.some(v=>v!==null&&typeof v!=='string'))throw Error('PAYMENT_DATA_INVALID');
   const statuses=new Map<string,CalendarBooking['payment_status']>();
-  entries.forEach(([key,rows],index)=>{{const ledger=values[index]?JSON.parse(values[index]!) as Ledger:emptyLedger();if(!Number.isSafeInteger(ledger.version)||!Array.isArray(ledger.receipts))throw Error('PAYMENT_DATA_INVALID');const check=checkRows(rows,rows[0].property_id,rows[0].order_id,ledger);check.finance_received=financeAllocated(finance.get(rows[0].property_id)??[],rows[0].order_id);statuses.set(key,paymentStatus(check));}});
-  return bookings.map(b=>{const status=statuses.get(ledgerKey(b.property_id,b.order_id));return status?{...b,payment_status:status}:b;});
+  entries.forEach(([key,rows],index)=>{{const ledger=values[index]?JSON.parse(values[index]!) as Ledger:emptyLedger();if(!Number.isSafeInteger(ledger.version)||!Array.isArray(ledger.receipts))throw Error('PAYMENT_DATA_INVALID');const paymentId=rows[0].payment_order_id??rows[0].order_id;const check=checkRows(rows,rows[0].property_id,paymentId,ledger);check.finance_received=financeAllocated(finance.get(rows[0].property_id)??[],paymentId);statuses.set(key,paymentStatus(check));}});
+  return bookings.map(b=>{const status=statuses.get(ledgerKey(b.property_id,b.payment_order_id??b.order_id));return status?{...b,payment_status:status}:b;});
 }
 
 export const financeAllocated=(entries:FinanceEntry[],order:string)=>entries.reduce((s,e)=>s+(e.allocations?.filter(a=>a.order_id===order).reduce((n,a)=>n+a.amount_cents,0)??0),0)/100;

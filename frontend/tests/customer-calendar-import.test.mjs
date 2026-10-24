@@ -274,6 +274,7 @@ test("updated occupancy preserves accepted terms/payments, cancellation requires
   assert.equal(b.notes, "Keep accepted notes");
   assert.equal(b.platform, "LINE");
   assert.equal(b.bookedAt, "2026-09-25");
+  assert.ok(Date.parse(b.updatedAt) >= Date.parse(b.createdAt));
   assert.deepEqual(b.tagIds, ["pet"]);
   assert.equal(financeSummary(b).received, 3000);
   const empty = await upload(f, ics([])),

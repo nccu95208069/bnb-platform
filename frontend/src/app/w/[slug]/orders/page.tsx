@@ -77,6 +77,12 @@ export default async function Page({
           current="orders"
           propertyId={query.property}
         />
+        {process.env.IRON_GATE_SHADOW_ENABLED === "true" && (
+          <a className="mb-5 inline-block rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900"
+            href={`/w/${slug}/iron-gate-room-actions${query.property ? `?property=${encodeURIComponent(query.property)}` : ""}`}>
+            查看 Iron Gate 房態待處理與已取消訂單
+          </a>
+        )}
         <form
           method="get"
           className="grid gap-4 rounded-2xl border bg-white p-5 sm:grid-cols-2 lg:grid-cols-4"

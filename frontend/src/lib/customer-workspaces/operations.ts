@@ -254,6 +254,8 @@ export async function saveAvailabilityList(
   );
   if (!propertyReadiness(context.workspace, property).complete)
     throw new Error("IMPORT_INCOMPLETE");
+  if (property.setup?.mode === "sheet" && (!property.setup.coverageFrom || !property.setup.coverageTo))
+    throw new Error("SOURCE_COVERAGE");
   if (
     (property.setup?.coverageFrom && from < property.setup.coverageFrom) ||
     (property.setup?.coverageTo && to >= property.setup.coverageTo)
@@ -302,6 +304,8 @@ export async function availability(
     throw new Error("INVALID_INPUT");
   if (!propertyReadiness(workspace, property).complete)
     throw new Error("IMPORT_INCOMPLETE");
+  if (property.setup?.mode === "sheet" && (!property.setup.coverageFrom || !property.setup.coverageTo))
+    throw new Error("SOURCE_COVERAGE");
   if (
     (property.setup?.coverageFrom && from < property.setup.coverageFrom) ||
     (property.setup?.coverageTo && to >= property.setup.coverageTo)
@@ -434,7 +438,7 @@ export async function bookingOperation(
   if (booking.status !== "confirmed" && !lineCancellationRefund) throw new Error("ORDER_CANCELLED");
   if (booking.version !== input.bookingVersion)
     throw new Error("VERSION_CONFLICT");
-  let next: Booking = { ...booking, version: booking.version + 1 };
+  let next: Booking = { ...booking, version: booking.version + 1, updatedAt: new Date().toISOString() };
   if (action === "payment") {
     if (
       !["deposit", "balance", "full", "other", "refund"].includes(

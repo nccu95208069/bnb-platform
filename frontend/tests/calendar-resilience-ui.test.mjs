@@ -3,10 +3,19 @@ import assert from 'node:assert/strict';
 import { act, createElement, useEffect } from 'react';
 import { mount } from './helpers/customer-dom.mjs';
 import { useCalendarData } from '../src/components/calendar/use-calendar-data.ts';
-import { hasCalendarCoverage } from '../src/components/calendar/calendar-retention.ts';
+import { combinedCalendarWindows, hasCalendarCoverage } from '../src/components/calendar/calendar-retention.ts';
 import { ApiError } from '../src/lib/api-client.ts';
 const response = (start = '2026-10-01', end = '2026-11-01') => ({ period_start: start, period_end: end, properties: [], rooms: [], bookings: [{ id: 'one', property_id: 'sweetfun', room_id: '301', guest_name: 'SYNTHETIC_PRIVATE', check_in: '2026-10-07', check_out: '2026-10-08' }] });
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
+
+test('overlapping month grids keep the requested month source status', () => {
+  const october = { ...response('2026-09-28', '2026-11-02'), source_errors: [] };
+  const november = { ...response('2026-10-26', '2026-12-07'),
+    source_errors: [{ property_id: 'offland', label: 'Sheet' }] };
+  const combined = combinedCalendarWindows([october, november], november.period_start, november.period_end);
+  assert.equal(combined.source_errors[0].property_id, 'offland');
+  assert.equal(combined.period_start, october.period_start);
+});
 
 test('mounted calendar retains readonly data through retry, blocks unvisited ranges, clears revoked access, and rejects late older responses', async t => {
   let state, attempts = [], denied = 0;
@@ -30,7 +39,7 @@ test('mounted calendar retains readonly data through retry, blocks unvisited ran
   await rerender({ reload: 4 });
   await act(async () => { attempts[5].resolve(response(props.start, props.end)); await tick(); });
   await act(async () => { attempts[4].resolve(response()); await tick(); });
-  assert.equal(state.data.period_start, '2026-11-01'); assert.equal(state.requestFailed, false);
+  assert.equal(hasCalendarCoverage(state.data, props.start, props.end), true); assert.equal(state.requestFailed, false);
   await rerender({ reload: 5 });
   await act(async () => { attempts[6].reject(new ApiError(401, 'revoked')); await tick(); });
   assert.equal(state.data, null); assert.equal(state.lastLoadedAt, null); assert.equal(denied, 1); assert.equal(document.body.textContent.includes('SYNTHETIC_PRIVATE'), false);
@@ -66,4 +75,138 @@ test('switching to an uncovered date range renders loading immediately, and only
   props.start = '2026-12-01'; props.end = '2027-01-01';
   await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
   assert.equal(document.body.textContent, 'loading');
+});
+
+test('a nearby background read keeps the visible month on screen', async t => {
+  let state;
+  const attempts = [];
+  const read = () => new Promise(resolve => attempts.push(resolve));
+  const onProperties = () => {}, onAccessLost = () => {};
+  const props = { start: '2026-09-28', end: '2026-11-02', visibleStart: '2026-09-28', visibleEnd: '2026-11-02', scope: 'owner', reload: 0 };
+  function Probe(input) {
+    const value = useCalendarData({ ...input, read, onProperties, onAccessLost });
+    useEffect(() => { state = value; }, [value]);
+    return createElement('span', null, value.loading ? 'loading' : 'calendar');
+  }
+  const { root } = await mount(t, Probe, props);
+  await act(async () => { attempts[0](response(props.start, props.end)); await tick(); });
+  assert.equal(document.body.textContent, 'calendar');
+  props.start = '2026-07-27'; props.end = '2027-01-04';
+  await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+  assert.equal(state.loading, false);
+  assert.equal(state.refreshing, true);
+  assert.equal(document.body.textContent, 'calendar');
+  await act(async () => { attempts[1](response(props.start, props.end)); await tick(); });
+  props.visibleStart = '2026-10-26'; props.visibleEnd = '2026-12-07';
+  await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+  assert.equal(state.loading, false);
+  assert.equal(document.body.textContent, 'calendar');
+});
+
+test('prefetched monthly windows make the next month available without another main read', async t => {
+  let state;
+  const attempts = [];
+  const read = (start, end) => new Promise(resolve => attempts.push({ start, end, resolve }));
+  const onProperties = () => {}, onAccessLost = () => {};
+  const props = { start: '2026-09-28', end: '2026-11-02', scope: 'owner', reload: 0,
+    prefetch: [{ start: '2026-10-26', end: '2026-12-07' }] };
+  const live = (start, end) => ({ ...response(start, end), source: { private_snapshot_version: '17' } });
+  function Probe(input) {
+    const value = useCalendarData({ ...input, read, onProperties, onAccessLost });
+    useEffect(() => { state = value; }, [value]);
+    return createElement('span', null, value.loading ? 'loading' : 'calendar');
+  }
+  const { root } = await mount(t, Probe, props);
+  await act(async () => { attempts[0].resolve(live(props.start, props.end)); await tick(); });
+  assert.equal(document.body.textContent, 'calendar');
+  assert.deepEqual([attempts[1].start, attempts[1].end], ['2026-10-26', '2026-12-07']);
+  await act(async () => { attempts[1].resolve(live(attempts[1].start, attempts[1].end)); await tick(); });
+  assert.equal(hasCalendarCoverage(state.data, '2026-10-26', '2026-12-07'), true);
+  props.start = '2026-10-26'; props.end = '2026-12-07'; props.prefetch = [];
+  await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+  assert.equal(state.loading, false);
+  assert.equal(attempts.filter(item => item.start === props.start && item.end === props.end).length, 1);
+});
+
+test('live Sheet months prefetch even when the source has no snapshot version', async t => {
+  const attempts = [];
+  let state;
+  const read = (start, end) => new Promise(resolve => attempts.push({ start, end, resolve }));
+  const onProperties = () => {}, onAccessLost = () => {};
+  const props = { start: '2026-09-28', end: '2026-11-02', scope: 'owner:offland', reload: 0,
+    prefetch: [{ start: '2026-10-26', end: '2026-12-07' }] };
+  const live = (start, end) => ({ ...response(start, end), source: { label: 'Sheet' } });
+  function Probe(input) {
+    const value = useCalendarData({ ...input, read, onProperties, onAccessLost });
+    useEffect(() => { state = value; }, [value]);
+    return createElement('span', null, value.loading ? 'loading' : 'calendar');
+  }
+  const { root } = await mount(t, Probe, props);
+  await act(async () => { attempts[0].resolve(live(props.start, props.end)); await tick(); });
+  assert.equal(attempts.length, 2);
+  await act(async () => { attempts[1].resolve(live(attempts[1].start, attempts[1].end)); await tick(); });
+  assert.equal(hasCalendarCoverage(state.data, props.prefetch[0].start, props.prefetch[0].end), true);
+  Object.assign(props, props.prefetch[0], { prefetch: [] });
+  await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+  assert.equal(state.loading, false);
+  assert.equal(attempts.length, 2);
+});
+
+test('scrolling October to November keeps the yearly snapshot and makes no network read', async t => {
+  const attempts = [];
+  let state;
+  const read = (start, end) => new Promise(resolve => attempts.push({ start, end, resolve }));
+  const onProperties = () => {}, onAccessLost = () => {};
+  const props = { start: '2025-12-29', end: '2027-02-01',
+    visibleStart: '2026-09-28', visibleEnd: '2026-11-02',
+    scope: 'owner:sweetfun', reload: 0 };
+  function Probe(input) {
+    const value = useCalendarData({ ...input, read, onProperties, onAccessLost });
+    useEffect(() => { state = value; }, [value]);
+    return createElement('span', null, value.loading ? 'loading' : 'calendar');
+  }
+  const { root } = await mount(t, Probe, props);
+  await act(async () => { attempts[0].resolve({ ...response(props.start, props.end),
+    source: { private_snapshot_version: '17' } }); await tick(); });
+  assert.equal(document.body.textContent, 'calendar');
+  props.visibleStart = '2026-10-26'; props.visibleEnd = '2026-12-07';
+  await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+  assert.equal(state.loading, false);
+  assert.equal(attempts.length, 1);
+  props.visibleStart = '2026-11-30'; props.visibleEnd = '2027-01-04';
+  await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+  assert.equal(state.loading, false);
+  assert.equal(attempts.length, 1);
+});
+
+test('both adjacent years warm in parallel and stay available across a twelve-month scroll', async t => {
+  const attempts = [];
+  let state;
+  const read = (start, end) => new Promise(resolve => attempts.push({ start, end, resolve }));
+  const onProperties = () => {}, onAccessLost = () => {};
+  const years = [
+    { start: '2024-12-30', end: '2026-02-02' },
+    { start: '2025-12-29', end: '2027-02-01' },
+    { start: '2026-12-28', end: '2028-02-07' },
+  ];
+  const props = { ...years[1], visibleStart: '2026-09-28', visibleEnd: '2026-11-02',
+    scope: 'owner:sweetfun', reload: 0, prefetch: [years[0], years[2]] };
+  const live = ({ start, end }) => ({ ...response(start, end), source: { private_snapshot_version: '17' } });
+  function Probe(input) {
+    const value = useCalendarData({ ...input, read, onProperties, onAccessLost });
+    useEffect(() => { state = value; }, [value]);
+    return createElement('span', null, value.loading ? 'loading' : 'calendar');
+  }
+  const { root } = await mount(t, Probe, props);
+  await act(async () => { attempts[0].resolve(live(years[1])); await tick(); });
+  assert.equal(attempts.length, 3, 'both neighboring year reads start without waiting for each other');
+  await act(async () => {
+    attempts[1].resolve(live(years[0])); attempts[2].resolve(live(years[2])); await tick();
+  });
+  for (const [year, month] of [[years[0], '2025-10-01'], [years[2], '2027-10-01']]) {
+    Object.assign(props, year, { visibleStart: month, visibleEnd: month.replace('-10-', '-11-'), prefetch: [] });
+    await act(async () => { root.render(createElement(Probe, { ...props })); await tick(); });
+    assert.equal(state.loading, false);
+    assert.equal(attempts.length, 3, 'scrolling across years reuses the verified snapshot');
+  }
 });

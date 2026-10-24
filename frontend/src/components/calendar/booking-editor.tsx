@@ -5,7 +5,8 @@ import {useT} from "@/components/i18n/language-provider";
 
 import { GuestRemarks } from "./booking-identity";
 import { BookingSourceNotes } from "./booking-source-notes";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { CopyableValue } from "./copyable-value";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   Baby,
   Banknote,
@@ -100,7 +101,7 @@ const PAYMENT_LABELS = {
   unpaid: "未付款",
 } as const;
 
-function DetailRow({ label, value }: { label: string; value: string }) {
+function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   const uiText = useT();
 
   return (
@@ -806,6 +807,8 @@ function RequirementSummary({ booking }: { booking: CalendarBooking }) {
 export function BookingDetailsPanel({
   booking,
   orderSegments,
+  visualNights,
+  onSelectVisualNight,
   rooms,
   permissions,
   onClose,
@@ -813,9 +816,14 @@ export function BookingDetailsPanel({
   paymentWorkspace,
   onUpdateBooking,
   onCancelBooking,
+  onManualEdit,
+  onManualCancel,
+  onManualSync,
 }: {
   booking: CalendarBooking | null;
   orderSegments: CalendarBooking[];
+  visualNights: CalendarBooking[];
+  onSelectVisualNight: (booking: CalendarBooking) => void;
   rooms: CalendarRoom[];
   permissions: RolePermissions;
   onClose: () => void;
@@ -823,6 +831,9 @@ export function BookingDetailsPanel({
   paymentWorkspace?: React.ReactNode;
   onUpdateBooking: (input: UpdateBookingInput) => void;
   onCancelBooking: (reason: string) => void;
+  onManualEdit?: () => void;
+  onManualCancel?: () => void;
+  onManualSync?: () => void;
 }) {
 const uiLocale = useIntlLocale();
 
@@ -835,6 +846,12 @@ const uiLocale = useIntlLocale();
     () => orderSegments.reduce((sum, segment) => sum + segment.room_rate, 0),
     [orderSegments],
   );
+  const sourceOrderTotalCents = booking?.source_read_only &&
+    Number.isSafeInteger(booking.source_order_total_cents) &&
+    orderSegments.length > 0 && orderSegments.every(segment =>
+      segment.order_id === booking.order_id &&
+      segment.source_order_total_cents === booking.source_order_total_cents)
+    ? booking.source_order_total_cents : undefined;
   const recordedPayments = booking?.payments ?? [];
   const recordedAmount = recordedPayments.reduce(
     (sum, payment) => sum + payment.amount,
@@ -850,9 +867,13 @@ const uiLocale = useIntlLocale();
         <SheetContent className="w-full overflow-y-auto p-0 sm:max-w-xl">
           <SheetHeader className="border-b px-5 py-5 text-left">
             <div className="pr-8">
-              <SheetTitle className="truncate text-xl">
-                {booking?.guest_name ?? "訂單資料"}
-              </SheetTitle>
+              <div className="flex items-start gap-2">
+                <SheetTitle className="min-w-0 flex-1 break-words text-xl">
+                  {booking?.guest_name ?? "訂單資料"}
+                </SheetTitle>
+                {booking && (booking.guest_name_kind === "real" || (!booking.source_read_only && booking.guest_name)) &&
+                  <CopyableValue label="旅客姓名" value={booking.guest_name} showValue={false} />}
+              </div>
               <SheetDescription className="mt-1">
                 {booking
                   ? `${booking.property_name} · ${booking.room_number} · ${formatDate(booking.check_in, uiLocale)}–${formatDate(booking.check_out, uiLocale)}`
@@ -864,12 +885,36 @@ const uiLocale = useIntlLocale();
 
           {booking && (
             <div className="space-y-5 px-5 py-5">
+              {visualNights.length > 1 && (
+                <section className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950" aria-label={uiText("連住房晚") }>
+                  <p className="font-semibold">{uiText("日曆顯示為連住 {0} 晚", [visualNights.length])}</p>
+                  <p className="mt-1 text-xs">{uiText("來源各晚沒有共同訂單編號；以下逐晚保留各自的訂單與付款紀錄。")}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {visualNights.map((night) => (
+                      <Button key={night.id} type="button" size="sm" variant={booking.id === night.id ? "default" : "outline"}
+                        aria-current={booking.id === night.id ? "true" : undefined}
+                        onClick={() => onSelectVisualNight(night)}>
+                        {formatDate(night.check_in, uiLocale)}
+                      </Button>
+                    ))}
+                  </div>
+                </section>
+              )}
               <BookingSourceNotes booking={booking} orderSegments={orderSegments} viewPrices={permissions.viewPrices} />
               {(booking.guest_name_kind === "real" || !!booking.guest_name_sources?.length) && <section className="rounded-xl border p-3" aria-label={uiText("重點備註與來源原文")}>
                 <h3 className="font-semibold">{uiText("重點備註")}</h3>
                 <GuestRemarks booking={booking} />
                 <p className="mt-2 text-xs text-muted-foreground">{uiText("姓名欄原文（需求不代表已安排完成）")}</p>
                 <p className="mt-1 whitespace-pre-wrap break-words text-sm">{(booking.guest_name_sources ?? [booking.guest_name]).join("\n")}</p>
+              </section>}
+              {orderSegments.length > 1 && <section className="rounded-xl border p-3" aria-label={uiText("同一訂單的住宿安排")}>
+                <h3 className="font-semibold">{uiText("同一訂單的住宿安排")}</h3>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {orderSegments.map(segment => <li key={segment.id} className={segment.id === booking.id ? "font-semibold" : ""}>
+                    {segment.room_number} · {formatDate(segment.check_in, uiLocale)}–{formatDate(segment.check_out, uiLocale)}
+                    {segment.id === booking.id && ` · ${uiText("目前選取")}`}
+                  </li>)}
+                </ul>
               </section>}
               <div
                 className={cn(
@@ -884,6 +929,29 @@ const uiLocale = useIntlLocale();
                   ? uiText("已取消")
                   : uiText("{0} · {1}{2}", [PLATFORM_LABELS[booking.platform] ?? booking.platform,PAYMENT_LABELS[booking.payment_status],stayNightCount(booking) > 1 ? ` · 連住 ${stayNightCount(booking)} 晚` : ""])}
               </div>
+
+              {booking.iron_gate_channel_sync && (
+                <div role="status" className="rounded-xl border bg-muted/40 px-3 py-2 text-sm">
+                  <div>{uiText("Iron Gate 訂單已記錄")}</div>
+                  <div>{uiText("OwlNest 房況：")}{uiText(({
+                    not_required: "無需同步", action_required: "待員工按鈕確認",
+                    awaiting_manual_sync: "尚未同步，請按「同步房況」",
+                    pending: "同步中，尚未驗證",
+                    verified: "已回讀驗證", review_required: "需人工核對",
+                  })[booking.iron_gate_channel_sync])}</div>
+                  {booking.iron_gate_source_review &&
+                    <div className="text-amber-800">{uiText("訂單來源有差異，需人工核對")}</div>}
+                </div>
+              )}
+
+              {(onManualEdit || onManualCancel || onManualSync) &&
+                <div className="grid grid-cols-2 gap-2">
+                  {onManualSync && <Button onClick={onManualSync}>同步房況</Button>}
+                  {onManualEdit && <Button variant="outline" onClick={onManualEdit}>
+                    {booking.iron_gate_source === "external" ? "更正旅客姓名" : "修改訂單"}</Button>}
+                  {onManualCancel && <Button variant="outline" onClick={onManualCancel}>
+                    取消訂單</Button>}
+                </div>}
 
               {booking.reservation_status !== "cancelled" &&
                 (permissions.recordPayments || permissions.editBookings) && (
@@ -933,11 +1001,11 @@ const uiLocale = useIntlLocale();
                     <>
                       <DetailRow
                         label={uiText("本筆房費")}
-                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : formatMoney(booking.room_rate, uiLocale)}
+                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : booking.price_hidden ? uiText("待核對") : formatMoney(booking.room_rate, uiLocale)}
                       />
                       <DetailRow
-                        label={booking.source_read_only ? uiText("已串接紀錄合計") : uiText("訂單總額")}
-                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : formatMoney(orderTotal, uiLocale)}
+                        label={booking.source_read_only && sourceOrderTotalCents !== undefined ? uiText("已串接訂單總額") : booking.source_read_only ? uiText("已串接紀錄合計") : uiText("訂單總額")}
+                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : sourceOrderTotalCents !== undefined ? formatMoney(sourceOrderTotalCents / 100, uiLocale) : orderSegments.some(segment => segment.price_hidden) ? uiText("待核對") : formatMoney(orderTotal, uiLocale)}
                       />
                     </>
                   )}
@@ -945,11 +1013,17 @@ const uiLocale = useIntlLocale();
                     label={uiText("預訂日")}
                     value={formatDate(booking.booked_at, uiLocale)}
                   />
-                  <DetailRow label={uiText("OTA 訂單編號")} value={booking.external_order_no || uiText("來源未提供")} />
-                  <DetailRow label={uiText("OwlNest 訂單編號")} value={booking.owlnest_order_no || uiText("來源未提供")} />
+                  <DetailRow label={uiText("OTA 訂單編號")} value={<CopyableValue label="OTA 訂單編號" value={booking.external_order_no} missing="來源未提供" />} />
+                  <DetailRow label={uiText("來源訂單編號")} value={<CopyableValue label="來源訂單編號" value={booking.source_order_linked === false ? null : booking.owlnest_order_no} />} />
+                  {!booking.iron_gate_channel_sync && booking.channel_sync_state && <DetailRow label={uiText("OwlNest 房態")} value={uiText(({
+                    not_required: "無待辦房晚", action_required: "待員工按鈕確認",
+                    pending: "處理中，待逐格讀回", verified: "已逐格核對",
+                    review_required: "需人工核對",
+                  } as const)[booking.channel_sync_state]) +
+                    (booking.channel_pending_nights ? ` · ${booking.channel_pending_nights} 晚` : "")} />}
                   <DetailRow
                     label={uiText("系統內部 ID")}
-                    value={booking.order_id}
+                    value={<CopyableValue label="系統內部 ID" value={booking.order_id} missing="未提供" />}
                   />
                   <DetailRow label={booking.source_read_only ? uiText("資料說明") : uiText("原始備註")} value={booking.source_read_only ? uiText(booking.notes ?? "—") : booking.notes ?? "—"} />
                   {booking.source_payment_label && <DetailRow label={uiText("付款標記")} value={uiText(booking.source_payment_label)} />}
