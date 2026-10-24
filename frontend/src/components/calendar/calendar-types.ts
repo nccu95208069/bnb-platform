@@ -134,6 +134,7 @@ export type CalendarResponse = {
   data_mode?: string;
   price_hidden?: boolean;
   iron_gate_manual_enabled?: boolean;
+  iron_gate_manual_payment_enabled?: boolean;
 };
 
 export type CalendarPeriod = {

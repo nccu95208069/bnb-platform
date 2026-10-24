@@ -109,9 +109,32 @@ test("payment receipts need current money scope as well as payment action", asyn
   await assert.rejects(service.recordPaymentEvent(noMoney, propertyId, created.bookingId,
     key(), payment), errorCode("FORBIDDEN"));
   await service.recordPaymentEvent(writer, propertyId, created.bookingId, requestKey, payment);
+  const moneyReader = principal("os", { actions: ["booking:read"], fields: ["money"] });
+  const blindReader = principal("os", { actions: ["booking:read"], fields: [] });
+  assert.equal((await service.getBooking(moneyReader, propertyId,
+    created.bookingId)).paymentEvents[0].evidenceRef, "synthetic-proof");
+  assert.equal((await service.getBooking(blindReader, propertyId,
+    created.bookingId)).paymentEvents, undefined);
   await assert.rejects(service.requestResult(noMoney, propertyId, requestKey),
     errorCode("FORBIDDEN"));
   assert.equal((await service.requestResult(writer, propertyId, requestKey)).netReceivedCents, 1000);
+});
+
+test("payment history stays bounded for an OS booking detail read", async () => {
+  const { service, repository } = setup();
+  const created = await service.createBooking(principal(), propertyId, key(), bookingInput());
+  await repository.transact(propertyId, state => {
+    state.bookings[0].paymentEvents = Array.from({ length: 500 }, (_, index) => ({
+      id: key(), kind: "received", amountCents: 1, currency: "TWD",
+      evidenceRef: `synthetic-${index}`, occurredAt: new Date().toISOString(),
+      recordedAt: new Date().toISOString(), actorId: "synthetic" }));
+  });
+  const actor = principal("os", { actions: ["payment:write"], fields: ["money"] });
+  await assert.rejects(service.recordPaymentEvent(actor, propertyId, created.bookingId,
+    key(), { expectedBookingVersion: 1, eventId: key(), kind: "received",
+      amountCents: 1, currency: "TWD", evidenceRef: "synthetic-extra",
+      occurredAt: new Date().toISOString() }), errorCode("PAYMENT_EVENT_LIMIT"));
+  assert.equal((await repository.read(propertyId)).bookings[0].paymentEvents.length, 500);
 });
 
 test("tenant, property, guest order, and route generation stay scoped", async () => {

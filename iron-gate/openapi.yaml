@@ -251,6 +251,23 @@ components:
             receivedCents: { type: integer, minimum: 0 }
             refundedCents: { type: integer, minimum: 0 }
             netReceivedCents: { type: integer, minimum: 0 }
+        paymentEvents:
+          type: array
+          maxItems: 500
+          description: Present only on a single-booking OS read with money scope; list and calendar reads omit payment evidence.
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, kind, amountCents, currency, evidenceRef, occurredAt, recordedAt, actorId]
+            properties:
+              id: { type: string, format: uuid }
+              kind: { type: string, enum: [received, refunded] }
+              amountCents: { type: integer, minimum: 1 }
+              currency: { type: string, enum: [TWD] }
+              evidenceRef: { type: string, minLength: 1, maxLength: 256 }
+              occurredAt: { type: string, format: date-time }
+              recordedAt: { type: string, format: date-time }
+              actorId: { type: string }
     BookingPage:
       type: object
       additionalProperties: false

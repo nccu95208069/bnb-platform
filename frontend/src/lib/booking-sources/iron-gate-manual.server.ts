@@ -2,7 +2,7 @@ import { createHash, createHmac } from 'node:crypto';
 import { ironGateCalendarConfig, type IronGateCalendarConfig } from './iron-gate-calendar.server.ts';
 import type { Principal } from '../workspace-auth/types';
 
-type Grant = { credentialId: string; clientId: string; workspaceId: string;
+export type Grant = { credentialId: string; clientId: string; workspaceId: string;
   propertyId: string; token: string };
 export type ManualConfig = { calendar: IronGateCalendarConfig; grant: Grant;
   trustedSourceToken?: string };
@@ -101,9 +101,12 @@ function member(principal: Principal): void {
     !principal.viewPrices) throw Error('MANUAL_FORBIDDEN');
 }
 
-async function callIronGate(config: ManualConfig, principal: Principal,
+export async function callIronGate(config: ManualConfig, principal: Principal,
   method: 'GET' | 'POST' | 'PATCH', path: string, body: unknown,
-  requestKey: string | null, send: typeof fetch): Promise<Record<string, unknown>> {
+  requestKey: string | null, send: typeof fetch,
+  actions: string[] = ['booking:read', 'booking:create', 'booking:amend', 'booking:cancel'],
+  fields: string[] = ['guest_name', 'contact', 'notes', 'money', 'payment_status']
+): Promise<Record<string, unknown>> {
   member(principal);
   const url = `${config.calendar.baseUrl}${path}`;
   const payload = body === null ? '' : JSON.stringify(body);
@@ -112,8 +115,8 @@ async function callIronGate(config: ManualConfig, principal: Principal,
   const claims = { v: 1, aud: 'iron-gate-v1', credentialId: config.grant.credentialId,
     clientId: config.grant.clientId, workspaceId: config.grant.workspaceId,
     propertyId: config.grant.propertyId, subjectId: principal.id,
-    actions: ['booking:read', 'booking:create', 'booking:amend', 'booking:cancel'],
-    fields: ['guest_name', 'contact', 'notes', 'money', 'payment_status'],
+    actions,
+    fields,
     issuedAtMs: now, expiresAtMs: now + 5000, method,
     pathAndQuery: path, idempotencyKey: requestKey,
     bodySha256: createHash('sha256').update(payload).digest('hex') };

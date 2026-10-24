@@ -867,6 +867,7 @@ export class IronGateService {
         reject("PAYMENT_EVENT_EXISTS", 409);
       if (input.kind === "refunded" && input.amountCents > netReceived(booking))
         reject("REFUND_EXCEEDS_RECEIVED", 409);
+      if ((booking.paymentEvents ?? []).length >= 500) reject("PAYMENT_EVENT_LIMIT", 409);
       booking.paymentEvents ??= [];
       booking.paymentEvents.push({ id: input.eventId, kind: input.kind, amountCents: input.amountCents,
         currency: input.currency, evidenceRef: input.evidenceRef, occurredAt: input.occurredAt,
@@ -903,6 +904,8 @@ export class IronGateService {
       (booking.source !== "line" || booking.sourceKey !== `line:${principal.grantId}`))
       reject("BOOKING_NOT_FOUND", 404);
     const projection = publicBooking(booking, principal, state);
+    if (principal.origin === "os" && principal.fields.includes("money"))
+      projection.paymentEvents = (booking.paymentEvents ?? []).map((event) => ({ ...event }));
     return principal.origin === "line" ? { ...projection,
       inventoryVersion: state.version, authorityEpoch: state.authorityEpoch,
       readOnly: state.readOnly === true,

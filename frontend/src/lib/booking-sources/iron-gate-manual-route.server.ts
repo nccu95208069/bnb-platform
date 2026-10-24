@@ -56,10 +56,14 @@ export function manualError(error: unknown, key?: string) {
     code === 'MANUAL_FORBIDDEN' ? 403 :
     code === 'MANUAL_CONFIG_UNAVAILABLE' ? 404 :
     code.startsWith('MANUAL_INVALID') || code === 'MANUAL_REASON_REQUIRED' ||
-      code === 'MANUAL_IDEMPOTENCY_KEY_REQUIRED' ? 400 :
+      code === 'MANUAL_IDEMPOTENCY_KEY_REQUIRED' || code === 'FUTURE_RECEIPT' ||
+      code === 'INVALID_AMOUNT' || code === 'INVALID_CURRENCY' ? 400 :
     code === 'ROOM_CONFLICT' || code.includes('VERSION') ||
       code.includes('NOT_READY') || code.includes('READ_ONLY') ||
-      code.includes('REQUIRES') ? 409 : 503;
+      code.includes('REQUIRES') || code === 'REFUND_EXCEEDS_RECEIVED' ||
+      code === 'PAYMENT_EVENT_LIMIT' || code === 'PAYMENT_EVENT_EXISTS' ||
+      code === 'IDEMPOTENCY_CONFLICT' ? 409 :
+    code === 'BOOKING_NOT_FOUND' || code === 'REQUEST_NOT_FOUND' ? 404 : 503;
   // Iron Gate errors use stable codes; never return guest or provider payloads.
   return NextResponse.json({ code }, { status, headers: privateHeaders });
 }

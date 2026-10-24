@@ -6,6 +6,7 @@ import {GuestNotificationProvider} from "./guest-notification";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 import { OsPaymentPanel } from "@/components/payments/os-payment-panel";
+import { IronGateManualPaymentPanel } from "@/components/payments/iron-gate-manual-payment-panel";
 
 import { CalendarPrivacy } from "./calendar-privacy";
 import { CalendarToolbar } from "./calendar-toolbar";
@@ -1053,9 +1054,14 @@ const uiLocale = useIntlLocale();
         paymentWorkspace={
           data?.source?.read_only && selectedBooking?.snapshot_only ? (
             <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">目前為唯讀快照。請重新載入並確認最新訂單後，再登錄付款。</p>
+          ) : data?.source?.read_only && selectedBooking?.iron_gate_source === "os" &&
+            data?.iron_gate_manual_payment_enabled && selectedBooking.iron_gate_booking_id ? (
+            <IronGateManualPaymentPanel key={selectedBooking.iron_gate_booking_id}
+              bookingId={selectedBooking.iron_gate_booking_id}
+              canRecord={permissions.recordPayments} onChange={() => setReloadKey(v => v + 1)} />
           ) : data?.source?.read_only && selectedBooking?.iron_gate_source === "os" ? (
             <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
-              此筆手動訂單的收付款尚未接上 Iron Gate，請先依現行財務流程處理並核對。</p>
+              此筆手動訂單的收付款功能尚未啟用，請先依現行財務流程處理並核對。</p>
           ) : data?.source?.read_only && selectedBooking && permissions.viewPrices && !selectedBooking.source_conflict ? (
             <OsPaymentPanel key={selectedBooking.payment_order_id??selectedBooking.order_id} property={selectedBooking.property_id} order={selectedBooking.payment_order_id??selectedBooking.order_id} sourceBookingId={selectedBooking.order_id.startsWith('IG-')?selectedBooking.order_id:undefined} canRecord={permissions.recordPayments} onChange={() => setReloadKey(v=>v+1)} />
           ) : PAYMENT_SANDBOX && selectedBooking && permissions.viewPrices ? (

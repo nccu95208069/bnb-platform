@@ -7,6 +7,9 @@ import { createOsMemberProofVerifier } from '../../iron-gate/src/os-member-proof
 import { ironGateManualConfig, previewManualBooking, previewManualAmend, createManualBooking,
   amendManualBooking, cancelManualBooking, manualRequestResult } from
   '../src/lib/booking-sources/iron-gate-manual.server.ts';
+import { ironGateManualPaymentConfig, readManualPayment, recordManualPayment,
+  manualPaymentRequestResult } from
+  '../src/lib/booking-sources/iron-gate-manual-payment.server.ts';
 
 const workspaceId = '11111111-1111-4111-8111-111111111111';
 const propertyId = '22222222-2222-4222-8222-222222222222';
@@ -23,16 +26,19 @@ const stay = (checkIn = '2026-11-10', checkOut = '2026-11-12') => [
   { checkIn, checkOut, roomNumbers: ['101'] },
 ];
 
-function config() {
-  return ironGateManualConfig({
+function config(overrides = {}) {
+  return ironGateManualPaymentConfig({
     CALENDAR_SOURCE: 'sheet_snapshot', IRON_GATE_SWEETFUN_MANUAL_ENABLED: 'true',
     IRON_GATE_SWEETFUN_CALENDAR_ENABLED: 'true',
     IRON_GATE_SWEETFUN_BASE_URL: 'https://iron-gate.example/',
     IRON_GATE_SWEETFUN_CALENDAR_GRANT: JSON.stringify(grant),
     IRON_GATE_SWEETFUN_MANUAL_GRANT: JSON.stringify(grant),
+    IRON_GATE_SWEETFUN_MANUAL_PAYMENTS_ENABLED: 'true',
+    IRON_GATE_SWEETFUN_MANUAL_PAYMENT_GRANT: JSON.stringify(grant),
     IRON_GATE_SWEETFUN_ROOM_IDS: JSON.stringify(roomIds),
     IRON_GATE_SWEETFUN_OS_PROOF_SECRET: secret,
     IRON_GATE_SWEETFUN_AUTHORITY_EPOCH: '1',
+    ...overrides,
   });
 }
 
@@ -58,8 +64,78 @@ function setup() {
 
 test('manual gateway stays closed without both explicit switches', () => {
   assert.throws(() => ironGateManualConfig({}), /MANUAL_CONFIG_UNAVAILABLE/);
+  assert.throws(() => ironGateManualPaymentConfig({}), /MANUAL_CONFIG_UNAVAILABLE/);
+  assert.throws(() => config({ IRON_GATE_SWEETFUN_MANUAL_PAYMENTS_ENABLED: 'false' }),
+    /MANUAL_CONFIG_UNAVAILABLE/);
   const c = config();
   assert.equal(c.grant.propertyId, propertyId);
+});
+
+test('manual direct receipts and refunds use Iron Gate exactly once and read back', async () => {
+  const { repository, send } = setup(), c = config();
+  const created = await createManualBooking(owner, c, {
+    expectedInventoryVersion: 1, stays: stay(), guestName: 'Synthetic Guest',
+    contact: null, notes: null, totalCents: 100000, bookedAt: null,
+  }, key(), send);
+  const before = await readManualPayment(owner, c, created.bookingId, send);
+  assert.equal(before.netReceivedCents, 0);
+  const receivedKey = key();
+  const receivedInput = { expectedBookingVersion: before.version, kind: 'received',
+    amountCents: 40000, evidenceRef: 'synthetic bank receipt 1',
+    occurredAt: '2026-10-24T00:00:00.000Z' };
+  const received = await recordManualPayment(owner, c, created.bookingId,
+    receivedInput, receivedKey, send);
+  assert.equal(received.netReceivedCents, 40000);
+  assert.deepEqual(await recordManualPayment(owner, c, created.bookingId,
+    receivedInput, receivedKey, send), received);
+  await assert.rejects(recordManualPayment(owner, c, created.bookingId,
+    { ...receivedInput, amountCents: 41000 }, receivedKey, send),
+  /IDEMPOTENCY_CONFLICT/);
+  assert.equal((await manualPaymentRequestResult(owner, c, receivedKey, send)).paymentEventId,
+    receivedKey);
+  await assert.rejects(recordManualPayment(owner, c, created.bookingId, {
+    ...receivedInput, expectedBookingVersion: 2, kind: 'refunded', amountCents: 50000,
+  }, key(), send), /REFUND_EXCEEDS_RECEIVED/);
+  const refunded = await recordManualPayment(owner, c, created.bookingId, {
+    ...receivedInput, expectedBookingVersion: 2, kind: 'refunded', amountCents: 15000,
+    evidenceRef: 'synthetic refund 1',
+  }, key(), send);
+  assert.equal(refunded.netReceivedCents, 25000);
+  const after = await readManualPayment(owner, c, created.bookingId, send);
+  assert.equal(after.events.length, 2);
+  assert.equal((await repository.read(propertyId)).bookings[0].paymentEvents.length, 2);
+});
+
+test('manual payment gateway blocks another property and preserves ambiguous writes', async () => {
+  const { repository, send } = setup(), c = config();
+  const created = await createManualBooking(owner, c, {
+    expectedInventoryVersion: 1, stays: stay(), guestName: 'Synthetic Guest',
+    contact: null, notes: null, totalCents: null, bookedAt: null,
+  }, key(), send);
+  let calls = 0;
+  await assert.rejects(readManualPayment({ ...owner, allProperties: false,
+    propertyIds: ['offland'] }, c, created.bookingId,
+  async () => { calls++; throw Error('must not send'); }), /MANUAL_FORBIDDEN/);
+  assert.equal(calls, 0);
+  const requestKey = key();
+  const input = { expectedBookingVersion: 1, kind: 'received', amountCents: 10000,
+    evidenceRef: 'synthetic cash receipt', occurredAt: '2026-10-24T00:00:00.000Z' };
+  const serverErrorAfterCommit = async (url, init) => {
+    const response = await send(url, init);
+    if (init.method === 'POST' && new URL(url).pathname.endsWith('/payment-events'))
+      return Response.json({ error: { code: 'INTERNAL_ERROR' } }, { status: 500 });
+    return response;
+  };
+  await assert.rejects(recordManualPayment(owner, c, created.bookingId,
+    input, requestKey, serverErrorAfterCommit), /MANUAL_RESULT_UNKNOWN/);
+  const recovered = await manualPaymentRequestResult(owner, c, requestKey, send);
+  assert.equal(recovered.netReceivedCents, 10000);
+  assert.equal((await repository.read(propertyId)).bookings[0].paymentEvents.length, 1);
+  await repository.transact(propertyId, state => {
+    state.bookings[0].source = 'external';
+  });
+  await assert.rejects(readManualPayment(owner, c, created.bookingId, send),
+    /MANUAL_READBACK_MISMATCH/);
 });
 
 test('OS direct booking previews, writes, amends, cancels and reads back with audit reasons', async () => {
