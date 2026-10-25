@@ -13,7 +13,7 @@ import { ironGateManualPaymentConfig, readManualPayment, recordManualPayment,
   manualPaymentRequestResult } from
   '../src/lib/booking-sources/iron-gate-manual-payment.server.ts';
 
-import { readSweetfunIronGatePaymentOrder } from '../src/lib/booking-sources/iron-gate-calendar.server.ts';
+import { readSweetfunIronGatePaymentOrder, readSweetfunIronGateCalendarSnapshot } from '../src/lib/booking-sources/iron-gate-calendar.server.ts';
 
 const workspaceId = '11111111-1111-4111-8111-111111111111';
 const propertyId = '22222222-2222-4222-8222-222222222222';
@@ -552,6 +552,8 @@ for (const source of ['os', 'line', 'legacy_line']) test(`${source} full amendme
   const before = await readManualBooking(owner, c, created.bookingId, send);
   assert.equal(before.osEditMode, 'full');
   const originalPaymentOrder = await readSweetfunIronGatePaymentOrder(created.bookingId, owner, c.calendar, send);
+  const calendar = await readSweetfunIronGateCalendarSnapshot('2026-11-01', '2026-12-01', owner, c.calendar, send);
+  assert.equal(calendar.bookings.find(row => row.iron_gate_booking_id === created.bookingId).iron_gate_edit_mode, 'full');
   const changes = { guestName: 'Synthetic Changed', contact: 'synthetic@example.test', notes: 'Changed note',
     bookedAt: '2026-10-20', totalCents: 850000, stays: [
       { checkIn: '2026-11-12', checkOut: '2026-11-13', roomNumbers: ['101'] },

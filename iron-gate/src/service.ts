@@ -1847,6 +1847,7 @@ export class IronGateService {
           bookedAt: projected.bookedAt,
           channelSyncState: projected.channelSyncState,
           sourceReviewRequired: projected.sourceReviewRequired,
+          ...(projected.osEditMode ? { osEditMode: projected.osEditMode } : {}),
           ...(principal.fields.includes("guest_name") ?
             { guestName: projected.guestName,
               ...(projected.sourceCalendar ?
