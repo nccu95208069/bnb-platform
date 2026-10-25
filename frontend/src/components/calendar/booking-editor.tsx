@@ -819,6 +819,7 @@ export function BookingDetailsPanel({
   onManualEdit,
   onManualCancel,
   onManualSync,
+  onManualConfirm,
 }: {
   booking: CalendarBooking | null;
   orderSegments: CalendarBooking[];
@@ -834,6 +835,7 @@ export function BookingDetailsPanel({
   onManualEdit?: () => void;
   onManualCancel?: () => void;
   onManualSync?: () => void;
+  onManualConfirm?: () => void;
 }) {
 const uiLocale = useIntlLocale();
 
@@ -934,19 +936,24 @@ const uiLocale = useIntlLocale();
                 <div role="status" className="rounded-xl border bg-muted/40 px-3 py-2 text-sm">
                   <div>{uiText("Iron Gate 訂單已記錄")}</div>
                   <div>{uiText("OwlNest 房況：")}{uiText(({
-                    not_required: "無需同步", action_required: "待員工按鈕確認",
+                    not_required: "無需同步", action_required: booking.iron_gate_manual_handling ? "待手動處理變動房晚" : "待員工按鈕確認",
                     awaiting_manual_sync: "尚未同步，請按「同步房況」",
                     pending: "同步中，尚未驗證",
-                    verified: "已回讀驗證", review_required: "需人工核對",
+                    verified: "已回讀驗證", review_required: "需人工核對", manually_confirmed: booking.reservation_status === "cancelled" ? "已手動處理房況（人工確認）" : "已手動關房（人工確認）",
                   })[booking.iron_gate_channel_sync])}</div>
+                  {booking.iron_gate_manual_confirmed_at && <div className="mt-1 text-xs text-muted-foreground">
+                    人工確認時間：{new Date(booking.iron_gate_manual_confirmed_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}
+                  </div>}
                   {booking.iron_gate_source_review &&
                     <div className="text-amber-800">{uiText("訂單來源有差異，需人工核對")}</div>}
                 </div>
               )}
 
-              {(onManualEdit || onManualCancel || onManualSync) &&
+              {(onManualEdit || onManualCancel || onManualSync || onManualConfirm) &&
                 <div className="grid grid-cols-2 gap-2">
                   {onManualSync && <Button onClick={onManualSync}>同步房況</Button>}
+                  {onManualConfirm && <Button variant="outline" onClick={onManualConfirm}>
+                    {booking.iron_gate_manual_handling ? "已手動處理房況" : "已手動關房"}</Button>}
                   {onManualEdit && <Button variant="outline" onClick={onManualEdit}>
                     {booking.iron_gate_edit_mode === "guest_name" ? "更正旅客姓名" : "修改訂單"}</Button>}
                   {onManualCancel && <Button variant="outline" onClick={onManualCancel}>

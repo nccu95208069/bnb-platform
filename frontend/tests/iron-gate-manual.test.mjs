@@ -7,7 +7,7 @@ import { createChannelWorker } from '../../iron-gate/src/channel-worker.mjs';
 import { manualError } from '../src/lib/booking-sources/iron-gate-manual-route.server.ts';
 import { createOsMemberProofVerifier } from '../../iron-gate/src/os-member-proof.mjs';
 import { ironGateManualConfig, previewManualBooking, previewManualAmend, createManualBooking,
-  amendManualBooking, cancelManualBooking, manualRequestResult, startManualRoomSync, readManualBooking } from
+  amendManualBooking, cancelManualBooking, manualRequestResult, startManualRoomSync, readManualBooking, confirmManualRoomHandling } from
   '../src/lib/booking-sources/iron-gate-manual.server.ts';
 import { ironGateManualPaymentConfig, readManualPayment, recordManualPayment,
   manualPaymentRequestResult } from
@@ -617,4 +617,97 @@ test('saved room changes fence the original nights, allow repeated edits/revert,
   assert.equal(state.bookings[0].channelSyncState, 'verified');
   assert.equal(state.bookings[0].osManualRoomChange, undefined);
   assert.equal(state.fences.length, 0);
+});
+
+test('manual OS/LINE closure confirmation and later amendments/cancellation never call the provider', async () => {
+  for (const source of ['os', 'line']) {
+    const { repository, service, send } = setup('owlnest'), c = config();
+    const created = await createManualBooking(owner, c, { expectedInventoryVersion: 1,
+      stays: stay(), guestName: 'Synthetic manual close', contact: null, notes: null,
+      totalCents: 100000, bookedAt: null }, key(), send);
+    await repository.transact(propertyId, draft => {
+      draft.channel.stockObservedFrom = null; draft.channel.stockObservedThrough = null;
+      const booking = draft.bookings[0]; booking.source = source;
+      if (source === 'line') {
+        booking.channelSyncState = 'action_required'; booking.lineChannelBaselineNights = [];
+        booking.lineChannelPending = ['2026-11-10', '2026-11-11'].map(date =>
+          ({ roomId: roomIds['101'], date, desired: 'closed' }));
+        booking.lineChannelActionRequiredAt = new Date().toISOString();
+      }
+    });
+    const worker = createChannelWorker({ repository, service,
+      provider: { observe: () => { throw Error('Unexpected OwlNest read'); },
+        setNight: () => { throw Error('Unexpected OwlNest write'); } }, onReview: async () => {} });
+    const channel = { clientId: 'channel', subjectId: 'worker', origin: 'channel', workspaceId,
+      propertyIds: [propertyId], authorityEpoch: 1, actions: ['channel:verify'], fields: [], grantId: channelGrantId };
+    const input = { expectedBookingVersion: created.bookingVersion, expectedInventoryVersion: created.inventoryVersion,
+      confirmed: true, reason: 'Owner already handled these exact room nights manually' };
+    const request = key();
+    const confirmed = await confirmManualRoomHandling(owner, c, created.bookingId, input, request, send);
+    assert.equal(confirmed.channelSyncState, 'manually_confirmed');
+    const detail = await readManualBooking(owner, c, created.bookingId, send);
+    assert.equal(detail.manualRoomConfirmationAvailable, false);
+    assert.equal(detail.manualRoomHandling.pending.length, 0);
+    const calendar = await readSweetfunIronGateCalendarSnapshot('2026-11-01', '2026-12-01', owner, c.calendar, send);
+    assert.ok(calendar.bookings.some(b => b.iron_gate_channel_sync === 'manually_confirmed' &&
+      b.iron_gate_manual_handling && b.iron_gate_manual_confirmed_at));
+    const audits = repository.auditRecords(propertyId).filter(a => a.type === 'channel.manually_confirmed');
+    assert.equal(audits.length, 1); assert.equal(audits[0].actorSubjectId, owner.id);
+    assert.equal(audits[0].manualRoomHandling.closedNights.length, 2);
+    const replay = await service.confirmManualRoomHandling({ clientId, subjectId: owner.id, origin: 'os',
+      workspaceId, propertyIds: [propertyId], authorityEpoch: 1,
+      actions: ['booking:amend'], fields: ['guest_name', 'money'] }, propertyId, created.bookingId, request, input);
+    assert.equal(replay.bookingVersion, confirmed.bookingVersion);
+    assert.equal(repository.auditRecords(propertyId).filter(a => a.type === 'channel.manually_confirmed').length, 1);
+    assert.equal((await manualRequestResult(owner, c, request, send)).currentChannelSyncState, 'manually_confirmed');
+    assert.equal((await worker.runOne(channel, propertyId)).state, 'idle');
+    await assert.rejects(startManualRoomSync(owner, c, created.bookingId, {
+      expectedBookingVersion: confirmed.bookingVersion, expectedInventoryVersion: confirmed.inventoryVersion }, key(), send), /CHANNEL_SYNC_NOT_READY/);
+    let state = await repository.read(propertyId);
+    const move = await amendManualBooking(owner, c, created.bookingId, {
+      expectedBookingVersion: state.bookings[0].version, expectedInventoryVersion: state.version,
+      reason: 'Manual future move', changes: { stays: stay('2026-11-12', '2026-11-13') } }, key(), send);
+    assert.equal(move.channelSyncState, 'action_required');
+    state = await repository.read(propertyId);
+    assert.deepEqual(state.bookings[0].manualRoomHandling.pending.map(c => c.desired), ['open', 'open', 'closed']);
+    assert.equal(state.fences[0].cells.length, 2); assert.equal(state.operations.length, 0);
+    assert.equal((await worker.runOne(channel, propertyId)).state, 'idle');
+    const moved = await confirmManualRoomHandling(owner, c, created.bookingId, {
+      expectedBookingVersion: move.bookingVersion, expectedInventoryVersion: move.inventoryVersion,
+      confirmed: true, reason: 'Owner opened old nights and closed the new night' }, key(), send);
+    const cancel = await cancelManualBooking(owner, c, created.bookingId, {
+      expectedBookingVersion: moved.bookingVersion, expectedInventoryVersion: moved.inventoryVersion,
+      reason: 'Cancel local booking only' }, key(), send);
+    assert.equal(cancel.channelSyncState, 'action_required');
+    state = await repository.read(propertyId);
+    assert.deepEqual(state.bookings[0].manualRoomHandling.pending.map(c => c.desired), ['open']);
+    assert.equal((await worker.runOne(channel, propertyId)).state, 'idle');
+    await confirmManualRoomHandling(owner, c, created.bookingId, {
+      expectedBookingVersion: cancel.bookingVersion, expectedInventoryVersion: cancel.inventoryVersion,
+      confirmed: true, reason: 'Owner manually reopened the cancelled night' }, key(), send);
+    state = await repository.read(propertyId);
+    assert.equal(state.fences.length, 0); assert.equal(state.operations.length, 0);
+    assert.equal(state.bookings[0].status, 'cancelled');
+  }
+});
+
+test('manual closure confirmation refuses unconfirmed, stale, unauthorized, conflicting and in-flight requests', async () => {
+  const { repository, send } = setup('owlnest'), c = config();
+  const created = await createManualBooking(owner, c, { expectedInventoryVersion: 1, stays: stay(),
+    guestName: 'Synthetic confirmation', contact: null, notes: null, totalCents: 100000, bookedAt: null }, key(), send);
+  const input = { expectedBookingVersion: created.bookingVersion, expectedInventoryVersion: created.inventoryVersion,
+    confirmed: true, reason: 'Owner confirmation' };
+  await assert.rejects(confirmManualRoomHandling(owner, c, created.bookingId, { ...input, confirmed: false }, key(), send), /MANUAL_INVALID_INPUT/);
+  await assert.rejects(confirmManualRoomHandling(owner, c, created.bookingId, { ...input, expectedBookingVersion: 99 }, key(), send), /MANUAL_ROOM_CONFIRMATION_NOT_READY/);
+  await assert.rejects(confirmManualRoomHandling(owner, c, created.bookingId, { ...input, expectedInventoryVersion: 99 }, key(), send), /VERSION_CONFLICT/);
+  await assert.rejects(confirmManualRoomHandling({ ...owner, role: 'viewer' }, c, created.bookingId, input, key(), send), /MANUAL_FORBIDDEN/);
+  await repository.transact(propertyId, draft => { draft.manualBlocks.push({ roomId: roomIds['101'], date: '2026-11-10' }); });
+  await assert.rejects(confirmManualRoomHandling(owner, c, created.bookingId, input, key(), send), /ROOM_CONFLICT/);
+  await repository.transact(propertyId, draft => { draft.manualBlocks = []; });
+  await startManualRoomSync(owner, c, created.bookingId, { expectedBookingVersion: input.expectedBookingVersion,
+    expectedInventoryVersion: input.expectedInventoryVersion }, key(), send);
+  const before = await repository.read(propertyId);
+  await assert.rejects(confirmManualRoomHandling(owner, c, created.bookingId, { ...input,
+    expectedInventoryVersion: before.version }, key(), send), /MANUAL_ROOM_CONFIRMATION_NOT_READY/);
+  assert.deepEqual(await repository.read(propertyId), before);
 });

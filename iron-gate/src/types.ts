@@ -1,5 +1,5 @@
 export type BookingStatus = "held" | "confirmed" | "cancelled";
-export type ChannelSyncState = "not_required" | "action_required" | "awaiting_manual_sync" | "pending" | "verified" | "review_required";
+export type ChannelSyncState = "not_required" | "action_required" | "awaiting_manual_sync" | "pending" | "verified" | "review_required" | "manually_confirmed";
 export type OperationState = "sync_pending" | "sync_verified" | "review_required";
 export type Action =
   | "booking:read"
@@ -57,6 +57,9 @@ export type Booking = {
   status: BookingStatus;
   channelSyncState: ChannelSyncState;
   channelOperationKey: string | null;
+  /** Owner-attested external handling. Never provider verification or permission to write stock. */
+  manualRoomHandling?: { confirmedAt: string; confirmedBookingVersion: number;
+    requestKey: string; closedNights: Night[]; pending: DesiredCell[] };
   /** LINE manual policy: provider-proven closed nights before any unconfirmed local edit. */
   lineChannelBaselineNights?: Night[];
   /** Exact room-night work still requiring a separate staff confirmation. */
@@ -331,7 +334,7 @@ export type BookingReceipt = {
   bookingId: string;
   bookingVersion: number;
   inventoryVersion: number;
-  operationState: OperationState | "local_only" | "not_required" | "action_required" | "awaiting_manual_sync";
+  operationState: OperationState | "local_only" | "not_required" | "action_required" | "awaiting_manual_sync" | "manually_confirmed";
   operationKey: string | null;
   refundReviewRequired: boolean;
   sourceReviewRequired?: boolean;
@@ -340,6 +343,7 @@ export type BookingReceipt = {
 export type EventType =
   | "booking.created" | "booking.amended" | "booking.cancelled"
   | "channel.sync_requested" | "channel.preflight_open"
+  | "channel.manually_confirmed"
   | "hold.created" | "hold.extended" | "hold.converted" | "hold.released"
   | "payment.recorded" | "source.applied" | "source.review_required"
   | "inventory.blocked" | "inventory.opened"
@@ -377,6 +381,7 @@ export type AuditRecord = {
   actorGrantId: string | null;
   requestKey: string | null;
   reason?: string;
+  manualRoomHandling?: { closedNights: Night[]; handledCells: DesiredCell[] };
 };
 
 export type TransactionContext = {

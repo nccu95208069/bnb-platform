@@ -12,10 +12,12 @@ import { dateAfter, stayNights, todayInTaipei, twdCents } from "@/lib/booking-so
 import { clearPendingManualRequest, readPendingManualRequest,
   savePendingManualRequest } from "@/lib/booking-sources/manual-request-identity";
 
-type Mode = "create" | "amend" | "cancel" | "sync";
+type Mode = "create" | "amend" | "cancel" | "sync" | "manual-confirm";
 type Segment = { id: string; checkIn: string; checkOut: string; roomNumbers: string[] };
 type Detail = { bookingId: string; version: number; status: string; source: string;
   channelSyncState: string; sourceReviewRequired: boolean; guestName: string | null;
+  manualRoomConfirmationAvailable?: boolean;
+  manualRoomHandling?: { confirmedAt: string; pending: { roomNumber: string; date: string; desired: string }[] } | null;
   contact: string | null; notes: string | null; totalCents: number | null;
   netReceivedCents: number | null; bookedAt: string | null; osEditMode: "full" | "guest_name" | "none";
   roomNightPrices: { roomNumber: string; date: string; amountCents: number }[] | null;
@@ -32,6 +34,8 @@ const LABELS: Record<string, string> = {
   CHANNEL_STOCK_NOT_OBSERVED: "訂單資料已保留；這些日期尚缺 OwlNest 房況核對，暫時無法同步或取消。",
   CHANNEL_CANCELLATION_NOT_READY: "OwlNest 房況同步尚未完成，暫時不能取消訂單。",
   CHANNEL_SYNC_NOT_READY: "目前無法開始同步房況，請重新載入並確認 OwlNest 設定。",
+  MANUAL_ROOM_CONFIRMATION_NOT_READY: "訂單或待處理房晚已變更，請重新載入後確認。",
+  MANUAL_ROOM_HANDLING_REQUIRES_OS: "此訂單的房況由人工處理，請在 OS 確認處理結果。",
   MANUAL_GUEST_NAME_REQUIRED: "請填寫旅客姓名。",
   MANUAL_PRICE_REQUIRED: "請填寫房費。",
   MANUAL_REASON_REQUIRED: "請填寫修改或取消原因。",
@@ -81,13 +85,16 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
   const [reason, setReason] = useState("");
   const [segments, setSegments] = useState<Segment[]>([]);
   const [useNightPrices, setUseNightPrices] = useState(false);
+  const [manualConfirmed, setManualConfirmed] = useState(false);
   const sourceNameOnly = mode === "amend" && detail?.osEditMode === "guest_name";
-  const canMutate = mode === "create" || detail !== null &&
-    detail.status === "confirmed" && !detail.sourceReviewRequired &&
+  const canMutate = mode === "create" || detail !== null && !detail.sourceReviewRequired &&
+    (mode === "manual-confirm" ? detail.manualRoomConfirmationAvailable === true :
+    detail.status === "confirmed" &&
     (mode === "sync" ? detail.osEditMode === "full" &&
-      detail.channelSyncState === "awaiting_manual_sync" :
-      (mode === "cancel" ? detail.source === "os" : detail.osEditMode === "full" || sourceNameOnly) &&
-      ["verified", "not_required", "awaiting_manual_sync", ...(mode === "amend" ? ["action_required"] : [])].includes(detail.channelSyncState));
+      detail.channelSyncState === "awaiting_manual_sync" && !detail.manualRoomHandling :
+      (mode === "cancel" ? detail.source === "os" || !!detail.manualRoomHandling : detail.osEditMode === "full" || sourceNameOnly) &&
+      ["verified", "not_required", "awaiting_manual_sync", "manually_confirmed",
+        ...(mode === "amend" || detail.manualRoomHandling ? ["action_required"] : [])].includes(detail.channelSyncState)));
   const stay = useMemo(() => mode === "create" ? [...roomNumbers].sort().map(number => ({
     ...(roomDates[number] ?? { checkIn, checkOut }), roomNumbers: [number],
   })) : segments.map(({ checkIn, checkOut, roomNumbers }) => ({ checkIn, checkOut, roomNumbers })),
@@ -122,7 +129,7 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
     if (!open) return;
     setDetail(null); setError(""); setResult(""); setRequestKey(null);
     setUnknown(false); setRecoveryAttempt(0);
-    setPreview(null); setPreviewFor(""); setReason("");
+    setPreview(null); setPreviewFor(""); setReason(""); setManualConfirmed(false);
     setGuestName(""); setContact(""); setNotes(""); setTotalTwd("");
     setBookedAt(mode === "create" ? todayInTaipei() : ""); setCheckIn(defaultDate); setCheckOut(dayAfter(defaultDate));
     setRoomNumbers([]); setRoomDates({}); setNightAmounts({}); setSegments([]); setUseNightPrices(false);
@@ -184,7 +191,9 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
         clearPendingManualRequest(window.localStorage, requestKey);
         setRequestKey(null); setUnknown(false); setError("");
         const channel = value.currentChannelSyncState;
-        setResult(value.currentStatus === "cancelled" ? "訂單已取消，結果已確認。" :
+        setResult(channel === "manually_confirmed" ? "已記錄人工房況確認；未變更 OwlNest 房況。" :
+          value.currentStatus === "cancelled" ? "訂單已取消，結果已確認；請查看房況是否仍待人工處理。" :
+          channel === "action_required" ? "訂單已儲存；房況仍待人工處理，請查看訂單詳情。" :
           channel === "awaiting_manual_sync" ? "訂單已儲存並確認。請至訂單詳情按「同步房況」，更新 OwlNest。" :
           channel === "pending" ? "訂單已儲存，OwlNest 房況同步中。" :
           channel === "review_required" ? "訂單已儲存；房況同步仍需要核對，請查看訂單詳情。" :
@@ -223,17 +232,20 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
     let submittedKey: string | null = null;
     if (unknown || busy) return;
     if (!canMutate) { setError("這張訂單目前不能執行此操作。"); return; }
-    if (mode !== "cancel" && mode !== "sync" && !guestName.trim()) {
+    if ((mode === "create" || mode === "amend") && !guestName.trim()) {
       setError("請填寫旅客姓名。"); return;
     }
     if (sourceNameOnly && guestName.trim() === detail?.guestName) {
       setError("旅客姓名尚未變更。"); return;
     }
-    if (mode !== "cancel" && mode !== "sync" && !sourceNameOnly &&
+    if ((mode === "create" || mode === "amend") && !sourceNameOnly &&
       (!stay.length || stay.some(segment => !stayNights(segment.checkIn, segment.checkOut).length))) {
       setError("請填妥房間及正確的入住與退房日期。"); return;
     }
-    if (mode !== "create" && mode !== "sync" && !reason.trim()) {
+    if (mode === "manual-confirm" && !manualConfirmed) {
+      setError("請先確認已手動完成下列房況處理。"); return;
+    }
+    if (mode !== "create" && mode !== "sync" && mode !== "manual-confirm" && !reason.trim()) {
       setError("請填寫原因。"); return;
     }
     if ((mode === "create" || mode === "amend" && !sourceNameOnly && useNightPrices) &&
@@ -249,7 +261,7 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
     if (mode === "amend" && !sourceNameOnly && !Object.keys(amendChanges).length) {
       setError("訂單資料尚未變更。"); return;
     }
-    if (mode !== "cancel" && mode !== "sync" && !sourceNameOnly &&
+    if ((mode === "create" || mode === "amend") && !sourceNameOnly &&
       new Set(stayKeys(stay)).size !== stayKeys(stay).length) {
       setError("同一間房的住宿日期不能重複，請調整各段日期。"); return;
     }
@@ -270,7 +282,10 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
         return;
       }
       const key = crypto.randomUUID();
-      const payload = mode === "sync" ? { expectedInventoryVersion: inventoryVersion,
+      const payload = mode === "manual-confirm" ? { expectedInventoryVersion: inventoryVersion,
+        expectedBookingVersion: detail?.version, confirmed: true,
+        reason: "操作者確認已在 OwlNest 手動完成畫面列出的房況處理；僅登記結果，不變更 OwlNest。" } :
+        mode === "sync" ? { expectedInventoryVersion: inventoryVersion,
         expectedBookingVersion: detail?.version } : mode === "create" ? { expectedInventoryVersion: inventoryVersion,
         stays: stay, guestName: guestName.trim(), contact: contact.trim() || null,
         notes: notes.trim() || null, totalCents: roomTotalCents,
@@ -282,7 +297,8 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
           reason: reason.trim(), changes: amendChanges,
         } : { expectedBookingVersion: detail?.version,
           expectedInventoryVersion: inventoryVersion, reason: reason.trim() };
-      const path = mode === "create" ? "/api/v1/bookings/manual" : mode === "sync" ?
+      const path = mode === "manual-confirm" ? `/api/v1/bookings/manual/${bookingId}/confirm-manual-room-handling` :
+        mode === "create" ? "/api/v1/bookings/manual" : mode === "sync" ?
         `/api/v1/bookings/manual/${bookingId}/sync-room-status` : mode === "amend" ?
         `/api/v1/bookings/manual/${bookingId}` :
         `/api/v1/bookings/manual/${bookingId}/cancel`;
@@ -315,7 +331,10 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
       }
       clearPendingManualRequest(window.localStorage, key);
       setRequestKey(null);
-      setResult(sourceNameOnly ? "旅客姓名已在 Sweetfun OS 更正並讀回確認；來源差異待核對。" :
+      setResult(mode === "manual-confirm" ? "已記錄人工房況確認，待處理提示已清除；未變更 OwlNest 房況。" :
+        value.channelSyncState === "action_required" && detail?.manualRoomHandling ?
+          "訂單已儲存；請手動處理變動房晚，再確認處理完成。系統未變更 OwlNest 房況。" :
+        sourceNameOnly ? "旅客姓名已在 Sweetfun OS 更正並讀回確認；來源差異待核對。" :
         mode === "sync" ? value.channelSyncState === "verified" ?
           "OwlNest 房況已回讀驗證。" : value.channelSyncState === "review_required" ?
           "房況同步需要人工核對；請勿重複按同步，先確認 OwlNest 房況。" :
@@ -340,9 +359,13 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
   return <Dialog open={open} onOpenChange={value => { if (!value && !busy && !confirming) onClose(); }}>
     <DialogContent className="max-h-[90dvh] overflow-y-auto overflow-x-hidden p-4 sm:max-w-lg sm:p-6">
       <DialogHeader>
-        <DialogTitle>{mode === "create" ? "新增水芳訂單" : mode === "amend" ?
+        <DialogTitle>{mode === "manual-confirm" ? detail?.manualRoomHandling ? "確認已手動處理房況" : "確認已手動關房" :
+          mode === "create" ? "新增水芳訂單" : mode === "amend" ?
           "修改水芳訂單" : mode === "sync" ? "同步 OwlNest 房況" : "取消水芳訂單"}</DialogTitle>
-        <DialogDescription>{mode === "sync" ?
+        <DialogDescription>{mode === "manual-confirm" ?
+          "確認你已在 OwlNest 處理下列房晚。這裡只登記人工確認並清除待處理提示，不會開關 OwlNest 房況。" :
+          detail?.manualRoomHandling ? "此訂單的 OwlNest 房況由人工處理。修改或取消只儲存訂單，變動房晚需手動處理後再確認。" :
+          mode === "sync" ?
           "確認後才更新這筆訂單的 OwlNest 房況；回讀完成前不會顯示同步成功。" :
           mode === "create" ?
           "選擇住宿日期與房間，填寫各晚房費。儲存後可至訂單詳情同步 OwlNest 房況。" :
@@ -357,7 +380,22 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
         {mode === "sync" && detail && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm">
           訂單已儲存；目前 OwlNest 房況尚未同步。按下方按鈕才會開始更新。
         </p>}
-        {mode !== "cancel" && mode !== "sync" && <fieldset disabled={busy || unknown || !!result} className="min-w-0 space-y-4">
+        {mode === "manual-confirm" && detail && <div className="space-y-3">
+          <ul className="space-y-2 rounded-lg border p-3 text-sm">
+            {detail.manualRoomHandling ? detail.manualRoomHandling.pending.map(cell =>
+              <li key={`${cell.roomNumber}:${cell.date}`}>{cell.roomNumber} 房 · {cell.date} ·
+                {cell.desired === "closed" ? "已手動關房" : "已手動開房"}</li>) :
+              detail.stays.map((segment, index) => <li key={index}>
+                {segment.roomNumbers.join("、")} 房 · {segment.checkIn} 入住 → {segment.checkOut} 退房 · 已手動關房
+              </li>)}
+          </ul>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-1" checked={manualConfirmed}
+              disabled={busy || unknown || !!result} onChange={e => setManualConfirmed(e.target.checked)} />
+            我確認已在 OwlNest 手動完成上述房況處理，只需在 OS 登記結果。
+          </label>
+        </div>}
+        {mode !== "cancel" && mode !== "sync" && mode !== "manual-confirm" && <fieldset disabled={busy || unknown || !!result} className="min-w-0 space-y-4">
           {mode === "create" && <div className="space-y-1"><p className="text-sm font-medium">館別</p>
             <div className="rounded-md border px-3 py-2 text-sm">水芳民宿</div></div>}
           <div className="space-y-1"><Label htmlFor="manual-guest">旅客姓名</Label>
@@ -456,17 +494,17 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
             <Textarea id="manual-notes" value={notes} onChange={e => setNotes(e.target.value)} /></div>
           </>}
         </fieldset>}
-        {mode !== "create" && mode !== "sync" && <div className="space-y-1"><Label htmlFor="manual-reason">
+        {mode !== "create" && mode !== "sync" && mode !== "manual-confirm" && <div className="space-y-1"><Label htmlFor="manual-reason">
           {mode === "cancel" ? "取消原因" : "修改原因"}</Label>
           <Textarea id="manual-reason" value={reason} onChange={e => setReason(e.target.value)} /></div>}
         {mode === "cancel" && detail?.netReceivedCents !== null &&
           Number(detail?.netReceivedCents) > 0 &&
           <p role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
             這張訂單仍有收款，請先完成退款或結算；取消不會自動退款。</p>}
-        {preview && previewFor === fingerprint && mode !== "cancel" && mode !== "sync" && !sourceNameOnly &&
+        {preview && previewFor === fingerprint && (mode === "create" || mode === "amend") && !sourceNameOnly &&
           <p role="status" className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm">
             已確認 {preview.roomNights} 個房晚可預訂。
-            提交後會先儲存訂單；OwlNest 房況要另外按「同步房況」。
+            {detail?.manualRoomHandling ? "提交後只儲存訂單；變動房晚需手動處理後再確認。" : "提交後會先儲存訂單；OwlNest 房況要另外按「同步房況」。"}
           </p>}
         {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         {result && <p role="status" className="text-sm text-amber-800">{result}</p>}
@@ -479,8 +517,9 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
         {!loading && canMutate &&
           !(mode === "cancel" && Number(detail?.netReceivedCents) > 0) &&
           !result &&
-          <Button onClick={() => void submit()} disabled={busy}>
+          <Button onClick={() => void submit()} disabled={busy || mode === "manual-confirm" && !manualConfirmed}>
             {busy ? "處理中…" : mode === "cancel" ? "確認取消" :
+              mode === "manual-confirm" ? "確認並清除待處理提示" :
               mode === "sync" ? "同步房況" :
               sourceNameOnly ? "確認修改姓名" :
               !needsPreview ? "確認修改" : preview && previewFor === fingerprint ? "確認提交" : "檢查房晚"}</Button>}

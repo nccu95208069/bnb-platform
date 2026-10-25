@@ -154,6 +154,13 @@ export function createHandler(service: IronGateService, authenticate: Authentica
             value as AmendBookingInput, request.headers.get("x-iron-gate-line-preview"));
           return json(result, result.operationState === "sync_pending" ? 202 : 200);
         }
+        if (parts.length === 6 && parts[5] === "confirm-manual-room-handling" && request.method === "POST") {
+          const value = await body(request);
+          exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "confirmed", "reason"]);
+          return json(await service.confirmManualRoomHandling(principal, propertyId, parts[4],
+            requestKey(request), value as { expectedBookingVersion: number; expectedInventoryVersion: number;
+              confirmed: boolean; reason: string }));
+        }
         if (parts.length === 6 && parts[5] === "sync-room-status" && request.method === "POST") {
           const value = await body(request);
           exact(value, ["expectedBookingVersion", "expectedInventoryVersion"]);

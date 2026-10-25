@@ -3,7 +3,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 export type PendingManualRequest = {
   requestKey: string;
-  mode: 'create' | 'amend' | 'cancel' | 'sync';
+  mode: 'create' | 'amend' | 'cancel' | 'sync' | 'manual-confirm';
   bookingId: string | null;
   createdAt: number;
 };
@@ -15,7 +15,7 @@ export function readPendingManualRequest(store: Store): PendingManualRequest | n
   if (!raw) return null;
   try {
     const value = JSON.parse(raw) as PendingManualRequest;
-    if (!UUID.test(value.requestKey) || !['create', 'amend', 'cancel', 'sync'].includes(value.mode) ||
+    if (!UUID.test(value.requestKey) || !['create', 'amend', 'cancel', 'sync', 'manual-confirm'].includes(value.mode) ||
       (value.bookingId !== null && !UUID.test(value.bookingId)) ||
       !Number.isSafeInteger(value.createdAt) || value.createdAt < 1) throw Error();
     return value;

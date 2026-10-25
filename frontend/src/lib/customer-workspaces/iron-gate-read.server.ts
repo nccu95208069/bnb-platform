@@ -21,7 +21,7 @@ const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const RESPONSE_FIELDS = new Set(["id", "workspaceId", "propertyId", "version", "status",
   "channelSyncState", "stays", "createdAt", "source", "guestName", "contact", "notes",
   "totalCents", "currency", "paymentSummary", "hold", "lineChannelPending",
-  "lineChannelActionRequiredAt", "bookedAt", "sourceReviewRequired"]);
+  "lineChannelActionRequiredAt", "bookedAt", "sourceReviewRequired", "manualRoomHandling", "manualRoomConfirmationAvailable"]);
 const HOLD_FIELDS = new Set(["schema", "scope", "startedAt", "expiresAt", "state",
   "convertedAt", "releasedAt", "latePaymentReview"]);
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -32,9 +32,19 @@ function object(value: unknown): value is Record<string, unknown> {
 }
 
 function safeBookingShape(booking: Record<string, unknown>, canReadMoney: boolean): boolean {
+  if ("manualRoomConfirmationAvailable" in booking && typeof booking.manualRoomConfirmationAvailable !== "boolean") return false;
+  if ("manualRoomHandling" in booking) {
+    const handling = booking.manualRoomHandling;
+    if (!object(handling) || typeof handling.confirmedAt !== "string" || !INSTANT.test(handling.confirmedAt) ||
+      !Array.isArray(handling.closedNights) || !Array.isArray(handling.pending) ||
+      handling.closedNights.length > 4096 || handling.pending.length > 8192 ||
+      [...handling.closedNights, ...handling.pending].some(cell => !object(cell) ||
+        !UUID.test(String(cell.roomId)) || typeof cell.date !== "string" || !DATE.test(cell.date)) ||
+      handling.pending.some(cell => !["closed", "open"].includes(String(cell.desired)))) return false;
+  }
   if (!Number.isSafeInteger(booking.version) || Number(booking.version) < 1 ||
     !["held", "confirmed", "cancelled"].includes(String(booking.status)) ||
-    !["not_required", "action_required", "awaiting_manual_sync", "pending", "verified", "review_required"]
+    !["not_required", "action_required", "awaiting_manual_sync", "pending", "verified", "review_required", "manually_confirmed"]
       .includes(String(booking.channelSyncState)) ||
     !["os", "line", "website", "external"].includes(String(booking.source)) ||
     ("bookedAt" in booking && booking.bookedAt !== null &&
@@ -53,7 +63,7 @@ function safeBookingShape(booking: Record<string, unknown>, canReadMoney: boolea
     booking.lineChannelActionRequiredAt !== null &&
     (typeof booking.lineChannelActionRequiredAt !== "string" ||
       !INSTANT.test(booking.lineChannelActionRequiredAt))) return false;
-  if (booking.channelSyncState === "action_required" &&
+  if (booking.channelSyncState === "action_required" && !booking.manualRoomHandling &&
     (typeof booking.lineChannelActionRequiredAt !== "string" ||
       !INSTANT.test(booking.lineChannelActionRequiredAt))) return false;
   if ("lineChannelPending" in booking && (!Array.isArray(booking.lineChannelPending) ||
@@ -196,7 +206,7 @@ export async function readIronGateBooking(
 export type IronGateRoomActionRow = {
   id: string;
   status: "held" | "confirmed" | "cancelled";
-  channelSyncState: "not_required" | "action_required" | "pending" | "verified" | "review_required";
+  channelSyncState: "not_required" | "action_required" | "pending" | "verified" | "review_required" | "manually_confirmed";
   guestName: string | null;
   createdAt: string;
   actionRequiredAt: string | null;
@@ -271,7 +281,7 @@ export async function listIronGateRoomActions(
     if (view === "active" && !["action_required", "pending", "review_required"]
       .includes(String(value.channelSyncState)) ||
       view === "cancelled" && value.status !== "cancelled") continue;
-    const cells = (value.lineChannelPending ?? []) as { desired: "open" | "closed" }[];
+    const cells = (object(value.manualRoomHandling) ? value.manualRoomHandling.pending ?? [] : value.lineChannelPending ?? []) as { desired: "open" | "closed" }[];
     rows.push({ id: value.id, status: value.status as IronGateRoomActionRow["status"],
       channelSyncState: value.channelSyncState as IronGateRoomActionRow["channelSyncState"],
       guestName: typeof value.guestName === "string" ? value.guestName : null,
