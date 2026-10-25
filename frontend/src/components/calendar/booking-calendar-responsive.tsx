@@ -263,6 +263,7 @@ const uiLocale = useIntlLocale();
   const [reloadKey, setReloadKey] = useState(0);
   const retryCalendar = useCallback(() => setReloadKey((value) => value + 1), []);
   const [manualMode, setManualMode] = useState<"create" | "amend" | "cancel" | "sync" | "manual-confirm" | null>(null);
+  const [manualSyncTarget, setManualSyncTarget] = useState<{ bookingId: string; inventoryVersion: number } | null>(null);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
   const [editsHydrated, setEditsHydrated] = useState(false);
   const previousView = useRef<CalendarView>(view);
@@ -1106,16 +1107,20 @@ const uiLocale = useIntlLocale();
           selectedBooking.iron_gate_channel_sync === "awaiting_manual_sync" &&
           !selectedBooking.iron_gate_manual_handling &&
           !selectedBooking.iron_gate_source_review ?
-          () => setManualMode("sync") : undefined}
+          () => { setManualSyncTarget(null); setManualMode("sync"); } : undefined}
         onManualConfirm={manualEnabled && selectedBooking?.iron_gate_manual_confirmation_available &&
           !selectedBooking.iron_gate_source_review ? () => setManualMode("manual-confirm") : undefined}
       />
       {manualMode && <ManualBookingDialog open mode={manualMode}
-        bookingId={selectedBooking?.iron_gate_booking_id}
-        inventoryVersion={Number(data?.source?.private_snapshot_version ?? 0)}
+        bookingId={manualMode === "sync" ? manualSyncTarget?.bookingId ?? selectedBooking?.iron_gate_booking_id : selectedBooking?.iron_gate_booking_id}
+        inventoryVersion={manualMode === "sync" && manualSyncTarget ? manualSyncTarget.inventoryVersion : Number(data?.source?.private_snapshot_version ?? 0)}
         defaultDate={anchorDate}
-        onClose={() => setManualMode(null)}
-        onDone={() => setReloadKey(value => value + 1)} />}
+        onClose={() => { setManualMode(null); setManualSyncTarget(null); }}
+        onDone={() => setReloadKey(value => value + 1)}
+        onSyncCreated={(bookingId, inventoryVersion) => {
+          setManualSyncTarget({ bookingId, inventoryVersion });
+          setManualMode("sync");
+        }} />}
     </div>
   );
 }
