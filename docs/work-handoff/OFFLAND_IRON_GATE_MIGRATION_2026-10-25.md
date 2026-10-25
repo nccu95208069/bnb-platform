@@ -333,6 +333,22 @@ room map, backend URL and expected epoch configured, with its Offland calendar
 flag explicitly `false`; the current Production deployment has not changed.
 The Gmail source token has not yet been mounted in Cloud Run.
 
+The combined, reviewed Iron Gate backend was then deployed to Production as
+`dpl_21tYuTyKbw7KfVeTopmBSuhbqjKD`; Vercel reported Ready and aliased it to
+`iron-gate-green.vercel.app`. The deployed Offland property endpoint returned
+`401` without a grant. The combined Sweetfun OS frontend was deployed as
+`dpl_AoBBA2u2FjV5bQS24hpdMuVAJhKL`, Ready and aliased to
+`sweetfun-os.vercel.app`, with the Offland calendar flag still `false`.
+These deployments prepare code only; the original Sheet remains the live
+Offland booking/calendar source, and Cloud Run still sends 100% traffic to
+`gmail-order-handler-line-manual-db56fa0`.
+
+The OS manual booking API authorizes only the Sweetfun property through its
+separate `ironGateManualConfig`; it has no Offland mutation route. The Offland
+OS path is a calendar reader, and its Production Iron Gate switch remains
+closed. This is the evidence for the OS-side writer fence; it must be
+rechecked when the final deployment and freeze are read back.
+
 At 12:51 Taipei time, both version-pinned read-only business and finance
 preflights were repeated. Each reported `safe=true`, zero active/unknown
 operations, zero writes and zero notifications. The business check found zero
