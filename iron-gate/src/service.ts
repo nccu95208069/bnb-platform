@@ -226,6 +226,33 @@ function linePendingCells(baseline: Night[], current: Night[]): DesiredCell[] {
   ].sort((a, b) => keyOf(a).localeCompare(keyOf(b)));
 }
 function linePendingFenceKey(bookingId: string): string { return `line:action:${bookingId}`; }
+function manualHandlingFenceKey(bookingId: string): string { return `manual:handling:${bookingId}`; }
+function updateManualHandling(state: PropertyState, booking: Booking, current: Night[]): void {
+  const handling = booking.manualRoomHandling!;
+  handling.pending = linePendingCells(handling.closedNights, current);
+  booking.channelSyncState = handling.pending.length ? "action_required" : "manually_confirmed";
+  booking.channelOperationKey = null;
+  const key = manualHandlingFenceKey(booking.id);
+  state.fences = state.fences.filter(fence => fence.key !== key);
+  const old = handling.pending.filter(cell => cell.desired === "open")
+    .map(({ roomId, date }) => ({ roomId, date }));
+  if (old.length) state.fences.push({ key, cells: old, reason: "line_action_required" });
+}
+function manualHandlingCells(state: PropertyState, booking: Booking): DesiredCell[] | null {
+  if (state.channel.mode !== "owlnest" || !["os", "line"].includes(booking.source) ||
+    booking.lineOverridePending || state.sourceLinks.some(link => link.bookingId === booking.id && link.diverged) ||
+    booking.channelOperationKey !== null || booking.osManualRoomChange ||
+    state.operations.some(operation => operation.bookingId === booking.id)) return null;
+  if (booking.manualRoomHandling) {
+    return booking.channelSyncState === "action_required" && booking.manualRoomHandling.pending.length &&
+      ["confirmed", "cancelled"].includes(booking.status) ? booking.manualRoomHandling.pending : null;
+  }
+  if (booking.status !== "confirmed" ||
+    !["awaiting_manual_sync", "action_required"].includes(booking.channelSyncState) ||
+    booking.lineChannelBaselineNights?.length ||
+    booking.lineChannelPending?.some(cell => cell.desired !== "closed")) return null;
+  return nightsFor(booking.stays, state.roomIds).map(cell => ({ ...cell, desired: "closed" }));
+}
 function updateLinePending(state: PropertyState, booking: Booking, current: Night[]): void {
   const baseline = booking.lineChannelBaselineNights ?? [];
   const pending = linePendingCells(baseline, current);
@@ -297,12 +324,15 @@ function publicBooking(booking: Booking, principal: Principal,
       state.sourceLinks.some((link) => link.bookingId === booking.id && link.diverged);
   if (principal.origin === "os" || lineManagesAll(principal)) result.bookedAt = booking.bookedAt;
   if (principal.origin === "os") {
+    result.manualRoomConfirmationAvailable = manualHandlingCells(state, booking) !== null;
+    if (booking.manualRoomHandling) result.manualRoomHandling = structuredClone(booking.manualRoomHandling);
     result.channelOperationKey = booking.channelOperationKey;
     result.osEditMode = isOsDirectBooking(booking) ? "full" :
       booking.source === "external" ? "guest_name" : "none";
     result.osDirectOverride = booking.osDirectOverride === true;
-    if (booking.osManualRoomChange || booking.lineChannelBaselineNights)
-      result.manualBaselineNights = structuredClone(booking.osManualRoomChange?.baseline ?? booking.lineChannelBaselineNights);
+    if (booking.manualRoomHandling || booking.osManualRoomChange || booking.lineChannelBaselineNights)
+      result.manualBaselineNights = structuredClone(booking.manualRoomHandling?.closedNights ??
+        booking.osManualRoomChange?.baseline ?? booking.lineChannelBaselineNights);
   }
   // Field grants are server-authenticated. Public website queries use a separate order credential.
   if ((principal.origin === "os" || principal.origin === "line") &&
@@ -523,6 +553,7 @@ function verifyAmend(input: AmendBookingInput): void {
 }
 function requireLineMutation(principal: Principal, state: PropertyState, booking: Booking,
   manual = false): void {
+  if (booking.manualRoomHandling) reject("MANUAL_ROOM_HANDLING_REQUIRES_OS", 409);
   if (!lineManagesAll(principal) || !principal.grantId)
     reject("FORBIDDEN", 403);
   if (state.channel.mode !== "owlnest" || !state.channel.ready ||
@@ -647,6 +678,7 @@ function verifyLineChannelActionInput(input: LineChannelActionInput): Night[] {
 }
 function requireLineChannelAction(principal: Principal, state: PropertyState,
   booking: Booking, input: LineChannelActionInput, cells: Night[]): void {
+  if (booking.manualRoomHandling) reject("MANUAL_ROOM_HANDLING_REQUIRES_OS", 409);
   authorize(principal, state, "inventory:write", true);
   if (!lineManagesAll(principal) || !principal.grantId ||
     state.channel.mode !== "owlnest" || !state.channel.ready ||
@@ -732,6 +764,7 @@ function requireAmendFields(principal: Principal, changes: AmendBookingInput["ch
     Principal["fields"][number]))) reject("FORBIDDEN", 403);
 }
 function operationState(state: PropertyState, booking: Booking): BookingReceipt["operationState"] {
+  if (booking.channelSyncState === "manually_confirmed") return "manually_confirmed";
   if (state.channel.mode === "none") return "local_only";
   if (booking.channelSyncState === "not_required") return "not_required";
   if (booking.channelSyncState === "action_required") return "action_required";
@@ -823,7 +856,7 @@ function changedNights(before: Night[], after: Night[]): boolean {
 
 function emit(tx: TransactionContext, state: PropertyState, type: EventType,
   booking: Booking | null, principal: Principal, requestKey: string | null,
-  reason?: string): void {
+  reason?: string, manualRoomHandling?: { closedNights: Night[]; handledCells: DesiredCell[] }): void {
   const at = new Date().toISOString();
   tx.emit({ eventId: crypto.randomUUID(), at, type,
     propertyId: state.propertyId, bookingId: booking?.id ?? null,
@@ -834,7 +867,7 @@ function emit(tx: TransactionContext, state: PropertyState, type: EventType,
     inventoryVersion: state.version, actorOrigin: principal.origin,
     actorClientId: principal.clientId, actorSubjectId: principal.subjectId,
     actorGrantId: principal.grantId ?? null, requestKey,
-    ...(reason ? { reason } : {}) });
+    ...(reason ? { reason } : {}), ...(manualRoomHandling ? { manualRoomHandling } : {}) });
 }
 
 export class IronGateService {
@@ -958,6 +991,49 @@ export class IronGateService {
     });
   }
 
+  async confirmManualRoomHandling(principal: Principal, propertyId: string, bookingId: string,
+    requestKey: string, input: { expectedBookingVersion: number; expectedInventoryVersion: number;
+      confirmed: boolean; reason: string }): Promise<BookingReceipt> {
+    uuid(propertyId); uuid(bookingId); uuid(requestKey);
+    if (input.confirmed !== true || !Number.isSafeInteger(input.expectedBookingVersion) ||
+      input.expectedBookingVersion < 1 || !Number.isSafeInteger(input.expectedInventoryVersion) ||
+      input.expectedInventoryVersion < 0) reject("INVALID_INPUT");
+    nonempty(input.reason, 500);
+    const hash = await digest({ action: "channel:manual_confirmation", bookingId, input });
+    return this.repository.transact(propertyId, (state, tx) => {
+      authorize(principal, state, "booking:amend", true);
+      if (principal.origin !== "os" || !principal.fields.includes("guest_name") ||
+        !principal.fields.includes("money")) reject("FORBIDDEN", 403);
+      const prior = receiptFor(state, principal, requestKey, hash);
+      if (prior) return prior.response as BookingReceipt;
+      const booking = state.bookings.find(item => item.id === bookingId);
+      if (!booking) reject("BOOKING_NOT_FOUND", 404);
+      if (state.version !== input.expectedInventoryVersion || booking.version !== input.expectedBookingVersion)
+        reject("VERSION_CONFLICT", 409);
+      const cells = manualHandlingCells(state, booking);
+      if (!cells) reject("MANUAL_ROOM_CONFIRMATION_NOT_READY", 409);
+      const ownFence = booking.manualRoomHandling ? manualHandlingFenceKey(booking.id) :
+        linePendingFenceKey(booking.id);
+      if (hasConflict(state, cells, booking.id, ownFence)) reject("ROOM_CONFLICT", 409);
+      const closedNights = booking.status === "confirmed" ? nightsFor(booking.stays, state.roomIds) : [];
+      booking.version++;
+      booking.manualRoomHandling = { confirmedAt: new Date().toISOString(),
+        confirmedBookingVersion: booking.version, requestKey, closedNights, pending: [] };
+      booking.channelSyncState = "manually_confirmed";
+      booking.channelOperationKey = null;
+      delete booking.lineChannelBaselineNights;
+      delete booking.lineChannelPending;
+      delete booking.lineChannelActionRequiredAt;
+      state.fences = state.fences.filter(fence => fence.key !== ownFence);
+      state.version++;
+      const response = makeBookingReceipt(state, booking);
+      saveReceipt(state, principal, requestKey, "booking:amend", hash, { ...response });
+      emit(tx, state, "channel.manually_confirmed", booking, principal, requestKey,
+        input.reason, { closedNights: structuredClone(closedNights), handledCells: structuredClone(cells) });
+      return response;
+    });
+  }
+
   async requestManualChannelSync(principal: Principal, propertyId: string, bookingId: string,
     requestKey: string, expectedBookingVersion: number,
     expectedInventoryVersion: number): Promise<BookingReceipt> {
@@ -977,6 +1053,7 @@ export class IronGateService {
       if (!booking) reject("BOOKING_NOT_FOUND", 404);
       if (booking.version !== expectedBookingVersion) reject("VERSION_CONFLICT", 409);
       if (!isOsDirectBooking(booking) || booking.status !== "confirmed" ||
+        booking.manualRoomHandling ||
         booking.channelSyncState !== "awaiting_manual_sync" ||
         booking.channelOperationKey !== null) reject("CHANNEL_SYNC_NOT_READY", 409);
       if (state.channel.mode !== "owlnest" || !state.channel.ready ||
@@ -1262,7 +1339,7 @@ export class IronGateService {
           !(principal.origin === "os" && state.channel.mode === "owlnest"))
           reject("CHANNEL_AMENDMENT_UNIMPLEMENTED", 409);
         if (roomNightsChanged && state.channel.mode === "owlnest" && principal.origin === "os") {
-          if (!osDirect || !(osManual ? ["verified", "not_required", "awaiting_manual_sync", "action_required"] :
+          if (!osDirect || !(osManual ? ["verified", "not_required", "awaiting_manual_sync", "action_required", "manually_confirmed"] :
             ["verified", "awaiting_manual_sync"]).includes(
             booking.channelSyncState)) reject("CHANNEL_AMENDMENT_NOT_READY", 409);
           if (!osManual && booking.channelSyncState === "verified") {
@@ -1274,6 +1351,7 @@ export class IronGateService {
           }
         }
         if (roomNightsChanged && hasConflict(state, next, booking.id,
+          booking.manualRoomHandling ? manualHandlingFenceKey(booking.id) :
           (manual || osManual && booking.lineChannelBaselineNights !== undefined) ? linePendingFenceKey(booking.id) : booking.osManualRoomChange ?
             osChangeFenceKey(booking.id) : undefined)) reject("ROOM_CONFLICT", 409);
         booking.stays = structuredClone(input.changes.stays!);
@@ -1300,7 +1378,9 @@ export class IronGateService {
       if (principal.origin === "line") flagExternalSourceReview(state, booking, current, next,
         unverifiableSourceEdit);
       if (externalNameCorrection) flagExternalSourceReview(state, booking, current, next);
-      if (osManual && state.channel.mode === "owlnest" && roomNightsChanged &&
+      if (booking.manualRoomHandling && roomNightsChanged) {
+        updateManualHandling(state, booking, next);
+      } else if (osManual && state.channel.mode === "owlnest" && roomNightsChanged &&
         (booking.channelSyncState !== "awaiting_manual_sync" || booking.osManualRoomChange)) {
         saveOsRoomChange(state, booking, current, next);
       } else if (principal.origin === "line" && manual &&
@@ -1848,6 +1928,10 @@ export class IronGateService {
           channelSyncState: projected.channelSyncState,
           sourceReviewRequired: projected.sourceReviewRequired,
           ...(projected.osEditMode ? { osEditMode: projected.osEditMode } : {}),
+          manualRoomConfirmationAvailable: projected.manualRoomConfirmationAvailable === true,
+          ...(booking.manualRoomHandling ? { manualRoomHandling: {
+            confirmedAt: booking.manualRoomHandling.confirmedAt,
+            pending: structuredClone(booking.manualRoomHandling.pending) } } : {}),
           ...(principal.fields.includes("guest_name") ?
             { guestName: projected.guestName,
               ...(projected.sourceCalendar ?
@@ -1987,6 +2071,7 @@ export class IronGateService {
       if (principal.origin === "os" && netReceived(booking) !== 0)
         reject("CANCELLATION_REQUIRES_SETTLEMENT", 409);
       if (principal.origin === "os" && state.channel.mode === "owlnest" &&
+        !booking.manualRoomHandling &&
         booking.channelSyncState !== "awaiting_manual_sync") {
         const cells = nightsFor(booking.stays, state.roomIds);
         if (!verifiedOwnManualClose(state, booking, cells)) requireOsStockWindow(state, cells);
@@ -1997,7 +2082,9 @@ export class IronGateService {
         flagExternalSourceReview(state, booking, previousNights, []);
       booking.status = "cancelled";
       booking.version++;
-      if (manual) {
+      if (booking.manualRoomHandling) {
+        updateManualHandling(state, booking, []);
+      } else if (manual) {
         booking.lineChannelBaselineNights ??= previousSync === "action_required" ? [] : previousNights;
         updateLinePending(state, booking, []);
       } else if (state.channel.mode === "owlnest" && previousSync === "awaiting_manual_sync") {

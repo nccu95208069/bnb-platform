@@ -93,7 +93,10 @@ export type CalendarBooking = {
   iron_gate_booking_version?: number;
   iron_gate_edit_mode?: "full" | "guest_name" | "none";
   iron_gate_source?: "os" | "line" | "website" | "external";
-  iron_gate_channel_sync?: "not_required" | "action_required" | "awaiting_manual_sync" | "pending" | "verified" | "review_required";
+  iron_gate_channel_sync?: "not_required" | "action_required" | "awaiting_manual_sync" | "pending" | "verified" | "review_required" | "manually_confirmed";
+  iron_gate_manual_confirmation_available?: boolean;
+  iron_gate_manual_handling?: boolean;
+  iron_gate_manual_confirmed_at?: string;
   iron_gate_source_review?: boolean;
   snapshot_only?: boolean;
   payment_unconfirmed?: boolean;
