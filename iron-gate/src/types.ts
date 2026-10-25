@@ -75,6 +75,11 @@ export type Booking = {
   createdAt: string;
   source: "os" | "line" | "website" | "external";
   sourceKey: string | null;
+  /** Owner has edited a legacy LINE order; preserve its identity and source evidence. */
+  osDirectOverride?: boolean;
+  /** Saved room changes wait for explicit synchronization; old nights stay fenced. */
+  osManualRoomChange?: { baseline: Night[]; baselineState: ChannelSyncState;
+    baselineOperationKey: string | null };
   /** A LINE override of an external source awaits upstream reconciliation. */
   lineOverridePending?: boolean;
   /** Contact and notes cannot be proven by the source event protocol. */
@@ -258,7 +263,7 @@ export type ExtendHoldInput = {
 export type AmendBookingInput = {
   expectedBookingVersion: number;
   expectedInventoryVersion: number;
-  changes: Partial<Pick<Booking, "stays" | "guestName" | "contact" | "notes" | "totalCents" | "roomNightPrices">>;
+  changes: Partial<Pick<Booking, "stays" | "guestName" | "contact" | "notes" | "totalCents" | "roomNightPrices" | "bookedAt">>;
   channelPolicy?: "manual";
   reason?: string;
 };

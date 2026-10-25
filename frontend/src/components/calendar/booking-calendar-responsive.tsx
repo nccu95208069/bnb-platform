@@ -1090,8 +1090,8 @@ const uiLocale = useIntlLocale();
         onUpdateBooking={updateBooking}
         onCancelBooking={cancelBooking}
         onManualEdit={manualEnabled && selectedBooking &&
-          ["os", "external"].includes(selectedBooking.iron_gate_source ?? "") &&
-          ["verified", "not_required", "awaiting_manual_sync"].includes(
+          ["full", "guest_name"].includes(selectedBooking.iron_gate_edit_mode ?? "") &&
+          ["verified", "not_required", "awaiting_manual_sync", "action_required"].includes(
             selectedBooking.iron_gate_channel_sync ?? "") &&
           !selectedBooking.iron_gate_source_review ?
           () => setManualMode("amend") : undefined}
@@ -1100,7 +1100,7 @@ const uiLocale = useIntlLocale();
             selectedBooking.iron_gate_channel_sync ?? "") &&
           !selectedBooking.iron_gate_source_review ?
           () => setManualMode("cancel") : undefined}
-        onManualSync={manualEnabled && selectedBooking?.iron_gate_source === "os" &&
+        onManualSync={manualEnabled && selectedBooking?.iron_gate_edit_mode === "full" &&
           selectedBooking.iron_gate_channel_sync === "awaiting_manual_sync" &&
           !selectedBooking.iron_gate_source_review ?
           () => setManualMode("sync") : undefined}

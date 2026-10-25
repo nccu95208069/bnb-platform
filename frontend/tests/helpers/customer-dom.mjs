@@ -13,7 +13,7 @@ export async function mount(t, component, props = {}, hash = "") {
     "location",
     "history",
     "FormData",
-    "Node", "NodeFilter", "Element", "HTMLElement", "HTMLInputElement", "CustomEvent",
+    "Event", "Node", "NodeFilter", "Element", "HTMLElement", "HTMLInputElement", "CustomEvent",
     "getComputedStyle",
     "MutationObserver",
     "ResizeObserver",
@@ -29,7 +29,7 @@ export async function mount(t, component, props = {}, hash = "") {
     location: dom.window.location,
     history: dom.window.history,
     FormData: dom.window.FormData,
-    Node: dom.window.Node, NodeFilter: dom.window.NodeFilter, Element: dom.window.Element,
+    Event: dom.window.Event, Node: dom.window.Node, NodeFilter: dom.window.NodeFilter, Element: dom.window.Element,
     HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement,
     CustomEvent: dom.window.CustomEvent,
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
@@ -59,6 +59,8 @@ export async function mount(t, component, props = {}, hash = "") {
   const root = createRoot(document.getElementById("root"));
   t.after(async () => {
     await act(() => root.unmount());
+    // Radix dispatches its final focus event on the next timer tick.
+    await new Promise(resolve => setTimeout(resolve, 0));
     Object.assign(globalThis, original);
     dom.window.close();
   });

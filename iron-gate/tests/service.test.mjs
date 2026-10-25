@@ -2667,3 +2667,77 @@ test("outbox events are ordered, PII-free, replayable, and not duplicated by ret
   await assert.rejects(service.listEvents(principal("guest", { actions: ["event:read"] }),
     propertyId, 0, 10), errorCode("FORBIDDEN"));
 });
+
+test('OS full-edit capability is restricted to immutable direct evidence and field grants', async () => {
+  for (const platform of ['LINE', 'booking.com', '', 'mixed']) {
+    const { service, repository } = setup();
+    const created = await service.createBooking(principal(), propertyId, key(), bookingInput());
+    await repository.transact(propertyId, state => {
+      const booking = state.bookings[0]; booking.source = 'external';
+      const row = value => { const values = Array(19).fill(''); values[2] = value; return { values }; };
+      booking.sweetfunSnapshot = { rows: platform === 'mixed' ? [row('LINE'), row('OTA')] : [row(platform)] };
+    });
+    const actor = principal('os', { actions: ['booking:read', 'booking:amend'] });
+    const raw = await service.getBooking(actor, propertyId, created.bookingId);
+    assert.equal(raw.osEditMode, platform === 'LINE' ? 'full' : 'guest_name');
+    const input = { expectedBookingVersion: 1, expectedInventoryVersion: created.inventoryVersion,
+      changes: { bookedAt: '2026-10-20', totalCents: 1300000 }, reason: 'Synthetic edit', channelPolicy: 'manual' };
+    if (platform === 'LINE') {
+      await assert.rejects(service.amendBooking({ ...actor, fields: ['guest_name'] }, propertyId,
+        created.bookingId, key(), input), errorCode('FORBIDDEN'));
+      await assert.rejects(service.amendBooking(actor, propertyId, created.bookingId, key(), {
+        ...input, changes: { bookedAt: '2026-02-30' } }), errorCode('INVALID_DATE'));
+      await service.amendBooking(actor, propertyId, created.bookingId, key(), input);
+      const redacted = await service.getBooking({ ...actor, fields: ['guest_name'] }, propertyId, created.bookingId);
+      assert.equal(redacted.totalCents, undefined); assert.equal(redacted.roomNightPrices, undefined);
+    } else await assert.rejects(service.amendBooking(actor, propertyId, created.bookingId, key(), input), errorCode('FORBIDDEN'));
+  }
+});
+
+test('a legacy LINE edit retains its ledger alias and cannot be overwritten by a later source event', async () => {
+  const { service, repository } = setup();
+  const created = await service.applySourceEvent(principal('source'), key(), sourceInput(1, { totalCents: 1200000, currency: 'TWD' }));
+  await repository.transact(propertyId, state => {
+    const booking = state.bookings[0]; delete booking.sourceCalendar;
+    const values = Array(19).fill(''); Object.assign(values, { 2: 'LINE', 9: 'synthetic-line-order', 6: '12000',
+      3: '2026/11/10', 4: '2026/11/12' });
+    booking.sweetfunSnapshot = { groupKey: 'J:synthetic-line-order', rows: [{ values, roomFeeCents: 1200000 }] };
+  });
+  const before = await repository.read(propertyId);
+  const actor = principal('os', { actions: ['booking:read', 'booking:amend'] });
+  const saved = await service.amendBooking(actor, propertyId, created.bookingId, key(), {
+    expectedBookingVersion: 1, expectedInventoryVersion: before.version, channelPolicy: 'manual',
+    reason: 'Synthetic owner edit', changes: { guestName: 'New Synthetic Guest', bookedAt: '2026-10-21' } });
+  const publicBooking = await service.getBooking(actor, propertyId, created.bookingId);
+  assert.equal(publicBooking.sourceCalendar.sourceOrderRef, 'J:synthetic-line-order');
+  assert.equal(publicBooking.sourceCalendar.bookedAt, '2026-10-21');
+  assert.equal(publicBooking.sourceReviewRequired, false);
+  const result = await service.applySourceEvent(principal('source'), key(), sourceInput(saved.inventoryVersion,
+    { previousSourceVersion: 'v1', sourceVersion: 'v2', guestName: 'Stale Upstream Guest' }));
+  assert.equal(result.reason, 'OS_DIRECT_ORDER_MANAGED');
+  const after = await repository.read(propertyId);
+  assert.equal(after.bookings[0].guestName, 'New Synthetic Guest');
+  assert.equal(after.sourceLinks[0].diverged, true);
+  assert.equal(after.bookings.length, 1);
+});
+
+test('legacy LINE room changes can be saved beyond the observation window without unsafe provider dispatch', async () => {
+  const { service, repository } = setup('owlnest');
+  const created = await service.createBooking(principal(), propertyId, key(), bookingInput());
+  await repository.transact(propertyId, state => {
+    const booking = state.bookings[0]; booking.source = 'external'; booking.channelSyncState = 'not_required';
+    const values = Array(19).fill(''); values[2] = 'LINE'; booking.sweetfunSnapshot = { rows: [{ values }] };
+    state.channel.stockObservedFrom = null; state.channel.stockObservedThrough = null;
+  });
+  const actor = principal('os', { actions: ['booking:read', 'booking:amend'] });
+  const saved = await service.amendBooking(actor, propertyId, created.bookingId, key(), {
+    expectedBookingVersion: 1, expectedInventoryVersion: created.inventoryVersion, channelPolicy: 'manual',
+    changes: { stays: [{ checkIn: '2027-01-01', checkOut: '2027-01-02', roomIds: [roomId] }] } });
+  assert.equal(saved.operationState, 'awaiting_manual_sync');
+  await assert.rejects(service.requestManualChannelSync(actor, propertyId, created.bookingId, key(),
+    saved.bookingVersion, saved.inventoryVersion), errorCode('CHANNEL_STOCK_NOT_OBSERVED'));
+  const state = await repository.read(propertyId);
+  assert.equal(state.operations.length, 0);
+  assert.equal(state.bookings[0].stays[0].checkIn, '2027-01-01');
+  assert.equal(state.fences[0].cells.length, 2);
+});
