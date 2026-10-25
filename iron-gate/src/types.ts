@@ -75,6 +75,11 @@ export type Booking = {
   createdAt: string;
   source: "os" | "line" | "website" | "external";
   sourceKey: string | null;
+  /** Owner has edited a legacy LINE order; preserve its identity and source evidence. */
+  osDirectOverride?: boolean;
+  /** Saved room changes wait for explicit synchronization; old nights stay fenced. */
+  osManualRoomChange?: { baseline: Night[]; baselineState: ChannelSyncState;
+    baselineOperationKey: string | null };
   /** A LINE override of an external source awaits upstream reconciliation. */
   lineOverridePending?: boolean;
   /** Contact and notes cannot be proven by the source event protocol. */
@@ -93,7 +98,12 @@ export type Booking = {
   offlandSnapshot?: Record<string, unknown>;
 };
 
-export type PaymentEvent = {
+export type PaymentMetadata = {
+  method?: "cash" | "bank_transfer" | "credit_card" | "other";
+  refundOfEventId?: string;
+};
+
+export type PaymentEvent = PaymentMetadata & {
   id: string;
   kind: "received" | "refunded";
   amountCents: number;
@@ -253,7 +263,7 @@ export type ExtendHoldInput = {
 export type AmendBookingInput = {
   expectedBookingVersion: number;
   expectedInventoryVersion: number;
-  changes: Partial<Pick<Booking, "stays" | "guestName" | "contact" | "notes" | "totalCents" | "roomNightPrices">>;
+  changes: Partial<Pick<Booking, "stays" | "guestName" | "contact" | "notes" | "totalCents" | "roomNightPrices" | "bookedAt">>;
   channelPolicy?: "manual";
   reason?: string;
 };
@@ -264,7 +274,7 @@ export type LineBulkCancelInput = {
   channelPolicy?: "manual";
 };
 
-export type PaymentEventInput = {
+export type PaymentEventInput = PaymentMetadata & {
   expectedBookingVersion: number;
   eventId: string;
   kind: "received" | "refunded";

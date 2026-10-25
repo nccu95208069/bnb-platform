@@ -30,7 +30,7 @@ function config() {
 
 function fixture({ version = 7, sold = true, blocked = true } = {}) {
   const booking = { id: '66666666-6666-4666-8666-666666666666',
-    workspaceId, propertyId, version: 1, status: 'confirmed',
+    workspaceId, propertyId, source: 'external', version: 1, status: 'confirmed',
     channelSyncState: 'not_required',
     stays: [{ checkIn: '2026-10-25', checkOut: '2026-10-26', roomIds: [roomIds['101']] }],
     guestName: 'Sample Guest', sourceCalendar: {

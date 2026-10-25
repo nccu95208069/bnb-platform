@@ -91,6 +91,7 @@ export type CalendarBooking = {
   channel_pending_nights?: number;
   iron_gate_booking_id?: string;
   iron_gate_booking_version?: number;
+  iron_gate_edit_mode?: "full" | "guest_name" | "none";
   iron_gate_source?: "os" | "line" | "website" | "external";
   iron_gate_channel_sync?: "not_required" | "action_required" | "awaiting_manual_sync" | "pending" | "verified" | "review_required";
   iron_gate_source_review?: boolean;

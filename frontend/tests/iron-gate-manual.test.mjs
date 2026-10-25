@@ -7,11 +7,13 @@ import { createChannelWorker } from '../../iron-gate/src/channel-worker.mjs';
 import { manualError } from '../src/lib/booking-sources/iron-gate-manual-route.server.ts';
 import { createOsMemberProofVerifier } from '../../iron-gate/src/os-member-proof.mjs';
 import { ironGateManualConfig, previewManualBooking, previewManualAmend, createManualBooking,
-  amendManualBooking, cancelManualBooking, manualRequestResult, startManualRoomSync } from
+  amendManualBooking, cancelManualBooking, manualRequestResult, startManualRoomSync, readManualBooking } from
   '../src/lib/booking-sources/iron-gate-manual.server.ts';
 import { ironGateManualPaymentConfig, readManualPayment, recordManualPayment,
   manualPaymentRequestResult } from
   '../src/lib/booking-sources/iron-gate-manual-payment.server.ts';
+
+import { readSweetfunIronGatePaymentOrder, readSweetfunIronGateCalendarSnapshot } from '../src/lib/booking-sources/iron-gate-calendar.server.ts';
 
 const workspaceId = '11111111-1111-4111-8111-111111111111';
 const propertyId = '22222222-2222-4222-8222-222222222222';
@@ -111,7 +113,11 @@ test('OS direct lifecycle verifies every OwlNest transition before the next writ
     expectedInventoryVersion: state.version, reason: 'Synthetic move',
     changes: { stays: stay('2026-11-12', '2026-11-13') },
   }, key(), send);
-  assert.equal(move.channelSyncState, 'pending');
+  assert.equal(move.channelSyncState, 'awaiting_manual_sync');
+  assert.equal((await worker.runOne(channel, propertyId)).state, 'idle');
+  await startManualRoomSync(owner, c, created.bookingId, {
+    expectedBookingVersion: move.bookingVersion, expectedInventoryVersion: move.inventoryVersion,
+  }, key(), send);
   const beforeMoveWrites = writes.length;
   assert.equal((await worker.runOne(channel, propertyId)).state, 'sync_verified');
   assert.deepEqual(writes.slice(beforeMoveWrites).map(item => item.desired),
@@ -120,12 +126,12 @@ test('OS direct lifecycle verifies every OwlNest transition before the next writ
   assert.equal(state.fences.length, 0);
 
   const received = await recordManualPayment(owner, c, created.bookingId, {
-    expectedBookingVersion: state.bookings[0].version, kind: 'received',
+    expectedBookingVersion: state.bookings[0].version, kind: 'received', method: 'bank_transfer',
     amountCents: 40000, evidenceRef: 'synthetic received',
     occurredAt: '2026-10-24T00:00:00.000Z',
   }, key(), send);
   const refunded = await recordManualPayment(owner, c, created.bookingId, {
-    expectedBookingVersion: received.bookingVersion, kind: 'refunded',
+    expectedBookingVersion: received.bookingVersion, kind: 'refunded', method: 'bank_transfer', refundOfEventId: received.paymentEventId,
     amountCents: 40000, evidenceRef: 'synthetic refunded',
     occurredAt: '2026-10-24T00:00:00.000Z',
   }, key(), send);
@@ -249,7 +255,7 @@ test('fast OwlNest review is reported as review, not an unknown sync result', as
     if (init.method === 'POST' && new URL(url).pathname.endsWith('/sync-room-status')) {
       assert.equal((await worker.runOne(channel, propertyId)).state, 'review_required');
       await recordManualPayment(owner, c, created.bookingId, {
-        expectedBookingVersion: created.bookingVersion, kind: 'received',
+        expectedBookingVersion: created.bookingVersion, kind: 'received', method: 'bank_transfer',
         amountCents: 1000, evidenceRef: 'synthetic payment during review',
         occurredAt: '2026-10-24T00:00:00.000Z',
       }, key(), send);
@@ -288,7 +294,7 @@ test('manual direct receipts and refunds use Iron Gate exactly once and read bac
   const before = await readManualPayment(owner, c, created.bookingId, send);
   assert.equal(before.netReceivedCents, 0);
   const receivedKey = key();
-  const receivedInput = { expectedBookingVersion: before.version, kind: 'received',
+  const receivedInput = { expectedBookingVersion: before.version, kind: 'received', method: 'bank_transfer',
     amountCents: 40000, evidenceRef: 'synthetic bank receipt 1',
     occurredAt: '2026-10-24T00:00:00.000Z' };
   const received = await recordManualPayment(owner, c, created.bookingId,
@@ -306,10 +312,10 @@ test('manual direct receipts and refunds use Iron Gate exactly once and read bac
   assert.equal((await manualPaymentRequestResult(owner, c, receivedKey, send)).paymentEventId,
     receivedKey);
   await assert.rejects(recordManualPayment(owner, c, created.bookingId, {
-    ...receivedInput, expectedBookingVersion: 2, kind: 'refunded', amountCents: 50000,
+    ...receivedInput, expectedBookingVersion: 2, kind: 'refunded', refundOfEventId: receivedKey, amountCents: 50000,
   }, key(), send), /REFUND_EXCEEDS_RECEIVED/);
   const refunded = await recordManualPayment(owner, c, created.bookingId, {
-    ...receivedInput, expectedBookingVersion: 2, kind: 'refunded', amountCents: 15000,
+    ...receivedInput, expectedBookingVersion: 2, kind: 'refunded', refundOfEventId: receivedKey, amountCents: 15000,
     evidenceRef: 'synthetic refund 1',
   }, key(), send);
   assert.equal(refunded.netReceivedCents, 25000);
@@ -330,7 +336,7 @@ test('manual payment gateway blocks another property and preserves ambiguous wri
   async () => { calls++; throw Error('must not send'); }), /MANUAL_FORBIDDEN/);
   assert.equal(calls, 0);
   const requestKey = key();
-  const input = { expectedBookingVersion: 1, kind: 'received', amountCents: 10000,
+  const input = { expectedBookingVersion: 1, kind: 'received', method: 'bank_transfer', amountCents: 10000,
     evidenceRef: 'synthetic cash receipt', occurredAt: '2026-10-24T00:00:00.000Z' };
   const serverErrorAfterCommit = async (url, init) => {
     const response = await send(url, init);
@@ -441,7 +447,8 @@ test('a successful create response cannot confirm mismatched booking facts on re
     totalCents: 100000, bookedAt: '2026-10-24' };
   for (const [field, changed] of Object.entries({ guestName: 'Another Guest',
     contact: 'different-contact', notes: 'different note', totalCents: 1,
-    bookedAt: '2026-10-23', version: 2 })) {
+    bookedAt: '2026-10-23', version: 2,
+    stays: [{ checkIn: '2026-11-09', checkOut: '2026-11-12', roomIds: [roomIds['101']] }] })) {
     const { repository, send } = setup(), c = config(), requestKey = key();
     const alteredReadback = async (url, init) => {
       const response = await send(url, init);
@@ -455,4 +462,159 @@ test('a successful create response cannot confirm mismatched booking facts on re
     assert.equal((await repository.read(propertyId)).bookings.length, 1);
     assert.equal((await manualRequestResult(owner, c, requestKey, send)).bookingVersion, 1);
   }
+});
+
+test('JSONB object key ordering does not turn a committed booking into an unknown result', async () => {
+  const { repository, send } = setup('owlnest'), c = config();
+  const reorder = value => Array.isArray(value) ? value.map(reorder) :
+    value && typeof value === 'object' ? Object.fromEntries(Object.keys(value)
+      .sort((a, b) => a.length - b.length || a.localeCompare(b))
+      .map(key => [key, reorder(value[key])])) : value;
+  const jsonbSend = async (url, init) => {
+    const response = await send(url, init);
+    return Response.json(reorder(await response.json()), { status: response.status });
+  };
+  const requestKey = key();
+  const created = await createManualBooking(owner, c, { expectedInventoryVersion: 1,
+    stays: stay(), guestName: 'Synthetic JSONB Guest', contact: null,
+    notes: 'Synthetic evidence', totalCents: 390000, bookedAt: null }, requestKey, jsonbSend);
+  assert.equal(created.operationState, 'awaiting_manual_sync');
+  assert.equal((await repository.read(propertyId)).bookings.length, 1);
+  const recovered = await manualRequestResult(owner, c, requestKey, jsonbSend);
+  assert.equal(recovered.readbackVerified, true);
+  assert.equal(recovered.requestKey, requestKey);
+});
+
+test('different room/date prices persist exactly, reconcile, and survive metadata edits', async () => {
+  const { repository, service, send } = setup(), c = config();
+  const input = { expectedInventoryVersion: 1, stays: [
+    { checkIn: '2026-11-10', checkOut: '2026-11-12', roomNumbers: ['101'] },
+    { checkIn: '2026-11-11', checkOut: '2026-11-12', roomNumbers: ['202'] },
+  ], guestName: 'Synthetic Priced Guest', contact: null, notes: null,
+  totalCents: 1350000, bookedAt: '2026-10-25', roomNightPrices: [
+    { roomNumber: '101', date: '2026-11-10', amountCents: 390000 },
+    { roomNumber: '101', date: '2026-11-11', amountCents: 460000 },
+    { roomNumber: '202', date: '2026-11-11', amountCents: 500000 },
+  ] };
+  for (const prices of [input.roomNightPrices.slice(1), [...input.roomNightPrices, input.roomNightPrices[0]],
+    input.roomNightPrices.map((p, index) => index ? p : { ...p, date: '2026-11-12' }),
+    input.roomNightPrices.map((p, index) => index ? p : { ...p, amountCents: 1 })]) {
+    await assert.rejects(createManualBooking(owner, c, { ...input, roomNightPrices: prices }, key(), send),
+      /MANUAL_INVALID_NIGHT_PRICES/);
+    assert.equal((await repository.read(propertyId)).bookings.length, 0);
+  }
+  const result = await createManualBooking(owner, c, input, key(), send);
+  let state = await repository.read(propertyId);
+  assert.deepEqual(state.bookings[0].roomNightPrices, input.roomNightPrices.map(({ roomNumber, ...price }) =>
+    ({ roomId: roomIds[roomNumber], ...price })));
+  const expectedPrices = structuredClone(state.bookings[0].roomNightPrices);
+  const calendar = await service.calendarSnapshot({ clientId, subjectId: owner.id, origin: 'os',
+    workspaceId, propertyIds: [propertyId], authorityEpoch: 1,
+    actions: ['booking:read'], fields: ['money'] }, propertyId, '2026-11-10', '2026-11-13');
+  assert.deepEqual(calendar.bookings[0].stayAmountsCents, [850000, 500000]);
+  await amendManualBooking(owner, c, result.bookingId, { expectedBookingVersion: 1,
+    expectedInventoryVersion: state.version, reason: 'Synthetic note edit',
+    changes: { notes: 'Updated note', totalCents: input.totalCents, stays: input.stays } }, key(), send);
+  state = await repository.read(propertyId);
+  assert.deepEqual(state.bookings[0].roomNightPrices, expectedPrices);
+  assert.equal(state.bookings[0].totalCents, 1350000);
+});
+
+test('recovery must independently read the committed booking before confirming success', async () => {
+  const { send } = setup(), c = config(), requestKey = key();
+  await createManualBooking(owner, c, { expectedInventoryVersion: 1, stays: stay(),
+    guestName: 'Synthetic Recovery', contact: null, notes: null,
+    totalCents: 100000, bookedAt: null }, requestKey, send);
+  await assert.rejects(manualRequestResult(owner, c, requestKey, async (url, init) => {
+    if (/\/bookings\/[0-9a-f-]{36}$/.test(new URL(url).pathname)) throw Error('read unavailable');
+    return send(url, init);
+  }), /MANUAL_RESULT_UNKNOWN/);
+});
+
+for (const source of ['os', 'line', 'legacy_line']) test(`${source} full amendment retains identity/payments and reads every field back`, async () => {
+  const { repository, service, send } = setup(), c = config();
+  const created = await createManualBooking(owner, c, { expectedInventoryVersion: 1,
+    stays: stay('2026-11-10', '2026-11-11'), guestName: 'Synthetic Original',
+    totalCents: 390000, contact: null, notes: null, bookedAt: null }, key(), send);
+  const events = [{ id: key(), kind: 'received', amountCents: 10000, currency: 'TWD',
+    evidenceRef: 'synthetic receipt', occurredAt: '2026-10-24T00:00:00Z',
+    recordedAt: '2026-10-24T00:00:00Z', actorId: 'synthetic' }];
+  await repository.transact(propertyId, state => {
+    const booking = state.bookings[0];
+    booking.source = source === 'legacy_line' ? 'external' : source;
+    booking.paymentEvents = events;
+    if (source === 'legacy_line') {
+      const values = Array(19).fill('');
+      Object.assign(values, { 2: 'LINE', 3: '2026/11/10', 4: '2026/11/11', 6: '3900', 9: 'synthetic-direct-order' });
+      booking.sweetfunSnapshot = { groupKey: 'J:synthetic-direct-order', rows: [{ values, roomFeeCents: 390000 }] };
+    }
+  });
+  const before = await readManualBooking(owner, c, created.bookingId, send);
+  assert.equal(before.osEditMode, 'full');
+  const originalPaymentOrder = await readSweetfunIronGatePaymentOrder(created.bookingId, owner, c.calendar, send);
+  const calendar = await readSweetfunIronGateCalendarSnapshot('2026-11-01', '2026-12-01', owner, c.calendar, send);
+  assert.equal(calendar.bookings.find(row => row.iron_gate_booking_id === created.bookingId).iron_gate_edit_mode, 'full');
+  const changes = { guestName: 'Synthetic Changed', contact: 'synthetic@example.test', notes: 'Changed note',
+    bookedAt: '2026-10-20', totalCents: 850000, stays: [
+      { checkIn: '2026-11-12', checkOut: '2026-11-13', roomNumbers: ['101'] },
+      { checkIn: '2026-11-15', checkOut: '2026-11-16', roomNumbers: ['202'] },
+    ], roomNightPrices: [
+      { roomNumber: '101', date: '2026-11-12', amountCents: 400000 },
+      { roomNumber: '202', date: '2026-11-15', amountCents: 450000 },
+    ] };
+  const preview = await previewManualAmend(owner, c, created.bookingId, { expectedBookingVersion: before.version,
+    expectedInventoryVersion: created.inventoryVersion, stays: changes.stays }, send);
+  assert.equal(preview.roomNights, 2);
+  const requestKey = key();
+  const input = { expectedBookingVersion: before.version, expectedInventoryVersion: preview.inventoryVersion,
+    reason: 'Synthetic full edit', changes };
+  const saved = await amendManualBooking(owner, c, created.bookingId, input, requestKey, send);
+  assert.equal(saved.bookingId, created.bookingId);
+  assert.deepEqual(await amendManualBooking(owner, c, created.bookingId,
+    { ...input, expectedBookingVersion: saved.bookingVersion, expectedInventoryVersion: saved.inventoryVersion }, key(), send).then(r => r.bookingId), created.bookingId);
+  const detail = await readManualBooking(owner, c, created.bookingId, send);
+  for (const [field, value] of Object.entries(changes)) assert.deepEqual(detail[field], value, field);
+  const state = await repository.read(propertyId);
+  assert.deepEqual(state.bookings[0].paymentEvents, events);
+  assert.equal(state.bookings.length, 1);
+  assert.equal(state.operations.length, 0);
+  assert.equal(state.bookings[0].source, source === 'legacy_line' ? 'external' : source);
+  if (source === 'legacy_line') {
+    const raw = await service.getBooking({ clientId, subjectId: owner.id, origin: 'os', workspaceId,
+      propertyIds: [propertyId], actions: ['booking:read'], fields: ['guest_name', 'money'] }, propertyId, created.bookingId);
+    assert.equal(raw.sourceCalendar.sourceOrderRef, 'J:synthetic-direct-order');
+    assert.equal(raw.sourceCalendar.bookedAt, changes.bookedAt);
+    const paymentOrder = await readSweetfunIronGatePaymentOrder(created.bookingId, owner, c.calendar, send);
+    assert.match(paymentOrder.paymentOrderId, /^SF-/);
+    assert.equal(paymentOrder.paymentOrderId, originalPaymentOrder.paymentOrderId);
+    assert.equal(paymentOrder.totalCents, changes.totalCents);
+  }
+});
+
+test('saved room changes fence the original nights, allow repeated edits/revert, and block premature cancellation', async () => {
+  const { repository, send } = setup('owlnest'), c = config();
+  const created = await createManualBooking(owner, c, { expectedInventoryVersion: 1, stays: stay(),
+    guestName: 'Synthetic Pending Edit', totalCents: 100000, bookedAt: null }, key(), send);
+  await repository.transact(propertyId, state => { state.bookings[0].channelSyncState = 'verified'; });
+  async function amend(next) {
+    const state = await repository.read(propertyId);
+    const versions = { expectedBookingVersion: state.bookings[0].version, expectedInventoryVersion: state.version };
+    await previewManualAmend(owner, c, created.bookingId, { ...versions, stays: next }, send);
+    return amendManualBooking(owner, c, created.bookingId, { ...versions,
+      changes: { stays: next }, reason: 'Synthetic move' }, key(), send);
+  }
+  const first = await amend(stay('2026-11-12', '2026-11-13'));
+  assert.equal(first.channelSyncState, 'awaiting_manual_sync');
+  await assert.rejects(cancelManualBooking(owner, c, created.bookingId, {
+    expectedBookingVersion: first.bookingVersion, expectedInventoryVersion: first.inventoryVersion,
+    reason: 'Synthetic cancel pending change' }, key(), send), /CHANNEL_CANCELLATION_NOT_READY/);
+  await amend(stay('2026-11-13', '2026-11-14'));
+  let state = await repository.read(propertyId);
+  assert.equal(state.operations.length, 0);
+  assert.deepEqual(state.fences[0].cells.map(p => p.date), ['2026-11-10', '2026-11-11']);
+  await amend(stay());
+  state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].channelSyncState, 'verified');
+  assert.equal(state.bookings[0].osManualRoomChange, undefined);
+  assert.equal(state.fences.length, 0);
 });

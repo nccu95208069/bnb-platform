@@ -1,5 +1,7 @@
 # Finance workspace — 2026-09-08
 
+2026-10-25 update: [Sweetfun native direct receipt/refund projection and authorized production readback](SWEETFUN_DIRECT_FINANCE_2026-10-25.md) are live. Refunds reduce net receipts separately from operating expenses; the legacy ledger is unchanged. The separate conservative Sheet summary and historical-source migration retain their stated limits.
+
 ## Owner scope and shipped routes
 
 Home `/home` under the authenticated main layout replaces `/` redirect-to-calendar. Six module entries: 日曆, 對話, 攬客, 競品, 財務, 設定. Only calendar, finance and settings are enabled; the other three are explicitly planned and do not link to legacy subsystem functionality. Existing URLs remain compatible. Member management is linked under settings at `/settings/access` (existing `/access` retained).

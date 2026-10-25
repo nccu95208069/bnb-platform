@@ -4,16 +4,22 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { METHODS } from '@/lib/finance-model';
 import { clearPendingManualPayment, readPendingManualPayment,
-  savePendingManualPayment, type PendingManualPayment } from
+  savePendingManualPayment, type PendingManualPayment, type ManualPaymentPayload } from
   '@/lib/booking-sources/manual-payment-request-identity';
 
 type Event = { id: string; kind: 'received' | 'refunded'; amountCents: number;
-  evidenceRef: string; occurredAt: string; recordedAt: string };
+  evidenceRef: string; occurredAt: string; recordedAt: string;
+  method?: keyof typeof METHODS; refundOfEventId?: string };
 type Detail = { bookingId: string; version: number; status: string;
   totalCents: number | null; receivedCents: number; refundedCents: number;
   netReceivedCents: number; events: Event[] };
 const labels: Record<string, string> = {
+  IRON_GATE_LEGACY_LEDGER_CONFLICT: '此訂單與舊帳本有重複紀錄，請先核對來源。',
+  IRON_GATE_FINANCE_UNAVAILABLE: '財務整合尚未就緒，暫時無法登記。',
+  RECEIPT_EXCEEDS_DUE: '收款超過剩餘應收，或訂單已取消，請重新核對。',
+  INVALID_REFUND_REFERENCE: '請選擇原收款，退款時間不能早於該筆收款。',
   VERSION_CONFLICT: '訂單或收款紀錄已變更，請重新載入再確認。',
   REFUND_EXCEEDS_RECEIVED: '退款金額超過這張訂單已登記的淨收款。',
   PAYMENT_EVENT_LIMIT: '這張訂單的收付款紀錄已達上限，請聯絡管理員。',
@@ -43,6 +49,9 @@ export function IronGateManualPaymentPanel({ bookingId, canRecord, onChange }: {
   const [result, setResult] = useState('');
   const [kind, setKind] = useState<'received' | 'refunded'>('received');
   const [amount, setAmount] = useState('');
+  const [method, setMethod] = useState<ManualPaymentPayload['method']>('bank_transfer');
+  const [retryAllowed, setRetryAllowed] = useState(false);
+  const [refundOfEventId, setRefundOfEventId] = useState('');
   const [evidence, setEvidence] = useState('');
   const [occurred, setOccurred] = useState(nowTaipei);
   const [open, setOpen] = useState(false);
@@ -77,6 +86,13 @@ export function IronGateManualPaymentPanel({ bookingId, canRecord, onChange }: {
       !Number.isFinite(occurredAt.getTime()) || occurredAt.getTime() > Date.now()) {
       setError('請填寫有效金額、收付時間與憑證編號或說明。'); return;
     }
+    if (kind === 'received' && (detail.status === 'cancelled' || detail.totalCents === null || validAmount > detail.totalCents - detail.netReceivedCents)) {
+      setError(labels.RECEIPT_EXCEEDS_DUE); return;
+    }
+    const original = detail.events.find(event => event.id === refundOfEventId && event.kind === 'received');
+    if (kind === 'refunded' && (!original || occurredAt.getTime() < Date.parse(original.occurredAt))) {
+      setError(labels.INVALID_REFUND_REFERENCE); return;
+    }
     if (kind === 'refunded' && validAmount > detail.netReceivedCents) {
       setError(labels.REFUND_EXCEEDS_RECEIVED); return;
     }
@@ -84,36 +100,48 @@ export function IronGateManualPaymentPanel({ bookingId, canRecord, onChange }: {
     let saved = false;
     try {
       const requestKey = crypto.randomUUID();
-      const current = { requestKey, bookingId, createdAt: Date.now() };
+      const current: PendingManualPayment = { requestKey, bookingId, createdAt: Date.now(),
+        payload: { expectedBookingVersion: detail.version, kind, amountCents: validAmount,
+          evidenceRef: evidence.trim(), method, ...(kind === 'refunded' ? { refundOfEventId } : {}),
+          occurredAt: occurredAt.toISOString() } };
       savePendingManualPayment(window.localStorage, current);
-      saved = true; setPending(current);
-      const response = await fetch(`/api/v1/bookings/manual/${bookingId}/payments`, {
-        method: 'POST', cache: 'no-store',
-        headers: { 'content-type': 'application/json', 'idempotency-key': requestKey },
-        body: JSON.stringify({ expectedBookingVersion: detail.version, kind,
-          amountCents: validAmount, evidenceRef: evidence.trim(),
-          occurredAt: occurredAt.toISOString() }),
-      });
-      const value = await json(response);
-      if (value.outcome === 'unknown' || response.status >= 500 ||
-        response.ok && (value.paymentEventId !== requestKey || value.bookingId !== bookingId) ||
-        !response.ok && typeof value.code !== 'string') {
-        setResult('結果尚未確認。請用原請求鍵查詢，暫時不要再登記一次。');
-        return;
-      }
-      if (!response.ok) {
-        clearPendingManualPayment(window.localStorage, requestKey);
-        setPending(null); setError(labels[String(value.code)] ?? '登記未完成，請重新載入確認。');
-        return;
-      }
-      clearPendingManualPayment(window.localStorage, requestKey);
-      setPending(null); setOpen(false); setAmount(''); setEvidence('');
-      setResult('Iron Gate 已記錄並讀回確認；請依財務帳本核對實際入帳。');
-      setReload(value => value + 1); onChange();
+      saved = true; setPending(current); setRetryAllowed(false);
+      await sendOriginal(current);
     } catch (failure) {
       if (saved) setResult('結果尚未確認。請用原請求鍵查詢，暫時不要再登記一次。');
       else setError(labels[(failure as Error).message] ?? labels.MANUAL_STORAGE_UNAVAILABLE);
     } finally { setBusy(false); }
+  }
+
+  async function sendOriginal(current: PendingManualPayment) {
+    if (!current.payload) return;
+    const response = await fetch(`/api/v1/bookings/manual/${current.bookingId}/payments`, {
+      method: 'POST', cache: 'no-store',
+      headers: { 'content-type': 'application/json', 'idempotency-key': current.requestKey },
+      body: JSON.stringify(current.payload),
+    });
+    const value = await json(response);
+    if (value.outcome === 'unknown' || response.status >= 500 ||
+      response.ok && (value.paymentEventId !== current.requestKey || value.bookingId !== current.bookingId || value.financeVerified !== true) ||
+      !response.ok && typeof value.code !== 'string') {
+      setResult('結果尚未確認。請用原請求鍵查詢，暫時不要再登記一次。'); return;
+    }
+    if (!response.ok) {
+      clearPendingManualPayment(window.localStorage, current.requestKey);
+      setPending(null); setError(labels[String(value.code)] ?? '登記未完成，請重新載入確認。'); return;
+    }
+    clearPendingManualPayment(window.localStorage, current.requestKey);
+    setPending(null); setOpen(false); setAmount(''); setEvidence(''); setRetryAllowed(false);
+    setResult('已保存收付款，並在財務首頁讀回確認。');
+    setReload(value => value + 1); onChange();
+  }
+
+  async function retryOriginal() {
+    if (!pending?.payload || !canRecord || !retryAllowed || busy) return;
+    setBusy(true); setError(''); setRetryAllowed(false);
+    try { await sendOriginal(pending); }
+    catch { setResult('結果尚未確認。請用原請求鍵查詢，暫時不要再登記一次。'); }
+    finally { setBusy(false); }
   }
 
   async function recover() {
@@ -123,11 +151,15 @@ export function IronGateManualPaymentPanel({ bookingId, canRecord, onChange }: {
       const response = await fetch(`/api/v1/bookings/manual/payment-requests/${pending.requestKey}`,
         { cache: 'no-store' });
       const value = await json(response);
+      if (response.status === 404 && value.code === 'REQUEST_NOT_FOUND' && pending.payload) {
+        setRetryAllowed(true); setResult('目前未查到原請求，可用原內容重試；同一請求只會記錄一次。'); return;
+      }
+      setRetryAllowed(false);
       if (!response.ok || value.paymentEventId !== pending.requestKey ||
-        value.bookingId !== pending.bookingId) throw Error();
+        value.bookingId !== pending.bookingId || value.financeVerified !== true) throw Error();
       clearPendingManualPayment(window.localStorage, pending.requestKey);
-      setPending(null);
-      setResult('原收付款已在 Iron Gate 留下紀錄，請核對帳本。');
+      setPending(null); setOpen(false); setAmount(''); setEvidence('');
+      setResult('原收付款已保存，並在財務首頁讀回確認。');
       setReload(value => value + 1); onChange();
     } catch { setError('仍無法確認原請求。請保留請求鍵並人工核對，不要再登記一次。'); }
     finally { setBusy(false); }
@@ -136,15 +168,18 @@ export function IronGateManualPaymentPanel({ bookingId, canRecord, onChange }: {
   return <section className="space-y-3 rounded-xl border p-3" aria-label="Iron Gate 收付款紀錄">
     <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">收付款紀錄</h3>
       {detail && canRecord && !pending && !storageBlocked && !open && <Button size="sm"
-        onClick={() => { setError(''); setOpen(true); }}>登記收付</Button>}</div>
+        onClick={() => { setError(''); if (detail.status === 'cancelled' || detail.netReceivedCents >= (detail.totalCents ?? 0)) setKind('refunded'); setOpen(true); }}>登記收付</Button>}</div>
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+    {error && detail && !pending && <Button variant="outline" disabled={busy} onClick={() => setReload(value => value + 1)}>重新載入紀錄</Button>}
     {result && <p role="status" className="text-sm text-amber-800">{result}</p>}
     {pending && <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
       <p>有一筆收付款結果尚未確認。請查詢原請求，避免重複登記。</p>
       <p className="mt-1 break-all text-xs">原請求鍵：{pending.requestKey}</p>
       {pending.bookingId !== bookingId && <p>這筆請求屬於另一張訂單，查詢後再繼續。</p>}
       <Button className="mt-2" variant="outline" disabled={busy}
-        onClick={() => void recover()}>查詢原請求</Button></div>}
+        onClick={() => void recover()}>查詢原請求</Button>
+      {retryAllowed && pending.payload && canRecord && <Button className="ml-2 mt-2" disabled={busy}
+        onClick={() => void retryOriginal()}>重試原收付款</Button>}</div>}
     {!detail && !error && <p className="text-sm">讀取收付款紀錄中…</p>}
     {!detail && error && <Button variant="outline"
       onClick={() => setReload(value => value + 1)}>重新載入</Button>}
@@ -152,15 +187,23 @@ export function IronGateManualPaymentPanel({ bookingId, canRecord, onChange }: {
       <p className="text-sm">訂單總額：{detail.totalCents === null ? '待核' : money(detail.totalCents)}
         {' · '}已登記收款：{money(detail.receivedCents)}{' · '}已登記退款：{money(detail.refundedCents)}
         {' · '}淨額：{money(detail.netReceivedCents)}</p>
-      <p className="text-xs text-muted-foreground">這些是 Iron Gate 的收付憑證紀錄；實際銀行入帳與現行財務帳本仍須核對，請勿在兩處重複登記。</p>
+      <p className="text-xs text-muted-foreground">已登記的收退款會自動列入財務首頁；銀行入帳仍以實際憑證核對。</p>
       {open && !pending && <form className="space-y-3 border-t pt-3" onSubmit={event => {
         event.preventDefault(); void submit(); }}>
         <fieldset disabled={busy} className="space-y-3 disabled:opacity-60">
           <div className="grid grid-cols-2 gap-2"><label className="text-sm"><input type="radio"
-            name="iron-gate-payment-kind" checked={kind === 'received'}
+            name="iron-gate-payment-kind" checked={kind === 'received'} disabled={detail.status === 'cancelled' || detail.totalCents === null || detail.netReceivedCents >= detail.totalCents}
             onChange={() => setKind('received')} /> 登記收款</label><label className="text-sm"><input
               type="radio" name="iron-gate-payment-kind" checked={kind === 'refunded'}
               onChange={() => setKind('refunded')} /> 登記退款</label></div>
+          <label className="block text-sm">收付方式<select aria-label="收付方式" className="mt-1 block w-full rounded-md border p-2" value={method}
+            onChange={event => setMethod(event.target.value as ManualPaymentPayload['method'])}>{Object.entries(METHODS).filter(([key]) => key !== 'ota')
+              .map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+          {kind === 'refunded' && <label className="block text-sm">對應原收款<select required aria-label="對應原收款"
+            className="mt-1 block w-full rounded-md border p-2" value={refundOfEventId}
+            onChange={event => setRefundOfEventId(event.target.value)}><option value="">請選擇原收款</option>
+            {detail.events.filter(event => event.kind === 'received').map(event => <option key={event.id} value={event.id}>
+              {event.evidenceRef} · {money(event.amountCents)}</option>)}</select></label>}
           <div className="space-y-1"><Label htmlFor="iron-gate-payment-amount">金額（台幣）</Label>
             <Input id="iron-gate-payment-amount" required type="number" min="0.01" step="0.01"
               value={amount} onChange={event => setAmount(event.target.value)} /></div>
@@ -180,7 +223,7 @@ export function IronGateManualPaymentPanel({ bookingId, canRecord, onChange }: {
           className="py-2 text-sm"><p className="font-medium">{event.kind === 'received' ? '收款' : '退款'}
             {' · '}{money(event.amountCents)}</p><p className="text-xs text-muted-foreground">
               {new Date(event.occurredAt).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}
-              {' · '}{event.evidenceRef}</p></li>)}</ul>}
+              {' · '}{event.evidenceRef}{event.method ? ` · ${METHODS[event.method]}` : ''}{event.refundOfEventId ? ` · 原收款：${detail.events.find(item => item.id === event.refundOfEventId)?.evidenceRef ?? event.refundOfEventId}` : ''}</p></li>)}</ul>}
     </>}
   </section>;
 }

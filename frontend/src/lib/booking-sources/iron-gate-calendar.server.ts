@@ -255,7 +255,7 @@ function calendarBooking(booking: Record<string, unknown>,
   const name = typeof booking.guestName === 'string' && booking.guestName.trim()
     ? booking.guestName.trim() : '姓名待核';
   const source = object(booking.sourceCalendar) ? booking.sourceCalendar : null;
-  const manualSource = booking.source === 'os';
+  const manualSource = booking.source === 'os' || booking.source === 'line';
   const sourceOrderRef = typeof source?.sourceOrderRef === 'string' &&
     (property === 'offland' ?
       /^(?:Q:[A-Za-z0-9-]{8,128}|J:[A-Za-z0-9_-]{8,100})$/ :
@@ -292,6 +292,8 @@ function calendarBooking(booking: Record<string, unknown>,
     iron_gate_source: booking.source as CalendarBooking['iron_gate_source'],
     iron_gate_channel_sync: booking.channelSyncState as CalendarBooking['iron_gate_channel_sync'],
     iron_gate_source_review: booking.sourceReviewRequired === true,
+    iron_gate_edit_mode: ['full', 'guest_name', 'none'].includes(String(booking.osEditMode))
+      ? booking.osEditMode as CalendarBooking['iron_gate_edit_mode'] : undefined,
     source_legacy_payment: property === 'sweetfun' && viewPrices && !!sourceOrderRef,
     owlnest_order_no: property === 'sweetfun' && viewPrices &&
       sourceOrderRef?.startsWith('L:') ? sourceOrderRef.slice(2) : null,
@@ -343,7 +345,7 @@ function blockedBooking(roomNumber: string, night: string,
     payment_unconfirmed: true, price_hidden: true };
 }
 
-export type IronGatePaymentOrder = {
+export type IronGatePaymentOrder = { source: string;
   bookingId: string;
   paymentOrderId: string;
   version: number;
@@ -396,6 +398,7 @@ export async function readSweetfunIronGatePaymentOrder(bookingId: string,
   const raw = await getJson(url.toString(), config, principal, send, 64 * 1024, 8000);
   if (!object(raw) || raw.id !== bookingId ||
     raw.propertyId !== config.grant.propertyId || raw.workspaceId !== config.grant.workspaceId ||
+    !['os', 'line', 'website', 'external'].includes(String(raw.source)) ||
     raw.status !== 'confirmed' || !Number.isSafeInteger(raw.version) || Number(raw.version) < 1 ||
     raw.currency !== 'TWD' || !Number.isSafeInteger(raw.totalCents) ||
     Number(raw.totalCents) < 0 || Number(raw.totalCents) > 1_000_000_000_000 ||
@@ -428,10 +431,11 @@ export async function readSweetfunIronGatePaymentOrder(bookingId: string,
   const source = object(raw.sourceCalendar) ? raw.sourceCalendar : null;
   const ref = source?.sourceOrderRef;
   const paymentId = paymentOrderId(bookingId, ref, true);
-  if (ref !== undefined && raw.version !== 1) throw Error('SOURCE_CHANGED');
+  if (ref !== undefined && raw.version !== 1 &&
+    !(raw.osEditMode === 'full' && raw.osDirectOverride === true)) throw Error('SOURCE_CHANGED');
   if (ref !== undefined && paymentId === `IG-${bookingId}`)
     throw Error('IRON_GATE_PAYMENT_SOURCE_INVALID');
-  return { bookingId, paymentOrderId: paymentId, version: Number(raw.version),
+  return { source: String(raw.source), bookingId, paymentOrderId: paymentId, version: Number(raw.version),
     totalCents: Number(raw.totalCents), rooms: [...rooms].sort(), nights: occupied.size,
     sourcePaid: review?.status === 'paid', legacyImported: paymentId.startsWith('SF-') };
 }
