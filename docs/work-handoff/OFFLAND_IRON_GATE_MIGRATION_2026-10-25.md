@@ -437,8 +437,18 @@ records including the calendar boundary. The route's source selection reads
 Offland through Iron Gate when the flag is enabled; the original Sheet reader
 is excluded for that property. A later UI copy fix removes the outdated
 banner that still said Offland used the booking Sheet, and tells staff that
-Offland manual additions/changes remain paused. The checked fix must be
-published and redeployed before the live banner reflects this state.
+Offland manual additions/changes remain paused. The owner approved the
+cutover report and banner fix after automatic approval review requested
+specific scope confirmation. Commit `76670b7` was pushed to the Offland PR
+branch and the OS Production deployment `dpl_62g6BJBQWUVRjDTZh6jatuLFBzii`
+was Ready and aliased to `sweetfun-os.vercel.app`. The owner reloaded the live
+Offland calendar; its sidebar now says the new calendar is active and warns
+staff not to edit the old Sheet, while the source detail says
+`OFFLAND Iron Gate 訂房紀錄`. The October view still showed 26 occupied nights
+and 27 visible records. The new deployment had no error/fatal runtime log
+counts in the inspected post-deployment window; the database remained at
+epoch 1/version 2 with 270 bookings and 280 occupied nights, and the legacy
+Sheet modification time was unchanged.
 
 Cloud Run promoted `gmail-order-handler-offland-final-1283d11` to 100% at
 approximately 06:16 UTC from the reviewed image digest, with the actual
