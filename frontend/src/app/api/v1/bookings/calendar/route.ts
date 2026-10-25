@@ -282,13 +282,15 @@ export async function GET(request: NextRequest) {
           try { ironGateManualPaymentConfig(); ironGateFinanceConfig(); manualPaymentEnabled = true; }
           catch { /* separate money grant stays closed by default */ }
         }
-        const source = ig ? { label: "Iron Gate 訂房紀錄", observed_at: ig.observedAt,
+        // A successful booking read does not verify external channel stock.
+        // Keep that boundary separate from source-read health.
+        const source = ig ? { kind: "iron_gate" as const, label: "Iron Gate 訂房紀錄", observed_at: ig.observedAt,
           read_only: true, automatic_sync: true, availability_authoritative: false,
           private_snapshot_version: String(ig.inventoryVersion),
-          sync: { status: "confirming" as const, last_checked_at: ig.observedAt,
+          sync: { status: "healthy" as const, last_checked_at: ig.observedAt,
             last_successful_check_at: ig.observedAt, last_published_at: ig.observedAt,
             cutoff: ig.observedAt, interval_seconds: 0,
-            error_code: "OWLNEST_STOCK_NOT_VERIFIED" } } : null;
+            error_code: null } } : null;
         const missingPaymentNights = igPayments.filter(booking =>
           !booking.source_conflict && booking.payment_status === 'unknown').reduce((sum, booking) => {
           const from = Math.max(Date.parse(`${booking.check_in}T00:00:00Z`), startDate.getTime());
@@ -300,16 +302,16 @@ export async function GET(request: NextRequest) {
           quarantined_rows: 0, blocked_room_nights: ig.blockedRoomNights,
           missing_order_id: 0,
           missing_payment_status: missingPaymentNights } : null;
-        const offlandSource = offlandIg ? { label: 'OFFLAND Iron Gate 訂房紀錄',
+        const offlandSource = offlandIg ? { kind: 'iron_gate' as const, label: 'OFFLAND Iron Gate 訂房紀錄',
           observed_at: offlandIg.observedAt, read_only: true,
           automatic_sync: true, availability_authoritative: false,
           private_snapshot_version: String(offlandIg.inventoryVersion),
-          sync: { status: 'confirming' as const,
+          sync: { status: 'healthy' as const,
             last_checked_at: offlandIg.observedAt,
             last_successful_check_at: offlandIg.observedAt,
             last_published_at: offlandIg.observedAt,
             cutoff: offlandIg.observedAt, interval_seconds: 0,
-            error_code: 'OWLNEST_STOCK_NOT_VERIFIED' } } : null;
+            error_code: null } } : null;
         const offlandSummary = offlandIg ? { rows: offlandIg.soldRoomNights,
           accepted_rows: offlandIg.soldRoomNights,
           quarantined_rows: 0,

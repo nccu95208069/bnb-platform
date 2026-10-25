@@ -51,3 +51,12 @@ PR #75 passed all four required checks and merged as `76a7e16`. Production-confi
 ## Follow-up: visible loading state for unfetched months — 2026-10-24
 
 An unfetched sold-month shell now shows a centered spinner and "讀取訂單與房況中" while its month read is pending. If the active month's read fails, that shell changes to an inline retry action; retry returns it to the loading state. The shell keeps its height so a loading transition does not stop native cross-month scrolling. The initial whole-calendar loading state and loaded month grids retain their existing behavior. A synthetic 390×844 browser preview verified loading → failure → retry → loaded transitions. Frontend lint, TypeScript and production Webpack build, focused calendar resilience checks, and backend lint/format/tests passed locally.
+
+
+## Follow-up: accurate booking-source status — 2026-10-25
+
+The owner reported that the chip beside the calendar legend always displayed `確認中`. Both successful Iron Gate calendar paths hard-coded `sync.status=confirming` and `OWLNEST_STOCK_NOT_VERIFIED`, while the toolbar described a pending Sheet change. An authenticated production check reproduced that message alongside a current successful-read timestamp. No confirmation job was actually represented by this chip.
+
+Successful Iron Gate reads now identify their source kind and return healthy read status. The toolbar displays `訂單已讀取`, the successful-read time, and an explicit explanation that OwlNest inventory synchronization belongs to each booking. The calendar still declares `availability_authoritative=false`; this does not certify channel inventory or change any booking sync state. Payment/detail warnings, stale states, and the actual Sheet monitor's pending-confirmation behavior remain visible. Failed or inconsistent Iron Gate reads still return 503.
+
+Validation before release: 45 reader/route/Sheet-monitor tests and 9 toolbar/calendar-retention checks passed. Frontend lint has zero errors and seven existing warnings; the production Webpack build passed. The source-status UI regression is included in CI. Production release and browser readback are pending.
