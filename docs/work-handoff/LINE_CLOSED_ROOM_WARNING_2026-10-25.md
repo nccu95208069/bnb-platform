@@ -44,3 +44,10 @@ client paired with an old backend fails closed on the unsupported request field.
 - No production guest booking, payment, inventory or LINE test message was written.
 - Candidate/production rollout is pending. Runtime-specific operational evidence
   stays in the private release record; this public document contains no guest data.
+
+The integrated candidate has also passed authenticated availability reads and
+signed previews for one manually closed night and one open night. The returned
+warning list matched exactly; both responses remained `preview_only`, and the
+inventory version was unchanged. Three unauthenticated application routes rejected
+the request with `UNAUTHORIZED`. Deployment source comparison matched all 59
+runtime/configuration/certificate files. No booking or external stock commit ran.
