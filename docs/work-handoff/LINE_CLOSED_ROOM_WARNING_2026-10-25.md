@@ -42,8 +42,11 @@ client paired with an old backend fails closed on the unsupported request field.
   source files in the fresh deployment matched the selected base. Its source-event
   identity validation and duplicate protection remain intact.
 - No production guest booking, payment, inventory or LINE test message was written.
-- Candidate/production rollout is pending. Runtime-specific operational evidence
-  stays in the private release record; this public document contains no guest data.
+- Both backend and LINE production rollout completed with the owner-approved
+  pause/drain/restore procedure. The primary backend passed authenticated read and
+  preview checks; LINE passed all application boundaries and restored every original
+  background source. Runtime-specific operational evidence stays in the private
+  release record; this public document contains no guest data.
 
 The integrated candidate has also passed authenticated availability reads and
 signed previews for one manually closed night and one open night. The returned
@@ -51,3 +54,6 @@ warning list matched exactly; both responses remained `preview_only`, and the
 inventory version was unchanged. Three unauthenticated application routes rejected
 the request with `UNAUTHORIZED`. Deployment source comparison matched all 59
 runtime/configuration/certificate files. No booking or external stock commit ran.
+
+All four CI jobs passed after integration. Both pull requests remain draft and
+unmerged. Production deployment does not change their review or merge status.
