@@ -185,13 +185,22 @@ function proof(url: string, config: IronGateCalendarConfig, principal: Principal
 async function getJson(url: string, config: IronGateCalendarConfig, principal: Principal,
   send: typeof fetch, maxBytes: number, timeoutMs = 5000): Promise<unknown> {
   let response: Response;
+  const endpoint = new URL(url).pathname.split('/').at(-1);
   try {
     response = await send(url, { method: 'GET', headers: {
       authorization: `Bearer ${config.grant.token}`,
       'x-iron-gate-os-proof': proof(url, config, principal),
     }, cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
-  } catch { throw Error('IRON_GATE_CALENDAR_UNAVAILABLE'); }
-  if (!response.ok) throw Error('IRON_GATE_CALENDAR_UNAVAILABLE');
+  } catch {
+    console.warn(JSON.stringify({ event: 'iron_gate_calendar_read_failed',
+      property: propertyKey(config), endpoint, cause: 'network' }));
+    throw Error('IRON_GATE_CALENDAR_UNAVAILABLE');
+  }
+  if (!response.ok) {
+    console.warn(JSON.stringify({ event: 'iron_gate_calendar_read_failed',
+      property: propertyKey(config), endpoint, status: response.status }));
+    throw Error('IRON_GATE_CALENDAR_UNAVAILABLE');
+  }
   const declared = response.headers.get('content-length');
   if (declared && (!/^\d+$/.test(declared) || Number(declared) > maxBytes))
     throw Error('IRON_GATE_CALENDAR_UNAVAILABLE');
