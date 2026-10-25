@@ -283,7 +283,7 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         const value = await body(request);
         exact(value, ["propertyId", "sourceSystem", "sourceAccount", "externalOrderId", "sourceVersion",
           "previousSourceVersion", "kind", "expectedInventoryVersion", "stays", "guestName", "bookedAt"],
-          ["totalCents", "currency", "platform", "externalOrderNo"]);
+          ["totalCents", "currency", "platform", "externalOrderNo", "sourceIdentityEvidence"]);
         const result = await service.applySourceEvent(principal, requestKey(request), value as SourceEventInput);
         return json(result, result.state === "review_required" ? 409 : 200);
       }

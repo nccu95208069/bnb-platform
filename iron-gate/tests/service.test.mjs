@@ -1752,6 +1752,101 @@ test("new OwlNest source events require a verified order identity even with stoc
     ["2026-11-10", "2026-11-11"]);
 });
 
+const signedOwlNestEvidence = { kind: "gmail-owlnest-dkim-v1",
+  signedDomain: "owlting.com", deliveredTo: "sweetfuntw@gmail.com" };
+async function signedSourceSetup() {
+  const context = setup("owlnest");
+  await context.repository.transact(propertyId, (state) => {
+    state.sourceGrants[0].sourceSystem = "sweetfun-calendar-sheet";
+  });
+  const actor = principal("source", { subjectId: "gmail-order-handler",
+    sourceSystem: "sweetfun-calendar-sheet" });
+  const input = sourceInput(1, { sourceSystem: "sweetfun-calendar-sheet",
+    externalOrderId: "L:OBESYNTHETIC001", sourceVersion: `gmail-v1:1792859314000:${"a".repeat(64)}`,
+    bookedAt: null, totalCents: 197000, currency: "TWD", platform: "booking",
+    externalOrderNo: "6200060561", sourceIdentityEvidence: signedOwlNestEvidence });
+  return { ...context, actor, input };
+}
+
+test("signed OwlNest new-order notice creates one linked booking and a channel readback", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  const result = await service.applySourceEvent(actor, key(), input);
+  assert.equal(result.state, "applied");
+  const state = await repository.read(propertyId);
+  assert.equal(state.bookings.length, 1);
+  assert.equal(state.sourceLinks.length, 1);
+  assert.equal(state.bookings[0].totalCents, 197000);
+  assert.equal(state.operations.length, 1);
+  assert.equal(state.operations[0].state, "sync_pending");
+});
+
+test("unsigned, ambiguous, and unbound OwlNest new orders stay under review", async () => {
+  const variants = [
+    ({ input }) => ({ input: { ...input, sourceIdentityEvidence: undefined } }),
+    ({ input }) => ({ input: { ...input, sourceIdentityEvidence: {
+      ...signedOwlNestEvidence, signedDomain: "other.invalid" } } }),
+    ({ actor }) => ({ actor: { ...actor, subjectId: "other-source" } }),
+    ({ input }) => ({ input: { ...input, externalOrderNo: null } }),
+  ];
+  for (const variant of variants) {
+    const context = await signedSourceSetup();
+    const changed = variant(context);
+    const result = await context.service.applySourceEvent(changed.actor ?? context.actor,
+      key(), changed.input ?? context.input);
+    assert.equal(result.reason, "SOURCE_IDENTITY_UNVERIFIED");
+    const state = await context.repository.read(propertyId);
+    assert.equal(state.bookings.length, 0);
+    assert.equal(state.fences.length, 1);
+  }
+});
+
+test("a second OwlNest source key cannot claim the same OTA order number", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  await service.applySourceEvent(actor, key(), input);
+  const second = await service.applySourceEvent(actor, key(), { ...input,
+    expectedInventoryVersion: (await repository.read(propertyId)).version,
+    externalOrderId: "L:OBESYNTHETIC002",
+    sourceVersion: `gmail-v1:1792859315000:${"b".repeat(64)}`,
+    stays: [{ checkIn: "2026-12-10", checkOut: "2026-12-11", roomIds: [roomId] }] });
+  assert.equal(second.reason, "SOURCE_IDENTITY_COLLISION");
+  assert.equal((await repository.read(propertyId)).bookings.length, 1);
+});
+
+test("signed OwlNest notice cannot duplicate an imported Sheet OTA alias", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  await service.applySourceEvent(actor, key(), input);
+  await repository.transact(propertyId, (state) => {
+    const booking = state.bookings[0];
+    delete booking.sourceCalendar;
+    booking.sweetfunSnapshot = { rows: [{ values: Array.from({ length: 14 }, (_, index) =>
+      index === 13 ? "6200060561" : "") }] };
+  });
+  const second = await service.applySourceEvent(actor, key(), { ...input,
+    expectedInventoryVersion: (await repository.read(propertyId)).version,
+    externalOrderId: "L:OBESYNTHETIC003",
+    sourceVersion: `gmail-v1:1792859316000:${"c".repeat(64)}`,
+    stays: [{ checkIn: "2026-12-12", checkOut: "2026-12-13", roomIds: [roomId] }] });
+  assert.equal(second.reason, "SOURCE_IDENTITY_COLLISION");
+  assert.equal((await repository.read(propertyId)).bookings.length, 1);
+});
+
+test("signed OwlNest notice cannot duplicate an imported Sheet OwlNest ID", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  await repository.transact(propertyId, (state) => {
+    state.bookings.push({ id: key(), workspaceId, propertyId, version: 1,
+      status: "confirmed", channelSyncState: "verified", channelOperationKey: null,
+      stays: [{ checkIn: "2026-12-20", checkOut: "2026-12-21", roomIds: [roomId] }],
+      guestName: "Imported Guest", contact: null, notes: null, totalCents: null,
+      currency: "TWD", bookedAt: null, createdAt: new Date().toISOString(),
+      source: "external", sourceKey: null, sweetfunSnapshot: {
+        rows: [{ values: Array.from({ length: 14 }, (_, index) =>
+          index === 11 ? "OBESYNTHETIC001" : "") }] } });
+  });
+  const result = await service.applySourceEvent(actor, key(), input);
+  assert.equal(result.reason, "SOURCE_IDENTITY_COLLISION");
+  assert.equal((await repository.read(propertyId)).bookings.length, 1);
+});
+
 test("OwlNest source date changes hold old and new room nights for review", async () => {
   const { service, repository } = setup();
   const source = principal("source");

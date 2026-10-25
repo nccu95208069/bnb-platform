@@ -301,6 +301,12 @@ export type SourceEventInput = {
   currency?: "TWD";
   platform?: string | null;
   externalOrderNo?: string | null;
+  /** Gmail's aligned DKIM/DMARC verdict, asserted by the bound Gmail writer. */
+  sourceIdentityEvidence?: {
+    kind: "gmail-owlnest-dkim-v1";
+    signedDomain: "owlting.com";
+    deliveredTo: "sweetfuntw@gmail.com";
+  };
 };
 
 export type SourceOrderLookupInput = Pick<SourceEventInput,

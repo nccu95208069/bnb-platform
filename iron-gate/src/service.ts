@@ -9,7 +9,8 @@ import type {
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { GateError } from "./errors.ts";
 import { createBusinessReport, type BusinessReport } from "./business-report.ts";
-import { firstGmailNotification, GMAIL_NOTIFICATION_SUBJECT } from "./source-notification.ts";
+import { firstGmailNotification, GMAIL_NOTIFICATION_SOURCE,
+  GMAIL_NOTIFICATION_SUBJECT } from "./source-notification.ts";
 import { isOsDirectBooking, originalDirectOrderRef } from "./os-direct-booking.ts";
 export { GateError } from "./errors.ts";
 
@@ -2537,17 +2538,45 @@ export class IronGateService {
       // enough to claim another booking, but a collision must never create a
       // second confirmed booking under a different source-event key.
       if (input.kind === "upsert" && input.platform && input.externalOrderNo) {
+        const owlNestOrderId = input.externalOrderId.startsWith("L:") ?
+          input.externalOrderId.slice(2) : null;
         const aliasOwner = state.bookings.find((booking) => booking.id !== linkedBooking?.id &&
-          booking.sourceCalendar?.platform === input.platform &&
-          booking.sourceCalendar?.externalOrderNo === input.externalOrderNo);
+          (booking.sourceCalendar?.platform === input.platform &&
+            booking.sourceCalendar?.externalOrderNo === input.externalOrderNo ||
+            // Imported Sheet rows have no sourceKey. Their OwlNest ID in L
+            // and OTA alias in N must both block a second confirmed booking.
+            Array.isArray(booking.sweetfunSnapshot?.rows) &&
+            booking.sweetfunSnapshot.rows.some((row) =>
+              Array.isArray(row?.values) &&
+              (String(row.values[13] ?? "").trim() === input.externalOrderNo ||
+                owlNestOrderId !== null &&
+                String(row.values[11] ?? "").trim() === owlNestOrderId))));
         if (aliasOwner) return review("SOURCE_IDENTITY_COLLISION", [...cells,
           ...nightsFor(aliasOwner.stays, state.roomIds)]);
       }
-      // Stock readback proves room availability, not the identity of an OTA
-      // reservation. Until a provider-backed order lookup can claim a unique
-      // OwlNest identity, a new source event must not create a second order.
-      if (channelMode && input.kind === "upsert" && !linkedBooking)
-        return review("SOURCE_IDENTITY_UNVERIFIED", cells);
+      // The authenticated Gmail writer may claim a new OwlNest order only
+      // when Gmail verified the provider's aligned DKIM/DMARC signature and
+      // the source notice carries an exact OTA alias and amount. An unsigned
+      // notice, generic source client, or ambiguous identity remains fenced.
+      if (channelMode && input.kind === "upsert" && !linkedBooking) {
+        const evidence = input.sourceIdentityEvidence;
+        const signedNotice = principal.subjectId === GMAIL_NOTIFICATION_SUBJECT &&
+          input.sourceSystem === GMAIL_NOTIFICATION_SOURCE &&
+          /^L:OBE[A-Z0-9]+$/.test(input.externalOrderId) &&
+          /^gmail-v1:[1-9]\d{12}:[0-9a-f]{64}$/.test(input.sourceVersion) &&
+          input.previousSourceVersion === null && input.bookedAt === null &&
+          typeof input.guestName === "string" && input.guestName.trim().length > 0 &&
+          ["booking", "agoda", "airbnb", "ctrip"].includes(input.platform ?? "") &&
+          typeof input.externalOrderNo === "string" &&
+          typeof input.totalCents === "number" &&
+          Number.isSafeInteger(input.totalCents) && input.currency === "TWD" &&
+          evidence && typeof evidence === "object" &&
+          Object.keys(evidence).sort().join(",") === "deliveredTo,kind,signedDomain" &&
+          evidence.kind === "gmail-owlnest-dkim-v1" &&
+          evidence.signedDomain === "owlting.com" &&
+          evidence.deliveredTo === "sweetfuntw@gmail.com";
+        if (!signedNotice) return review("SOURCE_IDENTITY_UNVERIFIED", cells);
+      }
       if (sourceReadback && (!state.channel.ready || !state.channel.grantId))
         return review("CHANNEL_NOT_READY", [...cells,
           ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);
