@@ -260,6 +260,35 @@ writer freeze and drain. The original Sheet's modified timestamp was still
 `2026-10-24T16:05:45.813Z` at the 12:05 readback. Offland authority remains
 read-only epoch 0/version 1 with 270 bookings and zero receipts.
 
+The separate version-pinned finance preflight also returned `safe=true`:
+10 terminal booking operations, eight terminal payment operations and one
+terminal draft, with zero active/unknown states, writes or notifications.
+The six live Scheduler jobs are enabled; the five jobs targeting this service
+were identified by name and endpoint. The `guolv-reminder` job targets a
+different service and is outside the Offland writer freeze.
+
+Cloud Run freeze revision `gmail-order-handler-offland-freeze-1283d11` is
+Ready at 0% traffic. The immutable image is the same tested candidate digest.
+It differs from the current revision only in three expected Offland controls:
+mail ingest disabled, production Sheet mail writes disabled, and LINE order
+reads/writes paused. All other runtime settings, including mounts, match the
+old revision after normalizing image and these three controls. The current
+`gmail-order-handler-line-manual-db56fa0` still receives 100% traffic; the
+freeze revision has not interrupted any request.
+
+Concurrent Sweetfun booking/form/finance work reached production while this
+Offland branch was prepared. Its current remote branch was merged into PR #78
+at `fd76548` so a later Offland deployment does not regress those features.
+The merged source passed frontend TypeScript and 48 focused tests, Iron Gate
+TypeScript and 284 passing tests (nine skipped); React component lint passed.
+Matching merged code was redeployed only to protected Preview: Iron Gate
+`dpl_27bjMjXZMT6QByGtnTJbCuGznxJk` and OS
+`dpl_4MyqX4YMYZ1PrUycBFxR44BHjET7`, both Ready. Authenticated owner
+inspection again loaded 26 October Offland room nights with prices hidden.
+Production aliases at this readback still point to separate Sweetfun releases
+`dpl_D5dL8UT8qcXQph5pUWLtjAFKVpL3` (Iron Gate) and
+`dpl_5tPnBooVjxXotEYf6G3R4q64bdLs` (OS).
+
 The historical source export must be reconstructed for a final hash-bound
 comparison because the earlier private temporary file was cleared by a host
 restart. Automatic approval review rejected writing the owner-only backup
