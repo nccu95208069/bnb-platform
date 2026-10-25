@@ -183,7 +183,7 @@ components:
       properties:
         expectedBookingVersion: { type: integer, minimum: 1 }
         expectedInventoryVersion: { type: integer, minimum: 0 }
-        channelPolicy: { type: string, enum: [manual], description: LINE manage-all only. }
+        channelPolicy: { type: string, enum: [manual], description: LINE manage-all or OS direct booking amendment; OS saves room changes for explicit later synchronization. }
         changes:
           type: object
           additionalProperties: false
@@ -197,6 +197,7 @@ components:
             guestName: { type: [string, 'null'], maxLength: 200 }
             contact: { type: [string, 'null'], maxLength: 256 }
             notes: { type: [string, 'null'], maxLength: 2048 }
+            bookedAt: { type: [string, 'null'], format: date }
             totalCents: { type: [integer, 'null'], minimum: 0 }
             roomNightPrices:
               type: array
