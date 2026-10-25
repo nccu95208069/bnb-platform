@@ -1,0 +1,41 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { financeGrantPackage, prepareFinanceGrantFiles } from '../scripts/prepare-sweetfun-finance-grants.mjs';
+
+test('issuance SQL contains only hashes and two distinct current-property OS money scopes', () => {
+  const start = Date.now(), plan = financeGrantPackage(start);
+  assert.equal(Date.parse(plan.expiresAt) - start, 28 * 86_400_000);
+  assert.deepEqual(plan.items.map(item => item.grant.actions), [['finance:ledger'], ['booking:read', 'payment:write']]);
+  assert.equal(new Set(plan.items.map(item => item.grant.credentialId)).size, 2);
+  assert.equal(new Set(plan.items.map(item => item.grant.clientId)).size, 2);
+  for (const item of plan.items) {
+    assert.equal(item.grant.origin, 'os'); assert.equal(item.grant.authorityEpoch, 1);
+    assert.deepEqual(item.grant.fields, ['money']);
+    assert.equal(item.grant.propertyId, '95ae9bd1-5e6d-4386-be5b-6af3c5668a16');
+    assert.equal(plan.sql.includes(item.environment.token), false);
+    assert.equal(plan.sql.includes(item.tokenHash), true);
+  }
+  assert.match(plan.sql, /FOR SHARE/); assert.match(plan.sql, /ON CONFLICT \(credential_id\) DO NOTHING/);
+  assert.match(plan.sql, /FINANCE_CREDENTIAL_ALREADY_ACTIVE/);
+  assert.match(plan.sql, /FINANCE_CREDENTIAL_READBACK_MISMATCH/);
+  assert.doesNotMatch(plan.sql, /UPDATE iron_gate\.(property_state|credentials)|DELETE|TRUNCATE/);
+});
+
+test('private credential package refuses overwrite and never emits a token in its summary', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'finance-grants-test-'));
+  try {
+    const dir = join(parent, 'new'); const summary = await prepareFinanceGrantFiles(dir);
+    assert.equal((await stat(dir)).mode & 0o777, 0o700);
+    for (const name of ['finance', 'payment']) {
+      const path = join(dir, `${name}.json`);
+      assert.equal((await stat(path)).mode & 0o777, 0o600);
+      const grant = JSON.parse(await readFile(path, 'utf8'));
+      assert.equal(JSON.stringify(summary).includes(grant.token), false);
+      assert.equal((await readFile(join(dir, 'manifest.json'), 'utf8')).includes(grant.token), false);
+    }
+    await assert.rejects(prepareFinanceGrantFiles(dir));
+  } finally { await rm(parent, { recursive: true, force: true }); }
+});
