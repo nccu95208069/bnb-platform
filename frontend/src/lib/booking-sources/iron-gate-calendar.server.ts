@@ -1,4 +1,5 @@
 import { createHash, createHmac } from 'node:crypto';
+import { getVercelOidcToken } from '@vercel/oidc';
 import type { CalendarBooking } from '../../components/calendar/calendar-types';
 import type { Principal } from '../workspace-auth/types';
 import { sweetfunCalendarPlatform } from './sweetfun-platform.ts';
@@ -185,11 +186,19 @@ function proof(url: string, config: IronGateCalendarConfig, principal: Principal
 async function getJson(url: string, config: IronGateCalendarConfig, principal: Principal,
   send: typeof fetch, maxBytes: number, timeoutMs = 5000): Promise<unknown> {
   let response: Response;
-  const endpoint = new URL(url).pathname.split('/').at(-1);
+  const target = new URL(url);
+  const endpoint = target.pathname.split('/').at(-1);
   try {
+    // Preview deployments require an existing Preview-to-Preview Trusted Source
+    // proof before Iron Gate can inspect its separate booking credential.
+    const protectedPreview = config.mode === 'snapshot_preview' &&
+      process.env.VERCEL_ENV === 'preview' &&
+      /^iron-gate-[a-z0-9]+-sweetfuns-projects\.vercel\.app$/.test(target.hostname);
+    const trustedToken = protectedPreview ? await getVercelOidcToken() : null;
     response = await send(url, { method: 'GET', headers: {
       authorization: `Bearer ${config.grant.token}`,
       'x-iron-gate-os-proof': proof(url, config, principal),
+      ...(trustedToken ? { 'x-vercel-trusted-oidc-idp-token': trustedToken } : {}),
     }, cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
   } catch {
     console.warn(JSON.stringify({ event: 'iron_gate_calendar_read_failed',
