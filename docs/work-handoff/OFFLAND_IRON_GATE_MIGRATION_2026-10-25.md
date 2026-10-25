@@ -139,10 +139,14 @@ formulas and all notes. Its ID is
 `1SiwKRBKJEWWbK1ZuKJktHOKJVW8iG9bzBZYek9W_MNo`. It is disposable;
 it was moved to recoverable Google Drive Trash after verification. The
 original source and the first owner-only backup remain in place.
-The current Cloud Run service revision, configuration, trigger inventory and
-zero-traffic candidate cannot be inspected from the connected Google account:
-the Google Cloud Console reports missing access to `gmail-order-handler` in
-`essential-truth-478816-v1`. No GCP CLI credentials are available locally.
+The connected `nccu95208069@gmail.com` account lacks Cloud Run access, but the
+owner opened Chrome under `sweetfuntw@gmail.com`. Owner-side readback confirmed
+`gmail-order-handler` in `essential-truth-478816-v1` is healthy, with
+`gmail-order-handler-line-manual-db56fa0` at 100% traffic. The owner approved
+Google Cloud SDK's full requested scopes, and Cloud Shell was authenticated
+under that owner account. Readback found the current service account, ingress,
+300-second timeout, 80-request concurrency, environment key inventory and two
+secret volumes. No production traffic change has been made.
 
 The live Sheet's linked Apps Script project currently lists four installed
 triggers: `onEditInstallable`, `onChangeInstallable`, `auditOnOpenMenu`, and
@@ -225,8 +229,13 @@ A source-only GCO release package was exported from pushed commit
 `abf0ff0c485a35b30611dec88971d4b31c73abd4409a8557c801ff14837e81c7`).
 This candidate refuses the Offland Gmail Iron Gate route unless the Offland
 LINE order-write pause is also enabled; five targeted synthetic checks pass.
-No Cloud Build or Cloud Run candidate exists yet because the connected account
-still lacks Cloud Run project access.
+The source tar was uploaded to owner Cloud Shell with matching SHA-256 and
+verified `release-source.json` commit/service/file count. Cloud Build
+`0153c7dd-5fde-473b-bf07-d55f9551cb5b` was submitted using only that
+source package and `cloudbuild.yaml`; its image target is the existing
+Artifact Registry `gmail-order-handler:offland-1283d11-20261025` tag. Build
+completion and immutable digest require readback. No Cloud Run candidate has
+been deployed and formal traffic remains on the old revision.
 
 The OS draft PR also prepares exact final-snapshot authority activation,
 next-epoch scoped Gmail/OS credentials, and a no-new-write epoch-2 rollback.
