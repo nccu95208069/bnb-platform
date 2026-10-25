@@ -289,6 +289,24 @@ Production aliases at this readback still point to separate Sweetfun releases
 `dpl_D5dL8UT8qcXQph5pUWLtjAFKVpL3` (Iron Gate) and
 `dpl_5tPnBooVjxXotEYf6G3R4q64bdLs` (OS).
 
+A second concurrent Sweetfun change, covering manual room confirmation and
+calendar source status, was merged into the Offland branch at `d318a06`.
+The combined branch passed Iron Gate TypeScript and 107 targeted tests,
+frontend TypeScript and 43 targeted route/manual tests, plus the source-status
+component test and React lint. GitHub's Backend, Customer workspace isolation,
+Frontend, Iron Gate and verify checks all passed on PR #78. Both services were
+redeployed to protected Preview from the combined source: Iron Gate
+`dpl_Hyp99hgjXoaWzCrVUGYeCEo138wV` and OS
+`dpl_HHatDGPtFzL8egK2HfhUZbS328qG`, both Ready. Authenticated owner
+inspection loaded the Offland October calendar again with 26 room nights and
+prices hidden. Production aliases were unchanged by these deployments.
+
+The owner Cloud Shell also captured a private pre-cutover baseline for the
+Cloud Run service, its five targeting Scheduler jobs, the Gmail Pub/Sub
+subscription and the OwlNest Cloud Tasks queue. This baseline must be
+compared with live state immediately before the freeze and used for exact
+restoration after the authority switch.
+
 The historical source export must be reconstructed for a final hash-bound
 comparison because the earlier private temporary file was cleared by a host
 restart. Automatic approval review rejected writing the owner-only backup
