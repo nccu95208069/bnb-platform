@@ -38,13 +38,26 @@ Iron Gate 本身再次驗證，OS 仍須有 booking:create、guest_name 與 mone
 ## 驗證與發布
 
 本次測試使用合成資料；正式僅讀取既有訂單，不新增測試訂單或款項。
-發行前的結果與實際部署／手機寬度畫面驗收會記錄於本節。
+2026-10-25 10:17（Asia/Taipei）已完成正式發布與回讀。
 
 - API／財務／日曆整合測試：42 passed。
 - 表單及既有付款、月曆 DOM 測試：19 passed。
 - Iron Gate：281 passed、9 skipped（外部資料庫等測試前提未配置）。
 - frontend lint：0 errors，7 個既有 warnings；production Webpack build 通過。
 - 自動恢復僅 GET；未觀察到正式付款寫入，沒有宣稱銀行對帳或實機 iPhone 驗收。
+
+### 正式發布證據
+
+- 程式提交：`4947891345317ac020561aee613688c34db260d2`；[PR #80](https://github.com/nccu95208069/bnb-platform/pull/80) 為 draft，基於既有 finance release 分支，保留已發布的 Offland 與財務整合。
+- [CI 40153508891](https://github.com/nccu95208069/bnb-platform/actions/runs/40153508891) 在此程式提交 completed / success。
+- Iron Gate：`dpl_CQ1GzFiH69ZUMFbxP68CCD3Q6weJ`，`iron-gate-eevwh0f52-sweetfuns-projects.vercel.app`，production / READY。
+- Sweetfun OS：`dpl_GFjf2oAfNFakJSq1kgqajvT9kb6H`，`sweetfun-q5nqa12m6-sweetfuns-projects.vercel.app`，production / READY。
+- 先建立 production 候選版本，使用既有 Vercel 身分通過平台保護後，未附業主登入的應用程式查詢均回 401；再依序切換後端、前台。兩個正式網址 alias 已獨立確認指向上述版本。
+- 既有業主登入查詢原提交，回 `readbackVerified: true`、currentStatus `confirmed`、version `1`、`awaiting_manual_sync`。原訂單未更動，無重複新增。
+- 正式站表單驗證：選入住 10/28 後自動轉退房；101 房 10/28–10/30、201 房 10/29–10/31 可分別輸入四晚 3900、4200、4800、5300，合計 18,200；預訂日仍為當天 2026-10-25。
+- 實際 DOM viewport 為 390 與 360 CSS pixels，日期、房費輸入均未超出視窗；dialog scrollWidth 等於 clientWidth。瀏覽器原有縮放已納入尺寸換算，驗收後解除暫時 viewport，未送出草稿已關閉。瀏覽器 error log 為空。
+- 發布後資料庫：水芳 epoch 1 / inventory 80 / 1,625 bookings / 0 payment events；Offland epoch 0 / inventory 1 / 270 bookings / 0 payment events。沒有新增憑證、調整權限或環境變數。
+- 未以正式訂單測試新建、逐晚價格寫入、退款或 OwlNest 同步；寫入流程及 JSONB 回讀使用隔離合成資料驗證。未修改原訂單未填寫的預訂日。
 
 ## 憑證輪替排程
 

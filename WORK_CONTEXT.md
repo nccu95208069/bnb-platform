@@ -1,6 +1,6 @@
 # BnB SaaS / Sweetfun OS — Authoritative Work Context
 
-2026-10-25 Sweetfun booking form: [checkout date handoff, room/date prices, automatic submission readback, and Taipei booking-date default](docs/work-handoff/SWEETFUN_BOOKING_FORM_2026-10-25.md). Fixes JSONB field-order comparisons that misreported a saved booking as unknown. Engineering and isolated tests complete; release evidence follows in the linked note.
+2026-10-25 Sweetfun booking form: [checkout date handoff, room/date prices, automatic submission readback, and Taipei booking-date default](docs/work-handoff/SWEETFUN_BOOKING_FORM_2026-10-25.md). Runtime `4947891` is live on both services, preserving the previous finance/Offland release. Fixes JSONB field-order comparisons that misreported a saved booking as unknown. Authenticated recovery readback and 390/360 CSS-pixel browser checks passed; no live test bookings or payments were created. PR #80 records the change.
 
 2026-10-25 Sweetfun native direct finance: [source audit, immutable receipt/refund projection, unified form, recovery and authorized production release](docs/work-handoff/SWEETFUN_DIRECT_FINANCE_2026-10-25.md). Both production grants/flags are enabled; authenticated live readback confirms the original 12-entry ledger is unchanged and direct orders are included. Runtime `5f15240` preserves current Offland updates. No live test payments or historical Sheet/LINE receipt migration occurred; the new grants expire November 22 at 08:37 Taipei.
 
