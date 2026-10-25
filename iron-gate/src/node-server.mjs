@@ -46,7 +46,7 @@ export function createPostgresIronGateServer(runtimePool, verifyOsMember = null,
 
 /** Shared request handler for a separate service deployment or the loopback server. */
 export function createPostgresIronGateHandler(runtimePool, verifyOsMember = null,
-  databaseUrl, verifyLineOperator = null, linePreviewSecret = null) {
+  databaseUrl, verifyLineOperator = null, linePreviewSecret = null, onLineChannelQueued = null) {
   validateDatabaseTransport(databaseUrl);
   // The checked URL must be the one used by pg. Separate host/SSL overrides
   // could otherwise make a safe-looking URL validate an unsafe pool.
@@ -59,7 +59,7 @@ export function createPostgresIronGateHandler(runtimePool, verifyOsMember = null
   const service = new IronGateService(repository, linePreviewSecret);
   const authenticate = createGrantAuthenticator(directory, repository, verifyOsMember,
     verifyLineOperator);
-  const handle = createHandler(service, authenticate);
+  const handle = createHandler(service, authenticate, onLineChannelQueued ?? undefined);
   // Every deployment adapter, including a serverless one, must pass the same
   // database role and RLS check before it can authenticate or serve a request.
   let ready;
