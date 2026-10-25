@@ -42,9 +42,9 @@ test("unverified sources and object prototype names are never routable",()=>{
   assert.throws(()=>sourceDefinition("unregistered-property"),/NOT_CONFIGURED/);
   assert.throws(()=>sourceDefinition("__proto__"),/NOT_CONFIGURED/);
 });
-test("OFFLAND verified headers map O to parent ID, L to guest count and NT$ to room-night amount",()=>{
-  const headers=["房間","用戶名稱","預定平台","入住日期","退房日期","預訂日期","房費","全額支付狀態","檢查狀態","唯一ID","備註","入住人數","付款日期","已付金額","刷卡狀態","付款UID"];
-  const first=["OFFLAND","PRIVATE NAME","Booking","2026/9/15","2026/9/16","2026/8/1","NT$10,000","","OK","row1","PRIVATE NOTE","8人","","","OBE123",""];
+test("OFFLAND verified headers map Q to parent ID while O stays payment data",()=>{
+  const headers=["房間","用戶名稱","預定平台","入住日期","退房日期","預訂日期","房費","全額支付狀態","檢查狀態","唯一ID","備註","入住人數","付款日期","已付金額","刷卡狀態","付款UID","訂單編號"];
+  const first=["OFFLAND","PRIVATE NAME","Booking","2026/9/15","2026/9/16","2026/8/1","NT$10,000","","OK","row1","PRIVATE NOTE","8人","","","OBE123","","parent-1"];
   const second=[...first];second[0]="OFFLAND(連住)";second[3]="2026/9/16";second[4]="2026/9/17";second[9]="row2";second[6]="NT$12,000";
   const rows=normalizeRows([headers,first,second],OFFLAND_SOURCE);
   const snapshot=adaptSweetfunSheet([HEADERS,...rows.map(r=>r.cells)],OFFLAND_SOURCE.sourceId,t0,[],undefined,OFFLAND_SOURCE.property);
@@ -55,6 +55,7 @@ test("OFFLAND verified headers map O to parent ID, L to guest count and NT$ to r
   assert.equal(snapshot.bookings[0].payment_status,"unknown");assert.deepEqual(snapshot.bookings[0].payments,[]);
   assert.equal(snapshot.bookings[0].room_id,"offland-villa");assert.equal(JSON.stringify(snapshot).includes("OBE123"),false);
   assert.equal(JSON.stringify(rows).includes("PRIVATE"),false);
+  assert.equal(OFFLAND_SOURCE.lastColumn,"Q");
 });
 test("a failed property remains explicitly unavailable without discarding another property",async()=>{
   const result=await collectSnapshots([SWEETFUN_SOURCE,OFFLAND_SOURCE],async source=>{

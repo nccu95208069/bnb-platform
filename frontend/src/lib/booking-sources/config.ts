@@ -31,10 +31,11 @@ export const OFFLAND_SOURCE: SheetSourceDefinition = {
   property: { id: "offland", name: "遺忘無際 Offland", sourceLabel: "OFFLAND 訂房表", rooms: [{ number: "包棟", id: "offland-villa" }] },
   spreadsheetId: "1jBJq1xWmM7xKpUxFjsLYQc7EbLAWmcMjQK0SBbaORuc", sheetId: 475170922,
   sheetTitle: "工作表1", snapshotFile: "offland-source-snapshot.json", credentialEnv: "SHEET_MONITOR_GOOGLE_CREDENTIALS",
-  // Verified in src/sheets/offland_updater.py: column O stores order_id despite
-  // the live header saying 刷卡狀態. It must never become proof of a card payment.
-  headerAliases: { "房間": "房型", "用戶名稱": "預定人姓名", "刷卡狀態": "訂單編號" },
-  roomAliases: { OFFLAND: "包棟", "OFFLAND(連住)": "包棟" }, lastColumn: "O", formattedTwd: true,
+  // The live A:Q header and current writer place 訂單編號 in Q; O is 刷卡狀態.
+  // Historical rows without Q still have their unique J room-night identity.
+  headerAliases: { "房間": "房型", "用戶名稱": "預定人姓名" },
+  roomAliases: { OFFLAND: "包棟", "OFFLAND(連住)": "包棟" },
+  parentOrderOptional: true, lastColumn: "Q", formattedTwd: true,
 };
 // Exact metadata and headers for both sources verified through authorized read-only reads.
 const SOURCES: Record<string, SheetSourceDefinition> = { sweetfun: SWEETFUN_SOURCE, offland: OFFLAND_SOURCE };
