@@ -5,9 +5,10 @@ import { callIronGate, ironGateManualConfig, type Grant,
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const READ_ACTIONS = ['booking:read'];
 const WRITE_ACTIONS = ['payment:write'];
-type PaymentEvent = { id: string; kind: 'received' | 'refunded'; amountCents: number;
+export type PaymentEvent = { id: string; kind: 'received' | 'refunded'; amountCents: number;
   currency: 'TWD'; evidenceRef: string; occurredAt: string; recordedAt: string;
-  actorId: string };
+  actorId: string; method?: 'cash' | 'bank_transfer' | 'credit_card' | 'other';
+  refundOfEventId?: string };
 
 function object(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -16,11 +17,11 @@ function bookingPath(config: ManualConfig, bookingId: string): string {
   if (!UUID.test(bookingId)) throw Error('MANUAL_INVALID_INPUT');
   return `/v1/properties/${config.grant.propertyId}/bookings/${bookingId}`;
 }
-function checkBooking(raw: Record<string, unknown>, config: ManualConfig, bookingId: string) {
+export function checkPaymentBooking(raw: Record<string, unknown>, config: ManualConfig, bookingId: string) {
   if (raw.id !== bookingId || raw.propertyId !== config.grant.propertyId ||
     raw.workspaceId !== config.grant.workspaceId || raw.source !== 'os' ||
     !Number.isSafeInteger(raw.version) || Number(raw.version) < 1 ||
-    !['confirmed', 'cancelled'].includes(String(raw.status)) ||
+    !['held', 'confirmed', 'cancelled'].includes(String(raw.status)) ||
     raw.currency !== 'TWD' ||
     raw.totalCents !== null && (!Number.isSafeInteger(raw.totalCents) || Number(raw.totalCents) < 0) ||
     !object(raw.paymentSummary) ||
@@ -36,7 +37,9 @@ function checkBooking(raw: Record<string, unknown>, config: ManualConfig, bookin
       value.currency !== 'TWD' || typeof value.evidenceRef !== 'string' ||
       typeof value.occurredAt !== 'string' || !Number.isFinite(Date.parse(value.occurredAt)) ||
       typeof value.recordedAt !== 'string' || !Number.isFinite(Date.parse(value.recordedAt)) ||
-      typeof value.actorId !== 'string') throw Error('MANUAL_READBACK_MISMATCH');
+      typeof value.actorId !== 'string' ||
+      value.method !== undefined && !['cash', 'bank_transfer', 'credit_card', 'other'].includes(String(value.method)) ||
+      value.refundOfEventId !== undefined && (!UUID.test(String(value.refundOfEventId)) || value.kind !== 'refunded')) throw Error('MANUAL_READBACK_MISMATCH');
     return value as PaymentEvent;
   });
   if (new Set(events.map(event => event.id)).size !== events.length ||
@@ -46,6 +49,15 @@ function checkBooking(raw: Record<string, unknown>, config: ManualConfig, bookin
       raw.paymentSummary.refundedCents ||
     Number(raw.paymentSummary.receivedCents) - Number(raw.paymentSummary.refundedCents) !==
       raw.paymentSummary.netReceivedCents) throw Error('MANUAL_READBACK_MISMATCH');
+  if (Number(raw.paymentSummary.netReceivedCents) < 0 ||
+    !Number.isSafeInteger(Number(raw.paymentSummary.receivedCents) + Number(raw.paymentSummary.refundedCents)))
+    throw Error('MANUAL_READBACK_MISMATCH');
+  for (const event of events.filter(event => event.refundOfEventId)) {
+    const original = events.find(item => item.id === event.refundOfEventId && item.kind === 'received');
+    if (!original || Date.parse(event.occurredAt) < Date.parse(original.occurredAt) ||
+      events.filter(item => item.refundOfEventId === original.id).reduce((sum, item) => sum + item.amountCents, 0) > original.amountCents)
+      throw Error('MANUAL_READBACK_MISMATCH');
+  }
   return { bookingId, version: Number(raw.version), status: String(raw.status),
     totalCents: raw.totalCents as number | null,
     receivedCents: Number(raw.paymentSummary.receivedCents),
@@ -73,14 +85,14 @@ export async function readManualPayment(principal: Principal, config: ManualConf
   bookingId: string, send: typeof fetch = fetch) {
   const raw = await callIronGate(config, principal, 'GET', bookingPath(config, bookingId),
     null, null, send, READ_ACTIONS, ['money']);
-  return checkBooking(raw, config, bookingId);
+  return checkPaymentBooking(raw, config, bookingId);
 }
 
 export async function recordManualPayment(principal: Principal, config: ManualConfig,
   bookingId: string, input: unknown, requestKey: string, send: typeof fetch = fetch) {
   if (!UUID.test(requestKey) || !object(input) ||
     Object.keys(input).some(key => !['expectedBookingVersion', 'kind', 'amountCents',
-      'evidenceRef', 'occurredAt'].includes(key)) ||
+      'evidenceRef', 'occurredAt', 'method', 'refundOfEventId'].includes(key)) ||
     !Number.isSafeInteger(input.expectedBookingVersion) || Number(input.expectedBookingVersion) < 1 ||
     !['received', 'refunded'].includes(String(input.kind)) ||
     !Number.isSafeInteger(input.amountCents) || Number(input.amountCents) <= 0 ||
@@ -88,10 +100,14 @@ export async function recordManualPayment(principal: Principal, config: ManualCo
     input.evidenceRef.length > 256 || /[\u0000-\u001f\u007f]/.test(input.evidenceRef) ||
     typeof input.occurredAt !== 'string' || !Number.isFinite(Date.parse(input.occurredAt)))
     throw Error('MANUAL_INVALID_INPUT');
+  if (!['cash', 'bank_transfer', 'credit_card', 'other'].includes(String(input.method)) ||
+    input.kind === 'refunded' && !UUID.test(String(input.refundOfEventId)) ||
+    input.kind === 'received' && input.refundOfEventId !== undefined) throw Error('MANUAL_INVALID_INPUT');
   await readManualPayment(principal, config, bookingId, send);
   const payload = { expectedBookingVersion: input.expectedBookingVersion,
     eventId: requestKey, kind: input.kind, amountCents: input.amountCents,
-    currency: 'TWD', evidenceRef: input.evidenceRef.trim(), occurredAt: input.occurredAt };
+    currency: 'TWD', evidenceRef: input.evidenceRef.trim(), occurredAt: input.occurredAt,
+    method: input.method, ...(input.refundOfEventId ? { refundOfEventId: input.refundOfEventId } : {}) };
   const result = await callIronGate(config, principal, 'POST',
     `${bookingPath(config, bookingId)}/payment-events`, payload, requestKey, send,
     WRITE_ACTIONS, ['money']);
@@ -104,9 +120,10 @@ export async function recordManualPayment(principal: Principal, config: ManualCo
   const event = after.events.find(item => item.id === requestKey);
   if (!event || event.kind !== payload.kind || event.amountCents !== payload.amountCents ||
     event.evidenceRef !== payload.evidenceRef || event.occurredAt !== payload.occurredAt ||
+    event.method !== input.method || event.refundOfEventId !== input.refundOfEventId ||
     after.version < Number(result.bookingVersion)) throw Error('MANUAL_READBACK_MISMATCH');
   return { bookingId, paymentEventId: requestKey, bookingVersion: after.version,
-    netReceivedCents: after.netReceivedCents, requestKey };
+    netReceivedCents: after.netReceivedCents, requestKey, paymentEvent: event };
 }
 
 export async function manualPaymentRequestResult(principal: Principal, config: ManualConfig,
@@ -118,8 +135,9 @@ export async function manualPaymentRequestResult(principal: Principal, config: M
   if (!UUID.test(String(result.bookingId)) || result.paymentEventId !== requestKey)
     throw Error('MANUAL_READBACK_MISMATCH');
   const booking = await readManualPayment(principal, config, String(result.bookingId), send);
-  if (!booking.events.some(event => event.id === requestKey))
+  const event = booking.events.find(event => event.id === requestKey);
+  if (!event)
     throw Error('MANUAL_READBACK_MISMATCH');
   return { bookingId: result.bookingId, paymentEventId: requestKey,
-    bookingVersion: booking.version, netReceivedCents: booking.netReceivedCents, requestKey };
+    bookingVersion: booking.version, netReceivedCents: booking.netReceivedCents, requestKey, paymentEvent: event };
 }

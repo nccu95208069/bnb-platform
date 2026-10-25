@@ -1,5 +1,5 @@
 export type BookingStatus = "held" | "confirmed" | "cancelled";
-export type ChannelSyncState = "not_required" | "action_required" | "awaiting_manual_sync" | "pending" | "verified" | "review_required";
+export type ChannelSyncState = "not_required" | "action_required" | "awaiting_manual_sync" | "pending" | "verified" | "review_required" | "manually_confirmed";
 export type OperationState = "sync_pending" | "sync_verified" | "review_required";
 export type Action =
   | "booking:read"
@@ -57,6 +57,9 @@ export type Booking = {
   status: BookingStatus;
   channelSyncState: ChannelSyncState;
   channelOperationKey: string | null;
+  /** Owner-attested external handling. Never provider verification or permission to write stock. */
+  manualRoomHandling?: { confirmedAt: string; confirmedBookingVersion: number;
+    requestKey: string; closedNights: Night[]; pending: DesiredCell[] };
   /** LINE manual policy: provider-proven closed nights before any unconfirmed local edit. */
   lineChannelBaselineNights?: Night[];
   /** Exact room-night work still requiring a separate staff confirmation. */
@@ -75,6 +78,11 @@ export type Booking = {
   createdAt: string;
   source: "os" | "line" | "website" | "external";
   sourceKey: string | null;
+  /** Owner has edited a legacy LINE order; preserve its identity and source evidence. */
+  osDirectOverride?: boolean;
+  /** Saved room changes wait for explicit synchronization; old nights stay fenced. */
+  osManualRoomChange?: { baseline: Night[]; baselineState: ChannelSyncState;
+    baselineOperationKey: string | null };
   /** A LINE override of an external source awaits upstream reconciliation. */
   lineOverridePending?: boolean;
   /** Contact and notes cannot be proven by the source event protocol. */
@@ -89,9 +97,16 @@ export type Booking = {
   osSnapshot?: Record<string, unknown>;
   /** Restricted original room-night rows for a read-only Sweetfun Sheet candidate. */
   sweetfunSnapshot?: Record<string, unknown>;
+  /** Restricted original room-night rows for an OFFLAND Sheet candidate. */
+  offlandSnapshot?: Record<string, unknown>;
 };
 
-export type PaymentEvent = {
+export type PaymentMetadata = {
+  method?: "cash" | "bank_transfer" | "credit_card" | "other";
+  refundOfEventId?: string;
+};
+
+export type PaymentEvent = PaymentMetadata & {
   id: string;
   kind: "received" | "refunded";
   amountCents: number;
@@ -185,6 +200,8 @@ export type PropertyState = {
   osImport?: { sourceHash: string; workspaceVersion: number; propertySnapshot: Record<string, unknown> };
   /** Restricted source and exception evidence for a read-only Sweetfun Sheet candidate. */
   sweetfunImport?: Record<string, unknown>;
+  /** Restricted provenance for a read-only OFFLAND Sheet candidate. */
+  offlandImport?: Record<string, unknown>;
   channel: { mode: "none" | "owlnest"; ready: boolean; websiteSalesEnabled: boolean;
     /** Disabled until source events have a durable OwlNest operation dispatcher. */
     sourceReadbackEnabled?: boolean;
@@ -249,7 +266,7 @@ export type ExtendHoldInput = {
 export type AmendBookingInput = {
   expectedBookingVersion: number;
   expectedInventoryVersion: number;
-  changes: Partial<Pick<Booking, "stays" | "guestName" | "contact" | "notes" | "totalCents" | "roomNightPrices">>;
+  changes: Partial<Pick<Booking, "stays" | "guestName" | "contact" | "notes" | "totalCents" | "roomNightPrices" | "bookedAt">>;
   channelPolicy?: "manual";
   reason?: string;
 };
@@ -260,7 +277,7 @@ export type LineBulkCancelInput = {
   channelPolicy?: "manual";
 };
 
-export type PaymentEventInput = {
+export type PaymentEventInput = PaymentMetadata & {
   expectedBookingVersion: number;
   eventId: string;
   kind: "received" | "refunded";
@@ -317,7 +334,7 @@ export type BookingReceipt = {
   bookingId: string;
   bookingVersion: number;
   inventoryVersion: number;
-  operationState: OperationState | "local_only" | "not_required" | "action_required" | "awaiting_manual_sync";
+  operationState: OperationState | "local_only" | "not_required" | "action_required" | "awaiting_manual_sync" | "manually_confirmed";
   operationKey: string | null;
   refundReviewRequired: boolean;
   sourceReviewRequired?: boolean;
@@ -326,6 +343,7 @@ export type BookingReceipt = {
 export type EventType =
   | "booking.created" | "booking.amended" | "booking.cancelled"
   | "channel.sync_requested" | "channel.preflight_open"
+  | "channel.manually_confirmed"
   | "hold.created" | "hold.extended" | "hold.converted" | "hold.released"
   | "payment.recorded" | "source.applied" | "source.review_required"
   | "inventory.blocked" | "inventory.opened"
@@ -363,6 +381,7 @@ export type AuditRecord = {
   actorGrantId: string | null;
   requestKey: string | null;
   reason?: string;
+  manualRoomHandling?: { closedNights: Night[]; handledCells: DesiredCell[] };
 };
 
 export type TransactionContext = {

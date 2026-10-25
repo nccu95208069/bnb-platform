@@ -218,7 +218,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
           </p>
           <p className="mt-1 text-xs font-medium">
             {SHEET_SNAPSHOT ? IRON_GATE_CALENDAR
-              ? uiText("水芳訂單來自 Iron Gate；遺忘無際仍使用訂房表。日曆目前供查看，修改訂單請使用現有作業流程。")
+              ? uiText("遺忘無際訂單已切換至新日曆；手動新增或修改暫停，請勿編輯原訂房表。水芳訂單請使用現有流程。")
               : uiText("資料來自訂房表，目前可查看；修改訂單請到原訂房表操作。")
               : uiText("匿名資料 · 編輯僅儲存在此瀏覽器")}
           </p>

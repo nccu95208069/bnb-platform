@@ -262,7 +262,8 @@ const uiLocale = useIntlLocale();
   }, [historyRevision, cancelScrollCommit]);
   const [reloadKey, setReloadKey] = useState(0);
   const retryCalendar = useCallback(() => setReloadKey((value) => value + 1), []);
-  const [manualMode, setManualMode] = useState<"create" | "amend" | "cancel" | "sync" | null>(null);
+  const [manualMode, setManualMode] = useState<"create" | "amend" | "cancel" | "sync" | "manual-confirm" | null>(null);
+  const [manualSyncTarget, setManualSyncTarget] = useState<{ bookingId: string; inventoryVersion: number } | null>(null);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
   const [editsHydrated, setEditsHydrated] = useState(false);
   const previousView = useRef<CalendarView>(view);
@@ -1073,7 +1074,7 @@ const uiLocale = useIntlLocale();
               canRecord={permissions.recordPayments} onChange={() => setReloadKey(v => v + 1)} />
           ) : data?.source?.read_only && selectedBooking?.iron_gate_source === "os" ? (
             <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
-              此筆手動訂單的收付款功能尚未啟用，請先依現行財務流程處理並核對。</p>
+              此筆直訂的收退款功能尚未啟用，請先保留收付憑證，避免在其他入口重複登記。</p>
           ) : data?.source?.read_only && selectedBooking && permissions.viewPrices && !selectedBooking.source_conflict ? (
             <OsPaymentPanel key={selectedBooking.payment_order_id??selectedBooking.order_id} property={selectedBooking.property_id} order={selectedBooking.payment_order_id??selectedBooking.order_id} sourceBookingId={selectedBooking.order_id.startsWith('IG-')?selectedBooking.order_id:undefined} canRecord={permissions.recordPayments} onChange={() => setReloadKey(v=>v+1)} />
           ) : PAYMENT_SANDBOX && selectedBooking && permissions.viewPrices ? (
@@ -1090,27 +1091,36 @@ const uiLocale = useIntlLocale();
         onUpdateBooking={updateBooking}
         onCancelBooking={cancelBooking}
         onManualEdit={manualEnabled && selectedBooking &&
-          ["os", "external"].includes(selectedBooking.iron_gate_source ?? "") &&
-          ["verified", "not_required", "awaiting_manual_sync"].includes(
+          ["full", "guest_name"].includes(selectedBooking.iron_gate_edit_mode ?? "") &&
+          ["verified", "not_required", "awaiting_manual_sync", "action_required", "manually_confirmed"].includes(
             selectedBooking.iron_gate_channel_sync ?? "") &&
           !selectedBooking.iron_gate_source_review ?
           () => setManualMode("amend") : undefined}
-        onManualCancel={manualEnabled && selectedBooking?.iron_gate_source === "os" &&
-          ["verified", "not_required", "awaiting_manual_sync"].includes(
+        onManualCancel={manualEnabled && selectedBooking &&
+          (selectedBooking.iron_gate_source === "os" || selectedBooking.iron_gate_manual_handling) &&
+          ["verified", "not_required", "awaiting_manual_sync", "manually_confirmed",
+            ...(selectedBooking.iron_gate_manual_handling ? ["action_required"] : [])].includes(
             selectedBooking.iron_gate_channel_sync ?? "") &&
           !selectedBooking.iron_gate_source_review ?
           () => setManualMode("cancel") : undefined}
-        onManualSync={manualEnabled && selectedBooking?.iron_gate_source === "os" &&
+        onManualSync={manualEnabled && selectedBooking?.iron_gate_edit_mode === "full" &&
           selectedBooking.iron_gate_channel_sync === "awaiting_manual_sync" &&
+          !selectedBooking.iron_gate_manual_handling &&
           !selectedBooking.iron_gate_source_review ?
-          () => setManualMode("sync") : undefined}
+          () => { setManualSyncTarget(null); setManualMode("sync"); } : undefined}
+        onManualConfirm={manualEnabled && selectedBooking?.iron_gate_manual_confirmation_available &&
+          !selectedBooking.iron_gate_source_review ? () => setManualMode("manual-confirm") : undefined}
       />
       {manualMode && <ManualBookingDialog open mode={manualMode}
-        bookingId={selectedBooking?.iron_gate_booking_id}
-        inventoryVersion={Number(data?.source?.private_snapshot_version ?? 0)}
+        bookingId={manualMode === "sync" ? manualSyncTarget?.bookingId ?? selectedBooking?.iron_gate_booking_id : selectedBooking?.iron_gate_booking_id}
+        inventoryVersion={manualMode === "sync" && manualSyncTarget ? manualSyncTarget.inventoryVersion : Number(data?.source?.private_snapshot_version ?? 0)}
         defaultDate={anchorDate}
-        onClose={() => setManualMode(null)}
-        onDone={() => setReloadKey(value => value + 1)} />}
+        onClose={() => { setManualMode(null); setManualSyncTarget(null); }}
+        onDone={() => setReloadKey(value => value + 1)}
+        onSyncCreated={(bookingId, inventoryVersion) => {
+          setManualSyncTarget({ bookingId, inventoryVersion });
+          setManualMode("sync");
+        }} />}
     </div>
   );
 }

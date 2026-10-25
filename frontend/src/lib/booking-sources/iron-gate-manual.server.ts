@@ -7,6 +7,7 @@ export type Grant = { credentialId: string; clientId: string; workspaceId: strin
 export type ManualConfig = { calendar: IronGateCalendarConfig; grant: Grant;
   trustedSourceToken?: string };
 type Stay = { checkIn: string; checkOut: string; roomIds: string[] };
+type NightPrice = { roomId: string; date: string; amountCents: number };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
@@ -105,7 +106,8 @@ export async function callIronGate(config: ManualConfig, principal: Principal,
   method: 'GET' | 'POST' | 'PATCH', path: string, body: unknown,
   requestKey: string | null, send: typeof fetch,
   actions: string[] = ['booking:read', 'booking:create', 'booking:amend', 'booking:cancel'],
-  fields: string[] = ['guest_name', 'contact', 'notes', 'money', 'payment_status']
+  fields: string[] = ['guest_name', 'contact', 'notes', 'money', 'payment_status'],
+  maxResponseBytes = 512 * 1024
 ): Promise<Record<string, unknown>> {
   member(principal);
   const url = `${config.calendar.baseUrl}${path}`;
@@ -144,9 +146,9 @@ export async function callIronGate(config: ManualConfig, principal: Principal,
   let raw: unknown;
   try {
     const declared = response.headers.get('content-length');
-    if (declared && (!/^\d+$/.test(declared) || Number(declared) > 512 * 1024)) throw Error();
+    if (declared && (!/^\d+$/.test(declared) || Number(declared) > maxResponseBytes)) throw Error();
     const text = await response.text();
-    if (Buffer.byteLength(text, 'utf8') > 512 * 1024) throw Error();
+    if (Buffer.byteLength(text, 'utf8') > maxResponseBytes) throw Error();
     raw = JSON.parse(text);
   } catch { throw Error(method === 'GET' ? 'MANUAL_READ_UNAVAILABLE' : 'MANUAL_RESULT_UNKNOWN'); }
   if (!object(raw)) throw Error(method === 'GET' ?
@@ -172,7 +174,47 @@ function ensureBooking(raw: Record<string, unknown>, config: ManualConfig, id: s
     throw Error('MANUAL_READBACK_MISMATCH');
 }
 function sameStays(a: unknown, b: Stay[]): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  // JSONB does not preserve object key order. Compare typed values, never the
+  // serialized layout; room/stay order also has no booking significance.
+  const canonical = (value: unknown) => {
+    if (!Array.isArray(value) || !value.every(stay => object(stay) &&
+      typeof stay.checkIn === 'string' && typeof stay.checkOut === 'string' &&
+      Array.isArray(stay.roomIds) && stay.roomIds.every(id => typeof id === 'string')))
+      return null;
+    return value.map(stay => JSON.stringify([stay.checkIn, stay.checkOut,
+      [...stay.roomIds].sort()])).sort();
+  };
+  const left = canonical(a), right = canonical(b);
+  return left !== null && right !== null && JSON.stringify(left) === JSON.stringify(right);
+}
+function nightPrices(value: unknown, wanted: Stay[], totalCents: number,
+  config: ManualConfig): NightPrice[] {
+  if (!Array.isArray(value) || value.length > 4096) throw Error('MANUAL_INVALID_NIGHT_PRICES');
+  const expected = new Set<string>();
+  for (const stay of wanted) for (const roomId of stay.roomIds)
+    for (let time = Date.parse(stay.checkIn); time < Date.parse(stay.checkOut); time += 86_400_000)
+      expected.add(`${roomId}:${new Date(time).toISOString().slice(0, 10)}`);
+  let sum = BigInt(0);
+  const prices = value.map(raw => {
+    if (!object(raw)) throw Error('MANUAL_INVALID_NIGHT_PRICES');
+    exact(raw, ['roomNumber', 'date', 'amountCents']);
+    const roomId = typeof raw.roomNumber === 'string' && ROOM_NUMBERS.has(raw.roomNumber)
+      ? config.calendar.roomIds[raw.roomNumber] : null;
+    const night = date(raw.date), amountCents = money(raw.amountCents);
+    if (!roomId || amountCents === null || !expected.delete(`${roomId}:${night}`))
+      throw Error('MANUAL_INVALID_NIGHT_PRICES');
+    sum += BigInt(amountCents);
+    return { roomId, date: night, amountCents };
+  });
+  if (expected.size || sum !== BigInt(totalCents)) throw Error('MANUAL_INVALID_NIGHT_PRICES');
+  return prices;
+}
+function sameNightPrices(value: unknown, prices: NightPrice[]): boolean {
+  if (!Array.isArray(value) || !value.every(p => object(p) &&
+    typeof p.roomId === 'string' && typeof p.date === 'string' && Number.isSafeInteger(p.amountCents))) return false;
+  const canonical = (items: NightPrice[]) => items.map(p =>
+    JSON.stringify([p.roomId, p.date, p.amountCents])).sort();
+  return JSON.stringify(canonical(value as NightPrice[])) === JSON.stringify(canonical(prices));
 }
 async function readAfterWrite(config: ManualConfig, principal: Principal,
   bookingId: string, send: typeof fetch) {
@@ -184,7 +226,7 @@ async function readAfterWrite(config: ManualConfig, principal: Principal,
 
 async function checkLocalNights(principal: Principal, config: ManualConfig,
   wanted: Stay[], expectedInventoryVersion: number, send: typeof fetch,
-  own: Stay[] = []) {
+  own: Stay[] = [], baseline: unknown = []) {
   const from = wanted.map(stay => stay.checkIn).sort()[0];
   const to = wanted.map(stay => stay.checkOut).sort().at(-1)!;
   const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
@@ -203,8 +245,11 @@ async function checkLocalNights(principal: Principal, config: ManualConfig,
     for (let n = Date.parse(`${stay.checkIn}T00:00:00Z`);
       n < Date.parse(`${stay.checkOut}T00:00:00Z`); n += 86_400_000)
       ownNights.add(`${roomId}:${new Date(n).toISOString().slice(0, 10)}`);
+  const ownFences = new Set(Array.isArray(baseline) ? baseline.filter(object)
+    .map(cell => `${cell.roomId}:${cell.date}`) : []);
   const blocked = new Set(snapshot.cells.map(cell => object(cell) &&
-    (cell.state !== 'sold' || !ownNights.has(`${cell.roomId}:${cell.date}`)) ?
+    !(cell.state === 'sold' && ownNights.has(`${cell.roomId}:${cell.date}`)) &&
+    !(cell.state === 'blocked' && ownFences.has(`${cell.roomId}:${cell.date}`)) ?
     `${cell.roomId}:${cell.date}` : object(cell) ? '' : 'invalid'));
   if (blocked.has('invalid')) throw Error('MANUAL_READ_UNAVAILABLE');
   for (const stay of wanted) for (const roomId of stay.roomIds) {
@@ -239,25 +284,24 @@ export async function previewManualAmend(principal: Principal, config: ManualCon
   const before = await callIronGate(config, principal, 'GET', bookingPath(config, bookingId),
     null, null, send);
   ensureBooking(before, config, bookingId);
-  if (before.source !== 'os' || before.status !== 'confirmed' ||
+  if (before.osEditMode !== 'full' || before.status !== 'confirmed' ||
     before.version !== input.expectedBookingVersion) throw Error('MANUAL_VERSION_CONFLICT');
   if (before.sourceReviewRequired === true ||
-    !['verified', 'not_required', 'awaiting_manual_sync'].includes(String(before.channelSyncState)))
+    !['verified', 'not_required', 'awaiting_manual_sync', 'action_required', 'manually_confirmed'].includes(String(before.channelSyncState)))
     throw Error('CHANNEL_AMENDMENT_NOT_READY');
   const wanted = stays(input.stays, config);
   const checked = await checkLocalNights(principal, config, wanted,
-    version(input.expectedInventoryVersion), send, before.stays as Stay[]);
+    version(input.expectedInventoryVersion), send, before.stays as Stay[], before.manualBaselineNights);
   return { ...checked, bookingVersion: before.version,
     localRoomNightsAvailable: true, externalStockVerified: false,
-    channelEffect: before.channelSyncState === 'awaiting_manual_sync' ?
-      'manual_sync_required' : 'close_new_then_open_old_pending_readback' };
+    channelEffect: 'manual_sync_required' };
 }
 
 export async function createManualBooking(principal: Principal, config: ManualConfig,
   input: unknown, requestKey: string, send: typeof fetch = fetch) {
   if (!UUID.test(requestKey) || !object(input)) throw Error('MANUAL_INVALID_INPUT');
   exact(input, ['expectedInventoryVersion', 'stays', 'guestName', 'contact',
-    'notes', 'totalCents', 'bookedAt']);
+    'notes', 'totalCents', 'bookedAt', 'roomNightPrices']);
   const expectedInventoryVersion = version(input.expectedInventoryVersion);
   const wanted = stays(input.stays, config);
   const guestName = nullable(input.guestName, 200)?.trim();
@@ -267,7 +311,10 @@ export async function createManualBooking(principal: Principal, config: ManualCo
   const payload = { expectedInventoryVersion, stays: wanted,
     guestName, contact: nullable(input.contact, 256),
     notes: nullable(input.notes, 2048), totalCents,
-    bookedAt: input.bookedAt == null ? null : date(input.bookedAt), source: 'os' };
+    bookedAt: input.bookedAt == null ? null : date(input.bookedAt), source: 'os',
+    ...(input.roomNightPrices !== undefined ? {
+      roomNightPrices: nightPrices(input.roomNightPrices, wanted, totalCents, config),
+    } : {}) };
   await checkLocalNights(principal, config, wanted, expectedInventoryVersion, send);
   const result = await callIronGate(config, principal, 'POST', bookingPath(config), payload,
     requestKey, send);
@@ -283,11 +330,42 @@ export async function createManualBooking(principal: Principal, config: ManualCo
       observed.channelSyncState !== 'not_required') ||
     observed.guestName !== payload.guestName || observed.contact !== payload.contact ||
     observed.notes !== payload.notes || observed.totalCents !== payload.totalCents ||
-    observed.bookedAt !== payload.bookedAt)
+    observed.bookedAt !== payload.bookedAt ||
+    payload.roomNightPrices !== undefined && !sameNightPrices(observed.roomNightPrices, payload.roomNightPrices))
     throw Error('MANUAL_READBACK_MISMATCH');
   return { bookingId: result.bookingId, bookingVersion: observed.version,
     inventoryVersion: result.inventoryVersion, operationState: result.operationState,
     channelSyncState: observed.channelSyncState, requestKey };
+}
+
+export async function confirmManualRoomHandling(principal: Principal, config: ManualConfig,
+  bookingId: string, input: unknown, requestKey: string, send: typeof fetch = fetch) {
+  if (!UUID.test(bookingId) || !UUID.test(requestKey) || !object(input))
+    throw Error('MANUAL_INVALID_INPUT');
+  exact(input, ['expectedBookingVersion', 'expectedInventoryVersion', 'confirmed', 'reason']);
+  if (input.confirmed !== true) throw Error('MANUAL_INVALID_INPUT');
+  const payload = { expectedBookingVersion: version(input.expectedBookingVersion, 1),
+    expectedInventoryVersion: version(input.expectedInventoryVersion),
+    confirmed: true, reason: reason(input.reason) };
+  const before = await callIronGate(config, principal, 'GET', bookingPath(config, bookingId),
+    null, null, send);
+  ensureBooking(before, config, bookingId);
+  if (before.version !== payload.expectedBookingVersion || before.manualRoomConfirmationAvailable !== true)
+    throw Error('MANUAL_ROOM_CONFIRMATION_NOT_READY');
+  const result = await callIronGate(config, principal, 'POST',
+    `${bookingPath(config, bookingId)}/confirm-manual-room-handling`, payload, requestKey, send);
+  const after = await readAfterWrite(config, principal, bookingId, send);
+  ensureBooking(after, config, bookingId);
+  if (result.operationState !== 'manually_confirmed' || result.operationKey !== null ||
+    after.version !== result.bookingVersion || after.version !== Number(before.version) + 1 ||
+    after.status !== before.status || after.channelSyncState !== 'manually_confirmed' ||
+    after.channelOperationKey !== null || !object(after.manualRoomHandling) ||
+    after.manualRoomHandling.requestKey !== requestKey ||
+    !Array.isArray(after.manualRoomHandling.pending) || after.manualRoomHandling.pending.length ||
+    !sameStays(after.stays, before.stays as Stay[])) throw Error('MANUAL_READBACK_MISMATCH');
+  return { bookingId, bookingVersion: after.version, inventoryVersion: result.inventoryVersion,
+    operationState: 'manually_confirmed', channelSyncState: after.channelSyncState,
+    confirmedAt: after.manualRoomHandling.confirmedAt, requestKey };
 }
 
 export async function startManualRoomSync(principal: Principal, config: ManualConfig,
@@ -300,9 +378,9 @@ export async function startManualRoomSync(principal: Principal, config: ManualCo
   const before = await callIronGate(config, principal, 'GET', bookingPath(config, bookingId),
     null, null, send);
   ensureBooking(before, config, bookingId);
-  if (before.version !== expectedBookingVersion || before.source !== 'os' ||
+  if (before.version !== expectedBookingVersion || before.osEditMode !== 'full' ||
     before.status !== 'confirmed' ||
-    before.channelSyncState !== 'awaiting_manual_sync' ||
+    before.channelSyncState !== 'awaiting_manual_sync' || before.manualRoomHandling ||
     before.sourceReviewRequired === true) throw Error('CHANNEL_SYNC_NOT_READY');
   const result = await callIronGate(config, principal, 'POST',
     `${bookingPath(config, bookingId)}/sync-room-status`,
@@ -335,22 +413,36 @@ export async function amendManualBooking(principal: Principal, config: ManualCon
     throw Error('MANUAL_INVALID_INPUT');
   exact(input, ['expectedBookingVersion', 'expectedInventoryVersion', 'changes', 'reason']);
   if (!object(input.changes)) throw Error('MANUAL_INVALID_INPUT');
-  exact(input.changes, ['stays', 'guestName', 'contact', 'notes', 'totalCents']);
+  exact(input.changes, ['stays', 'guestName', 'contact', 'notes', 'totalCents', 'bookedAt', 'roomNightPrices']);
   const changes: Record<string, unknown> = {};
   if ('stays' in input.changes) changes.stays = stays(input.changes.stays, config);
   if ('guestName' in input.changes) changes.guestName = nullable(input.changes.guestName, 200);
   if ('contact' in input.changes) changes.contact = nullable(input.changes.contact, 256);
   if ('notes' in input.changes) changes.notes = nullable(input.changes.notes, 2048);
   if ('totalCents' in input.changes) changes.totalCents = money(input.changes.totalCents);
-  if (!Object.keys(changes).length) throw Error('MANUAL_INVALID_INPUT');
+  if ('bookedAt' in input.changes) changes.bookedAt = input.changes.bookedAt === null ? null : date(input.changes.bookedAt);
+  if (!Object.keys(input.changes).length) throw Error('MANUAL_INVALID_INPUT');
   const before = await callIronGate(config, principal, 'GET', bookingPath(config, bookingId),
     null, null, send);
   ensureBooking(before, config, bookingId);
-  const externalNameOnly = before.source === 'external';
-  if (!['os', 'external'].includes(String(before.source)) || before.status !== 'confirmed' ||
+  const externalNameOnly = before.osEditMode === 'guest_name';
+  if ('roomNightPrices' in input.changes) {
+    const total = 'totalCents' in changes ? changes.totalCents : before.totalCents;
+    if (typeof total !== 'number') throw Error('MANUAL_PRICE_REQUIRED');
+    changes.roomNightPrices = nightPrices(input.changes.roomNightPrices,
+      (changes.stays ?? before.stays) as Stay[], total, config);
+  }
+  // Editing only contact/notes must not discard previously recorded nightly
+  // prices just because the older amendment form also sends unchanged totals.
+  if (before.osEditMode === 'full' && !('roomNightPrices' in changes) && Array.isArray(before.roomNightPrices) &&
+    (!('stays' in changes) || sameStays(changes.stays, before.stays as Stay[])) &&
+    (!('totalCents' in changes) || changes.totalCents === before.totalCents) &&
+    ('stays' in changes || 'totalCents' in changes))
+    changes.roomNightPrices = before.roomNightPrices;
+  if (!['full', 'guest_name'].includes(String(before.osEditMode)) || before.status !== 'confirmed' ||
     before.version !== input.expectedBookingVersion) throw Error('MANUAL_VERSION_CONFLICT');
   if (before.sourceReviewRequired === true ||
-    !['verified', 'not_required', 'awaiting_manual_sync'].includes(String(before.channelSyncState)))
+    !['verified', 'not_required', 'awaiting_manual_sync', 'action_required', 'manually_confirmed'].includes(String(before.channelSyncState)))
     throw Error('CHANNEL_AMENDMENT_NOT_READY');
   if (externalNameOnly) {
     if (Object.keys(changes).length !== 1 || typeof changes.guestName !== 'string' ||
@@ -360,14 +452,22 @@ export async function amendManualBooking(principal: Principal, config: ManualCon
   }
   const payload = { expectedBookingVersion: version(input.expectedBookingVersion, 1),
     expectedInventoryVersion: version(input.expectedInventoryVersion),
-    changes, reason: reason(input.reason) };
+    changes, reason: reason(input.reason),
+    ...(externalNameOnly ? {} : { channelPolicy: 'manual' }) };
   const result = await callIronGate(config, principal, 'PATCH', bookingPath(config, bookingId),
     payload, requestKey, send);
   const after = await readAfterWrite(config, principal, bookingId, send);
   ensureBooking(after, config, bookingId);
   if (after.status !== 'confirmed' || after.version !== result.bookingVersion ||
     Object.entries(changes).some(([field, value]) => field === 'stays' ?
-      !sameStays(after.stays, value as Stay[]) : after[field] !== value))
+      !sameStays(after.stays, value as Stay[]) : field === 'roomNightPrices' ?
+        !sameNightPrices(after.roomNightPrices, value as NightPrice[]) : after[field] !== value))
+    throw Error('MANUAL_READBACK_MISMATCH');
+  if (after.source !== before.source ||
+    !object(after.paymentSummary) || !object(before.paymentSummary) ||
+    ['receivedCents', 'refundedCents', 'netReceivedCents'].some(field =>
+      (after.paymentSummary as Record<string, unknown>)[field] !==
+      (before.paymentSummary as Record<string, unknown>)[field]))
     throw Error('MANUAL_READBACK_MISMATCH');
   if (externalNameOnly && (after.source !== 'external' ||
     after.sourceReviewRequired !== true || after.channelSyncState !== before.channelSyncState ||
@@ -387,10 +487,10 @@ export async function cancelManualBooking(principal: Principal, config: ManualCo
   const before = await callIronGate(config, principal, 'GET', bookingPath(config, bookingId),
     null, null, send);
   ensureBooking(before, config, bookingId);
-  if (before.source !== 'os' || before.status !== 'confirmed' ||
+  if (!(before.source === 'os' || before.source === 'line' && before.manualRoomHandling) || before.status !== 'confirmed' ||
     before.version !== input.expectedBookingVersion) throw Error('MANUAL_VERSION_CONFLICT');
   if (before.sourceReviewRequired === true ||
-    !['verified', 'not_required', 'awaiting_manual_sync'].includes(String(before.channelSyncState)))
+    !['verified', 'not_required', 'awaiting_manual_sync', 'manually_confirmed', ...(before.manualRoomHandling ? ['action_required'] : [])].includes(String(before.channelSyncState)))
     throw Error('CHANNEL_CANCELLATION_NOT_READY');
   const payload = { expectedBookingVersion: version(input.expectedBookingVersion, 1),
     expectedInventoryVersion: version(input.expectedInventoryVersion), reason: reason(input.reason) };
@@ -407,8 +507,16 @@ export async function cancelManualBooking(principal: Principal, config: ManualCo
 export async function manualRequestResult(principal: Principal, config: ManualConfig,
   requestKey: string, send: typeof fetch = fetch) {
   if (!UUID.test(requestKey)) throw Error('MANUAL_INVALID_INPUT');
-  return callIronGate(config, principal, 'GET',
+  const receipt = await callIronGate(config, principal, 'GET',
     `/v1/properties/${config.grant.propertyId}/requests/${requestKey}`, null, null, send);
+  if (!UUID.test(String(receipt.bookingId)) || !Number.isSafeInteger(receipt.bookingVersion))
+    throw Error('MANUAL_READBACK_MISMATCH');
+  const observed = await readAfterWrite(config, principal, String(receipt.bookingId), send);
+  ensureBooking(observed, config, String(receipt.bookingId));
+  if (Number(observed.version) < Number(receipt.bookingVersion)) throw Error('MANUAL_READBACK_MISMATCH');
+  return { ...receipt, requestKey, currentBookingVersion: observed.version,
+    currentChannelSyncState: observed.channelSyncState, currentStatus: observed.status,
+    readbackVerified: true };
 }
 
 export async function readManualBooking(principal: Principal, config: ManualConfig,
@@ -425,14 +533,30 @@ export async function readManualBooking(principal: Principal, config: ManualConf
     Array.isArray(stay.roomIds) && stay.roomIds.every(id => roomById.has(String(id)))))
     throw Error('MANUAL_READBACK_MISMATCH');
   return { bookingId, version: booking.version, status: booking.status,
-    source: booking.source, channelSyncState: booking.channelSyncState,
+    source: booking.source, osEditMode: booking.osEditMode, channelSyncState: booking.channelSyncState,
     sourceReviewRequired: booking.sourceReviewRequired === true,
+    manualRoomConfirmationAvailable: booking.manualRoomConfirmationAvailable === true,
+    manualRoomHandling: object(booking.manualRoomHandling) ? {
+      confirmedAt: booking.manualRoomHandling.confirmedAt,
+      pending: Array.isArray(booking.manualRoomHandling.pending) ? booking.manualRoomHandling.pending.map(raw => {
+        if (!object(raw) || !roomById.has(String(raw.roomId)) ||
+          typeof raw.date !== 'string' || !['open', 'closed'].includes(String(raw.desired)))
+          throw Error('MANUAL_READBACK_MISMATCH');
+        return { roomNumber: roomById.get(String(raw.roomId))!, date: raw.date, desired: raw.desired };
+      }) : [],
+    } : null,
     guestName: booking.guestName ?? null, contact: booking.contact ?? null,
     notes: booking.notes ?? null, totalCents: booking.totalCents ?? null,
     netReceivedCents: object(booking.paymentSummary) &&
       Number.isSafeInteger(booking.paymentSummary.netReceivedCents)
       ? booking.paymentSummary.netReceivedCents : null,
     bookedAt: booking.bookedAt ?? null,
+    roomNightPrices: Array.isArray(booking.roomNightPrices) ? booking.roomNightPrices.map(raw => {
+      if (!object(raw) || !roomById.has(String(raw.roomId)) ||
+        typeof raw.date !== 'string' || !Number.isSafeInteger(raw.amountCents))
+        throw Error('MANUAL_READBACK_MISMATCH');
+      return { roomNumber: roomById.get(String(raw.roomId))!, date: raw.date, amountCents: raw.amountCents };
+    }) : null,
     stays: bookingStays.map(stay => {
       const item = stay as { checkIn: string; checkOut: string; roomIds: string[] };
       return { checkIn: item.checkIn, checkOut: item.checkOut,

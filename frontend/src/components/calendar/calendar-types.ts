@@ -91,8 +91,12 @@ export type CalendarBooking = {
   channel_pending_nights?: number;
   iron_gate_booking_id?: string;
   iron_gate_booking_version?: number;
+  iron_gate_edit_mode?: "full" | "guest_name" | "none";
   iron_gate_source?: "os" | "line" | "website" | "external";
-  iron_gate_channel_sync?: "not_required" | "action_required" | "awaiting_manual_sync" | "pending" | "verified" | "review_required";
+  iron_gate_channel_sync?: "not_required" | "action_required" | "awaiting_manual_sync" | "pending" | "verified" | "review_required" | "manually_confirmed";
+  iron_gate_manual_confirmation_available?: boolean;
+  iron_gate_manual_handling?: boolean;
+  iron_gate_manual_confirmed_at?: string;
   iron_gate_source_review?: boolean;
   snapshot_only?: boolean;
   payment_unconfirmed?: boolean;
@@ -125,7 +129,7 @@ export type CalendarResponse = {
   booking_segment_count: number;
   total_amount: number;
   bookings: CalendarBooking[];
-  source?: { private_snapshot_at?: string; private_snapshot_version?: string; label: string; observed_at: string; read_only: boolean; automatic_sync: boolean; availability_authoritative: boolean;
+  source?: { kind?: "iron_gate" | "google_sheet_snapshot"; private_snapshot_at?: string; private_snapshot_version?: string; label: string; observed_at: string; read_only: boolean; automatic_sync: boolean; availability_authoritative: boolean;
     sync?: { status: "waiting" | "healthy" | "confirming" | "error" | "stale"; last_successful_check_at?: string | null; last_checked_at: string | null; last_published_at: string | null; cutoff: string; interval_seconds: number; error_code: string | null } };
   source_summary?: { rows: number; accepted_rows: number; quarantined_rows: number; new_issue_rows?: number; historical_issue_rows?: number; blocked_room_nights: number; missing_order_id: number; missing_payment_status: number };
   sources?: { property_id: string; source: NonNullable<CalendarResponse["source"]>; summary: CalendarResponse["source_summary"] }[];

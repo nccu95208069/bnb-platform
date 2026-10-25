@@ -55,15 +55,18 @@ export function manualError(error: unknown, key?: string) {
   const status = code === 'MANUAL_UNAUTHORIZED' ? 401 :
     code === 'MANUAL_FORBIDDEN' ? 403 :
     code === 'MANUAL_CONFIG_UNAVAILABLE' ? 404 :
+    code === 'RATE_LIMITED' ? 429 :
     code.startsWith('MANUAL_INVALID') || code === 'MANUAL_REASON_REQUIRED' ||
       code === 'MANUAL_GUEST_NAME_REQUIRED' || code === 'MANUAL_PRICE_REQUIRED' ||
       code === 'GUEST_NAME_REQUIRED' || code === 'PRICE_REQUIRED' ||
       code === 'MANUAL_IDEMPOTENCY_KEY_REQUIRED' || code === 'FUTURE_RECEIPT' ||
+      code === 'INVALID_PAYMENT_METHOD' || code === 'INVALID_REFUND_REFERENCE' ||
       code === 'INVALID_AMOUNT' || code === 'INVALID_CURRENCY' ? 400 :
     code === 'ROOM_CONFLICT' || code.includes('VERSION') ||
       code.includes('NOT_READY') || code.includes('READ_ONLY') ||
       code.includes('NOT_OBSERVED') ||
       code.includes('REQUIRES') || code === 'REFUND_EXCEEDS_RECEIVED' ||
+      code === 'IRON_GATE_LEGACY_LEDGER_CONFLICT' || code === 'RECEIPT_EXCEEDS_DUE' ||
       code === 'PAYMENT_EVENT_LIMIT' || code === 'PAYMENT_EVENT_EXISTS' ||
       code === 'PAYMENT_EVIDENCE_EXISTS' ||
       code === 'IDEMPOTENCY_CONFLICT' ? 409 :

@@ -154,6 +154,13 @@ export function createHandler(service: IronGateService, authenticate: Authentica
             value as AmendBookingInput, request.headers.get("x-iron-gate-line-preview"));
           return json(result, result.operationState === "sync_pending" ? 202 : 200);
         }
+        if (parts.length === 6 && parts[5] === "confirm-manual-room-handling" && request.method === "POST") {
+          const value = await body(request);
+          exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "confirmed", "reason"]);
+          return json(await service.confirmManualRoomHandling(principal, propertyId, parts[4],
+            requestKey(request), value as { expectedBookingVersion: number; expectedInventoryVersion: number;
+              confirmed: boolean; reason: string }));
+        }
         if (parts.length === 6 && parts[5] === "sync-room-status" && request.method === "POST") {
           const value = await body(request);
           exact(value, ["expectedBookingVersion", "expectedInventoryVersion"]);
@@ -202,7 +209,7 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         if (parts.length === 6 && parts[5] === "payment-events" && request.method === "POST") {
           const value = await body(request);
           exact(value, ["expectedBookingVersion", "eventId", "kind", "amountCents", "currency",
-            "evidenceRef", "occurredAt"]);
+            "evidenceRef", "occurredAt"], ["method", "refundOfEventId"]);
           return json(await service.recordPaymentEvent(principal, propertyId, parts[4], requestKey(request),
             value as PaymentEventInput), 201);
         }
@@ -211,6 +218,10 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         parts.length === 4 && request.method === "GET") {
         return json(await service.listEvents(principal, parts[2],
           Number(url.searchParams.get("after") ?? "0"), Number(url.searchParams.get("limit") ?? "50")));
+      }
+      if (parts[1] === "properties" && parts[2] && parts[3] === "finance" &&
+        parts[4] === "direct-snapshot" && parts.length === 5 && request.method === "GET") {
+        return json(await service.directFinanceSnapshot(principal, parts[2]));
       }
       if (parts[1] === "properties" && parts[2] && parts[3] === "finance" &&
         parts[4] === "ledger" && parts.length === 5 && request.method === "GET") {
