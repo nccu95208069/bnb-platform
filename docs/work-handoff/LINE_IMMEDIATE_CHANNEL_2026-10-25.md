@@ -55,3 +55,19 @@ claim is a separate real incident; this implementation deliberately preserves it
 Do not remove that claim or blindly repeat the original operation to enable release.
 
 Reference: [Vercel waitUntil lifecycle](https://vercel.com/docs/functions/functions-api-reference/vercel-functions-package#waituntil).
+
+## Candidate verification after release approval
+
+The owner approved coordinated staging/cutover/restoration/rollback. A staged
+production-environment candidate was built from exact `fa338c7` using
+`--skip-domain`. It is READY, has no production alias, and all 62 runtime,
+configuration and certificate source hashes match the commit. Unauthenticated
+availability and channel-action requests both return application `401
+UNAUTHORIZED`. Deployment protection was preserved.
+
+The production alias still points to the prior deployment. Coordinated GCO
+preflight found unresolved real operation/notification records, so promotion
+remains blocked. No property claim, operation, booking, provider stock or notice
+was modified as a deployment test. A real confirmation-to-provider-to-reply
+acceptance test has not been completed. The same release approval is retained;
+uncertain business-write recovery needs its own reviewed scope.
