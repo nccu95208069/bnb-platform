@@ -1,4 +1,8 @@
 export const messages:Record<string,{en:string;th:string;vi:string}>= {
+  "訂單已讀取": {"en":"Bookings loaded","th":"โหลดการจองแล้ว","vi":"Đã tải đơn đặt"},
+  "已讀取 Iron Gate 訂單；日曆每分鐘更新。": {"en":"Iron Gate bookings loaded. The calendar refreshes every minute.","th":"โหลดการจองจาก Iron Gate แล้ว ปฏิทินอัปเดตทุกนาที","vi":"Đã tải đơn đặt từ Iron Gate. Lịch được cập nhật mỗi phút."},
+  "此狀態只表示訂單讀取結果；OwlNest 房況同步請查看各筆訂單。": {"en":"This status only describes booking reads. Check each booking for OwlNest inventory synchronization.","th":"สถานะนี้แสดงเฉพาะผลการอ่านการจอง ตรวจสอบการซิงค์ห้องว่างกับ OwlNest ในแต่ละการจอง","vi":"Trạng thái này chỉ cho biết kết quả đọc đơn đặt. Xem từng đơn để kiểm tra đồng bộ phòng với OwlNest."},
+  "最後成功讀取：": {"en":"Last successful read: ","th":"อ่านสำเร็จล่าสุด: ","vi":"Lần đọc thành công gần nhất: "},
   "調整個人畫面與常用操作。帳號、營運和進階串接各有自己的位置。": {"en":"Adjust your display and common tasks. Account, operations, and integrations each have their own place.","th":"ปรับหน้าจอและงานที่ใช้บ่อย โดยแยกบัญชี การดำเนินงาน และการเชื่อมต่อไว้เป็นหมวดหมู่","vi":"Điều chỉnh giao diện và các thao tác thường dùng. Tài khoản, vận hành và tích hợp được sắp xếp riêng."},
   "外觀與閱讀": {"en":"Appearance and reading","th":"รูปลักษณ์และการอ่าน","vi":"Giao diện và hiển thị"},
   "明暗與字體調整立即生效，並保存在這台裝置。": {"en":"Theme and text size changes apply instantly and are saved on this device.","th":"การปรับธีมและขนาดตัวอักษรมีผลทันทีและบันทึกไว้ในอุปกรณ์นี้","vi":"Thay đổi giao diện và cỡ chữ có hiệu lực ngay và được lưu trên thiết bị này."},
