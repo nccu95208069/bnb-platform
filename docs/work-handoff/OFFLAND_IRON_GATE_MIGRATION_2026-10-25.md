@@ -307,14 +307,45 @@ subscription and the OwlNest Cloud Tasks queue. This baseline must be
 compared with live state immediately before the freeze and used for exact
 restoration after the authority switch.
 
-The historical source export must be reconstructed for a final hash-bound
-comparison because the earlier private temporary file was cleared by a host
-restart. Automatic approval review rejected writing the owner-only backup
+The earlier private temporary source export was cleared by a host restart.
+Automatic approval review rejected writing the owner-only backup
 export to `/private/tmp/offland-ig-preflight-20261025.xlsx` without explicit
 source-and-destination authorization; the owner was asked for that exact
 approval. No export was written by the rejected attempt. The final frozen
 snapshot and separate owner-only copy still need to be captured after all
 writers are stopped and drained.
+
+The owner subsequently approved that exact source and private local path.
+The owner-only backup was exported there with private file permissions and
+reconstructed into a normalized private snapshot. It contains 280 rows, six
+cached formulas and 270 Q/J booking groups. The source hash is again
+`f389ede19647b90b452b3de201aed5f2e71549c2b0c47e42d1246d6b3706d17d`,
+matching the epoch-0 Iron Gate shadow; the converter still reports 280 villa
+nights, zero flagged groups and zero payment events. The original Sheet's
+modified timestamp remained `2026-10-24T16:05:45.813Z` after this check.
+
+Two seven-day epoch-1 credentials were staged in Iron Gate for the single
+OFFLAND property: a source-only Gmail write grant and an OS read/aggregate
+grant. Local planning and database readback matched their IDs, hashes, exact
+grants and expiry. They cannot authorize writes while the property remains
+read-only at epoch 0. Sweetfun OS Production now has the Offland read grant,
+room map, backend URL and expected epoch configured, with its Offland calendar
+flag explicitly `false`; the current Production deployment has not changed.
+The Gmail source token has not yet been mounted in Cloud Run.
+
+At 12:51 Taipei time, both version-pinned read-only business and finance
+preflights were repeated. Each reported `safe=true`, zero active/unknown
+operations, zero writes and zero notifications. The business check found zero
+Cloud Tasks and zero eligible Gmail messages, with the same one independently
+verified quarantined claim. These checks must be repeated after the freeze.
+
+The owner revisited all four Apps Script trigger settings without saving
+changes. `onChangeInstallable` runs on spreadsheet content change,
+`onEditInstallable` on spreadsheet edit, and `auditOnOpenMenu` on spreadsheet
+open; all use daily error notifications. `auditDaily` is a daily timer in the
+07:00–08:00 Asia/Taipei window with daily error notifications. The account
+shown as owner is `sweetfuntw@gmail.com`. The source still has all four
+triggers, so none of the writer freeze has begun.
 
 The OS draft PR also prepares exact final-snapshot authority activation,
 next-epoch scoped Gmail/OS credentials, and a no-new-write epoch-2 rollback.
