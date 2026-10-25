@@ -5,7 +5,11 @@ import { RedisWorkspaceStore } from "@/lib/workspace-auth/store";
 import { NextRequest, NextResponse } from "next/server";
 import { OWNER_COOKIE, OWNER_SESSION_SECONDS, createOwnerSession, ownerAccessConfigured } from "@/lib/calendar-owner-session";
 import { RedisOwnerCredentialStore, credentialBinding, credentialMatches, changeOwnerPassword, createPasswordCredential, passwordProblem } from "@/lib/owner-password";
-import { PREVIEW_OWNER_COOKIE, createPreviewOwnerSession, previewOwnerCodeMatches, previewOwnerConfigured, previewOwnerSessionSeconds } from "@/lib/iron-gate-preview-owner";
+import { PREVIEW_OWNER_COOKIE, OFFLAND_PREVIEW_OWNER_COOKIE,
+  createPreviewOwnerSession, createOfflandPreviewOwnerSession,
+  previewOwnerCodeMatches, offlandPreviewOwnerCodeMatches,
+  previewOwnerConfigured, offlandPreviewOwnerConfigured,
+  previewOwnerSessionSeconds } from "@/lib/iron-gate-preview-owner";
 const headers = { "Cache-Control": "private, no-store", "Vary": "Cookie", "Referrer-Policy": "no-referrer" };
 const sameOrigin = (request: NextRequest) => request.headers.get("origin") === `${request.nextUrl.protocol}//${request.headers.get("host")}`;
 async function cookieResponse(request: NextRequest, session: string, member = false, accountId = "calendar-owner", mustReset = false) {
@@ -41,7 +45,7 @@ function failure(error: unknown) {
   return NextResponse.json({ detail }, { status, headers });
 }
 export async function GET(request: NextRequest) {
-  if (previewOwnerConfigured()) {
+  if (previewOwnerConfigured() || offlandPreviewOwnerConfigured()) {
     const principal = await principalFor(request);
     return NextResponse.json({ available: true, authenticated: Boolean(principal), has_custom_password: true,
       membership: principal ? { ...principal, tenantId: "sweetfun-workspace", tenantName: "Sweetfun OS",
@@ -59,15 +63,24 @@ export async function GET(request: NextRequest) {
 }
 export async function POST(request: NextRequest) {
   if (!sameOrigin(request)) return NextResponse.json({ detail: "請從本站登入。" }, { status: 403, headers });
-  if (previewOwnerConfigured()) {
+  if (previewOwnerConfigured() || offlandPreviewOwnerConfigured()) {
     try {
       const input = await body(request);
-      if (!previewOwnerCodeMatches(normalizedEmail(input.email), input.code)) throw Error("UNAUTHORIZED");
+      const email = normalizedEmail(input.email);
+      const offland = offlandPreviewOwnerCodeMatches(email, input.code);
+      if (!offland && !previewOwnerCodeMatches(email, input.code)) throw Error("UNAUTHORIZED");
       const response = NextResponse.json({ authenticated: true, requires_password_reset: false }, { headers });
-      response.cookies.set(PREVIEW_OWNER_COOKIE, createPreviewOwnerSession(), {
+      response.cookies.set(offland ? OFFLAND_PREVIEW_OWNER_COOKIE : PREVIEW_OWNER_COOKIE,
+        offland ? createOfflandPreviewOwnerSession() : createPreviewOwnerSession(), {
         httpOnly: true, secure: true, sameSite: "strict", path: "/", maxAge: previewOwnerSessionSeconds });
+      response.cookies.set(offland ? PREVIEW_OWNER_COOKIE : OFFLAND_PREVIEW_OWNER_COOKIE,
+        "", { httpOnly: true, secure: true, sameSite: "strict", path: "/", maxAge: 0 });
       return response;
-    } catch (error) { return failure(error); }
+    } catch (error) {
+      if (error instanceof Error && error.message === "UNAUTHORIZED")
+        return NextResponse.json({ detail: "預覽信箱或驗證碼不正確。" }, { status: 401, headers });
+      return failure(error);
+    }
   }
   if (!ownerAccessConfigured()) return NextResponse.json({ detail: "私人檢視尚未啟用。" }, { status: 503, headers });
   try {
@@ -115,6 +128,7 @@ export async function DELETE(request: NextRequest) {
   if (!sameOrigin(request)) return NextResponse.json({ detail: "請從本站登出。" }, { status: 403, headers });
   const response = NextResponse.json({ authenticated: false }, { headers });
   response.cookies.set(PREVIEW_OWNER_COOKIE, "", { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict", path: "/", maxAge: 0 });
+  response.cookies.set(OFFLAND_PREVIEW_OWNER_COOKIE, "", { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict", path: "/", maxAge: 0 });
   response.cookies.set(MEMBER_COOKIE, "", { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict", path: "/", maxAge: 0 });
   response.cookies.set(OWNER_COOKIE, "", { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict", path: "/", maxAge: 0 });
   return response;

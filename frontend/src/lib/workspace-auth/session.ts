@@ -3,7 +3,10 @@ import { OWNER_COOKIE, OWNER_SESSION_SECONDS, ownerAccessConfigured } from '../c
 import { RedisOwnerCredentialStore, credentialBinding, credentialSessionValid } from '../owner-password.ts';
 import { RedisWorkspaceStore, type WorkspaceStore } from './store.ts';
 import { ownerPrincipal, type Member, type Principal } from './types.ts';
-import { PREVIEW_OWNER_COOKIE, previewOwnerConfigured, previewOwnerPrincipal, validPreviewOwnerSession } from '../iron-gate-preview-owner.ts';
+import { PREVIEW_OWNER_COOKIE, OFFLAND_PREVIEW_OWNER_COOKIE,
+  previewOwnerConfigured, previewOwnerPrincipal, validPreviewOwnerSession,
+  offlandPreviewOwnerConfigured, offlandPreviewOwnerPrincipal,
+  validOfflandPreviewOwnerSession } from '../iron-gate-preview-owner.ts';
 export const MEMBER_COOKIE='sf_calendar_member';
 export interface CookieRequest { cookies: {get(name:string):{value:string}|undefined} }
 function signature(payload:string,revision:string) {
@@ -27,7 +30,11 @@ export function memberPrincipal(member:Member):Principal {
   return {id:member.id,displayName:member.displayName,email:member.email,role:member.role,allProperties:member.allProperties,propertyIds:member.propertyIds,viewPrices:member.role!=='viewer_no_price'};
 }
 export async function principalFor(request:CookieRequest,store:WorkspaceStore=new RedisWorkspaceStore()):Promise<Principal|null> {
+  if (offlandPreviewOwnerConfigured() &&
+    validOfflandPreviewOwnerSession(request.cookies.get(OFFLAND_PREVIEW_OWNER_COOKIE)?.value))
+    return offlandPreviewOwnerPrincipal();
   if (previewOwnerConfigured()) return validPreviewOwnerSession(request.cookies.get(PREVIEW_OWNER_COOKIE)?.value) ? previewOwnerPrincipal() : null;
+  if (offlandPreviewOwnerConfigured()) return null;
   if(!ownerAccessConfigured())return null;
   const owner=request.cookies.get(OWNER_COOKIE)?.value;
   if(owner&&credentialSessionValid(owner,(await new RedisOwnerCredentialStore().read()).value))return ownerPrincipal();

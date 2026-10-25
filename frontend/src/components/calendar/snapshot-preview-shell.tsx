@@ -16,7 +16,7 @@ export function SnapshotPreviewShell({ children }: { children: ReactNode }) {
   }
   return <div className="min-h-dvh bg-muted/20">
     <header className="flex items-center justify-between border-b bg-background px-4 py-3">
-      <span className="font-semibold">Sweetfun · Iron Gate 固定快照預覽</span>
+      <span className="font-semibold">Iron Gate 固定快照預覽</span>
       <button type="button" onClick={signOut} disabled={busy} className="rounded-lg border px-3 py-2 text-sm disabled:opacity-60">
         {busy ? "登出中…" : "登出"}
       </button>
