@@ -1,6 +1,6 @@
 # BnB SaaS / Sweetfun OS — Authoritative Work Context
 
-2026-10-25 Sweetfun native direct finance: [source audit, immutable receipt/refund projection, unified form and recovery](docs/work-handoff/SWEETFUN_DIRECT_FINANCE_2026-10-25.md). Engineering and isolated verification are complete. Production grants/flags and authenticated live integrated readback remain pending; historical Sheet/LINE evidence is not converted into new receipts.
+2026-10-25 Sweetfun native direct finance: [source audit, immutable receipt/refund projection, unified form, recovery and authorized production release](docs/work-handoff/SWEETFUN_DIRECT_FINANCE_2026-10-25.md). Both production grants/flags are enabled; authenticated live readback confirms the original 12-entry ledger is unchanged and direct orders are included. Runtime `5f15240` preserves current Offland updates. No live test payments or historical Sheet/LINE receipt migration occurred; the new grants expire November 22 at 08:37 Taipei.
 
 2026-10-24 sold-month calendar: the live-source month guard had removed continuous vertical month scrolling. [PR #75 and production readback](docs/work-handoff/IRON_GATE_CALENDAR_LOAD_FIX_2026-10-22.md#follow-up-restore-continuous-sold-month-scrolling--2026-10-24) restore the stable month track with bounded single-grid reads and adjacent prefetch. The authenticated owner browser at phone size scrolled October → November → December and back on the primary domain; a physical touch test remains separate.
 
