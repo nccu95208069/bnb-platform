@@ -213,16 +213,27 @@ The audit compared all 280 source nights, 270 group keys and per-night fees
 against the calendar projection: zero missing, extra or changed items. This
 does not replace an authenticated check of the deployed API.
 
-A temporary, epoch-0, OS-only read credential was issued for a live preview
-check, but automatic approval review rejected transmitting that token to the
-`sweetfun-os` Vercel Preview environment without destination-specific owner
-authorization. The credential was never used, was marked inactive in the
-database, and its local token file was removed. No OFFLAND preview variable
-was created. A separate proposed broad pull of all Iron Gate production
-environment variables was also rejected because it could extract unrelated
-secrets. The OS reader now reuses its already configured server-side proof
-key, so that broad pull is unnecessary. Live preview setup awaits the owner's
-specific answer.
+A first temporary, epoch-0, OS-only read credential was issued for a live
+preview check, but automatic approval review rejected its destination; it was
+deactivated without use. The owner then authorized the exact property-scoped
+Vercel Preview destination. A separate 12-hour read credential was issued and
+read back. No production Offland credential or source grant exists yet. A
+proposed broad pull of Iron Gate production variables was rejected because it
+could expose unrelated secrets; no such pull was used.
+
+The fixed Vercel Preview login initially presented the production password
+screen and a 404 password-recovery link. PR #78 now provides a separate
+Offland preview code and session scoped only to Offland, without prices, and
+labels the input correctly. The initial OS Preview failed because the Offland
+source was omitted from active source configuration, then because its Iron Gate
+URL used a different production proof key. PR #78 corrected the active source,
+Preview dispatch and scoped Preview OIDC. The existing Vercel Trusted Sources
+rule allowed the protected Preview backend; no access rule was changed.
+Authenticated owner inspection of the final protected OS Preview
+`dpl_5SG8f1xaRrTjP2KgrSWrHraQQ9KG` loaded the Offland October 2026
+calendar from the epoch-0 Iron Gate snapshot with 26 room nights and 27
+booking records, while hiding room prices. This proves the read-only Preview
+route, not a production read or writer cutover.
 
 A source-only GCO release package was exported from pushed commit
 `1283d1184334835c7670297eb0caf9c6156423af` (155 files; SHA-256
@@ -231,11 +242,32 @@ This candidate refuses the Offland Gmail Iron Gate route unless the Offland
 LINE order-write pause is also enabled; five targeted synthetic checks pass.
 The source tar was uploaded to owner Cloud Shell with matching SHA-256 and
 verified `release-source.json` commit/service/file count. Cloud Build
-`0153c7dd-5fde-473b-bf07-d55f9551cb5b` was submitted using only that
-source package and `cloudbuild.yaml`; its image target is the existing
-Artifact Registry `gmail-order-handler:offland-1283d11-20261025` tag. Build
-completion and immutable digest require readback. No Cloud Run candidate has
-been deployed and formal traffic remains on the old revision.
+`0153c7dd-5fde-473b-bf07-d55f9551cb5b` succeeded from that exact source;
+the image digest is
+`sha256:af97a2f9fb6f4da326c23be8885a1d40affc7b857509ac3b45b5c6d8880adff9`.
+Cloud Run revision `gmail-order-handler-offland-1283d11` is Ready at 0%
+traffic. Its runtime template matches the current revision except for the
+image, including the existing secret mounts. Formal traffic remains on
+`gmail-order-handler-line-manual-db56fa0` at 100%.
+
+At 12:05 Taipei time, the version-pinned read-only business preflight in the
+owner Cloud Shell returned `safe=true`: zero Cloud Tasks, zero eligible Gmail,
+zero active or unknown order/notification journals, and one independently
+verified quarantined Gmail claim. It generated no writes or notifications.
+Pub/Sub's unacked count had also read as zero shortly before this check.
+These are time-specific observations and must be repeated after the full
+writer freeze and drain. The original Sheet's modified timestamp was still
+`2026-10-24T16:05:45.813Z` at the 12:05 readback. Offland authority remains
+read-only epoch 0/version 1 with 270 bookings and zero receipts.
+
+The historical source export must be reconstructed for a final hash-bound
+comparison because the earlier private temporary file was cleared by a host
+restart. Automatic approval review rejected writing the owner-only backup
+export to `/private/tmp/offland-ig-preflight-20261025.xlsx` without explicit
+source-and-destination authorization; the owner was asked for that exact
+approval. No export was written by the rejected attempt. The final frozen
+snapshot and separate owner-only copy still need to be captured after all
+writers are stopped and drained.
 
 The OS draft PR also prepares exact final-snapshot authority activation,
 next-epoch scoped Gmail/OS credentials, and a no-new-write epoch-2 rollback.
