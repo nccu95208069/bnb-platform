@@ -1,6 +1,6 @@
 export type BookingStatus = "held" | "confirmed" | "cancelled";
 export type ChannelSyncState = "not_required" | "action_required" | "awaiting_manual_sync" | "pending" | "verified" | "review_required";
-export type OperationState = "sync_pending" | "sync_verified" | "review_required";
+export type OperationState = "sync_pending" | "sync_verified" | "review_required" | "retired_source_managed";
 export type Action =
   | "booking:read"
   | "booking:aggregate"
@@ -355,7 +355,7 @@ export type EventType =
   | "source.notification_recorded"
   | "reporting.policy_recorded"
   | "channel.requested" | "channel.verified" | "channel.review_required"
-  | "channel.review_claim_released";
+  | "channel.review_claim_released" | "channel.source_operation_retired";
 
 export type PendingEvent = {
   eventId: string;

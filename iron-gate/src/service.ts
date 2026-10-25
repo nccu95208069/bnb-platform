@@ -2330,6 +2330,8 @@ export class IronGateService {
       if (new Set(applied.map(keyOf)).size !== applied.length) reject("INVALID_INPUT");
       const operation = state.operations.find((item) => item.key === input.operationKey);
       if (!operation) reject("OPERATION_NOT_FOUND", 404);
+      if (operation.state === "retired_source_managed")
+        reject("CHANNEL_OPERATION_NOT_DISPATCHABLE", 409);
       if (observed < timestamp(operation.createdAt)) reject("STALE_READBACK", 409);
       const booking = operation.bookingId === null ? null :
         state.bookings.find((item) => item.id === operation.bookingId) ?? null;
@@ -2488,7 +2490,24 @@ export class IronGateService {
       let link = state.sourceLinks.find((item) => item.key === sourceKey);
       const linkedBooking = link?.bookingId ? state.bookings.find((item) => item.id === link!.bookingId) : null;
       const channelMode = state.channel.mode === "owlnest";
-      const sourceReadback = channelMode && state.channel.sourceReadbackEnabled === true;
+      const gmailSourceNotice = principal.subjectId === GMAIL_NOTIFICATION_SUBJECT &&
+        input.sourceSystem === GMAIL_NOTIFICATION_SOURCE;
+      const owlNestGmailOrderId = gmailSourceNotice &&
+        /^L:OBE[A-Z0-9]+$/.test(input.externalOrderId);
+      const evidence = input.sourceIdentityEvidence;
+      const verifiedGmailOwlNestNotice = owlNestGmailOrderId &&
+        /^gmail-v1:[1-9]\d{12}:[0-9a-f]{64}$/.test(input.sourceVersion) &&
+        evidence && typeof evidence === "object" &&
+        Object.keys(evidence).sort().join(",") === "deliveredTo,kind,signedDomain" &&
+        evidence.kind === "gmail-owlnest-dkim-v1" &&
+        evidence.signedDomain === "owlting.com" &&
+        evidence.deliveredTo === "sweetfuntw@gmail.com";
+      // OwlNest has already changed its OTA inventory before sending Gmail.
+      // This source event mirrors the order in OS; it must never dispatch an
+      // additional channel operation or wait behind a manual channel claim.
+      const providerManagedNotice = channelMode && verifiedGmailOwlNestNotice;
+      const sourceReadback = channelMode && state.channel.sourceReadbackEnabled === true &&
+        !providerManagedNotice;
       const review = (reason: string, affected: Night[]): Record<string, unknown> => {
         const key = `review:${sourceKey}`;
         const existing = state.fences.find((fence) => fence.key === key);
@@ -2589,25 +2608,24 @@ export class IronGateService {
       // when Gmail verified the provider's aligned DKIM/DMARC signature and
       // the source notice carries an exact OTA alias and amount. An unsigned
       // notice, generic source client, or ambiguous identity remains fenced.
+      if (channelMode && gmailSourceNotice && !verifiedGmailOwlNestNotice)
+        return review("SOURCE_IDENTITY_UNVERIFIED", cells);
       if (channelMode && input.kind === "upsert" && !linkedBooking) {
-        const evidence = input.sourceIdentityEvidence;
-        const signedNotice = principal.subjectId === GMAIL_NOTIFICATION_SUBJECT &&
-          input.sourceSystem === GMAIL_NOTIFICATION_SOURCE &&
-          /^L:OBE[A-Z0-9]+$/.test(input.externalOrderId) &&
-          /^gmail-v1:[1-9]\d{12}:[0-9a-f]{64}$/.test(input.sourceVersion) &&
+        const signedNotice = verifiedGmailOwlNestNotice &&
           input.previousSourceVersion === null && input.bookedAt === null &&
           typeof input.guestName === "string" && input.guestName.trim().length > 0 &&
           ["booking", "agoda", "airbnb", "ctrip"].includes(input.platform ?? "") &&
           typeof input.externalOrderNo === "string" &&
           typeof input.totalCents === "number" &&
-          Number.isSafeInteger(input.totalCents) && input.currency === "TWD" &&
-          evidence && typeof evidence === "object" &&
-          Object.keys(evidence).sort().join(",") === "deliveredTo,kind,signedDomain" &&
-          evidence.kind === "gmail-owlnest-dkim-v1" &&
-          evidence.signedDomain === "owlting.com" &&
-          evidence.deliveredTo === "sweetfuntw@gmail.com";
+          Number.isSafeInteger(input.totalCents) && input.currency === "TWD";
         if (!signedNotice) return review("SOURCE_IDENTITY_UNVERIFIED", cells);
       }
+      // A legacy Gmail event may already have queued an erroneous channel
+      // operation. A separate, audited repair must retire it before an update.
+      if (providerManagedNotice && linkedBooking &&
+        ["pending", "review_required"].includes(linkedBooking.channelSyncState))
+        return review("GMAIL_LEGACY_CHANNEL_OPERATION", [...cells,
+          ...nightsFor(linkedBooking.stays, state.roomIds)]);
       if (sourceReadback && (!state.channel.ready || !state.channel.grantId))
         return review("CHANNEL_NOT_READY", [...cells,
           ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);
@@ -2616,7 +2634,7 @@ export class IronGateService {
           linkedBooking.channelSyncState === "review_required"))
         return review("CHANNEL_PREVIOUS_OPERATION_UNRESOLVED", [...cells,
           ...nightsFor(linkedBooking.stays, state.roomIds)]);
-      if (channelMode && !sourceReadback && input.kind === "upsert") {
+      if (channelMode && !sourceReadback && !providerManagedNotice && input.kind === "upsert") {
         const current = linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds).map(keyOf).sort() : [];
         const requested = cells.map(keyOf).sort();
         if (current.length !== requested.length ||
@@ -2629,7 +2647,7 @@ export class IronGateService {
         const supplied = cells.map(keyOf).sort();
         if (current.length !== supplied.length || current.some((cell, index) => cell !== supplied[index]))
           return review("SOURCE_STAY_MISMATCH", [...cells, ...nightsFor(linkedBooking.stays, state.roomIds)]);
-        if (channelMode && !sourceReadback)
+        if (channelMode && !sourceReadback && !providerManagedNotice)
           return review("CHANNEL_CANCEL_REQUIRES_READBACK", cells);
       }
       if (input.kind === "cancel" && !linkedBooking) {
@@ -2697,6 +2715,10 @@ export class IronGateService {
         const notification = firstGmailNotification(input.sourceSystem, input.sourceVersion,
           requestKey, booking.createdAt);
         if (notification) link.firstNewOrderNotification = notification;
+      }
+      if (providerManagedNotice) {
+        booking.channelSyncState = "not_required";
+        booking.channelOperationKey = null;
       }
       const channelNeeded = sourceReadback && (input.kind === "cancel" || !linkedBooking ||
         linkedBooking.channelSyncState !== "verified" || changedNights(oldCells, cells));

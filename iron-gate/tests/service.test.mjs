@@ -1768,7 +1768,7 @@ async function signedSourceSetup() {
   return { ...context, actor, input };
 }
 
-test("signed OwlNest new-order notice creates one linked booking and a channel readback", async () => {
+test("signed OwlNest new-order notice mirrors the booking without a channel write", async () => {
   const { service, repository, actor, input } = await signedSourceSetup();
   const result = await service.applySourceEvent(actor, key(), input);
   assert.equal(result.state, "applied");
@@ -1776,8 +1776,65 @@ test("signed OwlNest new-order notice creates one linked booking and a channel r
   assert.equal(state.bookings.length, 1);
   assert.equal(state.sourceLinks.length, 1);
   assert.equal(state.bookings[0].totalCents, 197000);
-  assert.equal(state.operations.length, 1);
-  assert.equal(state.operations[0].state, "sync_pending");
+  assert.equal(state.bookings[0].channelSyncState, "not_required");
+  assert.equal(state.operations.length, 0);
+  assert.equal(state.fences.length, 0);
+});
+
+test("signed OwlNest changes and cancellation mirror occupancy without channel writes", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  const created = await service.applySourceEvent(actor, key(), input);
+  const changed = await service.applySourceEvent(actor, key(), { ...input,
+    expectedInventoryVersion: created.inventoryVersion,
+    previousSourceVersion: input.sourceVersion,
+    sourceVersion: `gmail-v1:1792859315000:${"b".repeat(64)}`,
+    stays: [{ checkIn: "2026-11-12", checkOut: "2026-11-14", roomIds: [roomId] }] });
+  assert.equal(changed.state, "applied");
+  const cancelled = await service.applySourceEvent(actor, key(), { ...input,
+    kind: "cancel", expectedInventoryVersion: changed.inventoryVersion,
+    previousSourceVersion: `gmail-v1:1792859315000:${"b".repeat(64)}`,
+    sourceVersion: `gmail-v1:1792859316000:${"c".repeat(64)}`,
+    stays: [{ checkIn: "2026-11-12", checkOut: "2026-11-14", roomIds: [roomId] }] });
+  assert.equal(cancelled.state, "applied");
+  const state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].status, "cancelled");
+  assert.equal(state.bookings[0].channelSyncState, "not_required");
+  assert.equal(state.operations.length, 0);
+  assert.equal(state.fences.length, 0);
+});
+
+test("unsigned Gmail follow-up cannot mutate a linked OwlNest order or channel", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  const created = await service.applySourceEvent(actor, key(), input);
+  const result = await service.applySourceEvent(actor, key(), { ...input,
+    expectedInventoryVersion: created.inventoryVersion,
+    previousSourceVersion: input.sourceVersion,
+    sourceVersion: `gmail-v1:1792859315000:${"b".repeat(64)}`,
+    sourceIdentityEvidence: undefined });
+  assert.equal(result.reason, "SOURCE_IDENTITY_UNVERIFIED");
+  const state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].version, 1);
+  assert.equal(state.operations.length, 0);
+});
+
+test("retired Gmail channel operation cannot be dispatched or verified", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  const created = await service.applySourceEvent(actor, key(), input);
+  const operationKey = key();
+  await repository.transact(propertyId, (state) => {
+    state.operations.push({ key: operationKey, bookingId: created.bookingId,
+      bookingVersion: 1, state: "retired_source_managed",
+      cells: [{ roomId, date: "2026-11-10", desired: "closed" }],
+      createdAt: new Date(Date.now() - 1000).toISOString(),
+      verifiedAt: null, providerVersion: null });
+  });
+  const channel = principal("channel");
+  const pending = await service.pendingChannelOperations(channel, propertyId, 10);
+  assert.deepEqual(pending.operations, []);
+  await assert.rejects(service.recordChannelReadback(channel, { propertyId,
+    operationKey, providerVersion: "synthetic", observedAt: new Date().toISOString(),
+    cells: [{ roomId, date: "2026-11-10", count: 0, isLock: true }] }),
+  errorCode("CHANNEL_OPERATION_NOT_DISPATCHABLE"));
 });
 
 test("unsigned, ambiguous, and unbound OwlNest new orders stay under review", async () => {
