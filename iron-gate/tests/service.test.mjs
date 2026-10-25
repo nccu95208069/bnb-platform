@@ -58,6 +58,26 @@ function sourceInput(version = 1, overrides = {}) {
 }
 const errorCode = (code) => (error) => error?.code === code;
 
+test('OS nightly prices require money scope, exact dates and totals, and remain redacted from no-price readers', async () => {
+  const { service, repository } = setup();
+  const input = bookingInput(1, { roomNightPrices: [
+    { roomId, date: '2026-11-10', amountCents: 500000 },
+    { roomId, date: '2026-11-11', amountCents: 700000 },
+  ] });
+  await assert.rejects(service.createBooking(principal('os', { fields: ['guest_name'] }),
+    propertyId, key(), input), errorCode('FORBIDDEN'));
+  await assert.rejects(service.createBooking(principal(), propertyId, key(), {
+    ...input, roomNightPrices: [{ roomId, date: '2026-11-10', amountCents: 1200000 }],
+  }), errorCode('INVALID_NIGHT_PRICES'));
+  assert.equal((await repository.read(propertyId)).bookings.length, 0);
+  const receipt = await service.createBooking(principal(), propertyId, key(), input);
+  const detail = await service.getBooking(principal(), propertyId, receipt.bookingId);
+  assert.deepEqual(detail.roomNightPrices, input.roomNightPrices);
+  const redacted = await service.getBooking(principal('os', { fields: ['guest_name'] }), propertyId, receipt.bookingId);
+  assert.equal(redacted.roomNightPrices, undefined);
+  assert.equal(redacted.totalCents, undefined);
+});
+
 async function requestSync(service, repository, created, actor = principal()) {
   const state = await repository.read(propertyId);
   const booking = state.bookings.find((item) => item.id === created.bookingId);

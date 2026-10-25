@@ -13,6 +13,7 @@ export async function mount(t, component, props = {}, hash = "") {
     "location",
     "history",
     "FormData",
+    "Node", "NodeFilter", "Element", "HTMLElement", "HTMLInputElement", "CustomEvent",
     "getComputedStyle",
     "MutationObserver",
     "ResizeObserver",
@@ -28,6 +29,9 @@ export async function mount(t, component, props = {}, hash = "") {
     location: dom.window.location,
     history: dom.window.history,
     FormData: dom.window.FormData,
+    Node: dom.window.Node, NodeFilter: dom.window.NodeFilter, Element: dom.window.Element,
+    HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement,
+    CustomEvent: dom.window.CustomEvent,
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     MutationObserver: dom.window.MutationObserver,
     ResizeObserver: class {

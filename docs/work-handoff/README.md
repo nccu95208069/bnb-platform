@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+- [水芳新增訂單表單與自動確認（2026-10-25）](SWEETFUN_BOOKING_FORM_2026-10-25.md)
+
 2026-10-25 水芳新直訂財務：[帳本核對、收退款單一來源、首頁淨額、同鍵恢復與正式發布回讀](SWEETFUN_DIRECT_FINANCE_2026-10-25.md)。業主授權發布已完成，兩項正式開關啟用；原 12 筆帳本不變，未新增測試款項，保留 Offland 更新。兩張新憑證至 11 月 22 日 08:37（台灣時間）。
 
 2026-10-24 已售月曆捲動修復：[正式資料的單月讀取、相鄰月份預載與手機跨月滑動](IRON_GATE_CALENDAR_LOAD_FIX_2026-10-22.md#follow-up-restore-continuous-sold-month-scrolling--2026-10-24)。

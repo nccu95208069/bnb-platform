@@ -384,6 +384,10 @@ function publicBooking(booking: Booking, principal: Principal,
     result.totalCents = booking.totalCents;
     result.currency = booking.currency;
     result.paymentSummary = paymentTotals(booking);
+    if (principal.origin === "os") {
+      const prices = bookingNightPrices(booking);
+      if (prices) result.roomNightPrices = prices;
+    }
   }
   if (principal.origin === "line" && principal.fields.includes("money")) {
     result.totalCents = booking.totalCents;
@@ -411,18 +415,12 @@ function calendarStayAmounts(booking: Booking): number[] | null {
   if (booking.totalCents === null || !Number.isSafeInteger(booking.totalCents) ||
     booking.totalCents < 0 || booking.stays.some((stay) => stay.roomIds.length !== 1)) return null;
   if (booking.stays.length === 1) return [booking.totalCents];
-  if (Array.isArray(booking.roomNightPrices) &&
-    booking.roomNightPrices.length === booking.stays.length &&
-    booking.stays.every((stay) => stay.roomIds.length === 1 &&
-      dayNumber(stay.checkOut) - dayNumber(stay.checkIn) === 1)) {
-    const byCell = new Map(booking.roomNightPrices.map((price) =>
-      [`${price.roomId}:${price.date}`, price.amountCents]));
-    const amounts = booking.stays.map((stay) =>
-      byCell.get(`${stay.roomIds[0]}:${stay.checkIn}`));
-    if (byCell.size === booking.stays.length &&
-      amounts.every((amount) => Number.isSafeInteger(amount) && amount! >= 0) &&
-      amounts.reduce<number>((sum, amount) => sum + Number(amount), 0) === booking.totalCents)
-      return amounts as number[];
+  if (Array.isArray(booking.roomNightPrices)) {
+    const cells = nightsFor(booking.stays, [...new Set(booking.stays.flatMap(stay => stay.roomIds))]);
+    const prices = exactNightPrices(booking.roomNightPrices, cells, booking.totalCents);
+    if (prices) return booking.stays.map(stay => prices.filter(price =>
+      price.roomId === stay.roomIds[0] && price.date >= stay.checkIn && price.date < stay.checkOut)
+      .reduce((sum, price) => sum + price.amountCents, 0));
   }
   // A newer source event supplies only a whole-order amount. Historical
   // imported rows cannot prove its current per-night distribution.
@@ -493,7 +491,7 @@ function verifyCreate(input: CreateBookingInput, principal: Principal): void {
   if (input.totalCents !== null && (!Number.isSafeInteger(input.totalCents) || input.totalCents < 0))
     reject("INVALID_AMOUNT");
   if (input.bookedAt !== null) dayNumber(input.bookedAt);
-  if (input.roomNightPrices !== undefined && principal.origin !== "line")
+  if (input.roomNightPrices !== undefined && !["line", "os"].includes(principal.origin))
     reject("FORBIDDEN", 403);
   lineManualPolicy(principal, input.channelPolicy);
 }
