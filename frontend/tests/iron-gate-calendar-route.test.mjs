@@ -92,6 +92,11 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
   assert.equal(data.bookings[0].payment_status, 'paid');
   assert.equal(data.bookings[0].payment_review_status, 'paid');
   assert.equal(data.source.availability_authoritative, false);
+  assert.equal(data.source.kind, 'iron_gate');
+  assert.equal(data.source.sync.status, 'healthy');
+  assert.equal(data.source.sync.error_code, null);
+  assert.equal(data.source.sync.last_successful_check_at, data.source.observed_at);
+  assert.equal(data.sources[0].source.sync.status, 'healthy');
   assert.equal(sheetCalls, 0);
   assert.equal(igCalls, 1);
 

@@ -16,6 +16,7 @@ const stateLabel: Record<string, string> = {
   review_required: "OwlNest 結果需人工核對",
   verified: "OwlNest 已核對",
   not_required: "無待處理房態",
+  manually_confirmed: "已手動處理房況（人工確認）",
 };
 
 function waitingAge(createdAt: string): string {

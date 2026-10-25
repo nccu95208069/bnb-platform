@@ -262,7 +262,7 @@ const uiLocale = useIntlLocale();
   }, [historyRevision, cancelScrollCommit]);
   const [reloadKey, setReloadKey] = useState(0);
   const retryCalendar = useCallback(() => setReloadKey((value) => value + 1), []);
-  const [manualMode, setManualMode] = useState<"create" | "amend" | "cancel" | "sync" | null>(null);
+  const [manualMode, setManualMode] = useState<"create" | "amend" | "cancel" | "sync" | "manual-confirm" | null>(null);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
   const [editsHydrated, setEditsHydrated] = useState(false);
   const previousView = useRef<CalendarView>(view);
@@ -1091,19 +1091,24 @@ const uiLocale = useIntlLocale();
         onCancelBooking={cancelBooking}
         onManualEdit={manualEnabled && selectedBooking &&
           ["full", "guest_name"].includes(selectedBooking.iron_gate_edit_mode ?? "") &&
-          ["verified", "not_required", "awaiting_manual_sync", "action_required"].includes(
+          ["verified", "not_required", "awaiting_manual_sync", "action_required", "manually_confirmed"].includes(
             selectedBooking.iron_gate_channel_sync ?? "") &&
           !selectedBooking.iron_gate_source_review ?
           () => setManualMode("amend") : undefined}
-        onManualCancel={manualEnabled && selectedBooking?.iron_gate_source === "os" &&
-          ["verified", "not_required", "awaiting_manual_sync"].includes(
+        onManualCancel={manualEnabled && selectedBooking &&
+          (selectedBooking.iron_gate_source === "os" || selectedBooking.iron_gate_manual_handling) &&
+          ["verified", "not_required", "awaiting_manual_sync", "manually_confirmed",
+            ...(selectedBooking.iron_gate_manual_handling ? ["action_required"] : [])].includes(
             selectedBooking.iron_gate_channel_sync ?? "") &&
           !selectedBooking.iron_gate_source_review ?
           () => setManualMode("cancel") : undefined}
         onManualSync={manualEnabled && selectedBooking?.iron_gate_edit_mode === "full" &&
           selectedBooking.iron_gate_channel_sync === "awaiting_manual_sync" &&
+          !selectedBooking.iron_gate_manual_handling &&
           !selectedBooking.iron_gate_source_review ?
           () => setManualMode("sync") : undefined}
+        onManualConfirm={manualEnabled && selectedBooking?.iron_gate_manual_confirmation_available &&
+          !selectedBooking.iron_gate_source_review ? () => setManualMode("manual-confirm") : undefined}
       />
       {manualMode && <ManualBookingDialog open mode={manualMode}
         bookingId={selectedBooking?.iron_gate_booking_id}

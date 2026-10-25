@@ -292,6 +292,10 @@ function calendarBooking(booking: Record<string, unknown>,
     iron_gate_source: booking.source as CalendarBooking['iron_gate_source'],
     iron_gate_channel_sync: booking.channelSyncState as CalendarBooking['iron_gate_channel_sync'],
     iron_gate_source_review: booking.sourceReviewRequired === true,
+    iron_gate_manual_confirmation_available: booking.manualRoomConfirmationAvailable === true,
+    iron_gate_manual_handling: !!booking.manualRoomHandling,
+    iron_gate_manual_confirmed_at: object(booking.manualRoomHandling) &&
+      typeof booking.manualRoomHandling.confirmedAt === 'string' ? booking.manualRoomHandling.confirmedAt : undefined,
     iron_gate_edit_mode: ['full', 'guest_name', 'none'].includes(String(booking.osEditMode))
       ? booking.osEditMode as CalendarBooking['iron_gate_edit_mode'] : undefined,
     source_legacy_payment: property === 'sweetfun' && viewPrices && !!sourceOrderRef,

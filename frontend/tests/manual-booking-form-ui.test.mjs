@@ -191,3 +191,44 @@ test('adding and removing segments retains other stays and rejects duplicate roo
   await ui.click(ui.button('檢查房晚'));
   assert.match(document.body.textContent, /同一間房的住宿日期不能重複/);
 });
+
+test('manual closure confirmation displays exact stays, requires attestation and only posts the local confirmation', async t => {
+  const writes = [];
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (!options.method) return Response.json({ bookingId, version: 1, status: 'confirmed', source: 'line',
+      osEditMode: 'full', channelSyncState: 'action_required', manualRoomConfirmationAvailable: true,
+      sourceReviewRequired: false, guestName: null, contact: null, notes: null, totalCents: 100000,
+      netReceivedCents: 0, bookedAt: null, roomNightPrices: null,
+      stays: [{ checkIn: '2026-12-05', checkOut: '2026-12-06', roomNumbers: ['301'] }] });
+    writes.push({ url: String(url), body: JSON.parse(options.body) });
+    return Response.json({ bookingId, requestKey: options.headers['idempotency-key'], channelSyncState: 'manually_confirmed', operationState: 'manually_confirmed' });
+  });
+  const ui = await mount(t, ManualBookingDialog, { ...props, mode: 'manual-confirm', bookingId });
+  assert.match(document.body.textContent, /301 房.*2026-12-05.*2026-12-06/);
+  assert.match(document.body.textContent, /不會開關 OwlNest/);
+  assert.equal(ui.button('確認並清除待處理提示').disabled, true);
+  assert.equal(document.getElementById('manual-guest'), null);
+  await ui.click(document.querySelector('input[type="checkbox"]'));
+  await ui.click(ui.button('確認並清除待處理提示'));
+  assert.equal(writes.length, 1);
+  assert.equal(writes[0].url, `/api/v1/bookings/manual/${bookingId}/confirm-manual-room-handling`);
+  assert.equal(writes[0].body.confirmed, true);
+  assert.equal(writes[0].body.expectedBookingVersion, 1);
+  assert.match(document.body.textContent, /待處理提示已清除.*未變更 OwlNest/);
+  assert.equal(readPendingManualRequest(window.localStorage), null);
+});
+
+test('manual room changes show opening and closing scope before owner confirmation', async t => {
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ bookingId, version: 3,
+    status: 'confirmed', source: 'os', osEditMode: 'full', channelSyncState: 'action_required',
+    manualRoomConfirmationAvailable: true, sourceReviewRequired: false, guestName: null,
+    totalCents: 100000, netReceivedCents: 0, roomNightPrices: null,
+    manualRoomHandling: { confirmedAt: '2026-10-25T04:00:00Z', pending: [
+      { roomNumber: '101', date: '2026-11-12', desired: 'open' },
+      { roomNumber: '102', date: '2026-11-13', desired: 'closed' }] },
+    stays: [{ checkIn: '2026-11-13', checkOut: '2026-11-14', roomNumbers: ['102'] }] }));
+  const ui = await mount(t, ManualBookingDialog, { ...props, mode: 'manual-confirm', bookingId });
+  assert.match(document.body.textContent, /101 房.*2026-11-12.*已手動開房/);
+  assert.match(document.body.textContent, /102 房.*2026-11-13.*已手動關房/);
+  assert.equal(ui.button('確認並清除待處理提示').disabled, true);
+});
