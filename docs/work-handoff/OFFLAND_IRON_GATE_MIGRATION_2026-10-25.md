@@ -394,3 +394,70 @@ normalizing the image and expected Offland settings. The old revision
 `gmail-order-handler-line-manual-db56fa0` still has 100% traffic. A new
 zero-traffic revision with the **actual freeze timestamp** is required before
 promotion; this staging is not the production writer cutover.
+
+## Production cutover, 2026-10-25
+
+The owner approved the temporary manual-edit hold, removal of the four
+installable source-Sheet Apps Script triggers, and a separate final owner-only
+native copy in the owner's My Drive root after drain. The five affected
+Scheduler jobs were paused between 05:51:02 and 05:51:10 UTC; Gmail Pub/Sub
+push was disabled at 05:51:32; the OwlNest task queue was paused at 05:51:49;
+and Cloud Run switched 100% to the freeze revision at 05:52:27. The four
+named Apps Script triggers were removed by 05:54:40 and a page reload showed
+zero installable triggers. The initial manual and OS write hold was recorded
+at 05:50:44 UTC. No legacy source writes were permitted after the drain.
+
+The post-drain business and finance checks found no active or unknown writes,
+no queued tasks, no notifications, and no Offland Gmail mail awaiting the
+cutover decision. One Gmail message received after the cutoff was inspected
+read-only and was for Sweetfun. The Offland source spreadsheet's modified time
+remained 2026-10-24T16:05:45.813Z. The owner made a new private native copy
+at approximately 06:03 UTC; Drive UI exposed its creation time only to the
+minute. The private XLSX comparison found zero value or note differences
+across all five tabs versus the preflight copy. The normalized calendar rows
+matched byte for byte: 280 rows, six formulas, and SHA-256
+`f389ede19647b90b452b3de201aed5f2e71549c2b0c47e42d1246d6b3706d17d`.
+The private cutover manifest keeps the final copy ID and the UI time-precision
+note; neither the copy nor the XLSX is committed to this repository.
+
+The restricted authority switch activated Offland Iron Gate at 06:13:35 UTC.
+Independent database readback confirmed authority epoch 1, inventory version 2,
+readOnly=false, 270 booking/source links, 280 occupied villa nights, and the
+exact final source hash and copy ID. The temporary import login was returned
+to NOLOGIN, its runtime membership revoked, and its local credential removed.
+There were zero post-import receipts at that first readback; this verifies the
+cutover state, not an actual new booking transaction.
+
+Sweetfun OS Production enabled the Offland Iron Gate calendar flag and was
+redeployed from the reviewed branch as Ready deployment
+`dpl_7XmFuKYdLKFohQwtmKDgDgi2RZaV`, aliased to `sweetfun-os.vercel.app`.
+The owner opened the live Offland October
+calendar and saw the expected 26 occupied villa nights and 27 visible booking
+records including the calendar boundary. The route's source selection reads
+Offland through Iron Gate when the flag is enabled; the original Sheet reader
+is excluded for that property. A later UI copy fix removes the outdated
+banner that still said Offland used the booking Sheet, and tells staff that
+Offland manual additions/changes remain paused. The checked fix must be
+published and redeployed before the live banner reflects this state.
+
+Cloud Run promoted `gmail-order-handler-offland-final-1283d11` to 100% at
+approximately 06:16 UTC from the reviewed image digest, with the actual
+05:50:44 Gmail cutoff. The five Scheduler jobs, original Pub/Sub push endpoint,
+and OwlNest task queue were restored to their pre-freeze states and read back
+as enabled/running. The Cloud Run service was Ready with only that revision at
+100%; a post-promotion check found zero ERROR-or-higher log entries for the
+final revision from 06:16 UTC through the check. This does not replace a live
+Offland Gmail booking witness; no new Offland booking was deliberately created.
+The OS Production deployment likewise had no error/fatal runtime log counts
+in the inspected post-deployment window. A second database readback showed
+one source grant, zero receipts and 280 occupied villa nights.
+
+Offland LINE order mutations remain paused at the Cloud Run fence. The legacy
+Sheet remains frozen, including its four removed installable triggers. Staff
+must not resume manual booking edits there: they would bypass the Iron Gate
+calendar. The OS calendar is read-only for Offland and payment edits remain
+held for separate Q-order-ID reconciliation. Finance and OwlNest provider
+stock were not migrated by this booking/calendar cutover. A separate verified
+Iron Gate manual/LINE write path is needed before those staff order mutations
+can resume. The frozen source and owner-only final copy remain the audit and
+rollback evidence.

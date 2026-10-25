@@ -501,10 +501,10 @@ export const messages:Record<string,{en:string;th:string;vi:string}>= {
     "th": "ข้อมูลการจองมาจากชีตต้นทาง หากต้องการแก้ไขให้ใช้ชีตนั้น",
     "vi": "Dữ liệu đặt phòng lấy từ bảng nguồn. Hãy chỉnh sửa đặt phòng tại bảng đó."
   },
-  "水芳訂單來自 Iron Gate；遺忘無際仍使用訂房表。日曆目前供查看，修改訂單請使用現有作業流程。": {
-    "en": "Sweetfun bookings come from Iron Gate; Offland still uses its booking sheet. This calendar is for viewing. Use the current workflow to change bookings.",
-    "th": "การจอง Sweetfun มาจาก Iron Gate ส่วน Offland ยังใช้ชีตการจอง ปฏิทินนี้ใช้ดูข้อมูลเท่านั้น ให้แก้ไขการจองผ่านขั้นตอนปัจจุบัน",
-    "vi": "Đơn đặt phòng Sweetfun đến từ Iron Gate; Offland vẫn dùng bảng đặt phòng. Lịch này chỉ để xem. Hãy dùng quy trình hiện tại để sửa đơn."
+  "遺忘無際訂單已切換至新日曆；手動新增或修改暫停，請勿編輯原訂房表。水芳訂單請使用現有流程。": {
+    "en": "Offland bookings now appear in the new calendar. Manual additions and changes are paused; do not edit the old booking sheet. Use the current workflow for Sweetfun bookings.",
+    "th": "การจอง Offland แสดงในปฏิทินใหม่แล้ว การเพิ่มหรือแก้ไขด้วยมือถูกพักไว้ โปรดอย่าแก้ไขชีตการจองเดิม ส่วน Sweetfun ให้ใช้ขั้นตอนปัจจุบัน",
+    "vi": "Đơn Offland đã chuyển sang lịch mới. Tạm dừng thêm hoặc sửa thủ công; đừng chỉnh sửa bảng đặt phòng cũ. Với Sweetfun, hãy dùng quy trình hiện tại."
   },
   "匿名資料 · 編輯僅儲存在此瀏覽器": {
     "en": "Anonymous data · Edits are saved only in this browser",
