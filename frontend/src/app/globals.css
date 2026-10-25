@@ -225,6 +225,11 @@ html.dark :is(.text-orange-900, .text-yellow-900) {
   box-shadow: var(--platform-shadow);
   color: var(--platform-fg);
 }
+.calendar-source-conflict { background-color: #e2e8f0; color: #0f172a; }
+html.dark .calendar-source-conflict { background-color: #334155; color: #f8fafc; }
+@media (hover: hover) {
+  button.calendar-source-conflict:hover { filter: brightness(0.94); }
+}
 @media (hover: hover) {
   button.calendar-platform:hover { filter: brightness(0.96); }
 }

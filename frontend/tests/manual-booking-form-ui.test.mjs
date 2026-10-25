@@ -41,14 +41,16 @@ test('date selection advances to checkout and rejects a same-day checkout', asyn
 
 test('two rooms expose individual dates/nightly prices and submit their exact total and Taipei booking date', async t => {
   const writes = [];
+  let syncTarget = null;
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     if (String(url).endsWith('/preview')) return Response.json({ inventoryVersion: 80, roomNights: 4,
       localRoomNightsAvailable: true, externalStockVerified: false });
     writes.push(JSON.parse(options.body));
     return Response.json({ bookingId, requestKey: options.headers['idempotency-key'],
-      operationState: 'awaiting_manual_sync' });
+      operationState: 'awaiting_manual_sync', inventoryVersion: 81 });
   });
-  const ui = await mount(t, ManualBookingDialog, props);
+  const ui = await mount(t, ManualBookingDialog, { ...props,
+    onSyncCreated: (id, version) => { syncTarget = { id, version }; } });
   assert.equal(document.getElementById('manual-booked').value, todayInTaipei());
   await ui.fill(document.getElementById('manual-guest'), 'Synthetic Form Guest');
   await ui.click(byLabel('退房日期')); await ui.click(byLabel('2026-11-12'));
@@ -69,21 +71,26 @@ test('two rooms expose individual dates/nightly prices and submit their exact to
   ]);
   assert.deepEqual(writes[0].roomNightPrices.map(p => p.amountCents), [390000, 410000, 500000, 520000]);
   assert.equal(readPendingManualRequest(window.localStorage), null);
+  assert.ok(ui.button('同步房況'));
+  await ui.click(ui.button('同步房況'));
+  assert.deepEqual(syncTarget, { id: bookingId, version: 81 });
+  assert.equal(writes.length, 1);
 });
 
 test('uncertain submission automatically confirms the original booking without a second write or technical request UI', async t => {
-  let writes = 0, reads = 0, done = 0, originalKey;
+  let writes = 0, reads = 0, done = 0, originalKey, syncTarget = null;
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     if (String(url).endsWith('/preview')) return Response.json({ inventoryVersion: 80, roomNights: 1 });
     if (String(url).includes('/requests/')) {
       reads++; assert.ok(String(url).endsWith(originalKey));
-      return Response.json({ bookingId, requestKey: originalKey, readbackVerified: true,
+      return Response.json({ bookingId, requestKey: originalKey, readbackVerified: true, inventoryVersion: 81,
         currentStatus: 'confirmed', currentChannelSyncState: 'awaiting_manual_sync' });
     }
     writes++; originalKey = options.headers['idempotency-key'];
     return Response.json({ outcome: 'unknown' }, { status: 202 });
   });
-  const ui = await mount(t, ManualBookingDialog, { ...props, onDone: () => done++ });
+  const ui = await mount(t, ManualBookingDialog, { ...props, onDone: () => done++,
+    onSyncCreated: (id, version) => { syncTarget = { id, version }; } });
   await ui.fill(document.getElementById('manual-guest'), 'Synthetic Recovery Guest');
   await selectRoom(ui, '101');
   await ui.fill(document.getElementById('manual-price-101-2026-11-10'), '3900');
@@ -93,6 +100,9 @@ test('uncertain submission automatically confirms the original booking without a
   assert.equal(readPendingManualRequest(window.localStorage), null);
   assert.doesNotMatch(document.body.textContent, /原請求|[a-f0-9]{8}-[a-f0-9]{4}-/);
   assert.match(document.body.textContent, /訂單已儲存並確認/);
+  await ui.click(ui.button('同步房況'));
+  assert.deepEqual(syncTarget, { id: bookingId, version: 81 });
+  assert.equal(writes, 1);
 });
 
 test('a reopened pending submission is checked automatically; failed reads retain its identity and never write', async t => {
