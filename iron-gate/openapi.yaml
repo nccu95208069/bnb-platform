@@ -214,6 +214,8 @@ components:
         currency: { type: string, enum: [TWD] }
         evidenceRef: { type: string, minLength: 1, maxLength: 256, description: Unique for the same booking and event kind after case and Unicode normalization. }
         occurredAt: { type: string, format: date-time }
+        method: { type: string, enum: [cash, bank_transfer, credit_card, other], description: Required by the integrated OS receipt form. }
+        refundOfEventId: { type: string, format: uuid, description: Original received event on the same booking; required for new OS refunds. }
     PaymentReceipt:
       type: object
       additionalProperties: false
@@ -1250,6 +1252,39 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/EventPage' }
         '403': { $ref: '#/components/responses/Forbidden' }
+  /v1/properties/{propertyId}/finance/direct-snapshot:
+    get:
+      operationId: getDirectFinanceSnapshot
+      summary: Read one complete native OS booking and payment snapshot
+      description: >-
+        Requires OS origin, finance:ledger action, money field and the current
+        authority epoch. Includes held, confirmed and cancelled source=os orders,
+        stays, authoritative whole-order totals and immutable payment events.
+        Excludes guest names, contact, notes and imported source evidence.
+        The SHA-256 revision covers the exact JSON snapshot without its revision
+        field, including payment changes that do not alter inventoryVersion.
+        More than 5000 orders or 2000000 encoded bytes fails closed; no partial
+        response or silent fallback is returned.
+      parameters:
+        - { $ref: '#/components/parameters/PropertyId' }
+      responses:
+        '200':
+          description: Complete property/workspace/epoch snapshot and revision
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [schema, propertyId, workspaceId, authorityEpoch, inventoryVersion, bookings, revision]
+                properties:
+                  schema: { type: integer, const: 1 }
+                  propertyId: { type: string, format: uuid }
+                  workspaceId: { type: string, format: uuid }
+                  authorityEpoch: { type: integer, minimum: 1 }
+                  inventoryVersion: { type: integer, minimum: 0 }
+                  bookings: { type: array, maxItems: 5000, items: { type: object } }
+                  revision: { type: string, pattern: '^[0-9a-f]{64}$' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { description: Authority changed, integrity conflict or read capacity exceeded }
   /v1/properties/{propertyId}/finance/ledger:
     get:
       operationId: getFinanceLedger

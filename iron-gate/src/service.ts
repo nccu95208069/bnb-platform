@@ -1226,6 +1226,12 @@ export class IronGateService {
     const evidence = nonempty(input.evidenceRef, 256).trim().normalize("NFKC").toLowerCase();
     if (!evidence) reject("INVALID_INPUT");
     if (timestamp(input.occurredAt) > Date.now()) reject("FUTURE_RECEIPT");
+    if (input.method !== undefined && !["cash", "bank_transfer", "credit_card", "other"].includes(input.method))
+      reject("INVALID_PAYMENT_METHOD");
+    if (input.refundOfEventId !== undefined) {
+      uuid(input.refundOfEventId);
+      if (input.kind !== "refunded") reject("INVALID_REFUND_REFERENCE");
+    }
     const hash = await digest({ action: "payment:write", bookingId, input });
     return this.repository.transact(propertyId, (state, tx) => {
       authorize(principal, state, "payment:write", true);
@@ -1243,11 +1249,25 @@ export class IronGateService {
         reject("PAYMENT_EVIDENCE_EXISTS", 409);
       if (input.kind === "refunded" && input.amountCents > netReceived(booking))
         reject("REFUND_EXCEEDS_RECEIVED", 409);
+      if (booking.source === "os" && !booking.hold && input.kind === "received" &&
+        (booking.status !== "confirmed" || booking.totalCents === null ||
+          input.amountCents > booking.totalCents - netReceived(booking)))
+        reject("RECEIPT_EXCEEDS_DUE", 409);
+      if (input.refundOfEventId !== undefined) {
+        const original = (booking.paymentEvents ?? []).find(event => event.id === input.refundOfEventId && event.kind === "received");
+        if (!original || timestamp(input.occurredAt) < timestamp(original.occurredAt))
+          reject("INVALID_REFUND_REFERENCE");
+        const refunded = (booking.paymentEvents ?? []).filter(event => event.kind === "refunded" &&
+          event.refundOfEventId === original.id).reduce((sum, event) => sum + event.amountCents, 0);
+        if (input.amountCents > original.amountCents - refunded) reject("REFUND_EXCEEDS_RECEIVED", 409);
+      }
       if ((booking.paymentEvents ?? []).length >= 500) reject("PAYMENT_EVENT_LIMIT", 409);
       booking.paymentEvents ??= [];
       booking.paymentEvents.push({ id: input.eventId, kind: input.kind, amountCents: input.amountCents,
         currency: input.currency, evidenceRef: input.evidenceRef, occurredAt: input.occurredAt,
-        recordedAt: new Date().toISOString(), actorId: principal.subjectId });
+        recordedAt: new Date().toISOString(), actorId: principal.subjectId,
+        ...(input.method ? { method: input.method } : {}),
+        ...(input.refundOfEventId ? { refundOfEventId: input.refundOfEventId } : {}) });
       paymentTotals(booking);
       if (booking.hold?.state === "released" && booking.status === "cancelled") {
         // Late money is a finance fact, not permission to reclaim released nights.
@@ -1361,6 +1381,32 @@ export class IronGateService {
     const page = events.slice(0, limit);
     return { propertyId, events: page, nextCursor: page.at(-1)?.cursor ?? after,
       hasMore: events.length > limit };
+  }
+
+  /** One authoritative read: payments change booking versions, not inventoryVersion. */
+  async directFinanceSnapshot(principal: Principal, propertyId: string): Promise<Record<string, unknown>> {
+    uuid(propertyId);
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    authorize(principal, state, "finance:ledger");
+    if (principal.origin !== "os" || !principal.fields.includes("money")) reject("FORBIDDEN", 403);
+    if (principal.authorityEpoch !== state.authorityEpoch) reject("AUTHORITY_MOVED", 409);
+    const bookings = state.bookings.filter(booking => booking.source === "os")
+      .sort((a, b) => a.id.localeCompare(b.id)).map(booking => ({
+        id: booking.id, propertyId, workspaceId: state.workspaceId, source: "os",
+        version: booking.version, status: booking.status, stays: structuredClone(booking.stays),
+        totalCents: booking.totalCents, currency: booking.currency,
+        paymentSummary: paymentTotals(booking),
+        paymentEvents: structuredClone(booking.paymentEvents ?? []),
+      }));
+    const eventIds = bookings.flatMap(booking => booking.paymentEvents.map(event => event.id));
+    if (new Set(eventIds).size !== eventIds.length) reject("PAYMENT_INTEGRITY_CONFLICT", 409);
+    const snapshot = { schema: 1, propertyId, workspaceId: state.workspaceId,
+      authorityEpoch: state.authorityEpoch, inventoryVersion: state.version, bookings };
+    const encoded = JSON.stringify(snapshot);
+    if (bookings.length > 5000 || new TextEncoder().encode(encoded).byteLength > 2_000_000)
+      reject("READ_CAPACITY_LIMIT", 409);
+    return { ...snapshot, revision: createHash("sha256").update(encoded, "utf8").digest("hex") };
   }
 
   async financeLedger(principal: Principal, propertyId: string, options: {

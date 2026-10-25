@@ -6,23 +6,23 @@ export const EXPENSE_CATEGORIES = { laundry:'備品送洗', water:'水費', elec
 export const INCOME_CATEGORIES = { lodging:'住宿收入', breakfast:'早餐費', overtime:'超時／延退費', extra_guest:'加人／加床', partner:'合作廠商收入', other:'其他收入' };
 export const METHODS = { cash:'現金', bank_transfer:'匯款', credit_card:'信用卡', ota:'OTA 代收', other:'其他' };
 export type FinanceKind = 'income'|'expense';
-export type FinanceEntry = { audit_event?:FinanceAuditEvent; id:string; ledger_year?:number; updated_at?:string; updated_by?:string; history?:{at:string;actor:string;actor_id:string;before:Omit<FinanceEntry,'history'>}[]; property_id:string; kind:FinanceKind; category:string;category_name?:string; amount_cents:number; date:string; description:string; method:keyof typeof METHODS; stage?:string; source:'manual'|'calendar'; actor:string; created_at:string; status:'active'|'void'; payment_account?:Pick<PaymentAccount,'id'|'name'|'method'|'last_digits'>; expense_spread?:ExpenseShare[]; advanced_by?:ExpenseAdvance; void_reason?:string; void_at?:string; void_actor?:string; order_id?:string; order_key?:string; platform?:string; allocations?:{order_id:string;amount_cents:number}[]; recurrence_id?:string; occurrence?:string };
-export type FinanceReport = { iron_gate_direct_excluded?:boolean; payment_accounts?:PaymentAccount[]; expense_categories?:Record<string,string>; advance_accounts?:{id:string;name:string}[]; properties:{id:string;name:string}[]; property_id:string; year:number; version:number; entries:FinanceEntry[]; updated_at:string; versions:Record<string,number>; projection_version:string; orders:FinanceOrder[]; recurring:RecurringExpense[]; due:DueExpense[]; payout_rules:PayoutRule[]; excluded_orders:number };
-export const categoryLabel=(entry:Pick<FinanceEntry,'kind'|'category'|'category_name'>)=>entry.category_name??((entry.kind==='income'?INCOME_CATEGORIES:EXPENSE_CATEGORIES) as Record<string,string>)[entry.category]??'未分類';
+export type FinanceEntry = { audit_event?:FinanceAuditEvent; id:string; ledger_year?:number; updated_at?:string; updated_by?:string; history?:{at:string;actor:string;actor_id:string;before:Omit<FinanceEntry,'history'>}[]; property_id:string; kind:FinanceKind|'refund'; category:string;category_name?:string; amount_cents:number; date:string; description:string; method:keyof typeof METHODS; stage?:string; source:'manual'|'calendar'|'iron_gate'; iron_gate_booking_id?:string; payment_event_id?:string; refund_of_event_id?:string; actor:string; created_at:string; status:'active'|'void'; payment_account?:Pick<PaymentAccount,'id'|'name'|'method'|'last_digits'>; expense_spread?:ExpenseShare[]; advanced_by?:ExpenseAdvance; void_reason?:string; void_at?:string; void_actor?:string; order_id?:string; order_key?:string; platform?:string; allocations?:{order_id:string;amount_cents:number}[]; recurrence_id?:string; occurrence?:string };
+export type FinanceReport = { iron_gate_revision?:string|null; iron_gate_direct_excluded?:boolean; payment_accounts?:PaymentAccount[]; expense_categories?:Record<string,string>; advance_accounts?:{id:string;name:string}[]; properties:{id:string;name:string}[]; property_id:string; year:number; version:number; entries:FinanceEntry[]; updated_at:string; versions:Record<string,number>; projection_version:string; orders:FinanceOrder[]; recurring:RecurringExpense[]; due:DueExpense[]; payout_rules:PayoutRule[]; excluded_orders:number };
+export const categoryLabel=(entry:Pick<FinanceEntry,'kind'|'category'|'category_name'>)=>entry.kind==='refund'?'住宿退款':entry.category_name??((entry.kind==='income'?INCOME_CATEGORIES:EXPENSE_CATEGORIES) as Record<string,string>)[entry.category]??'未分類';
 export function summarize(entries:FinanceEntry[],month:string) {
   const active=entries.filter(e=>e.status==='active');
   const selected=active.filter(e=>e.date.startsWith(month));
-  const sum=(kind:FinanceKind)=>selected.filter(e=>e.kind===kind).reduce((s,e)=>s+e.amount_cents,0);
-  const income=sum('income'),expense=sum('expense');
+  const sum=(kind:FinanceEntry['kind'])=>selected.filter(e=>e.kind===kind).reduce((s,e)=>s+e.amount_cents,0);
+  const income=sum('income'),expense=sum('expense'),refund=sum('refund');
   const shares=active.filter(e=>e.kind==='expense').flatMap(e=>(e.expense_spread??[{month:e.date.slice(0,7),amount_cents:e.amount_cents}]).map(a=>({...a,category:e.category})));
   const allocatedExpense=shares.filter(a=>a.month===month).reduce((s,a)=>s+a.amount_cents,0);
-  return {income,expense,allocatedExpense,net:income-expense,ota:selected.filter(e=>e.kind==='income'&&e.method==='ota').reduce((s,e)=>s+e.amount_cents,0),
+  return {income,expense,refund,allocatedExpense,net:income-refund-expense,ota:selected.filter(e=>e.kind==='income'&&e.method==='ota').reduce((s,e)=>s+e.amount_cents,0),
     monthly:Array.from({length:12},(_,i)=>({month:i+1,expense:shares.filter(e=>e.month===`${month.slice(0,4)}-${String(i+1).padStart(2,'0')}`).reduce((s,e)=>s+e.amount_cents,0)})),
     categories:Object.entries(expenseCategories(entries)).map(([id,label])=>({id,label,amount:shares.filter(e=>e.month===month&&e.category===id).reduce((s,e)=>s+e.amount_cents,0)})).filter(c=>c.amount>0).sort((a,b)=>b.amount-a.amount)};
 }
 
 export const PLATFORMS:Record<string,string>={direct:'LINE／電話／直訂',agoda:'Agoda',ctrip:'Trip.com',owljourney:'奧丁丁',booking:'Booking.com',airbnb:'Airbnb',other:'其他'};
-export type FinanceOrder={id:string;calendar_id:string;platform:string;rooms:string[];check_in:string;check_out:string;total:number;received:number;receivable:number;eligible_date:string|null;source_paid:boolean;credit:number;source_version:string};
+export type FinanceOrder={source?:'iron_gate';booking_id?:string;status?:'held'|'confirmed'|'cancelled';id:string;calendar_id:string;platform:string;rooms:string[];check_in:string;check_out:string;total:number;received:number;receivable:number;eligible_date:string|null;source_paid:boolean;credit:number;source_version:string};
 export type RecurringExpense={id:string;year:number;category:string;category_name?:string;amount_cents:number;description:string;method:FinanceEntry['method'];start:string;end:string|null;day:number;created_at:string;actor:string;stopped_at?:string;stopped_by?:string};
 export type DueExpense={id:string;rule_id:string;year:number;date:string;category:string;category_name?:string;amount_cents:number;description:string;method:FinanceEntry['method']};
 export type PayoutRule={platform:string;mode:'manual'|'monthly';day:number;offset:number;updated_at?:string};
@@ -34,7 +34,7 @@ export function recurrenceDue(rules:RecurringExpense[],entries:FinanceEntry[],ye
 // Stay-month order amounts are split into actual receipts and outstanding balances.
 // Unallocated service income is counted in its actual receipt month, once only.
 export function revenueSummary(orders:FinanceOrder[],entries:FinanceEntry[],month:string){
- const selected=orders.filter(o=>o.check_in.startsWith(month));
+ const selected=orders.filter(o=>o.status!=='held'&&o.status!=='cancelled'&&o.check_in.startsWith(month));
  const extra=entries.filter(e=>e.status==='active'&&e.kind==='income'&&e.method!=='ota'&&!e.allocations?.length&&(!e.order_key||e.category!=='lodging')&&e.date.startsWith(month)).reduce((s,e)=>s+e.amount_cents,0);
  const received=selected.reduce((s,o)=>s+Math.min(o.received,o.total),0)+extra;
  const receivable=selected.reduce((s,o)=>s+o.receivable,0);

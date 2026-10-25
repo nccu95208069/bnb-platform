@@ -19,7 +19,7 @@ async function context(request:NextRequest){
  const property=request.nextUrl.searchParams.get('property')||sources[0]?.property.id;
  const source=sources.find(s=>s.property.id===property);if(!source)throw new Error('FORBIDDEN');
  await new RedisWorkspaceStore().limit(`finance-summary:${actor.id}`,120,3600);
- const [report,values,registry]=await Promise.all([financeContext(source,new Date().getUTCFullYear()),readOperationalSheet(source),readSummaryRegistry(source.property.id)]);
+ const [report,values,registry]=await Promise.all([financeContext(source,new Date().getUTCFullYear(),false,actor),readOperationalSheet(source),readSummaryRegistry(source.property.id)]);
  const normalized=normalizeRows(values,source);
  const snapshot=adaptSheetBookings([HEADERS,...normalized.map(r=>r.cells)],source.sourceId,new Date().toISOString(),[],normalized.map(r=>r.sourceRow),source.property);
  const rows=attachPrivateGuestNames(snapshot.bookings,values,source);

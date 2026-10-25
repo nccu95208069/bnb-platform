@@ -91,7 +91,12 @@ export type Booking = {
   sweetfunSnapshot?: Record<string, unknown>;
 };
 
-export type PaymentEvent = {
+export type PaymentMetadata = {
+  method?: "cash" | "bank_transfer" | "credit_card" | "other";
+  refundOfEventId?: string;
+};
+
+export type PaymentEvent = PaymentMetadata & {
   id: string;
   kind: "received" | "refunded";
   amountCents: number;
@@ -260,7 +265,7 @@ export type LineBulkCancelInput = {
   channelPolicy?: "manual";
 };
 
-export type PaymentEventInput = {
+export type PaymentEventInput = PaymentMetadata & {
   expectedBookingVersion: number;
   eventId: string;
   kind: "received" | "refunded";
