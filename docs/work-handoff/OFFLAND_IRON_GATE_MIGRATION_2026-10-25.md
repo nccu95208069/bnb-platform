@@ -331,7 +331,7 @@ grants and expiry. They cannot authorize writes while the property remains
 read-only at epoch 0. Sweetfun OS Production now has the Offland read grant,
 room map, backend URL and expected epoch configured, with its Offland calendar
 flag explicitly `false`; the current Production deployment has not changed.
-The Gmail source token has not yet been mounted in Cloud Run.
+At this stage, the Gmail source token had not yet been mounted in Cloud Run.
 
 The combined, reviewed Iron Gate backend was then deployed to Production as
 `dpl_21tYuTyKbw7KfVeTopmBSuhbqjKD`; Vercel reported Ready and aliased it to
@@ -375,3 +375,22 @@ O (card/payment status) for the Q order identity. Existing OS receipts remain
 in their original ledger keys and can be viewed as recovery records when the
 original order ID is known; they are not automatically remapped to Q. Booking
 fee display is not a payment ledger.
+
+At 13:12 Taipei time, the owner explicitly confirmed the new Offland source
+secret and the single existing Cloud Run service-account grant. Secret Manager
+`offland-iron-gate-source-token` was created in
+`essential-truth-478816-v1` with version 1. Its payload hash matched the
+private 43-byte token file, and readback showed only
+`150957709446-compute@developer.gserviceaccount.com` with
+`roles/secretmanager.secretAccessor` on that secret. The temporary Cloud Shell
+upload was removed. Cloud Run revision
+`gmail-order-handler-offland-secret-1283d11` is Ready at **0% traffic** from
+the reviewed image digest. It pins secret version 1, the exact Offland
+property/room/source IDs and the Offland writer flag, while disabling old
+Sheet mail writes and pausing LINE order writes. Its provisional Gmail
+cutover time is 2100-01-01 UTC, so current mail cannot pass that boundary.
+All other runtime settings match the prior production revision after
+normalizing the image and expected Offland settings. The old revision
+`gmail-order-handler-line-manual-db56fa0` still has 100% traffic. A new
+zero-traffic revision with the **actual freeze timestamp** is required before
+promotion; this staging is not the production writer cutover.
