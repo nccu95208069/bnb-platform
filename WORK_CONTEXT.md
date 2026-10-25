@@ -1,6 +1,6 @@
 # BnB SaaS / Sweetfun OS — Authoritative Work Context
 
-2026-10-25 owner manual room confirmation: [explicit manual-close acknowledgement, audit evidence and local-only future handling](docs/work-handoff/SWEETFUN_MANUAL_ROOM_CONFIRMATION_2026-10-25.md). The owner requested clearing two already-manually-closed native OS/LINE orders without changing OwlNest inventory. Implementation and isolated verification are complete; release/live acceptance is recorded in that report.
+2026-10-25 owner manual room confirmation: [explicit manual-close acknowledgement, audit evidence and local-only future handling](docs/work-handoff/SWEETFUN_MANUAL_ROOM_CONFIRMATION_2026-10-25.md). The owner requested clearing already-manually-closed native OS/LINE orders without changing OwlNest inventory. Implementation and isolated verification are complete. Release details and live acceptance evidence are retained privately rather than in this public repository.
 
 2026-10-25 calendar status correction: [successful booking reads and external channel synchronization now have distinct meanings](docs/work-handoff/IRON_GATE_CALENDAR_LOAD_FIX_2026-10-22.md#follow-up-accurate-booking-source-status--2026-10-25). The permanent `確認中` label was hard-coded, not a running confirmation job. Runtime `4d8bec0` is live on the primary OS domain. All four CI jobs and authenticated browser readback passed; the chip now shows `訂單已讀取` with the successful-read time. PR #82 records the correction.
 

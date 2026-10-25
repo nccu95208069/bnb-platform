@@ -14,4 +14,6 @@ The baseline is explicitly manual. Metadata and price changes preserve it. OS ro
 
 Authenticated gateway → Iron Gate HTTP handler → repository → independent detail/calendar readback checks cover both native OS and LINE bookings. They verify audit provenance, repeat-request recovery, cleared pending indicators, preserved occupancy and no provider reads/writes. Future move/cancel/reconfirm scenarios assert the worker remains idle and removed room-nights stay blocked until owner confirmation. Invalid acknowledgement, stale versions, unauthorized roles, conflicts and already-dispatched operations are rejected. DOM checks cover the exact room/date scope, required checkbox, dedicated local-only endpoint and subsequent open/close scope.
 
-Release and live owner-authorized confirmation evidence will be recorded after deployment. No production order has been changed during local verification.
+Local verification passed: Iron Gate typecheck and 284 tests (nine environment-dependent skips), 47 gateway/calendar/integration tests, 13 UI/request-identity tests, frontend typecheck, lint (zero errors; seven existing warnings), and production build. All four CI jobs passed for the implementation.
+
+Release details, live booking acknowledgements and operational verification evidence are retained privately. This public report describes the implementation and isolated checks only.
