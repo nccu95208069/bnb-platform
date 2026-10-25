@@ -72,6 +72,18 @@ components:
         bookedAt: { type: [string, 'null'], format: date }
         source: { type: string, enum: [os, line, website] }
         channelPolicy: { type: string, enum: [manual], description: LINE manage-all only; booking commits with action_required and no OwlNest operation until a second staff confirmation. }
+        acknowledgedClosedNights:
+          type: array
+          minItems: 1
+          maxItems: 2190
+          description: LINE manual policy only. Exact current manually closed target nights shown in the confirmation card; signed into the preview. Never bypasses another booking or a pending-operation fence.
+          items:
+            type: object
+            additionalProperties: false
+            required: [roomId, date]
+            properties:
+              roomId: { type: string, format: uuid }
+              date: { type: string, format: date }
     NightPrice:
       type: object
       additionalProperties: false
@@ -184,6 +196,18 @@ components:
         expectedBookingVersion: { type: integer, minimum: 1 }
         expectedInventoryVersion: { type: integer, minimum: 0 }
         channelPolicy: { type: string, enum: [manual], description: LINE manage-all or OS direct booking amendment; OS saves room changes for explicit later synchronization. }
+        acknowledgedClosedNights:
+          type: array
+          minItems: 1
+          maxItems: 2190
+          description: LINE manual policy only. Exact current manually closed target nights shown in the confirmation card; signed into the preview. Never bypasses another booking or a pending-operation fence.
+          items:
+            type: object
+            additionalProperties: false
+            required: [roomId, date]
+            properties:
+              roomId: { type: string, format: uuid }
+              date: { type: string, format: date }
         changes:
           type: object
           additionalProperties: false

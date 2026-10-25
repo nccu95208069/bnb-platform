@@ -63,7 +63,7 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         parts.length === 4 && request.method === "POST") {
         const value = await body(request);
         exact(value, ["expectedInventoryVersion", "stays", "guestName", "contact", "notes", "totalCents", "bookedAt", "source"],
-          ["roomNightPrices", "channelPolicy"]);
+          ["roomNightPrices", "channelPolicy", "acknowledgedClosedNights"]);
         return json(await service.previewLineCreate(principal, parts[2], value as CreateBookingInput));
       }
       if (parts[1] === "properties" && parts[2] && parts.length === 4 &&
@@ -138,7 +138,7 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         if (parts.length === 4 && request.method === "POST") {
           const value = await body(request);
           exact(value, ["expectedInventoryVersion", "stays", "guestName", "contact", "notes", "totalCents", "bookedAt", "source"],
-            ["roomNightPrices", "channelPolicy"]);
+            ["roomNightPrices", "channelPolicy", "acknowledgedClosedNights"]);
           const result = await service.createBooking(principal, propertyId, requestKey(request),
             value as CreateBookingInput, request.headers.get("x-iron-gate-line-preview"));
           return json(result, result.operationState === "sync_pending" ? 202 : 201);
@@ -149,7 +149,7 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         if (parts.length === 5 && request.method === "PATCH") {
           const value = await body(request);
           exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "changes"],
-            ["channelPolicy", "reason"]);
+            ["channelPolicy", "reason", "acknowledgedClosedNights"]);
           const result = await service.amendBooking(principal, propertyId, parts[4], requestKey(request),
             value as AmendBookingInput, request.headers.get("x-iron-gate-line-preview"));
           return json(result, result.operationState === "sync_pending" ? 202 : 200);
@@ -171,7 +171,7 @@ export function createHandler(service: IronGateService, authenticate: Authentica
           if (!input || typeof input !== "object" || Array.isArray(input))
             throw new GateError("INVALID_INPUT", 400);
           exact(input as Record<string, unknown>, ["expectedBookingVersion", "expectedInventoryVersion"],
-            value.action === "amend" ? ["changes", "channelPolicy"] : ["channelPolicy"]);
+            value.action === "amend" ? ["changes", "channelPolicy", "acknowledgedClosedNights"] : ["channelPolicy"]);
           if (value.action === "amend" && !("changes" in input))
             throw new GateError("INVALID_INPUT", 400);
           return json(await service.previewLineAction(principal, propertyId, parts[4],

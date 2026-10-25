@@ -195,12 +195,27 @@ function lineScope(principal: Principal): Record<string, unknown> {
     { grantId: principal.grantId };
 }
 function occupies(booking: Booking): boolean { return booking.status === "held" || booking.status === "confirmed"; }
-function hasConflict(state: PropertyState, cells: Night[], exceptBookingId?: string, exceptFenceKey?: string): boolean {
+function hasConflict(state: PropertyState, cells: Night[], exceptBookingId?: string, exceptFenceKey?: string, acknowledgedBlocks = false): boolean {
   const asked = new Set(cells.map(keyOf));
-  if (state.manualBlocks.some((cell) => asked.has(keyOf(cell)))) return true;
+  if (!acknowledgedBlocks && state.manualBlocks.some((cell) => asked.has(keyOf(cell)))) return true;
   if (state.fences.some((fence) => fence.key !== exceptFenceKey && fence.cells.some((cell) => asked.has(keyOf(cell))))) return true;
   return state.bookings.some((booking) => booking.id !== exceptBookingId && occupies(booking) &&
     nightsFor(booking.stays, state.roomIds).some((cell) => asked.has(keyOf(cell))));
+}
+/** Only exact, explicitly acknowledged manual closures may be registered through LINE. */
+function acknowledgeClosedNights(state: PropertyState, cells: Night[], manual: boolean,
+  acknowledged: Night[] | undefined): boolean {
+  if (acknowledged === undefined) return false;
+  if (!manual) reject("FORBIDDEN", 403);
+  const selected = new Set(cells.map(keyOf));
+  const closed = state.manualBlocks.filter(cell => selected.has(keyOf(cell))).map(keyOf).sort();
+  if (!Array.isArray(acknowledged) || !acknowledged.length || acknowledged.length > 2190 ||
+    acknowledged.some(cell => !cell || typeof cell !== "object" || Array.isArray(cell) ||
+      Object.keys(cell).sort().join(",") !== "date,roomId" ||
+      typeof cell.roomId !== "string" || typeof cell.date !== "string") ||
+    canonical(acknowledged.map(keyOf).sort()) !== canonical(closed))
+    reject("CLOSED_ROOM_ACK_MISMATCH", 409);
+  return true;
 }
 /** The preview is invalidated only by changes to its own room nights. */
 function targetHash(state: PropertyState, cells: Night[], exceptBookingId?: string): string {
@@ -824,7 +839,7 @@ function changedNights(before: Night[], after: Night[]): boolean {
 
 function emit(tx: TransactionContext, state: PropertyState, type: EventType,
   booking: Booking | null, principal: Principal, requestKey: string | null,
-  reason?: string): void {
+  reason?: string, acknowledgedClosedNights?: Night[]): void {
   const at = new Date().toISOString();
   tx.emit({ eventId: crypto.randomUUID(), at, type,
     propertyId: state.propertyId, bookingId: booking?.id ?? null,
@@ -835,7 +850,8 @@ function emit(tx: TransactionContext, state: PropertyState, type: EventType,
     inventoryVersion: state.version, actorOrigin: principal.origin,
     actorClientId: principal.clientId, actorSubjectId: principal.subjectId,
     actorGrantId: principal.grantId ?? null, requestKey,
-    ...(reason ? { reason } : {}) });
+    ...(reason ? { reason } : {}),
+    ...(acknowledgedClosedNights ? { acknowledgedClosedNights: structuredClone(acknowledgedClosedNights) } : {}) });
 }
 
 export class IronGateService {
@@ -867,7 +883,8 @@ export class IronGateService {
       !exactNightPrices(input.roomNightPrices, cells, input.totalCents))
       reject("INVALID_NIGHT_PRICES");
     requireLineStockWindow(state, cells);
-    if (hasConflict(state, cells)) reject("ROOM_CONFLICT", 409);
+    const acknowledged = acknowledgeClosedNights(state, cells, manual, input.acknowledgedClosedNights);
+    if (hasConflict(state, cells, undefined, undefined, acknowledged)) reject("ROOM_CONFLICT", 409);
     const hash = await digest({ action: "booking:create", input });
     const scopeHash = manual ? await targetHash(state, cells) : null;
     const signed = await signLinePreview(this.linePreviewSecret, principal,
@@ -875,6 +892,7 @@ export class IronGateService {
     return { propertyId, inventoryVersion: input.expectedInventoryVersion,
       authorityEpoch: state.authorityEpoch, expiresAt: signed.expiresAt,
       previewToken: signed.token, channelSyncState: "preview_only",
+      ...(input.acknowledgedClosedNights ? { closedRoomNights: input.acknowledgedClosedNights } : {}),
       ...(manual ? { observedInventoryVersion: state.version } : {}) };
   }
 
@@ -919,7 +937,8 @@ export class IronGateService {
         !exactNightPrices(input.roomNightPrices, cells, input.totalCents))
         reject("INVALID_NIGHT_PRICES");
       if (principal.origin === "line") requireLineStockWindow(state, cells);
-      if (hasConflict(state, cells)) reject("ROOM_CONFLICT", 409);
+      const acknowledged = acknowledgeClosedNights(state, cells, manual, input.acknowledgedClosedNights);
+      if (hasConflict(state, cells, undefined, undefined, acknowledged)) reject("ROOM_CONFLICT", 409);
       const manualSync = principal.origin === "os" && state.channel.mode === "owlnest";
       const operationKey = state.channel.mode === "owlnest" && !manual && !manualSync ?
         crypto.randomUUID() : null;
@@ -954,7 +973,8 @@ export class IronGateService {
       state.version++;
       const response = makeBookingReceipt(state, booking);
       saveReceipt(state, principal, requestKey, "booking:create", hash, { ...response });
-      emit(tx, state, "booking.created", booking, principal, requestKey);
+      emit(tx, state, "booking.created", booking, principal, requestKey, undefined,
+        input.acknowledgedClosedNights);
       return response;
     });
   }
@@ -1160,8 +1180,12 @@ export class IronGateService {
       const next = nightsFor((input as AmendBookingInput).changes.stays!, state.roomIds);
       requireLineStockWindow(state, next);
       if (hasConflict(state, next, bookingId,
-        manual ? linePendingFenceKey(bookingId) : undefined)) reject("ROOM_CONFLICT", 409);
+        manual ? linePendingFenceKey(bookingId) : undefined,
+        acknowledgeClosedNights(state, next, manual,
+          (input as AmendBookingInput).acknowledgedClosedNights))) reject("ROOM_CONFLICT", 409);
     }
+    if ((input as AmendBookingInput).acknowledgedClosedNights !== undefined &&
+      (action !== "amend" || !("stays" in (input as AmendBookingInput).changes))) reject("INVALID_INPUT");
     if (action === "amend") requireAmendFields(principal, (input as AmendBookingInput).changes);
     if (action === "amend" && "roomNightPrices" in (input as AmendBookingInput).changes) {
       const changes = (input as AmendBookingInput).changes;
@@ -1183,12 +1207,17 @@ export class IronGateService {
       inventoryVersion: input.expectedInventoryVersion, authorityEpoch: state.authorityEpoch,
       expiresAt: signed.expiresAt, previewToken: signed.token,
       channelSyncState: "preview_only",
+      ...((input as AmendBookingInput).acknowledgedClosedNights ?
+        { closedRoomNights: (input as AmendBookingInput).acknowledgedClosedNights } : {}),
       ...(manual ? { observedInventoryVersion: state.version } : {}) };
   }
 
   async amendBooking(principal: Principal, propertyId: string, bookingId: string, requestKey: string,
     input: AmendBookingInput, linePreviewToken: string | null = null): Promise<BookingReceipt> {
     uuid(propertyId); uuid(bookingId); uuid(requestKey); verifyAmend(input);
+    if (input.acknowledgedClosedNights !== undefined &&
+      (!("stays" in input.changes) || principal.origin !== "line" || input.channelPolicy !== "manual"))
+      reject("FORBIDDEN", 403);
     const osManual = principal.origin === "os" && input.channelPolicy === "manual";
     const manual = osManual ? false : lineManualPolicy(principal, input.channelPolicy);
     const hash = await digest({ action: "booking:amend", bookingId, input });
@@ -1274,9 +1303,10 @@ export class IronGateService {
             requireOsStockWindow(state, uniqueNights([...current, ...next]));
           }
         }
+        const acknowledged = acknowledgeClosedNights(state, next, manual, input.acknowledgedClosedNights);
         if (roomNightsChanged && hasConflict(state, next, booking.id,
           (manual || osManual && booking.lineChannelBaselineNights !== undefined) ? linePendingFenceKey(booking.id) : booking.osManualRoomChange ?
-            osChangeFenceKey(booking.id) : undefined)) reject("ROOM_CONFLICT", 409);
+            osChangeFenceKey(booking.id) : undefined, acknowledged)) reject("ROOM_CONFLICT", 409);
         booking.stays = structuredClone(input.changes.stays!);
       }
       if ("guestName" in input.changes) booking.guestName = externalNameCorrection ?
@@ -1330,7 +1360,8 @@ export class IronGateService {
       if (roomNightsChanged || baselineReadbackNeeded) state.version++;
       const response = makeBookingReceipt(state, booking);
       saveReceipt(state, principal, requestKey, "booking:amend", hash, { ...response });
-      emit(tx, state, "booking.amended", booking, principal, requestKey, input.reason);
+      emit(tx, state, "booking.amended", booking, principal, requestKey, input.reason,
+        input.acknowledgedClosedNights);
       return response;
     });
   }

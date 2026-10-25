@@ -231,6 +231,7 @@ export type CreateBookingInput = {
   source: "os" | "line" | "website";
   /** Opt-in rollout policy, bound into the LINE preview and request receipt. */
   channelPolicy?: "manual";
+  acknowledgedClosedNights?: Night[];
 };
 
 export type LineInventoryInput = {
@@ -265,6 +266,7 @@ export type AmendBookingInput = {
   expectedInventoryVersion: number;
   changes: Partial<Pick<Booking, "stays" | "guestName" | "contact" | "notes" | "totalCents" | "roomNightPrices" | "bookedAt">>;
   channelPolicy?: "manual";
+  acknowledgedClosedNights?: Night[];
   reason?: string;
 };
 
@@ -383,6 +385,7 @@ export type AuditRecord = {
   actorGrantId: string | null;
   requestKey: string | null;
   reason?: string;
+  acknowledgedClosedNights?: Night[];
 };
 
 export type TransactionContext = {

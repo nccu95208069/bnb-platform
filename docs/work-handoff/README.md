@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+- [LINE manual-closure registration and risk warning](LINE_CLOSED_ROOM_WARNING_2026-10-25.md) — implementation verified; rollout pending.
+
 2026-10-25 水芳整筆訂單編輯：[原生 LINE、舊 LINE 匯入與 OS 訂單的完整欄位、多段住宿、每晚房價、收款對應與房況同步](SWEETFUN_FULL_BOOKING_EDIT_2026-10-25.md)。業主指定舊 LINE 訂單一併開放，現已正式發布。舊 LINE 表單及原生 LINE／OS 資料回讀、390／360 像素手機版與 CI 通過；正式訂單及收款紀錄未被驗收修改。
 
 - [水芳新增訂單表單與自動確認（2026-10-25）](SWEETFUN_BOOKING_FORM_2026-10-25.md)
