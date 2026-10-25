@@ -441,7 +441,8 @@ test('a successful create response cannot confirm mismatched booking facts on re
     totalCents: 100000, bookedAt: '2026-10-24' };
   for (const [field, changed] of Object.entries({ guestName: 'Another Guest',
     contact: 'different-contact', notes: 'different note', totalCents: 1,
-    bookedAt: '2026-10-23', version: 2 })) {
+    bookedAt: '2026-10-23', version: 2,
+    stays: [{ checkIn: '2026-11-09', checkOut: '2026-11-12', roomIds: [roomIds['101']] }] })) {
     const { repository, send } = setup(), c = config(), requestKey = key();
     const alteredReadback = async (url, init) => {
       const response = await send(url, init);
@@ -455,4 +456,71 @@ test('a successful create response cannot confirm mismatched booking facts on re
     assert.equal((await repository.read(propertyId)).bookings.length, 1);
     assert.equal((await manualRequestResult(owner, c, requestKey, send)).bookingVersion, 1);
   }
+});
+
+test('JSONB object key ordering does not turn a committed booking into an unknown result', async () => {
+  const { repository, send } = setup('owlnest'), c = config();
+  const reorder = value => Array.isArray(value) ? value.map(reorder) :
+    value && typeof value === 'object' ? Object.fromEntries(Object.keys(value)
+      .sort((a, b) => a.length - b.length || a.localeCompare(b))
+      .map(key => [key, reorder(value[key])])) : value;
+  const jsonbSend = async (url, init) => {
+    const response = await send(url, init);
+    return Response.json(reorder(await response.json()), { status: response.status });
+  };
+  const requestKey = key();
+  const created = await createManualBooking(owner, c, { expectedInventoryVersion: 1,
+    stays: stay(), guestName: 'Synthetic JSONB Guest', contact: null,
+    notes: 'Synthetic evidence', totalCents: 390000, bookedAt: null }, requestKey, jsonbSend);
+  assert.equal(created.operationState, 'awaiting_manual_sync');
+  assert.equal((await repository.read(propertyId)).bookings.length, 1);
+  const recovered = await manualRequestResult(owner, c, requestKey, jsonbSend);
+  assert.equal(recovered.readbackVerified, true);
+  assert.equal(recovered.requestKey, requestKey);
+});
+
+test('different room/date prices persist exactly, reconcile, and survive metadata edits', async () => {
+  const { repository, service, send } = setup(), c = config();
+  const input = { expectedInventoryVersion: 1, stays: [
+    { checkIn: '2026-11-10', checkOut: '2026-11-12', roomNumbers: ['101'] },
+    { checkIn: '2026-11-11', checkOut: '2026-11-12', roomNumbers: ['202'] },
+  ], guestName: 'Synthetic Priced Guest', contact: null, notes: null,
+  totalCents: 1350000, bookedAt: '2026-10-25', roomNightPrices: [
+    { roomNumber: '101', date: '2026-11-10', amountCents: 390000 },
+    { roomNumber: '101', date: '2026-11-11', amountCents: 460000 },
+    { roomNumber: '202', date: '2026-11-11', amountCents: 500000 },
+  ] };
+  for (const prices of [input.roomNightPrices.slice(1), [...input.roomNightPrices, input.roomNightPrices[0]],
+    input.roomNightPrices.map((p, index) => index ? p : { ...p, date: '2026-11-12' }),
+    input.roomNightPrices.map((p, index) => index ? p : { ...p, amountCents: 1 })]) {
+    await assert.rejects(createManualBooking(owner, c, { ...input, roomNightPrices: prices }, key(), send),
+      /MANUAL_INVALID_NIGHT_PRICES/);
+    assert.equal((await repository.read(propertyId)).bookings.length, 0);
+  }
+  const result = await createManualBooking(owner, c, input, key(), send);
+  let state = await repository.read(propertyId);
+  assert.deepEqual(state.bookings[0].roomNightPrices, input.roomNightPrices.map(({ roomNumber, ...price }) =>
+    ({ roomId: roomIds[roomNumber], ...price })));
+  const expectedPrices = structuredClone(state.bookings[0].roomNightPrices);
+  const calendar = await service.calendarSnapshot({ clientId, subjectId: owner.id, origin: 'os',
+    workspaceId, propertyIds: [propertyId], authorityEpoch: 1,
+    actions: ['booking:read'], fields: ['money'] }, propertyId, '2026-11-10', '2026-11-13');
+  assert.deepEqual(calendar.bookings[0].stayAmountsCents, [850000, 500000]);
+  await amendManualBooking(owner, c, result.bookingId, { expectedBookingVersion: 1,
+    expectedInventoryVersion: state.version, reason: 'Synthetic note edit',
+    changes: { notes: 'Updated note', totalCents: input.totalCents, stays: input.stays } }, key(), send);
+  state = await repository.read(propertyId);
+  assert.deepEqual(state.bookings[0].roomNightPrices, expectedPrices);
+  assert.equal(state.bookings[0].totalCents, 1350000);
+});
+
+test('recovery must independently read the committed booking before confirming success', async () => {
+  const { send } = setup(), c = config(), requestKey = key();
+  await createManualBooking(owner, c, { expectedInventoryVersion: 1, stays: stay(),
+    guestName: 'Synthetic Recovery', contact: null, notes: null,
+    totalCents: 100000, bookedAt: null }, requestKey, send);
+  await assert.rejects(manualRequestResult(owner, c, requestKey, async (url, init) => {
+    if (/\/bookings\/[0-9a-f-]{36}$/.test(new URL(url).pathname)) throw Error('read unavailable');
+    return send(url, init);
+  }), /MANUAL_RESULT_UNKNOWN/);
 });

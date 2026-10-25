@@ -67,7 +67,7 @@ components:
         roomNightPrices:
           type: array
           maxItems: 4096
-          description: LINE only; must exactly cover all room nights and sum to totalCents.
+          description: OS or LINE with money scope; must exactly cover all room nights and sum to totalCents. OS reads with money scope return verified nightly prices.
           items: { $ref: '#/components/schemas/NightPrice' }
         bookedAt: { type: [string, 'null'], format: date }
         source: { type: string, enum: [os, line, website] }

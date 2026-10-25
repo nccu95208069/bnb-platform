@@ -7,6 +7,7 @@ export type Grant = { credentialId: string; clientId: string; workspaceId: strin
 export type ManualConfig = { calendar: IronGateCalendarConfig; grant: Grant;
   trustedSourceToken?: string };
 type Stay = { checkIn: string; checkOut: string; roomIds: string[] };
+type NightPrice = { roomId: string; date: string; amountCents: number };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
@@ -173,7 +174,47 @@ function ensureBooking(raw: Record<string, unknown>, config: ManualConfig, id: s
     throw Error('MANUAL_READBACK_MISMATCH');
 }
 function sameStays(a: unknown, b: Stay[]): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  // JSONB does not preserve object key order. Compare typed values, never the
+  // serialized layout; room/stay order also has no booking significance.
+  const canonical = (value: unknown) => {
+    if (!Array.isArray(value) || !value.every(stay => object(stay) &&
+      typeof stay.checkIn === 'string' && typeof stay.checkOut === 'string' &&
+      Array.isArray(stay.roomIds) && stay.roomIds.every(id => typeof id === 'string')))
+      return null;
+    return value.map(stay => JSON.stringify([stay.checkIn, stay.checkOut,
+      [...stay.roomIds].sort()])).sort();
+  };
+  const left = canonical(a), right = canonical(b);
+  return left !== null && right !== null && JSON.stringify(left) === JSON.stringify(right);
+}
+function nightPrices(value: unknown, wanted: Stay[], totalCents: number,
+  config: ManualConfig): NightPrice[] {
+  if (!Array.isArray(value) || value.length > 4096) throw Error('MANUAL_INVALID_NIGHT_PRICES');
+  const expected = new Set<string>();
+  for (const stay of wanted) for (const roomId of stay.roomIds)
+    for (let time = Date.parse(stay.checkIn); time < Date.parse(stay.checkOut); time += 86_400_000)
+      expected.add(`${roomId}:${new Date(time).toISOString().slice(0, 10)}`);
+  let sum = BigInt(0);
+  const prices = value.map(raw => {
+    if (!object(raw)) throw Error('MANUAL_INVALID_NIGHT_PRICES');
+    exact(raw, ['roomNumber', 'date', 'amountCents']);
+    const roomId = typeof raw.roomNumber === 'string' && ROOM_NUMBERS.has(raw.roomNumber)
+      ? config.calendar.roomIds[raw.roomNumber] : null;
+    const night = date(raw.date), amountCents = money(raw.amountCents);
+    if (!roomId || amountCents === null || !expected.delete(`${roomId}:${night}`))
+      throw Error('MANUAL_INVALID_NIGHT_PRICES');
+    sum += BigInt(amountCents);
+    return { roomId, date: night, amountCents };
+  });
+  if (expected.size || sum !== BigInt(totalCents)) throw Error('MANUAL_INVALID_NIGHT_PRICES');
+  return prices;
+}
+function sameNightPrices(value: unknown, prices: NightPrice[]): boolean {
+  if (!Array.isArray(value) || !value.every(p => object(p) &&
+    typeof p.roomId === 'string' && typeof p.date === 'string' && Number.isSafeInteger(p.amountCents))) return false;
+  const canonical = (items: NightPrice[]) => items.map(p =>
+    JSON.stringify([p.roomId, p.date, p.amountCents])).sort();
+  return JSON.stringify(canonical(value as NightPrice[])) === JSON.stringify(canonical(prices));
 }
 async function readAfterWrite(config: ManualConfig, principal: Principal,
   bookingId: string, send: typeof fetch) {
@@ -258,7 +299,7 @@ export async function createManualBooking(principal: Principal, config: ManualCo
   input: unknown, requestKey: string, send: typeof fetch = fetch) {
   if (!UUID.test(requestKey) || !object(input)) throw Error('MANUAL_INVALID_INPUT');
   exact(input, ['expectedInventoryVersion', 'stays', 'guestName', 'contact',
-    'notes', 'totalCents', 'bookedAt']);
+    'notes', 'totalCents', 'bookedAt', 'roomNightPrices']);
   const expectedInventoryVersion = version(input.expectedInventoryVersion);
   const wanted = stays(input.stays, config);
   const guestName = nullable(input.guestName, 200)?.trim();
@@ -268,7 +309,10 @@ export async function createManualBooking(principal: Principal, config: ManualCo
   const payload = { expectedInventoryVersion, stays: wanted,
     guestName, contact: nullable(input.contact, 256),
     notes: nullable(input.notes, 2048), totalCents,
-    bookedAt: input.bookedAt == null ? null : date(input.bookedAt), source: 'os' };
+    bookedAt: input.bookedAt == null ? null : date(input.bookedAt), source: 'os',
+    ...(input.roomNightPrices !== undefined ? {
+      roomNightPrices: nightPrices(input.roomNightPrices, wanted, totalCents, config),
+    } : {}) };
   await checkLocalNights(principal, config, wanted, expectedInventoryVersion, send);
   const result = await callIronGate(config, principal, 'POST', bookingPath(config), payload,
     requestKey, send);
@@ -284,7 +328,8 @@ export async function createManualBooking(principal: Principal, config: ManualCo
       observed.channelSyncState !== 'not_required') ||
     observed.guestName !== payload.guestName || observed.contact !== payload.contact ||
     observed.notes !== payload.notes || observed.totalCents !== payload.totalCents ||
-    observed.bookedAt !== payload.bookedAt)
+    observed.bookedAt !== payload.bookedAt ||
+    payload.roomNightPrices !== undefined && !sameNightPrices(observed.roomNightPrices, payload.roomNightPrices))
     throw Error('MANUAL_READBACK_MISMATCH');
   return { bookingId: result.bookingId, bookingVersion: observed.version,
     inventoryVersion: result.inventoryVersion, operationState: result.operationState,
@@ -348,6 +393,13 @@ export async function amendManualBooking(principal: Principal, config: ManualCon
     null, null, send);
   ensureBooking(before, config, bookingId);
   const externalNameOnly = before.source === 'external';
+  // Editing only contact/notes must not discard previously recorded nightly
+  // prices just because the older amendment form also sends unchanged totals.
+  if (before.source === 'os' && Array.isArray(before.roomNightPrices) &&
+    (!('stays' in changes) || sameStays(changes.stays, before.stays as Stay[])) &&
+    (!('totalCents' in changes) || changes.totalCents === before.totalCents) &&
+    ('stays' in changes || 'totalCents' in changes))
+    changes.roomNightPrices = before.roomNightPrices;
   if (!['os', 'external'].includes(String(before.source)) || before.status !== 'confirmed' ||
     before.version !== input.expectedBookingVersion) throw Error('MANUAL_VERSION_CONFLICT');
   if (before.sourceReviewRequired === true ||
@@ -368,7 +420,8 @@ export async function amendManualBooking(principal: Principal, config: ManualCon
   ensureBooking(after, config, bookingId);
   if (after.status !== 'confirmed' || after.version !== result.bookingVersion ||
     Object.entries(changes).some(([field, value]) => field === 'stays' ?
-      !sameStays(after.stays, value as Stay[]) : after[field] !== value))
+      !sameStays(after.stays, value as Stay[]) : field === 'roomNightPrices' ?
+        !sameNightPrices(after.roomNightPrices, value as NightPrice[]) : after[field] !== value))
     throw Error('MANUAL_READBACK_MISMATCH');
   if (externalNameOnly && (after.source !== 'external' ||
     after.sourceReviewRequired !== true || after.channelSyncState !== before.channelSyncState ||
@@ -408,8 +461,16 @@ export async function cancelManualBooking(principal: Principal, config: ManualCo
 export async function manualRequestResult(principal: Principal, config: ManualConfig,
   requestKey: string, send: typeof fetch = fetch) {
   if (!UUID.test(requestKey)) throw Error('MANUAL_INVALID_INPUT');
-  return callIronGate(config, principal, 'GET',
+  const receipt = await callIronGate(config, principal, 'GET',
     `/v1/properties/${config.grant.propertyId}/requests/${requestKey}`, null, null, send);
+  if (!UUID.test(String(receipt.bookingId)) || !Number.isSafeInteger(receipt.bookingVersion))
+    throw Error('MANUAL_READBACK_MISMATCH');
+  const observed = await readAfterWrite(config, principal, String(receipt.bookingId), send);
+  ensureBooking(observed, config, String(receipt.bookingId));
+  if (Number(observed.version) < Number(receipt.bookingVersion)) throw Error('MANUAL_READBACK_MISMATCH');
+  return { ...receipt, requestKey, currentBookingVersion: observed.version,
+    currentChannelSyncState: observed.channelSyncState, currentStatus: observed.status,
+    readbackVerified: true };
 }
 
 export async function readManualBooking(principal: Principal, config: ManualConfig,
