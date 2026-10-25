@@ -3,6 +3,7 @@ import type { AmendBookingInput, CreateBookingInput, CreateHoldInput, ExtendHold
   Principal, ReadbackInput, SourceEventInput, SourceFactsInput, SourceOrderLookupInput } from "./types.ts";
 
 export type Authenticate = (request: Request) => Promise<Principal | null>;
+export type ChannelQueued = (job: { propertyId: string; operationKey: string }) => void;
 const MAX_BODY_BYTES = 64 * 1024;
 
 function json(value: unknown, status = 200): Response {
@@ -50,7 +51,8 @@ function requestKey(request: Request): string {
 }
 
 /** Route adapter. Production must inject a durable repository and current, independently verified auth. */
-export function createHandler(service: IronGateService, authenticate: Authenticate) {
+export function createHandler(service: IronGateService, authenticate: Authenticate,
+  onLineChannelQueued?: ChannelQueued) {
   return async function handle(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
@@ -186,9 +188,16 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         if (parts.length === 6 && parts[5] === "line-channel-actions" && request.method === "POST") {
           const value = await body(request);
           exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "desired", "cells"]);
-          return json(await service.requestLineChannelAction(principal, propertyId, parts[4],
+          const receipt = await service.requestLineChannelAction(principal, propertyId, parts[4],
             requestKey(request), value as LineChannelActionInput,
-            request.headers.get("x-iron-gate-line-preview")), 202);
+            request.headers.get("x-iron-gate-line-preview"));
+          // Authorization, preview, scope and durable operation commit all
+          // precede dispatch. A scheduler failure cannot undo that receipt;
+          // the existing cron remains the recovery path for an unclaimed job.
+          try {
+            onLineChannelQueued?.({ propertyId, operationKey: receipt.operationKey as string });
+          } catch { console.error("line_channel_start_unavailable"); }
+          return json(receipt, 202);
         }
         if (parts.length === 6 && parts[5] === "cancel" && request.method === "POST") {
           const value = await body(request);
