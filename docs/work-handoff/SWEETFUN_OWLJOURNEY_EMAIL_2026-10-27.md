@@ -8,6 +8,9 @@ OTA alias, a nonempty guest, an explicit TWD total, and a valid stay. Existing
 room, block, imported Sheet L-column, and review-fence collision checks remain
 in force. A provider-managed event mirrors the reservation without asking
 OwlNest to close stock again.
+Later signed OwlJourney mail contains a masked guest name. If a controlled
+provider readback has supplied a matching full name, a masked follow-up keeps
+the full name; a mismatched visible prefix requires review.
 
 An already-fenced 2026-10-26 notice requires a controlled repair because its
 original source receipt is immutable. The source-controlled reconciliation

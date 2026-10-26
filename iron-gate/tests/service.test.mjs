@@ -1834,6 +1834,30 @@ test("signed OwlJourney amendment cannot relabel its linked booking as an OTA", 
     "owljourney");
 });
 
+test("signed OwlJourney follow-up preserves a provider-verified full guest name", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  const journey = { ...input, externalOrderId: "L:OWJSYNTHETIC001",
+    platform: "owljourney", externalOrderNo: null, guestName: "Synth**",
+    sourceIdentityEvidence: signedOwlJourneyEvidence };
+  const created = await service.applySourceEvent(actor, key(), journey);
+  await repository.transact(propertyId, (state) => {
+    state.bookings[0].guestName = "Synthetic Guest";
+  });
+  const next = { ...journey, expectedInventoryVersion: created.inventoryVersion,
+    previousSourceVersion: journey.sourceVersion,
+    sourceVersion: `gmail-v1:1792859315000:${"b".repeat(64)}` };
+  const updated = await service.applySourceEvent(actor, key(), next);
+  assert.equal(updated.state, "applied");
+  assert.equal((await repository.read(propertyId)).bookings[0].guestName,
+    "Synthetic Guest");
+  const wrong = await service.applySourceEvent(actor, key(), { ...next,
+    expectedInventoryVersion: updated.inventoryVersion,
+    previousSourceVersion: next.sourceVersion,
+    sourceVersion: `gmail-v1:1792859316000:${"c".repeat(64)}`,
+    guestName: "Other**" });
+  assert.equal(wrong.reason, "SOURCE_GUEST_IDENTITY_MISMATCH");
+});
+
 test("OwlJourney order number in imported Sheet L blocks a second booking", async () => {
   const { service, repository, actor, input } = await signedSourceSetup();
   await service.applySourceEvent(actor, key(), input);

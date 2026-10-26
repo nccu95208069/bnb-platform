@@ -2688,6 +2688,18 @@ export class IronGateService {
       }
       if (input.kind === "upsert" && hasConflict(state, cells, linkedBooking?.id))
         return review("ROOM_CONFLICT", [...cells, ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);
+      // OwlJourney email masks the guest name. A provider-verified full name
+      // entered during a controlled repair must survive later signed notices.
+      const maskedOwlJourneyName = verifiedGmailOwlJourneyNotice && linkedBooking &&
+        input.kind === "upsert" && typeof input.guestName === "string" &&
+        input.guestName.includes("*") && typeof linkedBooking.guestName === "string" &&
+        !linkedBooking.guestName.includes("*");
+      const visibleGuestPrefix = maskedOwlJourneyName ?
+        input.guestName!.replace(/\s+/g, "").split("*", 1)[0] : "";
+      if (maskedOwlJourneyName && (!visibleGuestPrefix ||
+        !linkedBooking.guestName!.replace(/\s+/g, "").startsWith(visibleGuestPrefix)))
+        return review("SOURCE_GUEST_IDENTITY_MISMATCH", [...cells,
+          ...nightsFor(linkedBooking.stays, state.roomIds)]);
       const oldCells = linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [];
       let booking: Booking;
       if (linkedBooking) {
@@ -2696,7 +2708,7 @@ export class IronGateService {
         booking.status = input.kind === "cancel" ? "cancelled" : "confirmed";
         if (input.kind === "upsert") {
           booking.stays = structuredClone(input.stays);
-          booking.guestName = input.guestName;
+          booking.guestName = maskedOwlJourneyName ? linkedBooking.guestName : input.guestName;
           booking.bookedAt = input.bookedAt;
           // A missing fee stays unknown. An imported fee cannot remain current
           // after a changed external order without fresh source evidence.
