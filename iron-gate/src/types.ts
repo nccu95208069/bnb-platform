@@ -305,7 +305,7 @@ export type SourceEventInput = {
   externalOrderNo?: string | null;
   /** Gmail's aligned DKIM/DMARC verdict, asserted by the bound Gmail writer. */
   sourceIdentityEvidence?: {
-    kind: "gmail-owlnest-dkim-v1";
+    kind: "gmail-owlnest-dkim-v1" | "gmail-owljourney-dkim-v1";
     signedDomain: "owlting.com";
     deliveredTo: "sweetfuntw@gmail.com";
   };

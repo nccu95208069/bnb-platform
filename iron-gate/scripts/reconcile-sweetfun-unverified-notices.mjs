@@ -42,15 +42,20 @@ export function validateManifest(manifest) {
   const allIds = new Set(), allNights = new Set(), allAliases = new Set();
   const orders = manifest.orders.map((order) => {
     const event = order?.event;
-    if (!event || Object.keys(event).sort().join(",") !==
-      "bookedAt,currency,expectedInventoryVersion,externalOrderId,externalOrderNo,guestName,kind,platform,previousSourceVersion,propertyId,sourceAccount,sourceSystem,sourceVersion,stays,totalCents" ||
+    const owlJourney = /^L:OWJ[A-Z0-9]+$/.test(event?.externalOrderId ?? "");
+    const expectedKeys = ["bookedAt", "currency", "expectedInventoryVersion",
+      "externalOrderId", "guestName", "kind", "platform", "previousSourceVersion",
+      "propertyId", "sourceAccount", "sourceSystem", "sourceVersion", "stays", "totalCents",
+      ...(!owlJourney ? ["externalOrderNo"] : [])].sort().join(",");
+    if (!event || Object.keys(event).sort().join(",") !== expectedKeys ||
       event.propertyId !== PROPERTY || event.sourceSystem !== SOURCE_SYSTEM ||
       event.sourceAccount !== SOURCE_ACCOUNT || event.kind !== "upsert" ||
       event.previousSourceVersion !== null || event.bookedAt !== null ||
-      !/^L:OBE[A-Z0-9]+$/.test(event.externalOrderId) ||
+      !(owlJourney || /^L:OBE[A-Z0-9]+$/.test(event.externalOrderId)) ||
       !SOURCE_VERSION.test(event.sourceVersion) ||
-      !["booking", "agoda", "airbnb", "ctrip"].includes(event.platform) ||
-      !/^[A-Za-z0-9-]{1,64}$/.test(event.externalOrderNo ?? "") ||
+      !(owlJourney ? event.platform === "owljourney" :
+        ["booking", "agoda", "airbnb", "ctrip"].includes(event.platform) &&
+        /^[A-Za-z0-9-]{1,64}$/.test(event.externalOrderNo ?? "")) ||
       typeof event.guestName !== "string" || !event.guestName.trim() ||
       event.guestName.length > 200 ||
       !Number.isSafeInteger(event.totalCents) || event.totalCents < 0 ||
@@ -65,6 +70,11 @@ export function validateManifest(manifest) {
       !/^[0-9a-f]{16}$/.test(order.sourceMessageId ?? "") ||
       ![order.bookingId, order.repairRequestKey].every((id) => UUID.test(id ?? "")) ||
       order.providerStatus !== "confirmed" ||
+      (owlJourney && (typeof order.providerGuestName !== "string" ||
+        !order.providerGuestName.trim() || order.providerGuestName.length > 200 ||
+        !order.providerGuestName.replace(/\s+/g, "").startsWith(
+          event.guestName.replace(/[\s*]/g, "")))) ||
+      (!owlJourney && order.providerGuestName !== undefined) ||
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(order.providerCheckedAt ?? ""))
       throw Error("INVALID_REPAIR_ORDER");
     const match = SOURCE_VERSION.exec(event.sourceVersion);
@@ -75,7 +85,8 @@ export function validateManifest(manifest) {
     const effectiveTotalCents = order.providerTotalCents ?? event.totalCents;
     if (!Number.isSafeInteger(effectiveTotalCents) || effectiveTotalCents < 0 ||
       (order.providerTotalCents !== undefined &&
-        (event.totalCents - effectiveTotalCents !== 50 ||
+        ((owlJourney ? event.totalCents !== effectiveTotalCents :
+          event.totalCents - effectiveTotalCents !== 50) ||
           !Array.isArray(order.providerNightTotalsCents) ||
           order.providerNightTotalsCents.length !== cells.length ||
           order.providerNightTotalsCents.some((amount) =>
@@ -98,8 +109,10 @@ export function validateManifest(manifest) {
       if (allNights.has(key)) throw Error("OVERLAPPING_REPAIR_ORDERS");
       allNights.add(key);
     }
-    if (allAliases.has(event.externalOrderNo)) throw Error("DUPLICATE_OTA_ALIAS");
-    allAliases.add(event.externalOrderNo);
+    if (!owlJourney) {
+      if (allAliases.has(event.externalOrderNo)) throw Error("DUPLICATE_OTA_ALIAS");
+      allAliases.add(event.externalOrderNo);
+    }
     return { ...order, cells, sourceKey, receivedAt, effectiveTotalCents };
   });
   return { ...manifest, orders };
@@ -190,10 +203,12 @@ BEGIN
             WHERE stay->>'checkIn'<=c->>'date' AND
               stay->>'checkOut'>c->>'date' AND
               stay->'roomIds' ? (c->>'roomId'))) OR
-          b->'sourceCalendar'->>'externalOrderNo'=e->>'externalOrderNo' OR
+          (e ? 'externalOrderNo' AND
+            b->'sourceCalendar'->>'externalOrderNo'=e->>'externalOrderNo') OR
           EXISTS (SELECT 1 FROM jsonb_array_elements(
             coalesce(b->'sweetfunSnapshot'->'rows','[]'::jsonb)) row
-            WHERE row->'values'->>13=e->>'externalOrderNo' OR
+            WHERE (e ? 'externalOrderNo' AND
+              row->'values'->>13=e->>'externalOrderNo') OR
               row->'values'->>11=substring(e->>'externalOrderId' from 3))) OR
       EXISTS (SELECT 1 FROM iron_gate.occupied_room_nights n,
         jsonb_array_elements(cells) c WHERE n.property_id='${PROPERTY}'::uuid AND
@@ -211,7 +226,7 @@ BEGIN
       'id',o->>'bookingId','workspaceId',s->>'workspaceId','propertyId','${PROPERTY}',
       'version',1,'status','confirmed','channelSyncState','not_required',
       'channelOperationKey',NULL,'stays',e->'stays',
-      'guestName',e->'guestName','contact',NULL,'notes',NULL,
+      'guestName',coalesce(o->>'providerGuestName',e->>'guestName'),'contact',NULL,'notes',NULL,
       'totalCents',(o->>'effectiveTotalCents')::integer,'currency','TWD','bookedAt',NULL,
       'createdAt',at_iso,'source','external','sourceKey',source_key,
       'sourceCalendar',jsonb_build_object('platform',e->'platform',
@@ -270,9 +285,11 @@ BEGIN
 END $repair$;
 SELECT inventory_version,
   (SELECT count(*) FROM jsonb_array_elements(state_json->'sourceLinks') l
-    WHERE l->>'externalOrderId' LIKE 'L:OBE%') AS owlnest_source_links,
+    WHERE l->>'externalOrderId' LIKE 'L:OBE%' OR
+      l->>'externalOrderId' LIKE 'L:OWJ%') AS provider_source_links,
   (SELECT count(*) FROM jsonb_array_elements(state_json->'fences') f
-    WHERE f->>'key' LIKE 'review:%L:OBE%') AS owlnest_review_fences
+    WHERE f->>'key' LIKE 'review:%L:OBE%' OR
+      f->>'key' LIKE 'review:%L:OWJ%') AS provider_review_fences
 FROM iron_gate.property_state WHERE property_id='${PROPERTY}'::uuid;
 ${dryRun ? "ROLLBACK;" : "COMMIT;"}`;
 }
