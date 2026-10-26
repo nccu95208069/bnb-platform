@@ -12,7 +12,7 @@ Later signed OwlJourney mail contains a masked guest name. If a controlled
 provider readback has supplied a matching full name, a masked follow-up keeps
 the full name; a mismatched visible prefix requires review.
 
-An already-fenced 2026-10-26 notice requires a controlled repair because its
+An already-fenced 2026-10-26 notice required a controlled repair because its
 original source receipt is immutable. The source-controlled reconciliation
 script now accepts an exact OwlJourney notice without inventing an OTA alias.
 It checks the original request hash, current provider confirmation and two
@@ -21,6 +21,8 @@ the matching fence, all competing occupancy and operation
 state, and the property version before appending one booking, source link,
 receipt, audit event, outbox event, and occupied room nights. Dry-run must
 roll back; apply requires a fresh provider check and independent readback.
+That repair was applied and independently verified as one confirmed booking
+covering two nights. The original review receipt remains for audit.
 
-Code and repair preparation are separate from production deployment. Record
-the final release and repair status only after each is verified.
+The automatic OwlJourney path is staged separately from this repair; its
+production release must be verified before it is called live.
