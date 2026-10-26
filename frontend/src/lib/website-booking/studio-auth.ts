@@ -5,13 +5,16 @@ import type { CustomerStore } from "../customer-workspaces/store.ts";
 import type { CustomerMail } from "../customer-intake/delivery.ts";
 import type { WebsiteClient } from "./types.ts";
 import { fields, requireEnabled } from "./config.ts";
+import { studioPasswordOperation, type DeferStudioMail } from "./studio-password.ts";
 
 // Only an authenticated, self-service Studio client may initiate signup.
 // The browser proof stays in an HttpOnly cookie at that client's exact origin.
 export async function studioAuthOperation(store: CustomerStore, client: WebsiteClient,
-  input: Record<string, unknown>, send: CustomerMail) {
+  input: Record<string, unknown>, send: CustomerMail, defer?: DeferStudioMail) {
   requireEnabled();
   if (!client.allow_new_sites || input.origin !== client.editor_origin) throw Error("FORBIDDEN");
+  if (typeof input.action === "string" && input.action.startsWith("password-"))
+    return studioPasswordOperation(store, client, input, send, defer);
   if (input.action === "request") {
     fields(input, ["action", "origin", "email", "requestKey", "proof", "protocol"]);
     await store.limit(`studio-signup:${client.id}`, 100);

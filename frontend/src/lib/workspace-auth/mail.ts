@@ -202,6 +202,16 @@ export async function sendCustomerAuthMail(to: string, subject: string, text: st
 export async function sendCustomerLifecycleMail(to: string, subject: string, text: string) {
   return customerMail(to, subject, text, "lifecycle");
 }
+// Fixed Studio authentication templates only; this cannot send arbitrary mail.
+export async function sendStudioAuthMail(to: string, subject: string, text: string) {
+  const allowed = (subject === "STAYFORM｜設定你的登入密碼" && text.startsWith("你剛剛要求設定 STAYFORM 登入密碼。")) ||
+    (subject === "STAYFORM｜重新設定密碼" && text.startsWith("你剛剛要求重新設定 STAYFORM 登入密碼。")) ||
+    (subject === "STAYFORM｜登入密碼已變更" && text.startsWith("你的 STAYFORM 登入密碼已於 ")) ||
+    (subject === "Stayform｜你的登入碼" && text.startsWith("你的登入碼：")) ||
+    (subject === "Stayform｜你的建站登入連結" && (text.startsWith("請在 15 分鐘內開啟下方連結，確認登入 ") || text.startsWith("請在剛才操作的同一個瀏覽器")));
+  if (!allowed) throw new Error("INVALID_INPUT");
+  return customerMail(to, subject, text, "auth");
+}
 async function customerMail(
   to: string,
   subject: string,

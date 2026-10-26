@@ -26,6 +26,10 @@ export function failure(error: unknown) {
   const code = error instanceof Error ? error.message : "";
   const errors: Record<string, [number, string]> = {
     INVALID_INPUT: [400, "請確認輸入內容。"], UNAUTHORIZED: [401, "請先完成登入或服務授權。"],
+    STUDIO_LOGIN_INVALID: [401, "信箱或密碼不正確；尚未設定密碼可先選擇「首次設定密碼」。"],
+    STUDIO_PASSWORD_INVALID: [400, "請使用 15～128 個字元，並確認兩次輸入相同。"],
+    PASSWORD_INVALID: [400, "請使用較不容易猜到的密碼或長句。"],
+    PASSWORD_LINK_INVALID: [400, "密碼設定連結已過期或已使用。若剛才已送出新密碼，請先嘗試登入；否則重新申請連結。"],
     FORBIDDEN: [403, "沒有此操作的權限。"], NOT_FOUND: [404, "找不到這筆資料。"],
     WEBSITE_OWNER_MISMATCH: [403, "請使用這次連接指定的業主信箱登入並確認。"],
     WEBSITE_BOOKING_UNAVAILABLE: [503, "線上預訂尚未開放，既有訂单仍可查詢。"],
