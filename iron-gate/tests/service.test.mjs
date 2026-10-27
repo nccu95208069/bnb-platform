@@ -58,6 +58,43 @@ function sourceInput(version = 1, overrides = {}) {
 }
 const errorCode = (code) => (error) => error?.code === code;
 
+test('verified identity-only enrichment preserves imported calendar references and booking date', async () => {
+  const { service, repository } = setup();
+  const created = await service.createBooking(principal(), propertyId, key(), bookingInput());
+  await repository.transact(propertyId, state => {
+    const b = state.bookings[0]; b.source = 'external'; b.bookedAt = '2026/10/13';
+    b.sweetfunSnapshot = { groupKey: 'J:synthetic-airbnb-group', rows: [{
+      checkIn: b.stays[0].checkIn, checkOut: b.stays[0].checkOut, roomFeeCents: b.totalCents,
+      values: ['101', b.guestName, 'Airbnb', '2026/11/10', '2026/11/12', b.bookedAt,
+        '12000', 'not_yet', 'OK', 'synthetic-airbnb-group', '', '', '', ''],
+    }] };
+  });
+  const before = await service.getBooking(principal(), propertyId, created.bookingId);
+  await repository.transact(propertyId, state => {
+    const b = state.bookings[0]; b.version++;
+    b.sourceCalendar = { platform: 'airbnb', externalOrderNo: 'HMTEST1234' };
+    b.sourceIdentityEnrichment = { schema: 1, bookingVersion: b.version,
+      sourceOrderRef: 'J:synthetic-airbnb-group' };
+  });
+  const after = await service.getBooking(principal(), propertyId, created.bookingId);
+  assert.equal(after.sourceCalendar.bookedAt, before.sourceCalendar.bookedAt);
+  assert.equal(after.sourceCalendar.sourceOrderRef, before.sourceCalendar.sourceOrderRef);
+  assert.equal(after.sourceCalendar.externalOrderNo, 'HMTEST1234');
+  assert.equal('sourceIdentityEnrichment' in after, false);
+  const hidden = await service.getBooking(principal('os', { fields: ['guest_name'] }), propertyId, created.bookingId);
+  assert.equal('sourceOrderRef' in hidden.sourceCalendar, false);
+  assert.equal('externalOrderNo' in hidden.sourceCalendar, false);
+  await repository.transact(propertyId, state => { state.bookings[0].version++; });
+  const amended = await service.getBooking(principal(), propertyId, created.bookingId);
+  assert.equal('sourceOrderRef' in amended.sourceCalendar, false, 'later mutations must invalidate the exact enrichment projection');
+  await repository.transact(propertyId, state => {
+    state.bookings[0].version--;
+    state.bookings[0].sourceIdentityEnrichment.sourceOrderRef = 'J:another-group';
+  });
+  const wrongRef = await service.getBooking(principal(), propertyId, created.bookingId);
+  assert.equal('sourceOrderRef' in wrongRef.sourceCalendar, false);
+});
+
 test('OS nightly prices require money scope, exact dates and totals, and remain redacted from no-price readers', async () => {
   const { service, repository } = setup();
   const input = bookingInput(1, { roomNightPrices: [

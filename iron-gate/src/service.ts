@@ -82,6 +82,24 @@ function sourceIdentity(booking: Booking | null | undefined): NonNullable<Bookin
 function uniqueNights(cells: Night[]): Night[] {
   return [...new Map(cells.map((cell) => [keyOf(cell), cell])).values()];
 }
+function identityEnrichmentLabels(booking: Booking): { sourceOrderRef: string; bookedAt: string | null } | null {
+  const marker = booking.sourceIdentityEnrichment, rows = booking.sweetfunSnapshot?.rows;
+  if (!marker || marker.schema !== 1 || marker.bookingVersion !== booking.version ||
+    booking.source !== "external" || booking.sourceCalendar?.platform !== "airbnb" ||
+    !/^HM[A-Z0-9]{8}$/.test(booking.sourceCalendar.externalOrderNo ?? "") ||
+    !/^J:[A-Za-z0-9_-]{8,100}$/.test(marker.sourceOrderRef) ||
+    marker.sourceOrderRef !== booking.sweetfunSnapshot?.groupKey ||
+    !Array.isArray(rows) || rows.length !== 1 || booking.stays.length !== 1 ||
+    rows[0]?.values?.[2] !== "Airbnb" || rows[0]?.values?.[13] !== "" ||
+    marker.sourceOrderRef !== `J:${rows[0]?.values?.[9]}` ||
+    rows[0]?.checkIn !== booking.stays[0].checkIn || rows[0]?.checkOut !== booking.stays[0].checkOut ||
+    rows[0]?.roomFeeCents !== booking.totalCents) return null;
+  const match = /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/.exec(booking.bookedAt ?? "");
+  const date = match ? `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}` : null;
+  const bookedAt = date && Number.isFinite(Date.parse(`${date}T00:00:00Z`)) &&
+    new Date(`${date}T00:00:00Z`).toISOString().slice(0, 10) === date ? date : null;
+  return { sourceOrderRef: marker.sourceOrderRef, bookedAt };
+}
 function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") {
@@ -375,13 +393,15 @@ function publicBooking(booking: Booking, principal: Principal,
   if ((principal.origin === "os" || principal.origin === "line") &&
     principal.fields.includes("guest_name")) {
     result.guestName = booking.guestName;
+    const enriched = identityEnrichmentLabels(booking);
     if (principal.origin === "os" && booking.sourceCalendar) {
       result.sourceCalendar = { platform: booking.sourceCalendar.platform,
         ...(principal.fields.includes("money") ?
-          { externalOrderNo: booking.sourceCalendar.externalOrderNo } : {}),
-        bookedAt: booking.bookedAt };
+          { externalOrderNo: booking.sourceCalendar.externalOrderNo,
+            ...(enriched ? { sourceOrderRef: enriched.sourceOrderRef } : {}) } : {}),
+        bookedAt: enriched ? enriched.bookedAt : booking.bookedAt };
     } else if (lineManagesAll(principal) && booking.sourceCalendar) {
-      result.sourceCalendar = { ...booking.sourceCalendar, bookedAt: booking.bookedAt };
+      result.sourceCalendar = { ...booking.sourceCalendar, bookedAt: booking.bookedAt, ...(enriched ?? {}) };
     }
     // The imported rows remain private evidence. Only unambiguous calendar
     // labels may leave that evidence, under the same OS guest grant.
