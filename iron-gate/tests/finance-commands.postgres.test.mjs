@@ -1,0 +1,153 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { Pool } from 'pg';
+import { FinanceCommandService } from '../src/finance-commands.mjs';
+
+const enabled = process.env.IRON_GATE_FINANCE_TEST_DATABASE === 'iron_gate_finance_test3';
+const poolConfig = { host: '/private/tmp', port: 55432, database: 'iron_gate_finance_test3' };
+const workspaceId = '10000000-0000-4000-8000-000000000001';
+const propertyId = '10000000-0000-4000-8000-000000000002';
+const otherPropertyId = '10000000-0000-4000-8000-000000000003';
+const bookingId = '10000000-0000-4000-8000-000000000004';
+const connectorId = '10000000-0000-4000-8000-000000000005';
+const secret = 'synthetic-finance-test-secret-32-bytes-long';
+
+function state(id, booking = false) {
+  return { propertyId: id, workspaceId, authorityEpoch: 1, version: 1,
+    roomIds: [], readOnly: false, bookings: booking ? [{ id: bookingId,
+      propertyId: id, version: 1, status: 'confirmed', source: 'os',
+      sourceCalendar: null, totalCents: 10000, currency: 'TWD', paymentEvents: [] }] : [] };
+}
+const principal = { origin: 'os', workspaceId, propertyIds: [propertyId], authorityEpoch: 1,
+  subjectId: 'synthetic-operator', financeSourceInstanceId: connectorId,
+  actions: ['finance:read','finance:record_receipt','finance:record_expense',
+    'finance:correct','finance:refund'] };
+function expense(action, sourceVersion, amount = 1000) {
+  return { request_key: `expense-${sourceVersion}`, source_record_id: 'expense-1',
+    source_version: sourceVersion, ...(action === 'create' ? {} : { expected_version: Number(sourceVersion) - 1 }),
+    action, ...(action === 'void' ? {} : { event_kind: 'expense_paid', amount_cents: amount,
+      currency: 'TWD', effective_on: '2026-10-28', cash_on: '2026-10-28',
+      category_code: 'supplies', evidence_level: 'operator_attested',
+      expense_attributions: [{ month: '2026-10-01', amount_cents: amount,
+        allocation_policy: 'ig_v1_earliest_cent' }] }) };
+}
+function roomCommand(record, amount) {
+  return { request_key: `receipt-${record}`, source_record_id: record, source_version: '1',
+    action: 'create', event_kind: 'property_receipt', amount_cents: amount,
+    currency: 'TWD', effective_on: '2026-10-28', cash_on: '2026-10-28',
+    receipt_purpose: 'room', evidence_level: 'operator_attested',
+    booking_allocations: [{ booking_id: bookingId, expected_booking_version: 1,
+      amount_cents: amount, allocation_kind: 'room' }] };
+}
+
+test('finance commands commit atomically, retry exactly, and isolate the property',
+  { skip: !enabled }, async () => {
+    const admin = new Pool(poolConfig);
+    const runtime = new Pool(poolConfig);
+    const service = new FinanceCommandService({ connect: async () => {
+      const client = await runtime.connect();
+      await client.query('SET ROLE iron_gate_runtime');
+      return client;
+    } }, secret, true);
+    try {
+      // This environment variable deliberately names a disposable, dedicated database.
+      await admin.query('TRUNCATE iron_gate.property_state CASCADE');
+      for (const [id, withBooking] of [[propertyId, true], [otherPropertyId, false]])
+        await admin.query(`INSERT INTO iron_gate.property_state
+          (property_id,workspace_id,authority_epoch,inventory_version,state_json)
+          VALUES ($1,$2,1,1,$3::jsonb)`, [id, workspaceId, JSON.stringify(state(id, withBooking))]);
+      await admin.query(`INSERT INTO iron_gate.finance_connector
+        (source_instance_id,property_id,source_system,enabled,cutover_at)
+        VALUES ($1,$2,'os_manual',true,now()-interval '1 day')`, [connectorId, propertyId]);
+      await admin.query(`INSERT INTO iron_gate.finance_category(property_id,kind,code,label)
+        VALUES ($1,'expense','supplies','Supplies')`, [propertyId]);
+      await admin.query(`INSERT INTO iron_gate.finance_source_link
+        (property_id,source_instance_id,source_order_key,booking_id,
+         verified_booking_version,source_snapshot_hash,evidence_ref)
+        VALUES ($1,$2,'SF-EXACT-1',$3,1,$4,'synthetic-link')`,
+        [propertyId,connectorId,bookingId,'a'.repeat(64)]);
+      const first = expense('create', '1');
+      await assert.rejects(service.command(principal, propertyId,
+        { ...first, evidence_level: 'bank_reconciled' }, first.request_key),
+      e => e.code === 'SOURCE_FORBIDDEN');
+      const receipt = await service.command(principal, propertyId, first, first.request_key);
+      assert.equal(receipt.document_version, 1);
+      assert.deepEqual(await service.command(principal, propertyId, first, first.request_key), receipt);
+      assert.deepEqual(await service.receipt(principal, propertyId, first.request_key), receipt);
+      await assert.rejects(service.command(principal, propertyId,
+        { ...first, amount_cents: 2000,
+          expense_attributions: [{ ...first.expense_attributions[0], amount_cents: 2000 }] },
+        first.request_key), e => e.code === 'REQUEST_KEY_REUSED');
+      const amended = expense('amend', '2', 1200);
+      const second = await service.command(principal, propertyId, amended, amended.request_key);
+      assert.equal(second.document_version, 2);
+      assert.equal(second.event_ids.length, 2);
+      const voided = expense('void', '3');
+      const third = await service.command(principal, propertyId, voided, voided.request_key);
+      assert.equal(third.event_ids.length, 1);
+      const balance = await admin.query(`SELECT sum(cash_effect_cents)::bigint AS cents
+        FROM iron_gate.finance_event WHERE property_id=$1`, [propertyId]);
+      assert.equal(Number(balance.rows[0].cents), 0);
+      const room = { ...roomCommand('room-1', 6000), booking_allocations: [{
+        source_order_key:'SF-EXACT-1', amount_cents:6000, allocation_kind:'room' }] };
+      const preview = await service.preview(principal, propertyId, room, room.request_key);
+      assert.equal(preview.bookings[0].bookingId, bookingId);
+      assert.equal(preview.resolved_command.booking_allocations[0].booking_id,bookingId);
+      const roomAccepted = await service.command(principal, propertyId,
+        { ...preview.resolved_command, preview_token: preview.preview_token }, room.request_key);
+      const duplicate = roomCommand('room-duplicate', 6000);
+      const duplicatePreview = await service.preview(principal, propertyId, duplicate, duplicate.request_key);
+      await assert.rejects(service.command(principal, propertyId,
+        { ...duplicate, preview_token: duplicatePreview.preview_token }, duplicate.request_key),
+      e => e.code === 'SOURCE_MAPPING_REVIEW_REQUIRED');
+      const refund = { request_key: 'refund-1', source_record_id: 'refund-1', source_version: '1',
+        action: 'create', event_kind: 'property_refund', amount_cents: 3000,
+        currency: 'TWD', effective_on: '2026-10-28', cash_on: '2026-10-28',
+        related_receipt_document_id: roomAccepted.document_id,
+        related_receipt_event_id: roomAccepted.event_ids[0],
+        evidence_level: 'operator_attested', booking_allocations: [{ booking_id: bookingId,
+          expected_booking_version: 1, amount_cents: 3000, allocation_kind: 'room' }] };
+      const refundPreview = await service.preview(principal, propertyId, refund, refund.request_key);
+      await service.command(principal, propertyId,
+        { ...refund, preview_token: refundPreview.preview_token }, refund.request_key);
+      const refundAmend = { ...refund, request_key:'refund-amend', source_version:'2',
+        expected_version:1, action:'amend', amount_cents:2000,
+        booking_allocations:[{...refund.booking_allocations[0],amount_cents:2000}] };
+      const refundAmendPreview = await service.preview(principal,propertyId,
+        refundAmend,refundAmend.request_key);
+      await assert.rejects(service.command({ ...principal,
+        actions:principal.actions.filter(action => action !== 'finance:refund') },propertyId,
+        { ...refundAmend, preview_token: refundAmendPreview.preview_token },refundAmend.request_key),
+      e => e.code === 'PROPERTY_FORBIDDEN');
+      const projection = await service.bookingFinance(principal, propertyId, bookingId);
+      assert.equal(projection.summary.room_received_cents,6000);
+      assert.equal(projection.summary.room_refunded_cents,3000);
+      assert.equal(projection.remaining_due_cents,7000);
+      const ledger = await service.ledger(principal, propertyId,
+        { from:'2026-10-28', to:'2026-10-29', limit:2 });
+      assert.equal(ledger.events.length,2);
+      assert.ok(ledger.next_cursor);
+      const secondPage = await service.ledger(principal, propertyId,
+        { from:'2026-10-28', to:'2026-10-29', limit:10, cursor:ledger.next_cursor });
+      assert.ok(secondPage.events.length >= 2);
+      const expenses = await service.expenses(principal, propertyId,'2026-10-01');
+      assert.equal(expenses.total_cents,0);
+      const excessive = roomCommand('room-excess', 8000);
+      const excessivePreview = await service.preview(principal, propertyId, excessive, excessive.request_key);
+      await assert.rejects(service.command(principal, propertyId,
+        { ...excessive, preview_token: excessivePreview.preview_token }, excessive.request_key),
+      e => e.code === 'ALLOCATION_MISMATCH');
+      const tooSmall = { ...preview.resolved_command, request_key: 'room-amend', source_version: '2',
+        expected_version: 1, action: 'amend', amount_cents: 2000,
+        booking_allocations: [{ ...preview.resolved_command.booking_allocations[0], amount_cents: 2000 }] };
+      const tooSmallPreview = await service.preview(principal, propertyId, tooSmall, tooSmall.request_key);
+      await assert.rejects(service.command(principal, propertyId,
+        { ...tooSmall, preview_token: tooSmallPreview.preview_token }, tooSmall.request_key),
+      e => e.code === 'REFUND_LIMIT');
+      await assert.rejects(service.receipt(principal, otherPropertyId, first.request_key),
+        e => e.code === 'PROPERTY_FORBIDDEN');
+    } finally {
+      await admin.query('TRUNCATE iron_gate.property_state CASCADE');
+      await runtime.end(); await admin.end();
+    }
+  });

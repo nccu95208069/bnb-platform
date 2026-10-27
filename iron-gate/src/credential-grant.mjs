@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 
 const actions = new Set(["booking:read", "booking:aggregate", "booking:create", "booking:amend", "booking:cancel", "booking:manage_all", "inventory:write",
-  "hold:write", "card:sync", "payment:write", "finance:ledger", "event:read", "occupancy:aggregate",
+  "hold:write", "card:sync", "payment:write", "finance:ledger", "finance:read",
+  "finance:record_receipt", "finance:record_expense", "finance:correct", "finance:refund",
+  "finance:import", "finance:project", "event:read", "occupancy:aggregate",
   "housekeeping:read", "source:write", "channel:verify"]);
 const fields = new Set(["guest_name", "contact", "notes", "money", "payment_status"]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -45,7 +47,8 @@ export function validateGrantShape(grant) {
       !(action === "booking:create" && grant.lineCreateEnabled === true) &&
       !(["booking:amend", "booking:cancel", "booking:manage_all"].includes(action) &&
         grant.lineManageAllEnabled === true) &&
-      !(action === "inventory:write" && grant.lineInventoryEnabled === true)) ||
+      !(action === "inventory:write" && grant.lineInventoryEnabled === true) &&
+      !(action.startsWith("finance:") && grant.lineFinanceEnabled === true)) ||
     (grant.actions.includes("booking:create") &&
       !grant.actions.includes("booking:read")) ||
     (grant.lineCreateEnabled === true &&
@@ -61,12 +64,18 @@ export function validateGrantShape(grant) {
     action !== "event:read" && action !== "booking:read" && action !== "booking:aggregate" &&
     action !== "occupancy:aggregate" && action !== "housekeeping:read")))
     throw new Error("INVALID_SERVICE_SCOPE");
+  const financeActions = grant.actions.filter((action) => action.startsWith("finance:") &&
+    action !== "finance:ledger");
+  if (financeActions.length && (!validCredentialId(grant.financeSourceInstanceId) ||
+    !["os", "line", "finance"].includes(grant.origin)))
+    throw new Error("INVALID_FINANCE_CONNECTOR_SCOPE");
   if (grant.actions.includes("card:sync") && (grant.origin !== "finance" ||
     grant.actions.some(action => action !== "card:sync") ||
     grant.fields.length !== 1 || grant.fields[0] !== "money")) throw new Error("INVALID_CARD_SCOPE");
   if (grant.origin === "finance" && (grant.actions.some((action) =>
     action !== "event:read" && action !== "booking:read" && action !== "payment:write" &&
-    action !== "finance:ledger" && action !== "card:sync") ||
+    action !== "finance:ledger" && action !== "card:sync" &&
+    !action.startsWith("finance:")) ||
     grant.fields.some((field) => field !== "money"))) throw new Error("INVALID_FINANCE_SCOPE");
   if (grant.origin !== "os" && grant.fields.includes("payment_status"))
     throw new Error("INVALID_PAYMENT_STATUS_SCOPE");

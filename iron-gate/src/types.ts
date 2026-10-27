@@ -13,6 +13,13 @@ export type Action =
   | "card:sync"
   | "payment:write"
   | "finance:ledger"
+  | "finance:read"
+  | "finance:record_receipt"
+  | "finance:record_expense"
+  | "finance:correct"
+  | "finance:refund"
+  | "finance:import"
+  | "finance:project"
   | "event:read"
   | "occupancy:aggregate"
   | "housekeeping:read"
@@ -37,6 +44,7 @@ export type Principal = {
   bookingIdScope?: string;
   sourceSystem?: string;
   sourceAccount?: string;
+  financeSourceInstanceId?: string;
 };
 
 export type Stay = {
@@ -425,6 +433,8 @@ export type AuditRecord = {
 export type TransactionContext = {
   emit(event: PendingEvent): void;
   audit(record: AuditRecord): void;
+  /** Optional Postgres-only same-transaction finance mirror after property cutover. */
+  financeNative?(intent: Record<string, unknown>): void;
 };
 
 export interface PropertyRepository {

@@ -5,6 +5,18 @@ import type { AmendBookingInput, CreateBookingInput, CreateHoldInput, ExtendHold
 
 export type Authenticate = (request: Request) => Promise<Principal | null>;
 export type ChannelQueued = (job: { propertyId: string; operationKey: string }) => void;
+export type FinanceRoutes = {
+  readonly enabled: boolean;
+  preview(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  command(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  receipt(principal: Principal, propertyId: string, requestKey: string): Promise<unknown>;
+  ledger(principal: Principal, propertyId: string, query: { from: string | null; to: string | null;
+    cursor: string | null; limit: number }): Promise<unknown>;
+  bookingFinance(principal: Principal, propertyId: string, bookingId: string): Promise<unknown>;
+  expenses(principal: Principal, propertyId: string, month: string | null, limit: number,
+    cursor: string | null): Promise<unknown>;
+  accounts(principal: Principal, propertyId: string): Promise<unknown>;
+};
 const MAX_BODY_BYTES = 64 * 1024;
 
 function json(value: unknown, status = 200): Response {
@@ -53,7 +65,7 @@ function requestKey(request: Request): string {
 
 /** Route adapter. Production must inject a durable repository and current, independently verified auth. */
 export function createHandler(service: IronGateService, authenticate: Authenticate,
-  onLineChannelQueued?: ChannelQueued) {
+  onLineChannelQueued?: ChannelQueued, finance?: FinanceRoutes) {
   return async function handle(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
@@ -61,6 +73,24 @@ export function createHandler(service: IronGateService, authenticate: Authentica
       if (parts[0] !== "v1") return json({ error: { code: "NOT_FOUND" } }, 404);
       const principal = await authenticate(request);
       if (!principal) return json({ error: { code: "UNAUTHORIZED" } }, 401);
+      if (parts[1] === "properties" && parts[2] && parts[3] === "finance" && finance) {
+        if (parts[4] === "ledger" && parts.length === 5 && request.method === "GET" && finance.enabled)
+          return json(await finance.ledger(principal, parts[2], {
+            from: url.searchParams.get('from'), to: url.searchParams.get('to'),
+            cursor: url.searchParams.get('cursor'), limit: Number(url.searchParams.get('limit') ?? '50') }));
+        if (parts[4] === "expenses" && parts.length === 5 && request.method === "GET")
+          return json(await finance.expenses(principal, parts[2], url.searchParams.get('month'),
+            Number(url.searchParams.get('limit') ?? '50'), url.searchParams.get('cursor')));
+        if (parts[4] === "accounts" && parts.length === 5 && request.method === "GET")
+          return json(await finance.accounts(principal, parts[2]));
+        if (parts[4] === "commands" && parts[5] === "preview" && parts.length === 6 &&
+          request.method === "POST") return json(await finance.preview(principal, parts[2],
+            await body(request), requestKey(request)));
+        if (parts[4] === "commands" && parts.length === 5 && request.method === "POST")
+          return json(await finance.command(principal, parts[2], await body(request), requestKey(request)), 201);
+        if (parts[4] === "receipts" && parts[5] && parts.length === 6 && request.method === "GET")
+          return json(await finance.receipt(principal, parts[2], decodeURIComponent(parts[5])));
+      }
 
       if (parts[1] === "properties" && parts[2] && parts.length === 4 &&
         ["line-room-control-previews", "line-room-controls"].includes(parts[3]) && request.method === "POST") {
@@ -144,6 +174,8 @@ export function createHandler(service: IronGateService, authenticate: Authentica
       }
       if (parts[1] === "properties" && parts[2] && parts[3] === "bookings") {
         const propertyId = parts[2];
+        if (finance?.enabled && parts.length === 6 && parts[5] === 'finance' && request.method === 'GET')
+          return json(await finance.bookingFinance(principal, propertyId, parts[4]));
         if (parts.length === 4 && request.method === "GET") {
           return json(await service.listBookings(principal, propertyId, {
             limit: Number(url.searchParams.get("limit") ?? "50"),

@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { IronGateService } from "./service.ts";
 import { createHandler } from "./http.ts";
 import { PostgresPropertyRepository } from "./postgres-repository.mjs";
+import { FinanceCommandService } from "./finance-commands.mjs";
 import { PostgresCredentialDirectory } from "./postgres-auth.mjs";
 import { createGrantAuthenticator } from "./authenticator.mjs";
 import { assertRuntimeDatabase, validateDatabaseTransport } from "./runtime-safety.mjs";
@@ -54,12 +55,16 @@ export function createPostgresIronGateHandler(runtimePool, verifyOsMember = null
   if (poolOptions?.connectionString !== databaseUrl ||
     ["host", "port", "database", "user", "password", "ssl"].some((key) =>
       Object.hasOwn(poolOptions, key))) throw Error("UNSAFE_DATABASE_TRANSPORT");
-  const repository = new PostgresPropertyRepository(runtimePool);
+  const repository = new PostgresPropertyRepository(runtimePool,
+    process.env.IRON_GATE_FINANCE_NATIVE_LEDGER_ENABLED === 'true');
   const directory = new PostgresCredentialDirectory(runtimePool);
   const service = new IronGateService(repository, linePreviewSecret);
   const authenticate = createGrantAuthenticator(directory, repository, verifyOsMember,
     verifyLineOperator);
-  const handle = createHandler(service, authenticate, onLineChannelQueued ?? undefined);
+  const finance = new FinanceCommandService(runtimePool,
+    process.env.IRON_GATE_FINANCE_PREVIEW_SECRET,
+    process.env.IRON_GATE_FINANCE_COMMANDS_ENABLED === 'true');
+  const handle = createHandler(service, authenticate, onLineChannelQueued ?? undefined, finance);
   // Every deployment adapter, including a serverless one, must pass the same
   // database role and RLS check before it can authenticate or serve a request.
   let ready;
