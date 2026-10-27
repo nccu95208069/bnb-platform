@@ -102,7 +102,8 @@ export function createChannelWorker({ repository, service, propertyConfigs,
         // A concurrent tick can observe an already claimed property. That is
         // normal overlap, not a failed room action for the LINE group.
         if (!["CHANNEL_PROPERTY_CLAIMED", "CHANNEL_OPERATION_NOT_DISPATCHABLE", "CHANNEL_REVIEW_BLOCKED",
-          "CHANNEL_REVIEW_TRANSFER_STATE_MOVED", "CHANNEL_REVIEW_TRANSFER_READBACK_INVALID"]
+          "CHANNEL_REVIEW_TRANSFER_STATE_MOVED", "CHANNEL_REVIEW_TRANSFER_READBACK_INVALID",
+          "CHANNEL_REVIEW_TRANSFER_EXPIRED"]
           .includes(error?.message))
           await onReview({ propertyId, operationKey, status: "dispatch_unknown" })
             .catch(() => {});

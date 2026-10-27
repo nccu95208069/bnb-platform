@@ -16,8 +16,16 @@ function auditReview(state, tx, operation, type, reason, at) {
     actorGrantId: state.channel.grantId, requestKey: operation.key, reason});
 }
 
+/** Optional for the CLI; the HTTP adapter requires a short, pinned expiry. */
+export function assertReviewedTransferNotExpired(expiresAt) {
+  if (expiresAt !== undefined && (typeof expiresAt !== "string" ||
+    !Number.isFinite(Date.parse(expiresAt)) || Date.parse(expiresAt) <= Date.now()))
+    throw Error("CHANNEL_REVIEW_TRANSFER_EXPIRED");
+}
+
 /** Trusted operator transfer proof is checked again inside the acquisition transaction. */
 export function validateReviewedTransfer(state, operationKey, isolation) {
+  assertReviewedTransferNotExpired(isolation?.expiresAt);
   const claim = state.channelDispatch, scope = reviewClaimScope(state, claim);
   const operation = state.operations.find(item => item.key === operationKey);
   const observation = isolation?.observation;

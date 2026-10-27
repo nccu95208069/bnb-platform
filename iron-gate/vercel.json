@@ -4,7 +4,8 @@
   "outputDirectory": "public",
   "functions": {
     "api/index.mjs": { "maxDuration": 300 },
-    "api/channel-worker.mjs": { "maxDuration": 300 }
+    "api/channel-worker.mjs": { "maxDuration": 300 },
+    "api/channel-review-transfer.mjs": { "maxDuration": 300 }
   },
   "rewrites": [
     { "source": "/v1/(.*)", "destination": "/api/index" }

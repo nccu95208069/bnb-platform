@@ -76,6 +76,60 @@ The existing `recover-channel-claim` helper remains unchanged. Its exact claim
 comparison prevents an old recovery from clearing a newly acquired claim.
 Neither helper is an instruction to replay the old uncertain operation.
 
+### Runtime-only one-time transfer
+
+When the application database secret is available only inside Vercel, use
+`POST /api/channel-review-transfer` on a deliberately activated deployment. This
+route is absent by default (`404 disabled`), also on preview deployments. It
+reuses the existing application database role and broker credentials inside the
+runtime. Do not export the database secret or substitute an administrative role.
+
+Enable only a single production candidate using deployment-level `vercel deploy
+--env` values; do not add these values to persistent project environments:
+
+- `IRON_GATE_PRODUCTION_CHANNEL_REVIEW_TRANSFER_ENABLED=true`
+- `IRON_GATE_CHANNEL_REVIEW_TRANSFER_TOKEN_SHA256`: lowercase hex SHA-256 of a
+  fresh independent 32-byte random token encoded as 43-character base64url.
+- `IRON_GATE_CHANNEL_REVIEW_TRANSFER_INTENT_JSON`: exactly `propertyId`,
+  `targetOperationKey`, `expectedClaimId`, `expectedInventoryVersion`,
+  `expectedCells`, `reviewReason`, `issuedAt`, and `expiresAt`. Times use canonical
+  ISO UTC strings and cover at most 15 minutes. The property must equal the
+  configured channel property. The intent contains no runtime secrets or provider
+  observation.
+
+The ordinary production and channel-worker enable flags must also be true. Keep
+the plaintext review token only in process memory or a private mode-0600 temporary
+file; never in source, deployment arguments, logs or evidence artifacts. Only its
+hash and pinned intent are deployment configuration. The dedicated hash may not
+match the cron, authentication-broker or alert token. Authentication compares
+fixed-length SHA-256 digests in constant time.
+
+Build and verify a second candidate from the identical commit with this route
+disabled. Release the truthful GCO status behavior first, promote the active
+backend candidate, then send exactly one request with the dedicated bearer token,
+JSON content type, no query parameters and body `{}`. The HTTP body cannot choose
+or broaden a target, change runtime configuration, or supply provider evidence.
+Expiration is checked before and after reading the bounded body, before provider
+access, and again inside the claim transaction after the old-scope GET. An expired
+transfer cannot archive the old claim or acquire a target claim.
+
+Whether the request succeeds, fails, or has an unknown network outcome, promote
+the prepared disabled candidate immediately and verify `404 disabled`. An unknown
+outcome is followed only by read-only inspection of the original operation and
+provider state; do not resend the transfer. Duplicate or concurrent submissions
+cannot acquire a second target writer: the original claim/version/target compare
+and set permits a single acquisition, and completed or reviewed targets cannot
+be replayed. The active candidate's authorization also expires after 15 minutes,
+including on its immutable deployment URL. Do not roll back to code that lacks
+review-hold enforcement.
+
+Responses expose only `state`. `200 sync_verified` is terminal success;
+`409 review_required` is unresolved; `409 state_moved` refuses stale, expired or
+conflicting execution; `503 unavailable` requires inspection, not a retry. The
+route never retries the operator call. Runtime setup is shared with the existing
+stdin CLI through `src/channel-review-runtime.mjs`; the CLI may optionally supply
+`expiresAt`, while the HTTP route always requires the bounded deployment intent.
+
 ## Verification and rollout boundary
 
 New regressions first failed against the old behavior. Synthetic coverage includes
@@ -84,6 +138,10 @@ requests; active and externally reviewed writers; malformed/altered holds;
 immediate/cron contention; old recovery versus the new claim; immutable old
 booking/fence/operation evidence; bounded authentication failure; and explicit
 legacy transfer with complete, stale, incomplete and concurrently changed evidence.
+Runtime route regressions cover disabled gates, independent token authentication,
+expired or broadened manifests, forbidden HTTP input, slow-body expiration,
+expiration during provider GET and inside claim acquisition, and two simultaneous
+authorized requests followed by a duplicate with only one target provider write.
 Local verification and release evidence are recorded with the associated PR.
 Synthetic tests are not live provider acceptance.
 

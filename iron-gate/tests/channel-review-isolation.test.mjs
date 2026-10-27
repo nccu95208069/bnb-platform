@@ -7,6 +7,8 @@ import { createChannelDispatchClaim } from "../src/channel-dispatch-claim.mjs";
 import { recoverChannelClaim } from "../src/channel-recovery.mjs";
 import { transferReviewedChannelOperation } from "../src/channel-review-transfer.mjs";
 import { checkPropertyIntegrity } from "../src/property-integrity.mjs";
+import { createHash } from "node:crypto";
+import { createChannelReviewTransferFetch } from "../api/channel-review-transfer.mjs";
 
 const id = n => `${n}`.repeat(8) + "-1111-4111-8111-111111111111";
 const propertyId = id(2), roomId = id(3), otherRoom = id(8), oldKey = id(7);
@@ -268,6 +270,71 @@ test("a concurrent change during legacy GET cannot archive the claim or write th
   assert.equal(state.channelDispatch.claimId, oldClaim.claimId);
   assert.equal(state.channelReviewHolds, undefined);
   assert.equal(set.calls.written.length, 0);
+});
+
+for (const boundary of ["before GET", "during GET", "inside claim transaction"]) {
+  test(`expired operator transfer ${boundary} retains the old claim and writes nothing`, async t => {
+    const set = setup(), key = await pending(set);
+    await set.repository.transact(propertyId, state => {delete state.channelDispatch.scopeVersion;});
+    const before = await set.repository.read(propertyId), realNow = Date.now();
+    let tick = realNow;
+    t.mock.method(Date, "now", () => tick);
+    const expiresAt = new Date(realNow + 1000).toISOString();
+    if (boundary === "before GET") tick += 1001;
+    if (boundary === "during GET") {
+      const observe = set.provider.observe;
+      set.provider.observe = async (...args) => {tick += 1001; return observe(...args);};
+    }
+    if (boundary === "inside claim transaction") {
+      const transact = set.repository.transact.bind(set.repository);
+      set.repository.transact = (id, callback) => transact(id, (...args) => {
+        tick += 1001;
+        return callback(...args);
+      });
+    }
+    await assert.rejects(legacyTransfer(set, key, {expiresAt}), /CHANNEL_REVIEW_TRANSFER_EXPIRED/);
+    assert.deepEqual(await set.repository.read(propertyId), before);
+    assert.equal(set.calls.written.length, 0);
+    if (boundary === "before GET") assert.equal(set.calls.observed.length, 0);
+  });
+}
+
+test("concurrent authorized HTTP transfers and a duplicate execute the original target only once", async () => {
+  const set = setup(), key = await pending(set);
+  await set.repository.transact(propertyId, state => {delete state.channelDispatch.scopeVersion;});
+  const before = preserved(await set.repository.read(propertyId)), token = "t".repeat(43), now = Date.now();
+  const intent = {propertyId, targetOperationKey: key, expectedClaimId: oldClaim.claimId,
+    expectedInventoryVersion: 7, expectedCells: [{...newCell, desired: "closed"}],
+    reviewReason: "Authorized fixed target runtime transfer", issuedAt: new Date(now - 1000).toISOString(),
+    expiresAt: new Date(now + 899_000).toISOString()};
+  const env = {VERCEL_ENV: "production", IRON_GATE_PRODUCTION_ENABLED: "true",
+    IRON_GATE_PRODUCTION_CHANNEL_WORKER_ENABLED: "true",
+    IRON_GATE_PRODUCTION_CHANNEL_REVIEW_TRANSFER_ENABLED: "true", IRON_GATE_CHANNEL_PROPERTY_ID: propertyId,
+    IRON_GATE_CHANNEL_REVIEW_TRANSFER_TOKEN_SHA256: createHash("sha256").update(token).digest("hex"),
+    IRON_GATE_CHANNEL_REVIEW_TRANSFER_INTENT_JSON: JSON.stringify(intent)};
+  const handler = createChannelReviewTransferFetch(env, {execute: pinned => legacyTransfer(set, key, pinned)});
+  const req = () => new Request("https://example.test/api/channel-review-transfer", {method: "POST",
+    headers: {authorization: "Bearer " + token, "content-type": "application/json"}, body: "{}"});
+  const observe = set.provider.observe;
+  let entered = 0, release;
+  const bothEntered = new Promise(resolve => {release = resolve;});
+  set.provider.observe = async (...args) => {
+    if (args[1][0].date === oldCell.date) {
+      entered++;
+      if (entered === 2) release();
+      await bothEntered;
+    }
+    return observe(...args);
+  };
+  const responses = await Promise.all([handler(req()), handler(req())]);
+  assert.deepEqual(responses.map(r => r.status).sort(), [200, 409]);
+  assert.equal((await handler(req())).status, 409);
+  const after = await set.repository.read(propertyId);
+  assert.deepEqual(preserved(after), before);
+  assert.equal(after.channelDispatch, null);
+  assert.equal(after.channelReviewHolds.length, 1);
+  assert.deepEqual(set.calls.written.map(c => c.operationKey), [key]);
+  assert.deepEqual(set.calls.written.map(({roomId, date}) => ({roomId, date})), [newCell]);
 });
 
 test("authority changes during operator GET cannot archive or acquire a new claim", async () => {
