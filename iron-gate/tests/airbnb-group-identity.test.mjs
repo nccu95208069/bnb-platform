@@ -85,7 +85,8 @@ test('Postgres applies exactly five identities atomically and refuses drift, col
       await client.query(airbnbIdentitySql(manifest, false));
       const expected = structuredClone(state); expected.version++;
       for (const b of expected.bookings.slice(0, 5)) { b.version++;
-        b.sourceCalendar = { platform: 'airbnb', externalOrderNo: manifest.evidence.orderId }; }
+        b.sourceCalendar = { platform: 'airbnb', externalOrderNo: manifest.evidence.orderId };
+        b.sourceIdentityEnrichment = { schema: 1, bookingVersion: b.version, sourceOrderRef: b.sweetfunSnapshot.groupKey }; }
       for (const l of expected.sourceLinks) l.lastAppliedBookingVersion++;
       assert.deepEqual(await read(), expected, 'money, occupancy, immutable import and other orders must stay identical');
       for (const table of ['outbox', 'audit_log'])

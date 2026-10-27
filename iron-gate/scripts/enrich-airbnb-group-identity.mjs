@@ -27,7 +27,7 @@ export function validateAirbnbIdentityManifest(m) {
     if (!keys(target, 'booking,link')) fail();
     const b = target.booking, l = target.link, rows = b?.sweetfunSnapshot?.rows;
     if (!b || !l || !UUID.test(b.id) || b.propertyId !== PROPERTY || b.source !== 'external' ||
-      b.status !== 'confirmed' || !positive(b.version) || b.sourceCalendar != null ||
+      b.status !== 'confirmed' || !positive(b.version) || b.sourceCalendar != null || b.sourceIdentityEnrichment != null ||
       b.sourceKey != null || b.currency !== 'TWD' || !positive(b.totalCents) ||
       typeof b.guestName !== 'string' || !b.guestName.trim() ||
       b.channelSyncState !== 'not_required' || b.channelOperationKey != null ||
@@ -91,7 +91,9 @@ BEGIN
     next_booking := (booking->>'version')::integer + 1;
     s := jsonb_set(s,'{bookings}',(SELECT jsonb_agg(CASE WHEN b->>'id'=booking->>'id' THEN
       b || jsonb_build_object('version',next_booking,'sourceCalendar',
-        jsonb_build_object('platform','airbnb','externalOrderNo',m->'evidence'->>'orderId'))
+        jsonb_build_object('platform','airbnb','externalOrderNo',m->'evidence'->>'orderId'),
+        'sourceIdentityEnrichment',jsonb_build_object('schema',1,'bookingVersion',next_booking,
+          'sourceOrderRef',link->>'externalOrderId'))
       ELSE b END ORDER BY ordinal) FROM jsonb_array_elements(s->'bookings') WITH ORDINALITY AS rows(b,ordinal)));
     s := jsonb_set(s,'{sourceLinks}',(SELECT jsonb_agg(CASE WHEN l->>'bookingId'=booking->>'id' THEN
       l || jsonb_build_object('lastAppliedBookingVersion',next_booking) ELSE l END ORDER BY ordinal)
