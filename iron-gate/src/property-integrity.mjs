@@ -1,4 +1,5 @@
 import { nightsFor } from "./service.ts";
+import { channelReviewBlock } from "./channel-dispatch-state.ts";
 
 const cellKey = (roomId, night) => `${roomId}:${night}`;
 
@@ -15,6 +16,9 @@ export function checkPropertyIntegrity(state, occupancyRows) {
   counts.bookings = state.bookings.length;
   counts.storedRoomNights = occupancyRows.length;
   counts.fences = state.fences.length;
+  if (state.channelReviewHolds !== undefined &&
+    channelReviewBlock(state, []) === "review_scope_unavailable")
+    issues.add("INVALID_CHANNEL_REVIEW_HOLD");
   if (new Set(state.roomIds).size !== state.roomIds.length) issues.add("DUPLICATE_ROOM_ID");
   const bookingIds = new Set();
   const expected = new Map();

@@ -90,15 +90,17 @@ test("HTTP confirmation schedules exact job; same key cannot change intent", asy
   assert.equal((await repository.read(propertyId)).operations.length, 1);
 });
 
-test("unknown provider claim is preserved and never bypassed by independent controls", async () => {
+test("unknown provider claim refuses new independent controls and preserves its evidence", async () => {
   const {repository, service, actor, channel} = setup(), input = {cells: [cell], desired: "closed"};
   const preview = await service.previewLineRoomControl(actor, propertyId, input), key = crypto.randomUUID();
   const claim = {claimId: crypto.randomUUID(), operationKey: crypto.randomUUID(), state: "review_required", claimedAt: new Date().toISOString()};
   await repository.transact(propertyId, state => {state.channelDispatch = claim;});
-  await service.requestLineRoomControl(actor, propertyId, key, input, preview.previewToken);
+  await assert.rejects(service.requestLineRoomControl(actor, propertyId, key, input, preview.previewToken),
+    code("LINE_CHANNEL_REVIEW_BLOCKED"));
   const worker = createChannelWorker({repository, service, onReview: async () => {}, provider: {
     async observe() {assert.fail("claimed provider must not be touched");}, async setNight() {assert.fail("no write");}}});
-  assert.equal((await worker.runOne(channel, propertyId, key)).state, "sync_pending");
+  assert.equal((await worker.runOne(channel, propertyId)).state, "idle");
+  assert.equal((await repository.read(propertyId)).operations.length, 0);
   assert.deepEqual((await repository.read(propertyId)).channelDispatch, claim);
 });
 
@@ -136,7 +138,7 @@ for (const outcome of ["already_closed", "zero_unlocked", "incomplete", "unknown
     assert.deepEqual(orderState(await repository.read(propertyId)), before);
     if (outcome !== "already_closed") {
       assert.equal((await repository.read(propertyId)).channelDispatch.state, "review_required");
-      await assert.rejects(run(), /CHANNEL_PROPERTY_CLAIMED/);
+      await assert.rejects(run(), /CHANNEL_OPERATION_NOT_DISPATCHABLE/);
       assert.equal(writes, outcome === "incomplete" ? 0 : 1);
     }
   });

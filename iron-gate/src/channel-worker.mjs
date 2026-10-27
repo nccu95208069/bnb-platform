@@ -1,6 +1,7 @@
 import { createChannelDispatchClaim } from "./channel-dispatch-claim.mjs";
 import { reconcileChannelOperation } from "./channel-runner.mjs";
 import { createOwlNestWebProvider } from "./owlnest-web-provider.mjs";
+import { channelReviewBlock } from "./channel-dispatch-state.ts";
 
 /**
  * One bounded, PII-free worker invocation. Scheduling, secret retrieval and
@@ -17,7 +18,7 @@ export function createChannelWorker({ repository, service, propertyConfigs,
   const adapter = provider ?? createOwlNestWebProvider({ propertyConfigs, getAuthorization });
   const claims = createChannelDispatchClaim(repository);
   return {
-    async runOne(principal, propertyId, targetOperationKey = null) {
+    async runOne(principal, propertyId, targetOperationKey = null, reviewIsolation = null) {
       if (principal?.origin !== "channel" || !principal.grantId)
         throw Error("CHANNEL_WORKER_PRINCIPAL_INVALID");
       const state = await repository.read(propertyId);
@@ -29,10 +30,12 @@ export function createChannelWorker({ repository, service, propertyConfigs,
       // It must not drain an unrelated queue entry, take over an existing
       // property claim, or re-run a completed/uncertain provider write.
       let target;
+      if (reviewIsolation && !targetOperationKey) throw Error("CHANNEL_REVIEW_TRANSFER_TARGET_REQUIRED");
       if (targetOperationKey !== null) {
         target = await service.channelOperation(principal, propertyId, targetOperationKey);
         if (target.key !== targetOperationKey) throw Error("CHANNEL_WORKER_INVALID_PAGE");
-        if (target.state !== "sync_pending" || state.channelDispatch)
+        if (target.state !== "sync_pending" || state.channelDispatch?.state === "active" ||
+          channelReviewBlock(state, target.cells, reviewIsolation !== null))
           return { state: target.state, propertyId, operationKey: targetOperationKey };
       }
       // Alert delivery is independent of the provider write. A failed GCO
@@ -87,7 +90,7 @@ export function createChannelWorker({ repository, service, propertyConfigs,
       let result;
       try {
         result = await reconcileChannelOperation({ propertyId, operationKey,
-          withPropertyLease: claims.forOperation(operationKey),
+          withPropertyLease: claims.forOperation(operationKey, reviewIsolation),
           loadOperation: (id, key) => service.channelOperation(principal, id, key),
           recordReadback: (input) => service.recordChannelReadback(principal, input),
           recordPreflight: service.recordManualChannelPreflight ?
@@ -98,7 +101,9 @@ export function createChannelWorker({ repository, service, propertyConfigs,
         // trigger another provider write or erase the original error.
         // A concurrent tick can observe an already claimed property. That is
         // normal overlap, not a failed room action for the LINE group.
-        if (!["CHANNEL_PROPERTY_CLAIMED", "CHANNEL_OPERATION_NOT_DISPATCHABLE"]
+        if (!["CHANNEL_PROPERTY_CLAIMED", "CHANNEL_OPERATION_NOT_DISPATCHABLE", "CHANNEL_REVIEW_BLOCKED",
+          "CHANNEL_REVIEW_TRANSFER_STATE_MOVED", "CHANNEL_REVIEW_TRANSFER_READBACK_INVALID",
+          "CHANNEL_REVIEW_TRANSFER_EXPIRED"]
           .includes(error?.message))
           await onReview({ propertyId, operationKey, status: "dispatch_unknown" })
             .catch(() => {});
