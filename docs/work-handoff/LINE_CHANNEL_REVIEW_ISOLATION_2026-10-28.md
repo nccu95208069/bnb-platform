@@ -145,6 +145,19 @@ authorized requests followed by a duplicate with only one target provider write.
 Local verification and release evidence are recorded with the associated PR.
 Synthetic tests are not live provider acceptance.
 
+## Release status
+
+PR #102 merged as `c32f089c19db3446f771151d28ad143afb516a36` after all four CI jobs
+passed. Released source `cc52400528132e84e64aa5e158ae3ef0aa1d58d4` includes the
+coordinated payment compatibility change. TypeScript check/build and the full
+backend suite passed: 430 passed, 10 skipped. The signed synthetic cross-service
+contract also passed with OS state unchanged.
+
+The optional runtime operator remains disabled by default. Exact deployment,
+private business identifiers, runtime observations and live acceptance evidence
+are retained outside this public repository. The historical review protection and
+compatible rollback requirements below remain part of the shipped contract.
+
 Coordinate the paired GCO status release and backend source with other maintainers.
 Keep the historical claim unchanged through staging and promotion; inspect exact
 current target and old-scope readback before the separately authorized transfer.
