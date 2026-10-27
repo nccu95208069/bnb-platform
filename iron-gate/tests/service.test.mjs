@@ -1566,6 +1566,77 @@ test("source event keeps explicit OTA amount and labels with scoped calendar pro
   assert.equal("sourceCalendar" in noGuest.bookings[0], false);
 });
 
+test("same-source amendments preserve current OTA identity when a notice omits it", async () => {
+  for (const missing of [{}, { platform: null, externalOrderNo: null },
+    { platform: "booking", externalOrderNo: null }]) {
+    const { service, repository } = setup();
+    const source = principal("source");
+    await service.applySourceEvent(source, key(), sourceInput(1, {
+      platform: "booking", externalOrderNo: "SYNTHETIC123", totalCents: 100000, currency: "TWD" }));
+    const update = sourceInput(2, { sourceVersion: "v2", previousSourceVersion: "v1",
+      totalCents: 120000, currency: "TWD", ...missing });
+    const requestKey = key();
+    const result = await service.applySourceEvent(source, requestKey, update);
+    assert.equal(result.state, "applied");
+    assert.deepEqual(await service.applySourceEvent(source, requestKey, update), result);
+    const state = await repository.read(propertyId);
+    assert.deepEqual(state.bookings[0].sourceCalendar,
+      { platform: "booking", externalOrderNo: "SYNTHETIC123" });
+    assert.equal(state.bookings[0].totalCents, 120000);
+    assert.equal(state.sourceLinks[0].lastAppliedBookingVersion, state.bookings[0].version);
+  }
+});
+
+test("first amendment preserves the exact identity of a linked imported order", async () => {
+  const { service, repository } = setup();
+  const source = principal("source");
+  await service.applySourceEvent(source, key(), sourceInput());
+  await repository.transact(propertyId, state => {
+    const booking = state.bookings[0];
+    delete booking.sourceCalendar;
+    const values = Array(17).fill(""); values[2] = "Booking"; values[13] = "SYNTHETIC123";
+    booking.sweetfunSnapshot = { groupKey: "L:SYNTHETIC", rows: [{ values }, { values }] };
+  });
+  assert.equal((await service.applySourceEvent(source, key(), sourceInput(2, {
+    sourceVersion: "v2", previousSourceVersion: "v1", platform: "booking", externalOrderNo: null,
+  }))).state, "applied");
+  assert.deepEqual((await repository.read(propertyId)).bookings[0].sourceCalendar,
+    { platform: "booking", externalOrderNo: "SYNTHETIC123" });
+});
+
+test("a same-source notice cannot silently replace an established OTA identity", async () => {
+  for (const changed of [{ platform: "agoda" }, { externalOrderNo: "DIFFERENT123" }]) {
+    const { service, repository } = setup();
+    const source = principal("source");
+    await service.applySourceEvent(source, key(), sourceInput(1, {
+      platform: "booking", externalOrderNo: "SYNTHETIC123" }));
+    const before = (await repository.read(propertyId)).bookings;
+    const result = await service.applySourceEvent(source, key(), sourceInput(2, {
+      sourceVersion: "v2", previousSourceVersion: "v1", ...changed }));
+    assert.equal(result.state, "review_required");
+    assert.equal(result.reason, "SOURCE_IDENTITY_MISMATCH");
+    assert.deepEqual((await repository.read(propertyId)).bookings, before);
+  }
+});
+
+test("source updates never guess from conflicting imported identity or revive replaced metadata", async () => {
+  for (const current of [undefined, { platform: "booking", externalOrderNo: null }]) {
+    const { service, repository } = setup();
+    const source = principal("source");
+    await service.applySourceEvent(source, key(), sourceInput());
+    await repository.transact(propertyId, state => {
+      const booking = state.bookings[0];
+      booking.sourceCalendar = current;
+      const a = Array(17).fill(""); a[2] = "Booking"; a[13] = "SYNTHETIC123";
+      const b = [...a]; if (!current) b[13] = "CONFLICT123";
+      booking.sweetfunSnapshot = { rows: [{ values: a }, { values: b }] };
+    });
+    await service.applySourceEvent(source, key(), sourceInput(2, {
+      sourceVersion: "v2", previousSourceVersion: "v1", platform: "booking", externalOrderNo: null }));
+    assert.equal((await repository.read(propertyId)).bookings[0].sourceCalendar.externalOrderNo, null);
+  }
+});
+
 test("a different source key with the same OTA order number stays in review", async () => {
   const { service, repository } = setup();
   const source = principal("source");
@@ -1769,6 +1840,20 @@ async function signedSourceSetup() {
     externalOrderNo: "6200060561", sourceIdentityEvidence: signedOwlNestEvidence });
   return { ...context, actor, input };
 }
+
+test("signed OwlNest amendment with no OTA number preserves identity without channel work", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  const first = await service.applySourceEvent(actor, key(), input);
+  const updated = await service.applySourceEvent(actor, key(), { ...input,
+    expectedInventoryVersion: first.inventoryVersion, previousSourceVersion: input.sourceVersion,
+    sourceVersion: `gmail-v1:1792859315000:${"b".repeat(64)}`, externalOrderNo: null });
+  assert.equal(updated.state, "applied");
+  const state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].sourceCalendar.externalOrderNo, input.externalOrderNo);
+  assert.equal(state.sourceLinks[0].lastAppliedBookingVersion, state.bookings[0].version);
+  assert.equal(state.operations.length, 0);
+  assert.equal(state.fences.length, 0);
+});
 
 test("signed OwlNest new-order notice mirrors the booking without a channel write", async () => {
   const { service, repository, actor, input } = await signedSourceSetup();

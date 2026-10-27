@@ -1,5 +1,7 @@
 # BnB SaaS / Sweetfun OS — Authoritative Work Context
 
+2026-10-27 source identity follow-up: [preserve OTA order numbers during source amendments and perform a guarded identity repair](docs/work-handoff/SOURCE_ORDER_IDENTITY_2026-10-27.md). Null or omitted identity fields preserve the exact linked order's known identity; conflicting identities require review. The owner authorized repair and failed-card synchronization for the one affected current-week record. Deployment and live reconciliation evidence are recorded in the associated PR.
+
 2026-10-27 card sync: [Credit Card → IronGate → OS review and production release](docs/work-handoff/CARD_IRONGATE_SYNC_2026-10-27.md). Two P1 review findings were fixed with red/green regressions. IronGate, OS, independent cc-sync and Dashboard are released; all three feature PRs are merged. Real current-week preview passed, including blocking one unmatched order. Synthetic replay preserves one receipt; release validation did not confirm real payments. The dedicated card grant expires 2026-11-24 09:53:33 UTC.
 
 2026-10-25 owner manual room confirmation: [explicit manual-close acknowledgement, audit evidence and local-only future handling](docs/work-handoff/SWEETFUN_MANUAL_ROOM_CONFIRMATION_2026-10-25.md). The owner requested clearing already-manually-closed native OS/LINE orders without changing OwlNest inventory. Implementation and isolated verification are complete. Release details and live acceptance evidence are retained privately rather than in this public repository.

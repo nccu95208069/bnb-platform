@@ -308,6 +308,7 @@ export type SourceEventInput = {
   /** Optional for older writers; a missing value is unknown, never zero. */
   totalCents?: number | null;
   currency?: "TWD";
+  /** Null/omitted identity is absent evidence; linked updates preserve known labels. */
   platform?: string | null;
   externalOrderNo?: string | null;
   /** Gmail's aligned DKIM/DMARC verdict, asserted by the bound Gmail writer. */

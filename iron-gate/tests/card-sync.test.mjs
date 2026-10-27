@@ -47,3 +47,16 @@ test('card result cannot clear a pre-existing source version divergence',async()
  await assert.rejects(()=>commit(service,{...input,status:'fail',chargeDate:null}),e=>e.code==='CARD_ORDER_REVIEW');
  assert.equal((await repository.read(p)).sourceLinks[0].lastAppliedBookingVersion,1);
 });
+
+test('an incomplete source update keeps the order resolvable and Fail replay creates no money',async()=>{
+ const {service,repository}=setup(s=>{s.sourceGrants=[{grantId:r,sourceSystem:'synthetic',sourceAccount:'synthetic',active:true}];s.sourceLinks=[{key:JSON.stringify(['synthetic','synthetic','L:SYNTHETIC-ONLY']),sourceSystem:'synthetic',sourceAccount:'synthetic',externalOrderId:'L:SYNTHETIC-ONLY',bookingId:b,sourceVersion:'v1',lastAppliedBookingVersion:1,diverged:false,tombstoneNights:[]}];});
+ const source={...principal,origin:'source',subjectId:'synthetic-writer',grantId:r,actions:['source:write'],fields:[],sourceSystem:'synthetic',sourceAccount:'synthetic'};
+ assert.equal((await service.applySourceEvent(source,crypto.randomUUID(),{propertyId:p,sourceSystem:'synthetic',sourceAccount:'synthetic',externalOrderId:'L:SYNTHETIC-ONLY',sourceVersion:'v2',previousSourceVersion:'v1',kind:'upsert',expectedInventoryVersion:1,stays:[{checkIn:input.checkIn,checkOut:input.checkOut,roomIds:[r]}],guestName:'Synthetic',bookedAt:null,totalCents:input.amountCents,currency:'TWD',platform:'booking',externalOrderNo:null})).state,'applied');
+ const failed={...input,status:'fail',chargeDate:null};
+ await commit(service,failed);await commit(service,failed);
+ const after=await repository.read(p);
+ assert.equal(after.bookings[0].sourceCalendar.externalOrderNo,input.orderId);
+ assert.equal(after.bookings[0].cardChargeResults.length,1);
+ assert.equal(after.bookings[0].paymentEvents?.length??0,0);
+ assert.equal(after.sourceLinks[0].lastAppliedBookingVersion,after.bookings[0].version);
+});
