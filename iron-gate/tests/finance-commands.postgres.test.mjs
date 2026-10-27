@@ -11,6 +11,7 @@ const otherPropertyId = '10000000-0000-4000-8000-000000000003';
 const bookingId = '10000000-0000-4000-8000-000000000004';
 const connectorId = '10000000-0000-4000-8000-000000000005';
 const importConnectorId = '10000000-0000-4000-8000-000000000006';
+const lineConnectorId = '10000000-0000-4000-8000-000000000010';
 const secret = 'synthetic-finance-test-secret-32-bytes-long';
 
 function state(id, booking = false) {
@@ -301,6 +302,40 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       await assert.rejects(service.importCommand(importer,propertyId,
         {...importPreview.resolved_command,preview_token:importPreview.preview_token},
         imported.request_key),e => e.code === 'SOURCE_FORBIDDEN');
+      await admin.query(`INSERT INTO iron_gate.finance_connector
+        (source_instance_id,property_id,source_system,enabled,cutover_at)
+        VALUES ($1,$2,'line_finance',true,now()-interval '1 day')`,
+        [lineConnectorId,propertyId]);
+      const line={...principal,origin:'line',financeSourceInstanceId:lineConnectorId,
+        actions:['finance:read','finance:link']};
+      const exact={request_key:'line-link-1',source_order_key:`${bookingId}:v1`,
+        booking_id:bookingId,expected_booking_version:1,review_confirmed:true};
+      const exactPreview=await service.liveSourceLinkPreview(line,propertyId,
+        exact,exact.request_key);
+      const exactReceipt=await service.liveSourceLinkCommit(line,propertyId,
+        {...exact,preview_token:exactPreview.preview_token},exact.request_key);
+      assert.equal(exactReceipt.source_snapshot_hash,exactPreview.source_snapshot_hash);
+      assert.deepEqual(await service.liveSourceLinkCommit(line,propertyId,
+        {...exact,preview_token:exactPreview.preview_token},exact.request_key),exactReceipt);
+      await assert.rejects(service.liveSourceLinkPreview(line,propertyId,
+        {...exact,request_key:'line-link-rebind',source_order_key:'SF-OTHER'},
+        'line-link-rebind'),e=>e.code==='INVALID_INPUT');
+      await admin.query(`UPDATE iron_gate.property_state SET
+        state_json=jsonb_set(state_json,'{bookings,0,version}','2'::jsonb)
+        WHERE property_id=$1`,[propertyId]);
+      await assert.rejects(service.liveSourceLinkPreview(line,propertyId,
+        {...exact,request_key:'line-link-stale'},'line-link-stale'),
+        e=>e.code==='VERSION_CONFLICT');
+      const fresh={...exact,request_key:'line-link-refresh',
+        source_order_key:`${bookingId}:v2`,expected_booking_version:2};
+      const freshPreview=await service.liveSourceLinkPreview(line,propertyId,
+        fresh,fresh.request_key);
+      const freshReceipt=await service.liveSourceLinkCommit(line,propertyId,
+        {...fresh,preview_token:freshPreview.preview_token},fresh.request_key);
+      assert.equal(freshReceipt.booking_version,2);
+      const versioned=(await service.sourceLinks(line,propertyId)).source_links
+        .filter(row=>row.source_order_key.startsWith(bookingId+':v'));
+      assert.deepEqual(versioned.map(row=>row.verified_booking_version).sort(),['1','2']);
       await assert.rejects(service.receipt(principal, otherPropertyId, first.request_key),
         e => e.code === 'PROPERTY_FORBIDDEN');
     } finally {

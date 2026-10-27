@@ -9,6 +9,8 @@ export type FinanceRoutes = {
   readonly enabled: boolean;
   sourceLinkPreview(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   sourceLinkCommit(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  liveSourceLinkPreview(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  liveSourceLinkCommit(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   sourceLinks(principal: Principal, propertyId: string): Promise<unknown>;
   importPreview(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   importCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
@@ -100,6 +102,14 @@ export function createHandler(service: IronGateService, authenticate: Authentica
       const principal = await authenticate(request);
       if (!principal) return json({ error: { code: "UNAUTHORIZED" } }, 401);
       if (parts[1] === "properties" && parts[2] && parts[3] === "finance" && finance) {
+        if (parts[4] === 'source-links' && parts[5] === 'live' &&
+          parts[6] === 'preview' && parts.length === 7 && request.method === 'POST')
+          return json(await finance.liveSourceLinkPreview(principal,parts[2],
+            await body(request),requestKey(request)));
+        if (parts[4] === 'source-links' && parts[5] === 'live' &&
+          parts.length === 6 && request.method === 'POST')
+          return json(await finance.liveSourceLinkCommit(principal,parts[2],
+            await body(request),requestKey(request)),201);
         if (parts[4] === 'source-links' && parts[5] === 'preview' &&
           parts.length === 6 && request.method === 'POST')
           return json(await finance.sourceLinkPreview(principal,parts[2],
