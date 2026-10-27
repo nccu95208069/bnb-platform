@@ -51,3 +51,15 @@ test("malformed saved state returns fixed codes without throwing or leaking fiel
   assert.deepEqual(checkPropertyIntegrity(state, occupancy()).issues,
     ["INVALID_FENCE", "UNFENCED_CHANNEL_OPERATION"]);
 });
+
+test("independent provider work is counted without inventing an OS occupancy fence", () => {
+  const state = fixture();
+  const operation = {key: crypto.randomUUID(), state: "sync_pending", controlMode: "provider_only",
+    bookingId: null, bookingVersion: 0, lineGrantId: crypto.randomUUID(), lineActorId: "synthetic",
+    cells: [{...cell, desired: "closed"}]};
+  state.operations.push(operation);
+  assert.equal(checkPropertyIntegrity(state, occupancy()).ok, true);
+  assert.equal(checkPropertyIntegrity(state, occupancy()).counts.pendingOperations, 1);
+  operation.bookingId = bookingId;
+  assert.deepEqual(checkPropertyIntegrity(state, occupancy()).issues, ["INVALID_PROVIDER_CONTROL_OPERATION"]);
+});

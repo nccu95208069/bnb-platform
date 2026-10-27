@@ -39,7 +39,9 @@ export async function reconcileChannelOperation({ propertyId, operationKey,
       return snapshot;
     };
     const matches = (cell) => desired.get(`${cell.roomId}|${cell.date}`) === "closed"
-      ? cell.count === 0 || cell.isLock : cell.count > 0 && !cell.isLock;
+      ? operation.controlMode === "provider_only" ? cell.count === 0 && cell.isLock :
+        cell.count === 0 || cell.isLock :
+      (operation.controlMode === "provider_only" ? cell.count === 1 : cell.count > 0) && !cell.isLock;
     let after = await inspect();
     const appliedClosedCells = [];
     if (operation.manualInitialClose === true) {

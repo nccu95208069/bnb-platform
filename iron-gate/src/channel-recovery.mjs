@@ -73,7 +73,9 @@ export async function recoverChannelClaim({ repository, service, provider,
   if (!complete) throw Error("CHANNEL_RECOVERY_READBACK_INCOMPLETE");
   const matches = observed.cells.every((cell) =>
     wanted.get(cell.roomId + "|" + cell.date) === "closed" ?
-      cell.count === 0 || cell.isLock : cell.count > 0 && !cell.isLock);
+      operation.controlMode === "provider_only" ? cell.count === 0 && cell.isLock :
+        cell.count === 0 || cell.isLock :
+      (operation.controlMode === "provider_only" ? cell.count === 1 : cell.count > 0) && !cell.isLock);
   if (!matches) {
     if (operation.state !== "sync_verified")
       await service.recordChannelReadback(principal, { propertyId,
