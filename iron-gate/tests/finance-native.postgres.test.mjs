@@ -66,7 +66,8 @@ test('native payment commits its legacy booking projection and new ledger in one
       let stored = await admin.query(`SELECT state_json FROM iron_gate.property_state WHERE property_id=$1`,
         [propertyId]);
       assert.equal(stored.rows[0].state_json.bookings[0].paymentEvents.length,1);
-      const noConnector = await admin.query(`UPDATE iron_gate.finance_connector SET enabled=false
+      const noConnector = await admin.query(`UPDATE iron_gate.finance_connector SET enabled=false,
+        version=version+1,updated_at=clock_timestamp()
         WHERE property_id=$1 AND source_instance_id=$2`, [propertyId,nativeConnector]);
       assert.equal(noConnector.rowCount,1);
       await assert.rejects(service.recordPaymentEvent(principal,propertyId,bookingId,
@@ -75,7 +76,8 @@ test('native payment commits its legacy booking projection and new ledger in one
       stored = await admin.query(`SELECT state_json FROM iron_gate.property_state WHERE property_id=$1`,
         [propertyId]);
       assert.equal(stored.rows[0].state_json.bookings[0].paymentEvents.length,1);
-      await admin.query(`UPDATE iron_gate.finance_connector SET enabled=true
+      await admin.query(`UPDATE iron_gate.finance_connector SET enabled=true,
+        version=version+1,updated_at=clock_timestamp()
         WHERE property_id=$1 AND source_instance_id=$2`, [propertyId,nativeConnector]);
       const cardState = stored.rows[0].state_json;
       cardState.bookings.push({ ...cardState.bookings[0], id: cardBookingId,
