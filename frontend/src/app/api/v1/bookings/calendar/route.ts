@@ -1,5 +1,8 @@
 import { configuredPrivateCalendarCache } from "@/lib/booking-sources/private-calendar-snapshot";
 import { overlayPayments } from "@/lib/os-payments";
+import { ssotFinanceContext } from "@/lib/finance-ssot-context";
+import { overlaySsotCalendarPayments } from "@/lib/finance-ssot-calendar";
+import { canUseFinance } from "@/lib/finance-store";
 import { principalFor, sessionMember } from "@/lib/workspace-auth/session";
 import { allowedProperty, projectBookings } from "@/lib/workspace-auth/projection";
 import { ownerAccessConfigured } from "@/lib/calendar-owner-session";
@@ -274,7 +277,13 @@ export async function GET(request: NextRequest) {
         const imported = igPayments.filter(booking => booking.iron_gate_source !== 'os');
         if (principal.viewPrices && imported.length) {
           try {
-            const overlaid = await overlayPayments(imported);
+            const ssot=process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED==='true';
+            if(ssot&&!canUseFinance(principal))throw Error('FORBIDDEN');
+            const overlaid=ssot?overlaySsotCalendarPayments(imported,
+              (await ssotFinanceContext(definitions.find(d=>d.key==='sweetfun')!,
+                Number(new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',
+                  year:'numeric'}).format(new Date())),principal)).orders):
+              await overlayPayments(imported);
             const byId = new Map(overlaid.map(booking => [booking.id, booking]));
             igPayments = igPayments.map(booking => byId.get(booking.id) ?? booking);
           }

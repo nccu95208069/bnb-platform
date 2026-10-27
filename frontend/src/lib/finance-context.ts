@@ -1,4 +1,5 @@
 import type {Principal} from './workspace-auth/types';
+import {ssotFinanceContext} from './finance-ssot-context';
 import {ironGateFinanceConfig,readDirectFinance,applyFinanceAmountCorrections} from './booking-sources/iron-gate-finance.server.ts';
 import type {FinanceAuditEvent} from './finance-audit';
 import {redisCommand} from './workspace-auth/store';
@@ -8,6 +9,10 @@ import type {SheetSourceDefinition} from './booking-sources/config';
 import {projectOrders,projectionVersion} from './finance-projection';
 import {recurrenceDue,taipeiDate,type PayoutRule} from './finance-model';
 export async function financeContext(source:SheetSourceDefinition,year:number,includeAudit=false,actor?:Principal){
+ if(source.property.id==='sweetfun'&&process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED==='true'){
+  if(!actor)throw Error('FORBIDDEN');
+  return ssotFinanceContext(source,year,actor);
+ }
  const years=new Set<number>([year]);let cursor='0',pages=0;
  do{const result=await redisCommand(['SCAN',cursor,'MATCH',`sweetfun-os:finance:v1:${source.property.id}:*`,'COUNT',200]) as [string,string[]];cursor=String(result[0]);for(const key of result[1]){const suffix=key.split(':').at(-1)!;if(/^20\d{2}$/.test(suffix))years.add(Number(suffix));}if(++pages>100)throw new Error('UNAVAILABLE');}while(cursor!=='0');
  const sorted=[...years].sort();

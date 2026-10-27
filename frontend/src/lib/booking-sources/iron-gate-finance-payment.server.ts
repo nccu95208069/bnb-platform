@@ -19,6 +19,18 @@ export function verifyFinancePayment(entries: FinanceEntry[], bookingId: string,
   const events = entries.filter(entry => entry.source === 'iron_gate' &&
     entry.iron_gate_booking_id === bookingId && entry.payment_event_id === eventId);
   const event = events[0];
+  if(event?.ssot_source_system==='iron_gate_native'){
+    if(events.length!==1||event.status!=='active'||
+      event.ssot_source_record_id!==eventId||
+      event.ssot_evidence_ref!==`ig-payment:${eventId}`||
+      event.amount_cents!==expected.amountCents||
+      event.kind!==(expected.kind==='received'?'income':'refund')||
+      event.date!==taipeiDate(new Date(expected.occurredAt))||
+      event.method!==(expected.method??'other')||
+      event.refund_of_event_id!==expected.refundOfEventId)
+      throw Error('MANUAL_RESULT_UNKNOWN');
+    return event.id;
+  }
   if (events.length !== 1 || event.status !== 'active' || event.amount_cents !== expected.amountCents ||
     event.kind !== (expected.kind === 'received' ? 'income' : 'refund') ||
     event.date !== taipeiDate(new Date(expected.occurredAt)) || event.method !== (expected.method ?? 'other') ||
