@@ -166,6 +166,34 @@ test('payment preflight checks the exact booking identity, total and current roo
   /IRON_GATE_PAYMENT_SOURCE_INVALID/);
 });
 
+test('payment preflight retains the original identity for verified Airbnb enrichment only', async () => {
+  const c = config(), booking = { ...fixture().page.bookings[0],
+    totalCents: 225700, currency: 'TWD', sourceCalendar: {
+      platform: 'airbnb', externalOrderNo: 'HMTEST1234',
+      sourceOrderRef: 'J:synthetic-airbnb-group',
+    } };
+  const read = (value) => readSweetfunIronGatePaymentOrder(booking.id, principal, c,
+    async () => Response.json(value));
+  const original = await read(booking);
+  const enriched = { ...booking, version: 2, sourceCalendar: {
+    ...booking.sourceCalendar, sourceIdentityEnriched: true,
+  } };
+  const after = await read(enriched);
+  assert.equal(after.paymentOrderId, original.paymentOrderId);
+  assert.equal(after.totalCents, original.totalCents);
+  assert.equal(after.version, 2);
+  assert.equal(after.legacyImported, true);
+  for (const invalid of [
+    { ...booking, version: 2 },
+    { ...enriched, source: 'website' },
+    ...[
+      { sourceIdentityEnriched: false }, { sourceIdentityEnriched: 'true' },
+      { platform: 'booking' }, { externalOrderNo: '' },
+      { sourceOrderRef: 'L:OBE12345678901234567890' },
+    ].map(patch => ({ ...enriched, sourceCalendar: { ...enriched.sourceCalendar, ...patch } })),
+  ]) await assert.rejects(read(invalid), /SOURCE_CHANGED/);
+});
+
 test('manual notification checks an active exact booking without requesting price access', async () => {
   const c = config(), booking = fixture().page.bookings[0];
   const housekeeper = { ...principal, role: 'housekeeper', viewPrices: false };

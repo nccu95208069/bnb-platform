@@ -435,7 +435,13 @@ export async function readSweetfunIronGatePaymentOrder(bookingId: string,
   const source = object(raw.sourceCalendar) ? raw.sourceCalendar : null;
   const ref = source?.sourceOrderRef;
   const paymentId = paymentOrderId(bookingId, ref, true);
-  if (ref !== undefined && raw.version !== 1 &&
+  // Iron Gate derives this flag only while the private, version-bound evidence
+  // still matches the original imported stay and amount.
+  const identityEnriched = raw.source === 'external' && Number(raw.version) >= 2 &&
+    source?.sourceIdentityEnriched === true && source.platform === 'airbnb' &&
+    typeof source.externalOrderNo === 'string' && /^HM[A-Z0-9]{8}$/.test(source.externalOrderNo) &&
+    typeof ref === 'string' && /^J:[A-Za-z0-9_-]{8,100}$/.test(ref);
+  if (ref !== undefined && raw.version !== 1 && !identityEnriched &&
     !(raw.osEditMode === 'full' && raw.osDirectOverride === true)) throw Error('SOURCE_CHANGED');
   if (ref !== undefined && paymentId === `IG-${bookingId}`)
     throw Error('IRON_GATE_PAYMENT_SOURCE_INVALID');

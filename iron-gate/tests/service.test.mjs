@@ -80,19 +80,23 @@ test('verified identity-only enrichment preserves imported calendar references a
   assert.equal(after.sourceCalendar.bookedAt, before.sourceCalendar.bookedAt);
   assert.equal(after.sourceCalendar.sourceOrderRef, before.sourceCalendar.sourceOrderRef);
   assert.equal(after.sourceCalendar.externalOrderNo, 'HMTEST1234');
+  assert.equal(after.sourceCalendar.sourceIdentityEnriched, true);
   assert.equal('sourceIdentityEnrichment' in after, false);
   const hidden = await service.getBooking(principal('os', { fields: ['guest_name'] }), propertyId, created.bookingId);
   assert.equal('sourceOrderRef' in hidden.sourceCalendar, false);
   assert.equal('externalOrderNo' in hidden.sourceCalendar, false);
+  assert.equal('sourceIdentityEnriched' in hidden.sourceCalendar, false);
   await repository.transact(propertyId, state => { state.bookings[0].version++; });
   const amended = await service.getBooking(principal(), propertyId, created.bookingId);
   assert.equal('sourceOrderRef' in amended.sourceCalendar, false, 'later mutations must invalidate the exact enrichment projection');
+  assert.equal('sourceIdentityEnriched' in amended.sourceCalendar, false);
   await repository.transact(propertyId, state => {
     state.bookings[0].version--;
     state.bookings[0].sourceIdentityEnrichment.sourceOrderRef = 'J:another-group';
   });
   const wrongRef = await service.getBooking(principal(), propertyId, created.bookingId);
   assert.equal('sourceOrderRef' in wrongRef.sourceCalendar, false);
+  assert.equal('sourceIdentityEnriched' in wrongRef.sourceCalendar, false);
 });
 
 test('OS nightly prices require money scope, exact dates and totals, and remain redacted from no-price readers', async () => {

@@ -399,7 +399,8 @@ function publicBooking(booking: Booking, principal: Principal,
       result.sourceCalendar = { platform: booking.sourceCalendar.platform,
         ...(principal.fields.includes("money") ?
           { externalOrderNo: booking.sourceCalendar.externalOrderNo,
-            ...(enriched ? { sourceOrderRef: enriched.sourceOrderRef } : {}) } : {}),
+            ...(enriched ? { sourceOrderRef: enriched.sourceOrderRef,
+              sourceIdentityEnriched: true } : {}) } : {}),
         bookedAt: enriched ? enriched.bookedAt : booking.bookedAt };
     } else if (lineManagesAll(principal) && booking.sourceCalendar) {
       result.sourceCalendar = { ...booking.sourceCalendar, bookedAt: booking.bookedAt, ...(enriched ?? {}) };
