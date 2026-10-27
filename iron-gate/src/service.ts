@@ -13,6 +13,7 @@ import { createBusinessReport, type BusinessReport } from "./business-report.ts"
 import { firstGmailNotification, GMAIL_NOTIFICATION_SOURCE,
   GMAIL_NOTIFICATION_SUBJECT } from "./source-notification.ts";
 import { isOsDirectBooking, originalDirectOrderRef } from "./os-direct-booking.ts";
+import { channelDispatchStatus, channelReviewBlock } from "./channel-dispatch-state.ts";
 export { GateError } from "./errors.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -1947,7 +1948,7 @@ export class IronGateService {
       ...(operation.controlMode ? { controlMode: operation.controlMode } : {}),
       bookingVersion: operation.bookingVersion, state: operation.state,
       cells: operation.cells, verifiedAt: operation.verifiedAt,
-      providerVersion: operation.providerVersion };
+      providerVersion: operation.providerVersion, ...channelDispatchStatus(state, operation) };
   }
 
   async previewLineRoomControl(principal: Principal, propertyId: string,
@@ -1958,6 +1959,7 @@ export class IronGateService {
     const state = await this.repository.read(propertyId);
     if (!state) reject("PROPERTY_NOT_FOUND", 404);
     const cells = requireLineRoomControl(principal, state, input);
+    if (channelReviewBlock(state, cells)) reject("LINE_CHANNEL_REVIEW_BLOCKED", 409);
     const hash = await digest({ action: "channel:independent", input });
     const signed = await signLinePreview(this.linePreviewSecret, principal, propertyId,
       0, hash, "room-control");
@@ -1976,6 +1978,7 @@ export class IronGateService {
       const cells = requireLineRoomControl(principal, state, input);
       const prior = receiptFor(state, principal, requestKey, hash);
       if (prior) return prior.response;
+      if (channelReviewBlock(state, cells)) reject("LINE_CHANNEL_REVIEW_BLOCKED", 409);
       const expiry = verifyLinePreview(this.linePreviewSecret!, linePreviewToken, principal,
         propertyId, 0, hash, "room-control");
       if (expiry === null || Date.now() >= expiry) reject("LINE_PREVIEW_REQUIRED", 409);
@@ -2470,10 +2473,11 @@ export class IronGateService {
     authorize(principal, state, "channel:verify");
     if (principal.origin !== "channel" || !principal.grantId ||
       principal.grantId !== state.channel.grantId) reject("FORBIDDEN", 403);
-    // A held property claim is deliberately not retried after an uncertain
-    // provider result. Recovery must resolve it before dispatch resumes.
-    const pending = (state.channelDispatch ? [] : state.operations)
-      .filter((operation) => operation.state === "sync_pending")
+    // Active work is exclusive. Settled reviews protect their exact room nights;
+    // legacy claims still require a separately authorized isolation transfer.
+    const pending = (state.channelDispatch?.state === "active" ? [] : state.operations)
+      .filter((operation) => operation.state === "sync_pending" &&
+        !channelReviewBlock(state, operation.cells))
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt) ||
         left.key.localeCompare(right.key));
     return { propertyId, inventoryVersion: state.version,
@@ -2497,7 +2501,8 @@ export class IronGateService {
       if (!operation || !operation.lineGrantId) reject("OPERATION_NOT_FOUND", 404);
       if (operation.state !== "sync_pending") return { state: operation.state, operationKey };
       if (cause === "preflight") {
-        if (state.channelDispatch) reject("CHANNEL_PROPERTY_CLAIMED", 409);
+        if (state.channelDispatch?.state === "active" || channelReviewBlock(state, operation.cells))
+          reject("CHANNEL_PROPERTY_CLAIMED", 409);
         operation.preflightFailures = (operation.preflightFailures ?? 0) + 1;
         if (operation.preflightFailures < 3) return {
           state: "sync_pending", operationKey, failures: operation.preflightFailures };

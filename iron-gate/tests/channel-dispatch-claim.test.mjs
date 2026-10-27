@@ -48,7 +48,7 @@ test("unknown outcome or unverified result leaves a durable review claim", async
     { message: "PROVIDER_UNKNOWN" });
   assert.equal((await repository.read(propertyId)).channelDispatch.state, "review_required");
   await assert.rejects(claim(propertyId, async () => {}),
-    { message: "CHANNEL_PROPERTY_CLAIMED" });
+    { message: "CHANNEL_OPERATION_NOT_DISPATCHABLE" });
   const other = setup();
   const partial = await other.claim(propertyId, async () => ({ state: "review_required",
     operationKey }));

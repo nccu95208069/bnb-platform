@@ -181,6 +181,25 @@ export type Fence = {
   reason: "channel_pending" | "source_review" | "line_action_required";
 };
 
+export type ChannelDispatchClaim = {
+  claimId: string; operationKey: string;
+  state: "active" | "review_required"; claimedAt: string;
+  /** Only this dispatcher version can automatically isolate its settled reviews. */
+  scopeVersion?: 1;
+  /** Written only after this claim's provider runner has returned or thrown. */
+  settledAt?: string;
+};
+
+export type ChannelReviewHold = {
+  schemaVersion: 1;
+  claim: ChannelDispatchClaim;
+  cells: DesiredCell[];
+  isolatedAt: string;
+  reason: string;
+  /** A recovery observation is evidence, never proof that the old writer succeeded. */
+  observation?: { observedAt: string; providerVersion: string; cells: ObservedCell[] };
+};
+
 export type RequestReceipt = {
   key: string;
   clientId: string;
@@ -217,8 +236,9 @@ export type PropertyState = {
     stockObservedFrom?: string;
     grantId: string | null; websiteBindingId: string | null };
   /** Private durable dispatcher claim. Never auto-expire across an unknown provider write. */
-  channelDispatch?: { claimId: string; operationKey: string;
-    state: "active" | "review_required"; claimedAt: string } | null;
+  channelDispatch?: ChannelDispatchClaim | null;
+  /** Unresolved provider outcomes block only these exact room nights. */
+  channelReviewHolds?: ChannelReviewHold[];
   sourceGrants: { grantId: string; sourceSystem: string; sourceAccount: string; active: boolean }[];
   bookings: Booking[];
   sourceLinks: SourceLink[];
@@ -367,7 +387,7 @@ export type EventType =
   | "source.notification_recorded"
   | "reporting.policy_recorded"
   | "channel.requested" | "channel.verified" | "channel.review_required"
-  | "channel.review_claim_released" | "channel.source_operation_retired";
+  | "channel.review_claim_released" | "channel.review_isolated" | "channel.source_operation_retired";
 
 export type PendingEvent = {
   eventId: string;
