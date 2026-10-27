@@ -47,7 +47,15 @@ function canonical(value) {
 }
 function hash(value) { return createHash('sha256').update(canonical(value)).digest('hex'); }
 function base64(value) { return Buffer.from(value).toString('base64url'); }
-function pgDay(value) { return value instanceof Date ? value.toISOString().slice(0,10) : value; }
+function pgDay(value) {
+  // node-postgres parses a SQL date at local midnight. UTC formatting can
+  // move it into the preceding calendar day in Asia/Taipei.
+  if (!(value instanceof Date)) return value;
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 function todayTaipei() {
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone:'Asia/Taipei',
     year:'numeric', month:'2-digit', day:'2-digit' }).formatToParts(new Date());
@@ -907,6 +915,14 @@ export class FinanceCommandService {
         e.payment_method_code,e.payment_account_ref,e.advanced_by_ref,
         e.advanced_by_kind,e.advanced_by_label,
         e.safe_description,e.actor_ref,e.evidence_ref,e.created_at,
+        first_event.actor_ref AS origin_actor_ref,
+        first_event.created_at AS origin_recorded_at,
+        current_r.actor_ref AS current_actor_ref,
+        current_r.created_at AS current_recorded_at,
+        reversed.event_kind AS reversed_kind,
+        reversed.receipt_purpose AS reversed_receipt_purpose,
+        receipt_origin.receipt_purpose AS related_receipt_purpose,
+        receipt_origin.service_on AS related_receipt_service_on,
         d.status AS document_status,d.current_version,d.source_instance_id,
         r.action AS revision_action,r.source_version,
         (SELECT cr.reason_note FROM iron_gate.finance_revision cr
@@ -932,6 +948,16 @@ export class FinanceCommandService {
           ON d.property_id=e.property_id AND d.id=e.document_id
         JOIN iron_gate.finance_revision r ON r.property_id=e.property_id
           AND r.document_id=e.document_id AND r.version=e.revision_version
+        JOIN iron_gate.finance_revision current_r ON current_r.property_id=d.property_id
+          AND current_r.document_id=d.id AND current_r.version=d.current_version
+        LEFT JOIN LATERAL (SELECT actor_ref,created_at FROM iron_gate.finance_event first
+          WHERE first.property_id=d.property_id AND first.document_id=d.id
+            AND first.event_kind<>'reversal'
+          ORDER BY first.revision_version,first.created_at,first.id LIMIT 1) first_event ON true
+        LEFT JOIN iron_gate.finance_event reversed ON reversed.property_id=e.property_id
+          AND reversed.id=e.reverses_event_id
+        LEFT JOIN iron_gate.finance_event receipt_origin ON receipt_origin.property_id=e.property_id
+          AND receipt_origin.id=COALESCE(e.related_receipt_event_id,reversed.related_receipt_event_id)
         WHERE e.property_id=$1 AND ($2::date IS NULL OR e.effective_on >= $2::date)
           AND ($3::date IS NULL OR e.effective_on <= $3::date)
           AND ($4::date IS NULL OR (e.effective_on,e.id) > ($4::date,$5::uuid))
@@ -939,7 +965,8 @@ export class FinanceCommandService {
         [propertyId,from,to,cursorDay,cursorId,limit+1]);
       const page = rows.rows.slice(0,limit).map(row => ({ ...row,
         effective_on: pgDay(row.effective_on), cash_on: pgDay(row.cash_on),
-        service_on: pgDay(row.service_on) }));
+        service_on: pgDay(row.service_on),
+        related_receipt_service_on: pgDay(row.related_receipt_service_on) }));
       const last = page.at(-1);
       return { events: page, next_cursor: rows.rows.length > limit && last ?
         base64(JSON.stringify([last.effective_on,last.id])) : null,

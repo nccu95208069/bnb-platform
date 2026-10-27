@@ -95,6 +95,7 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       assert.equal(Number(balance.rows[0].cents), 0);
       const room = { ...roomCommand('room-1', 6000), booking_allocations: [{
         source_order_key:'SF-EXACT-1', amount_cents:6000, allocation_kind:'room' }],
+        service_on:'2026-11-10',
         payment_method_code:'bank_transfer',provider_transaction_ref:'provider-transaction-1' };
       const preview = await service.preview(principal, propertyId, room, room.request_key);
       assert.equal(preview.bookings[0].bookingId, bookingId);
@@ -149,6 +150,14 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       const fullLedger = await service.ledger(principal,propertyId,{limit:100});
       assert.equal(fullLedger.events.find(event=>event.document_id===receipt.document_id &&
         event.event_kind==='expense_paid')?.advanced_by_kind,'self');
+      assert.equal(fullLedger.events.find(event=>event.document_id===receipt.document_id &&
+        event.event_kind==='expense_paid')?.origin_actor_ref,'synthetic-operator');
+      assert.equal(fullLedger.events.find(event=>event.document_id===receipt.document_id &&
+        event.event_kind==='reversal')?.reversed_kind,'expense_paid');
+      assert.equal(fullLedger.events.find(event=>event.document_id===refundAccepted.document_id &&
+        event.event_kind==='property_refund')?.related_receipt_purpose,'room');
+      assert.equal(fullLedger.events.find(event=>event.document_id===refundAccepted.document_id &&
+        event.event_kind==='property_refund')?.related_receipt_service_on,'2026-11-10');
       const activity = await service.activity(principal,propertyId,1,'expense_voided','synthetic-operator');
       assert.equal(activity.total,1);
       assert.equal(activity.activities[0].target_id,receipt.document_id);
@@ -293,7 +302,8 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       assert.equal((await service.importIssues(importer,propertyId)).issues.length,0);
       await assert.rejects(service.command(importer,propertyId,importPreview.resolved_command,
         imported.request_key),e => e.code === 'PROPERTY_FORBIDDEN');
-      await admin.query(`UPDATE iron_gate.finance_connector SET cutover_at=now()-interval '1 day'
+      await admin.query(`UPDATE iron_gate.finance_connector SET cutover_at=now()-interval '1 day',
+        version=version+1,updated_at=clock_timestamp()
         WHERE source_instance_id=$1`,[importConnectorId]);
       assert.deepEqual(await service.importReceipt(importer,propertyId,
         imported.request_key),importReceipt);
