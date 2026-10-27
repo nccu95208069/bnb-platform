@@ -24,5 +24,23 @@ roll back; apply requires a fresh provider check and independent readback.
 That repair was applied and independently verified as one confirmed booking
 covering two nights. The original review receipt remains for audit.
 
-The automatic OwlJourney path is staged separately from this repair; its
-production release must be verified before it is called live.
+## Production release and verification
+
+The automatic path was released on 2026-10-27 after the repair. The exact
+published Iron Gate code is `d092ab1`; Vercel deployment
+`dpl_7tJWuDisHtRb2H49JEqj4txN8y7y` became the target of
+`iron-gate-green.vercel.app`. The prior deployment
+`dpl_8M42pgEkUGYTxkFLxukN2JUZpfDZ` remains the rollback baseline. A blank
+unauthenticated `POST /v1/source-events` returned `UNAUTHORIZED`. The candidate
+had no warning, error, or fatal runtime log entries in the release observation
+window.
+
+The downstream Gmail producer was promoted only after the Iron Gate alias
+readback. Its seven ingress paths were paused, drained, and restored by the
+pinned release controller; production boundary checks and subsequent readback
+passed. The previously repaired order still has exactly one confirmed booking,
+two occupied room nights, its original source review receipt, and no target
+review fence or provider operation. An unrelated manual review record was
+preserved. No synthetic booking or provider action was sent during release.
+No new live OwlJourney email arrived in this observation window, so first-mail
+delivery remains a passive operational check rather than a claimed live test.
