@@ -388,6 +388,78 @@ export class FinanceCommandService {
           booking_version:checked.expected_booking_version,cash_effect_cents:0 };
       },true);
   }
+  #liveLinkInput(raw,requestKey) {
+    const allowed = new Set(['request_key','source_order_key','booking_id',
+      'expected_booking_version','review_confirmed','preview_token']);
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) ||
+      Object.keys(raw).some(key => !allowed.has(key)) ||
+      raw.request_key !== requestKey || !UUID.test(raw.booking_id ?? '') ||
+      raw.source_order_key !== `${raw.booking_id}:v${raw.expected_booking_version}` ||
+      !Number.isSafeInteger(raw.expected_booking_version) ||
+      raw.expected_booking_version < 1 || raw.review_confirmed !== true)
+      fail('INVALID_INPUT');
+    const {preview_token,...checked}=raw;
+    void preview_token;
+    return checked;
+  }
+  async liveSourceLinkPreview(principal,propertyId,raw,requestKey) {
+    this.#authorize(principal,propertyId,'finance:link');
+    const checked=this.#liveLinkInput(raw,requestKey);
+    return this.#transaction(propertyId,false,async client => {
+      const {state,source}=await this.#context(client,principal,propertyId,false);
+      if(principal.origin!=='line'||source.source_system!=='line_finance'||
+        !source.cutover_at||Date.parse(source.cutover_at)>Date.now())
+        fail('SOURCE_FORBIDDEN',403);
+      const bookings=this.#bookings(state,{booking_allocations:[{
+        booking_id:checked.booking_id,
+        expected_booking_version:checked.expected_booking_version}]});
+      const existing=await client.query(`SELECT booking_id,verified_booking_version,
+        source_snapshot_hash FROM iron_gate.finance_source_link
+        WHERE property_id=$1 AND source_instance_id=$2 AND source_order_key=$3`,
+        [propertyId,principal.financeSourceInstanceId,checked.source_order_key]);
+      if(existing.rows.length && (existing.rows[0].booking_id!==checked.booking_id ||
+        Number(existing.rows[0].verified_booking_version)!==checked.expected_booking_version ||
+        existing.rows[0].source_snapshot_hash!==bookings[0].snapshotHash))
+        fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
+      return {source_order_key:checked.source_order_key,
+        booking_id:checked.booking_id,booking_version:checked.expected_booking_version,
+        source_snapshot_hash:bookings[0].snapshotHash,
+        preview_token:this.#token(principal,propertyId,checked,bookings)};
+    });
+  }
+  async liveSourceLinkCommit(principal,propertyId,raw,requestKey) {
+    const checked=this.#liveLinkInput(raw,requestKey);
+    return this.#operation(principal,propertyId,'finance:link',raw,requestKey,
+      async (client,{state,source}) => {
+        if(principal.origin!=='line'||source.source_system!=='line_finance'||
+          !source.cutover_at||Date.parse(source.cutover_at)>Date.now())
+          fail('SOURCE_FORBIDDEN',403);
+        const bookings=this.#bookings(state,{booking_allocations:[{
+          booking_id:checked.booking_id,
+          expected_booking_version:checked.expected_booking_version}]});
+        this.#verifyToken(raw.preview_token,principal,propertyId,checked,bookings);
+        const existing=await client.query(`SELECT booking_id,verified_booking_version,
+          source_snapshot_hash FROM iron_gate.finance_source_link
+          WHERE property_id=$1 AND source_instance_id=$2 AND source_order_key=$3`,
+          [propertyId,principal.financeSourceInstanceId,checked.source_order_key]);
+        if(existing.rows.length){
+          const prior=existing.rows[0];
+          if(prior.booking_id!==checked.booking_id ||
+            Number(prior.verified_booking_version)!==checked.expected_booking_version ||
+            prior.source_snapshot_hash!==bookings[0].snapshotHash)
+            fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
+        } else await client.query(`INSERT INTO iron_gate.finance_source_link
+          (property_id,source_instance_id,source_order_key,booking_id,
+           verified_booking_version,source_snapshot_hash,evidence_ref)
+          VALUES ($1,$2,$3,$4,$5,$6,'iron_gate_exact_booking_uuid')`,
+          [propertyId,principal.financeSourceInstanceId,checked.source_order_key,
+            checked.booking_id,checked.expected_booking_version,bookings[0].snapshotHash]);
+        return {receipt_status:'accepted',request_key:requestKey,
+          source_order_key:checked.source_order_key,booking_id:checked.booking_id,
+          booking_version:checked.expected_booking_version,
+          source_snapshot_hash:bookings[0].snapshotHash,cash_effect_cents:0};
+      });
+  }
   async sourceLinks(principal,propertyId) {
     this.#authorize(principal,propertyId,'finance:read');
     return this.#transaction(propertyId,false,async client => {
@@ -479,7 +551,8 @@ export class FinanceCommandService {
     if (!raw || Array.isArray(raw) || typeof raw !== 'object' ||
       raw.request_key !== requestKey || !/^[A-Za-z0-9._:-]{1,256}$/.test(requestKey))
       fail('INVALID_INPUT');
-    const requestHash = hash(raw);
+    const requestHash = hash(action === 'finance:link' ?
+      Object.fromEntries(Object.entries(raw).filter(([key]) => key !== 'preview_token')) : raw);
     return this.#transaction(propertyId, true, async client => {
       const context = await this.#context(client, principal, propertyId, true, shadowImport);
       const previous = await client.query(`SELECT request_hash,response_json
@@ -494,7 +567,8 @@ export class FinanceCommandService {
         raw.cadence ? raw.status === 'ended' ? 'recurring_stopped' : 'recurring_created' :
           raw.platform ? 'payout_rule_updated' :
             raw.last_digits ? 'payment_account_created' : 'category_created' :
-        action === 'finance:status' ? 'calendar_payment_confirmed' :
+        action === 'finance:link' ? 'source_link_verified' :
+          action === 'finance:status' ? 'calendar_payment_confirmed' :
           action === 'finance:evidence' ? 'evidence_recorded' :
             action === 'finance:settlement' ? 'settlement_recorded' :
               action === 'finance:import' ? 'historical_imported' : 'legacy_unknown';

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 const actions = new Set(["booking:read", "booking:aggregate", "booking:create", "booking:amend", "booking:cancel", "booking:manage_all", "inventory:write",
   "hold:write", "card:sync", "payment:write", "finance:ledger", "finance:read",
   "finance:record_receipt", "finance:record_expense", "finance:correct", "finance:refund",
-  "finance:import", "finance:project", "finance:status", "finance:plan",
+  "finance:import", "finance:link", "finance:project", "finance:status", "finance:plan",
   "finance:evidence", "finance:settlement", "event:read", "occupancy:aggregate",
   "housekeeping:read", "source:write", "channel:verify"]);
 const fields = new Set(["guest_name", "contact", "notes", "money", "payment_status"]);
