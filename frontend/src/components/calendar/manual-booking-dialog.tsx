@@ -53,12 +53,8 @@ function message(code: unknown): string {
   return typeof code === "string" ? LABELS[code] ?? "操作尚未完成，請重新載入並確認狀態。" :
     "操作尚未完成，請重新載入並確認狀態。";
 }
-function pendingSyncTarget(mode: Mode, value: Record<string, unknown>, state: unknown,
-  detail: Detail | null) {
-  if ((mode !== "create" && mode !== "amend") || state !== "awaiting_manual_sync" ||
-    (mode === "amend" && (detail?.osEditMode !== "full" ||
-      detail.sourceReviewRequired || detail.manualRoomHandling)) ||
-    value.sourceReviewRequired === true ||
+function pendingSyncTarget(mode: Mode, value: Record<string, unknown>, state: unknown) {
+  if (mode !== "create" || state !== "awaiting_manual_sync" ||
     typeof value.bookingId !== "string" ||
     !/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value.bookingId) ||
     !Number.isSafeInteger(value.inventoryVersion) || Number(value.inventoryVersion) < 0) return null;
@@ -204,14 +200,11 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
         clearPendingManualRequest(window.localStorage, requestKey);
         setRequestKey(null); setUnknown(false); setError("");
         const channel = value.currentChannelSyncState;
-        const syncTarget = pendingSyncTarget(mode, value, channel, detail);
-        setCreatedSyncTarget(syncTarget);
+        setCreatedSyncTarget(pendingSyncTarget(mode, value, channel));
         setResult(channel === "manually_confirmed" ? "已記錄人工房況確認；未變更 OwlNest 房況。" :
           value.currentStatus === "cancelled" ? "訂單已取消，結果已確認；請查看房況是否仍待人工處理。" :
           channel === "action_required" ? "訂單已儲存；房況仍待人工處理，請查看訂單詳情。" :
-          channel === "awaiting_manual_sync" ?
-          syncTarget && onSyncCreated ? "訂單已儲存並確認。可在下方同步 OwlNest 房況。" :
-            "訂單已儲存並確認。請至訂單詳情同步 OwlNest 房況。" :
+          channel === "awaiting_manual_sync" ? "訂單已儲存並確認。可在下方同步 OwlNest 房況。" :
           channel === "pending" ? "訂單已儲存，OwlNest 房況同步中。" :
           channel === "review_required" ? "訂單已儲存；房況同步仍需要核對，請查看訂單詳情。" :
           "訂單已儲存，結果已確認。");
@@ -223,7 +216,7 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
       } finally { clearTimeout(timeout); }
     }, [0, 1000, 2500][recoveryAttempt]);
     return () => { active = false; clearTimeout(timer); controller.abort(); };
-  }, [open, mode, detail, unknown, requestKey, busy, recoveryAttempt, onDone, onSyncCreated]);
+  }, [open, mode, unknown, requestKey, busy, recoveryAttempt, onDone]);
 
   const toggleRoom = (number: string) => {
     setRoomNumbers(current => current.includes(number) ?
@@ -348,9 +341,7 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
       }
       clearPendingManualRequest(window.localStorage, key);
       setRequestKey(null);
-      const syncTarget = pendingSyncTarget(mode, value,
-        value.channelSyncState ?? value.operationState, detail);
-      setCreatedSyncTarget(syncTarget);
+      setCreatedSyncTarget(pendingSyncTarget(mode, value, value.channelSyncState ?? value.operationState));
       setResult(mode === "manual-confirm" ? "已記錄人工房況確認，待處理提示已清除；未變更 OwlNest 房況。" :
         value.channelSyncState === "action_required" && detail?.manualRoomHandling ?
           "訂單已儲存；請手動處理變動房晚，再確認處理完成。系統未變更 OwlNest 房況。" :
@@ -360,8 +351,7 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
           "房況同步需要人工核對；請勿重複按同步，先確認 OwlNest 房況。" :
           "已開始同步房況；OwlNest 回讀驗證前仍顯示同步中。" :
         value.operationState === "awaiting_manual_sync" ?
-        syncTarget && onSyncCreated ? "訂單已儲存並確認。可在下方同步 OwlNest 房況。" :
-          "訂單已儲存並確認。請至訂單詳情同步 OwlNest 房況。" :
+        "訂單已儲存並確認。可在下方同步 OwlNest 房況。" :
         value.operationState === "sync_pending" ?
         "訂單已記錄，OwlNest 房況同步中。" : "訂單已記錄並讀回確認。");
       onDone();

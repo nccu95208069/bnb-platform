@@ -141,18 +141,15 @@ const editDetail = { bookingId, version: 3, status: 'confirmed', source: 'extern
 
 test('legacy LINE full form edits multiple/disjoint stays, booking date and exact nightly amounts', async t => {
   const writes = [], previews = [];
-  let syncTarget = null;
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
     if (!options.method) return Response.json(editDetail);
     if (String(url).endsWith('/preview')) {
       previews.push(JSON.parse(options.body)); return Response.json({ inventoryVersion: 80, roomNights: 2 });
     }
     writes.push(JSON.parse(options.body));
-    return Response.json({ bookingId, requestKey: options.headers['idempotency-key'],
-      operationState: 'awaiting_manual_sync', inventoryVersion: 81 });
+    return Response.json({ bookingId, requestKey: options.headers['idempotency-key'], operationState: 'awaiting_manual_sync' });
   });
-  const ui = await mount(t, ManualBookingDialog, { ...props, mode: 'amend', bookingId,
-    onSyncCreated: (id, version) => { syncTarget = { id, version }; } });
+  const ui = await mount(t, ManualBookingDialog, { ...props, mode: 'amend', bookingId });
   assert.equal(document.getElementById('manual-booked').disabled, false);
   assert.equal(document.querySelectorAll('select').length, 2);
   await ui.fill(document.getElementById('manual-guest'), 'Changed Synthetic Guest');
@@ -172,10 +169,6 @@ test('legacy LINE full form edits multiple/disjoint stays, booking date and exac
       { ...editDetail.stays[1], roomNumbers: ['101'] }], totalCents: 940000,
     roomNightPrices: [{ roomNumber: '101', date: '2026-11-10', amountCents: 410000 },
       { roomNumber: '101', date: '2026-11-15', amountCents: 530000 }] });
-  assert.match(document.body.textContent, /可在下方同步 OwlNest 房況/);
-  await ui.click(ui.button('同步房況'));
-  assert.deepEqual(syncTarget, { id: bookingId, version: 81 });
-  assert.equal(writes.length, 1);
 });
 
 test('metadata edit preserves unknown nightly distribution and the original stay representation', async t => {
