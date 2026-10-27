@@ -673,6 +673,8 @@ export class FinanceCommandService {
         ota_guest_observed_cents: 0, ota_payout_cents: 0, expense_cents: 0 };
       for (const row of events.rows) {
         const kind = row.event_kind === 'reversal' ? row.reversed_kind : row.event_kind;
+        // Reversal allocations are stored with a negative amount. Use the
+        // booking allocation, not the whole event amount, for split receipts.
         const cents = Number(row.amount_cents);
         if (kind === 'property_receipt') {
           summary.property_received_cents += cents;
@@ -813,6 +815,13 @@ export class FinanceCommandService {
           fail('VERSION_CONFLICT', 409);
         if (priorKind.rows[0].event_kind === 'property_refund' &&
           !principal.actions.includes('finance:refund')) fail('PROPERTY_FORBIDDEN',403);
+        // A settlement names exact event IDs and amounts. Replacing a settled
+        // event would leave the bank batch pointing at an obsolete revision.
+        const settled = await client.query(`SELECT 1 FROM iron_gate.finance_settlement_link l
+          JOIN iron_gate.finance_event e ON e.property_id=l.property_id AND e.id=l.event_id
+          WHERE e.property_id=$1 AND e.document_id=$2 AND e.revision_version=$3
+          LIMIT 1`, [propertyId,documentId,version-1]);
+        if (settled.rows.length) fail('SETTLEMENT_REVIEW_REQUIRED',409);
       }
       if (command.action !== 'void' && command.payment_account_ref) {
         const account = await client.query(`SELECT 1 FROM iron_gate.finance_account

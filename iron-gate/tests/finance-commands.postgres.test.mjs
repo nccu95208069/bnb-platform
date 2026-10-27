@@ -128,10 +128,13 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
         actions:principal.actions.filter(action => action !== 'finance:refund') },propertyId,
         { ...refundAmend, preview_token: refundAmendPreview.preview_token },refundAmend.request_key),
       e => e.code === 'PROPERTY_FORBIDDEN');
+      const amendedRefund = await service.command(principal,propertyId,
+        { ...refundAmend, preview_token: refundAmendPreview.preview_token },refundAmend.request_key);
+      assert.equal(amendedRefund.document_version,2);
       const projection = await service.bookingFinance(principal, propertyId, bookingId);
       assert.equal(projection.summary.room_received_cents,6000);
-      assert.equal(projection.summary.room_refunded_cents,3000);
-      assert.equal(projection.remaining_due_cents,7000);
+      assert.equal(projection.summary.room_refunded_cents,2000);
+      assert.equal(projection.remaining_due_cents,6000);
       const ledger = await service.ledger(principal, propertyId,
         { from:'2026-10-28', to:'2026-10-29', limit:2 });
       assert.equal(ledger.events.length,2);
@@ -181,29 +184,37 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       const verified = await service.bookingFinance(principal,propertyId,bookingId);
       assert.equal(verified.events.find(event => event.id===roomAccepted.event_ids[0]).evidence_level,
         'processor_confirmed');
+      const tooSmall = { ...preview.resolved_command, request_key: 'room-amend', source_version: '2',
+        expected_version: 1, action: 'amend', amount_cents: 1000,
+        booking_allocations: [{ ...preview.resolved_command.booking_allocations[0], amount_cents: 1000 }] };
+      const tooSmallPreview = await service.preview(principal, propertyId, tooSmall, tooSmall.request_key);
+      await assert.rejects(service.command(principal, propertyId,
+        { ...tooSmall, preview_token: tooSmallPreview.preview_token }, tooSmall.request_key),
+      e => e.code === 'REFUND_LIMIT');
       const settlement = { request_key:'settlement-1',
-        settlement_batch_ref:'synthetic-batch-1',gross_cents:6000,refund_cents:3000,
-        fee_cents:100,net_cents:2900,bank_on:'2026-10-28',
+        settlement_batch_ref:'synthetic-batch-1',gross_cents:6000,refund_cents:2000,
+        fee_cents:100,net_cents:3900,bank_on:'2026-10-28',
         evidence_ref:'synthetic-batch-proof',links:[
           {event_id:roomAccepted.event_ids[0],role:'gross',amount_cents:6000},
-          {event_id:refundAccepted.event_ids[0],role:'refund',amount_cents:3000},
+          {event_id:amendedRefund.event_ids.at(-1),role:'refund',amount_cents:2000},
           {event_id:feeAccepted.event_ids[0],role:'fee',amount_cents:100} ] };
       const settled = await service.settlement(principal,propertyId,
         settlement,settlement.request_key);
       assert.equal(settled.cash_effect_cents,0);
       assert.equal((await service.settlements(principal,propertyId)).settlements.length,1);
+      const settledRefundAmend = { ...refundAmend, request_key:'refund-amend-after-settlement',
+        source_version:'3', expected_version:2, amount_cents:1000,
+        booking_allocations:[{...refund.booking_allocations[0],amount_cents:1000}] };
+      const settledRefundPreview = await service.preview(principal,propertyId,
+        settledRefundAmend,settledRefundAmend.request_key);
+      await assert.rejects(service.command(principal,propertyId,
+        { ...settledRefundAmend,preview_token:settledRefundPreview.preview_token },
+        settledRefundAmend.request_key),e => e.code === 'SETTLEMENT_REVIEW_REQUIRED');
       const excessive = roomCommand('room-excess', 8000);
       const excessivePreview = await service.preview(principal, propertyId, excessive, excessive.request_key);
       await assert.rejects(service.command(principal, propertyId,
         { ...excessive, preview_token: excessivePreview.preview_token }, excessive.request_key),
       e => e.code === 'ALLOCATION_MISMATCH');
-      const tooSmall = { ...preview.resolved_command, request_key: 'room-amend', source_version: '2',
-        expected_version: 1, action: 'amend', amount_cents: 2000,
-        booking_allocations: [{ ...preview.resolved_command.booking_allocations[0], amount_cents: 2000 }] };
-      const tooSmallPreview = await service.preview(principal, propertyId, tooSmall, tooSmall.request_key);
-      await assert.rejects(service.command(principal, propertyId,
-        { ...tooSmall, preview_token: tooSmallPreview.preview_token }, tooSmall.request_key),
-      e => e.code === 'REFUND_LIMIT');
       await assert.rejects(service.receipt(principal, otherPropertyId, first.request_key),
         e => e.code === 'PROPERTY_FORBIDDEN');
     } finally {
