@@ -2158,6 +2158,8 @@ export class IronGateService {
             { paymentReview: calendarPaymentStatus(booking) } : {}),
           ...(principal.fields.includes("money") ?
             { totalCents: booking.totalCents, currency: booking.currency,
+              ...(projected.sourceAmountReconciliation ?
+                { sourceAmountReconciliation: projected.sourceAmountReconciliation } : {}),
               stayAmountsCents: calendarStayAmounts(booking) } : {}) };
       }), cells };
   }

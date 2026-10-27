@@ -26,6 +26,15 @@ test('money projections keep the original identity and never expose private evid
  const raw=await service.directFinanceSnapshot(p,state.propertyId);
  assert.equal(raw.bookings.length,0);assert.equal(raw.sourceAmountReconciliations.length,5);
  assert.doesNotMatch(JSON.stringify(raw),/Synthetic Guest|sweetfunSnapshot|mailEvidence/);
+ const calendar=await service.calendarSnapshot(p,state.propertyId,'2027-01-01','2027-01-02');
+ assert.equal(calendar.bookings.length,5);
+ for(const b of calendar.bookings){
+  assert.deepEqual(b.sourceAmountReconciliation,corrected.bookings.find(x=>x.id===b.id).sourceAmountReconciliation);
+  assert.equal(b.totalCents,b.sourceAmountReconciliation.netCents);
+ }
+ const hiddenCalendar=await service.calendarSnapshot({...p,fields:['guest_name']},state.propertyId,'2027-01-01','2027-01-02');
+ assert.ok(hiddenCalendar.bookings.every(b=>b.sourceAmountReconciliation===undefined&&b.totalCents===undefined));
+ assert.doesNotMatch(JSON.stringify(calendar),/sweetfunSnapshot|mailEvidence/);
  for(const b of corrected.bookings){const visible=await service.getBooking(p,state.propertyId,b.id);
   assert.equal(visible.totalCents,b.sourceAmountReconciliation.netCents);
   assert.equal(visible.sourceCalendar.sourceOrderRef,b.sweetfunSnapshot.groupKey);

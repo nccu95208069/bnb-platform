@@ -24,7 +24,7 @@ test('invitation -> personal password -> session -> scoped private data -> suspe
  assert.equal(validMemberSession(session,member),true);
  assert.equal(validMemberSession(session.slice(0,-1)+'!',member),false);
  await assert.rejects(activateMember(store,{token,password,confirmPassword:password}),/INVITE_INVALID/);
- const results=projectBookings([{id:'a',property_id:'sweetfun',room_rate:12345},{id:'b',property_id:'offland',room_rate:98765,notes:'pay 98765',nightly_amounts:[{date:'2026-09-01',amount:98765}],payments:[{amount:98765}],source_payment_label:'paid 98765'}],memberPrincipal(member));
+ const results=projectBookings([{id:'a',property_id:'sweetfun',room_rate:12345},{id:'b',property_id:'offland',room_rate:98765,notes:'pay 98765',nightly_amounts:[{date:'2026-09-01',amount:98765}],payments:[{amount:98765}],source_payment_label:'paid 98765',source_amount_reconciliation:{groupNetCents:98765}}],memberPrincipal(member));
  assert.equal(results.length,1);assert.equal(results[0].property_id,'offland');assert.equal(results[0].price_hidden,true);assert.equal(JSON.stringify(results).includes('98765'),false);
  const suspended=await updateMember(store,{id:member.id,version:member.version,status:'suspended'});
  assert.equal(validMemberSession(session,suspended),false);
