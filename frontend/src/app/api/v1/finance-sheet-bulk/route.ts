@@ -117,10 +117,14 @@ export async function POST(request:NextRequest){
     const results=[];
     for(const candidate of selected){
       try{
-        const command=(candidate.row.booking_id?
-          verifyFinanceSheetIgPreview(candidate,
-            (await previewSsotFinanceCommand(settings.ironGate,actor,
-              candidate.command,candidate.request_key)).command):candidate.command);
+        const igPreview=await previewSsotFinanceCommand(settings.ironGate,actor,
+          candidate.command,candidate.request_key);
+        if(igPreview.source_instance_id!==settings.sourceInstanceId||
+          igPreview.source_system!=='sheet_bulk'||
+          igPreview.source_sheet_ref!==settings.binding.spreadsheetId||
+          (candidate.row.booking_id&&!igPreview.command.preview_token))
+          throw Error('SOURCE_FORBIDDEN');
+        const command=verifyFinanceSheetIgPreview(candidate,igPreview.command);
         const receipt=await submitSsotFinanceCommand(settings.ironGate,actor,
           command,candidate.request_key,fetch,{repreviewOnConflict:false});
         let projection='pending';

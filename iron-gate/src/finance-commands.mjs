@@ -345,7 +345,9 @@ export class FinanceCommandService {
       await this.#assertVoidGuards(client,principal,propertyId,command);
       const bookings = this.#bookings(state, command);
       return { bookings, preview_token: bookings.length ? this.#token(principal, propertyId, command, bookings) : null,
-        command_hash: hash(command), resolved_command: command };
+        command_hash: hash(command), resolved_command: command,
+        source_instance_id: principal.financeSourceInstanceId,
+        source_system: source.source_system, source_sheet_ref: source.source_sheet_ref ?? null };
     });
   }
   async importPreview(principal, propertyId, raw, requestKey) {

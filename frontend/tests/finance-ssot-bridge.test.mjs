@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {submitSsotFinanceCommand,submitSsotPlan} from
+import {previewSsotFinanceCommand,submitSsotFinanceCommand,submitSsotPlan} from
   '../src/lib/booking-sources/iron-gate-ssot-finance.server.ts';
 
 const propertyId='10000000-0000-4000-8000-000000000001';
@@ -71,6 +71,18 @@ test('approved Sheet command stops on booking version conflict without a silent 
     {...command,preview_token:'approved-version-token'},key,send,
     {repreviewOnConflict:false}),/VERSION_CONFLICT/);
   assert.deepEqual(paths.map(path=>path.split('/').at(-1)),['commands']);
+});
+
+test('Sheet preview exposes the authenticated connector even without a booking',async()=>{
+  const expense={...command,event_kind:'expense_paid',booking_allocations:[],
+    category_code:'supplies',expense_attributions:[{month:'2026-10-01',
+      amount_cents:1000,allocation_policy:'ig_v1_earliest_cent'}]};
+  const send=async()=>reply({resolved_command:expense,preview_token:null,
+    bookings:[],source_instance_id:'10000000-0000-4000-8000-000000000009',
+    source_system:'sheet_bulk',source_sheet_ref:'SyntheticSheet_0123456789'});
+  const result=await previewSsotFinanceCommand(config,actor,expense,key,send);
+  assert.equal(result.source_system,'sheet_bulk');
+  assert.equal(result.command.preview_token,undefined);
 });
 
 test('plan commands require a matching accepted readback',async()=>{

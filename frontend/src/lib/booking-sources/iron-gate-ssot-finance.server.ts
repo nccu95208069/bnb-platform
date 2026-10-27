@@ -166,10 +166,15 @@ export async function previewSsotFinanceCommand(config:ManualConfig,actor:Princi
   if(command.request_key!==key||!UUID.test(key))throw Error('INVALID_INPUT');
   const result=await request(config,actor,'POST','commands/preview',command,key,
     ['finance:read'],send);
-  if(!object(result.resolved_command)||typeof result.preview_token!=='string')
+  if(!object(result.resolved_command)||
+    result.preview_token!==null&&typeof result.preview_token!=='string'||
+    typeof result.source_instance_id!=='string'||
+    typeof result.source_system!=='string')
     throw Error('FINANCE_SSOT_READBACK_MISMATCH');
-  return {command:{...result.resolved_command,preview_token:result.preview_token},
-    bookings:result.bookings};
+  return {command:{...result.resolved_command,
+      ...(result.preview_token?{preview_token:result.preview_token}:{})},
+    bookings:result.bookings,source_instance_id:result.source_instance_id,
+    source_system:result.source_system,source_sheet_ref:result.source_sheet_ref};
 }
 
 export async function submitSsotPlan(config:ManualConfig,actor:Principal,

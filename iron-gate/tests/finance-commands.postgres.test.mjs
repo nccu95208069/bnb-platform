@@ -359,6 +359,9 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       const sheetPreview=await service.preview(sheet,propertyId,sheetCommand,
         sheetCommand.request_key);
       assert.equal(sheetPreview.bookings[0].bookingId,bookingId);
+      assert.equal(sheetPreview.source_instance_id,sheetConnectorId);
+      assert.equal(sheetPreview.source_system,'sheet_bulk');
+      assert.equal(sheetPreview.source_sheet_ref,sheetRef);
       const sheetReceipt=await service.command(sheet,propertyId,
         {...sheetPreview.resolved_command,preview_token:sheetPreview.preview_token},
         sheetCommand.request_key);
