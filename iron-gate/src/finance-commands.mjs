@@ -239,7 +239,8 @@ export class FinanceCommandService {
     if (!row || row.workspace_id !== principal.workspaceId) fail('PROPERTY_FORBIDDEN', 403);
     if (write && (Number(row.authority_epoch) !== principal.authorityEpoch || row.state_json.readOnly))
       fail('AUTHORITY_MOVED', 409);
-    const connector = await client.query(`SELECT source_system,source_account_ref,enabled,cutover_at
+    const connector = await client.query(`SELECT source_system,source_account_ref,
+      source_sheet_ref,enabled,cutover_at
       FROM iron_gate.finance_connector WHERE property_id=$1 AND source_instance_id=$2`,
       [propertyId, principal.financeSourceInstanceId]);
     const source = connector.rows[0];
@@ -247,7 +248,7 @@ export class FinanceCommandService {
       principal.actions.includes('finance:import') &&
       ['os_manual','os_legacy_payment','line_finance'].includes(source?.source_system) &&
       (!write || !source?.cutover_at) : principal.origin === 'os' ?
-      source?.source_system === 'os_manual' :
+      ['os_manual','sheet_bulk'].includes(source?.source_system) :
       principal.origin === 'line' ? source?.source_system === 'line_finance' :
       principal.origin === 'finance' ? ['sheet_bulk','ota_evidence'].includes(source?.source_system) : false;
     if (!source || !source.enabled || !originAllowed || (write && (!source.cutover_at ||
@@ -337,6 +338,10 @@ export class FinanceCommandService {
         }
       }
       const command = normalize(resolved, requestKey);
+      if (source.source_system === 'sheet_bulk' &&
+        (!source.source_sheet_ref || !command.source_record_id.startsWith(
+          `sheet:${source.source_sheet_ref}:`) || !UUID.test(command.source_record_id.slice(
+            `sheet:${source.source_sheet_ref}:`.length)))) fail('SOURCE_FORBIDDEN',403);
       await this.#assertVoidGuards(client,principal,propertyId,command);
       const bookings = this.#bookings(state, command);
       return { bookings, preview_token: bookings.length ? this.#token(principal, propertyId, command, bookings) : null,
@@ -1248,6 +1253,10 @@ export class FinanceCommandService {
     const requestHash = hash(command);
     return this.#transaction(propertyId, true, async client => {
       const { state, source } = await this.#context(client, principal, propertyId, true, shadowImport);
+      if (source.source_system === 'sheet_bulk' &&
+        (!source.source_sheet_ref || !command.source_record_id.startsWith(
+          `sheet:${source.source_sheet_ref}:`) || !UUID.test(command.source_record_id.slice(
+            `sheet:${source.source_sheet_ref}:`.length)))) fail('SOURCE_FORBIDDEN',403);
       const observed = ['ota_payout','ota_guest_payment_observed'].includes(command.event_kind);
       if (command.action !== 'void' &&
         (observed ? source.source_system !== 'ota_evidence' || !command.evidence_ref ||
@@ -1400,7 +1409,7 @@ export class FinanceCommandService {
           const booking = state.bookings.find(b => b.id === allocation.booking_id);
           if (!Number.isSafeInteger(booking.totalCents) || booking.totalCents <= 0 ||
             (booking.source !== 'os' && !allocation.source_order_key &&
-              source.source_system !== 'line_finance'))
+              !['line_finance','sheet_bulk'].includes(source.source_system)))
             fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
           // Until old payments have been mapped exactly, their ownership is ambiguous.
           if (booking.paymentEvents?.length || booking.cardChargeResults?.some(r => r.status === 'Done'))

@@ -12,7 +12,8 @@ export class SourceReadError extends Error {
 }
 const signalFor = (milliseconds: number, signal?: AbortSignal) => signal ? AbortSignal.any([signal, AbortSignal.timeout(milliseconds)]) : AbortSignal.timeout(milliseconds);
 
-export async function accessToken(source: SheetSourceDefinition, write = false, signal?: AbortSignal): Promise<string> {
+export async function accessToken(source: Pick<SheetSourceDefinition,'credentialEnv'>,
+  write = false, signal?: AbortSignal, send:typeof fetch=fetch): Promise<string> {
   const encoded = process.env[source.credentialEnv];
   if (!encoded) throw new Error("MONITOR_GOOGLE_CONFIG");
   let credential: Credential;
@@ -21,7 +22,7 @@ export async function accessToken(source: SheetSourceDefinition, write = false, 
   const now = Math.floor(Date.now() / 1000);
   const unsigned = `${b64({ alg: "RS256", typ: "JWT" })}.${b64({ iss: credential.client_email, scope: write ? SCOPE.replace('.readonly', '') : SCOPE, aud: TOKEN_URL, iat: now, exp: now + 600 })}`;
   const signature = createSign("RSA-SHA256").update(unsigned).sign(credential.private_key, "base64url");
-  const response = await fetch(TOKEN_URL, { method: "POST", signal: signalFor(8_000, signal), cache: "no-store",
+  const response = await send(TOKEN_URL, { method: "POST", signal: signalFor(8_000, signal), cache: "no-store",
     body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: `${unsigned}.${signature}` }) });
   if (!response.ok) throw new SourceReadError("MONITOR_GOOGLE_AUTH", response.status);
   const result = await response.json();

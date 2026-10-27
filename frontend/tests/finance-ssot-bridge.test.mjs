@@ -60,6 +60,19 @@ test('unknown POST outcome recovers only through the original request receipt',a
   assert.equal(called,2);
 });
 
+test('approved Sheet command stops on booking version conflict without a silent repreview',async()=>{
+  const paths=[];
+  const send=async url=>{
+    const path=new URL(url).pathname;
+    paths.push(path);
+    return reply({error:{code:'VERSION_CONFLICT'}},409);
+  };
+  await assert.rejects(submitSsotFinanceCommand(config,actor,
+    {...command,preview_token:'approved-version-token'},key,send,
+    {repreviewOnConflict:false}),/VERSION_CONFLICT/);
+  assert.deepEqual(paths.map(path=>path.split('/').at(-1)),['commands']);
+});
+
 test('plan commands require a matching accepted readback',async()=>{
   const plan={request_key:key,code:'synthetic-category',kind:'expense',label:'Supplies'};
   const send=async url=>new URL(url).pathname.endsWith('/categories')?

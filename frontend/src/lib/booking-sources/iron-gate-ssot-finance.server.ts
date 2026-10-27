@@ -130,7 +130,8 @@ async function recover(config:ManualConfig,actor:Principal,key:string,send:typeo
 
 /** A repeated request first reaches the authoritative idempotency check. */
 export async function submitSsotFinanceCommand(config:ManualConfig,actor:Principal,
-  command:Record<string,unknown>,key:string,send:typeof fetch=fetch){
+  command:Record<string,unknown>,key:string,send:typeof fetch=fetch,
+  options:{repreviewOnConflict?:boolean}={}){
   if(command.request_key!==key||!UUID.test(key))throw Error('INVALID_INPUT');
   const action=commandAction(command);
   let response:Record<string,unknown>;
@@ -139,8 +140,9 @@ export async function submitSsotFinanceCommand(config:ManualConfig,actor:Princip
   }catch(error){
     const code=error instanceof Error?error.message:'';
     if(code==='MANUAL_RESULT_UNKNOWN')return recover(config,actor,key,send);
-    if(code!=='VERSION_CONFLICT'||!Array.isArray(command.booking_allocations)||
-      !command.booking_allocations.length)throw error;
+    if(code!=='VERSION_CONFLICT'||options.repreviewOnConflict===false||
+      !(Array.isArray(command.booking_allocations)&&command.booking_allocations.length||
+        Array.isArray(command.booking_guards)&&command.booking_guards.length))throw error;
     const preview=await request(config,actor,'POST','commands/preview',command,key,
       ['finance:read'],send);
     if(!object(preview.resolved_command)||typeof preview.preview_token!=='string')
@@ -157,6 +159,17 @@ export async function submitSsotFinanceCommand(config:ManualConfig,actor:Princip
   if(canonical(receipt)!==canonical(accepted(response,key)))
     throw Error('FINANCE_SSOT_READBACK_MISMATCH');
   return receipt;
+}
+
+export async function previewSsotFinanceCommand(config:ManualConfig,actor:Principal,
+  command:Record<string,unknown>,key:string,send:typeof fetch=fetch){
+  if(command.request_key!==key||!UUID.test(key))throw Error('INVALID_INPUT');
+  const result=await request(config,actor,'POST','commands/preview',command,key,
+    ['finance:read'],send);
+  if(!object(result.resolved_command)||typeof result.preview_token!=='string')
+    throw Error('FINANCE_SSOT_READBACK_MISMATCH');
+  return {command:{...result.resolved_command,preview_token:result.preview_token},
+    bookings:result.bookings};
 }
 
 export async function submitSsotPlan(config:ManualConfig,actor:Principal,

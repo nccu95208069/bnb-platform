@@ -13,6 +13,9 @@ const connectorId = '10000000-0000-4000-8000-000000000005';
 const importConnectorId = '10000000-0000-4000-8000-000000000006';
 const lineConnectorId = '10000000-0000-4000-8000-000000000010';
 const lineBookingId = '10000000-0000-4000-8000-000000000011';
+const sheetConnectorId = '10000000-0000-4000-8000-000000000012';
+const sheetRowId = '10000000-0000-4000-8000-000000000013';
+const sheetRef = 'SyntheticSheet_0123456789';
 const secret = 'synthetic-finance-test-secret-32-bytes-long';
 
 function state(id, booking = false) {
@@ -346,6 +349,24 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       const voidReceipt=await service.command(line,propertyId,
         {...guarded,preview_token:guardedPreview.preview_token},guarded.request_key);
       assert.equal(voidReceipt.receipt_status,'accepted');
+      await admin.query(`INSERT INTO iron_gate.finance_connector
+        (source_instance_id,property_id,source_system,source_sheet_ref,enabled,cutover_at)
+        VALUES ($1,$2,'sheet_bulk',$3,true,now()-interval '1 day')`,
+        [sheetConnectorId,propertyId,sheetRef]);
+      const sheet={...principal,financeSourceInstanceId:sheetConnectorId};
+      const sheetCommand={...roomCommand(`sheet:${sheetRef}:${sheetRowId}`,1500),
+        request_key:'sheet-correct-workbook',evidence_ref:'sheet:'+'a'.repeat(64)};
+      const sheetPreview=await service.preview(sheet,propertyId,sheetCommand,
+        sheetCommand.request_key);
+      assert.equal(sheetPreview.bookings[0].bookingId,bookingId);
+      const sheetReceipt=await service.command(sheet,propertyId,
+        {...sheetPreview.resolved_command,preview_token:sheetPreview.preview_token},
+        sheetCommand.request_key);
+      assert.equal(sheetReceipt.receipt_status,'accepted');
+      const wrongSheet={...sheetCommand,request_key:'sheet-wrong-workbook',
+        source_record_id:`sheet:AnotherSheet_0123456789:${sheetRowId}`};
+      await assert.rejects(service.preview(sheet,propertyId,wrongSheet,
+        wrongSheet.request_key),e=>e.code==='SOURCE_FORBIDDEN');
       const exact={request_key:'line-link-1',source_order_key:`${bookingId}:v1`,
         booking_id:bookingId,expected_booking_version:1,review_confirmed:true};
       const exactPreview=await service.liveSourceLinkPreview(line,propertyId,

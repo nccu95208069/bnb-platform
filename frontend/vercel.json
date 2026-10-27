@@ -21,6 +21,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/finance-sheet-bulk",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/website-notifications",
       "schedule": "* * * * *"
     },
