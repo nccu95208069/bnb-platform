@@ -59,6 +59,26 @@ function sourceOrderKey(sourceSystem: string, sourceAccount: string,
   externalOrderId: string): string {
   return JSON.stringify([sourceSystem, sourceAccount, externalOrderId]);
 }
+function identityPlatform(value: unknown): string | null {
+  const platform = String(value ?? "").trim().toLowerCase();
+  return platform === "booking.com" ? "booking" : platform || null;
+}
+function sourceIdentity(booking: Booking | null | undefined): NonNullable<Booking["sourceCalendar"]> {
+  if (booking?.sourceCalendar) return booking.sourceCalendar;
+  // Only the exact linked import is eligible. Never infer identity from a
+  // guest name or stay, or revive frozen identity over newer current metadata.
+  const rows = booking?.sweetfunSnapshot?.rows;
+  if (Array.isArray(rows) && rows.length) {
+    const platform = identityPlatform(rows[0]?.values?.[2]);
+    const externalOrderNo = String(rows[0]?.values?.[13] ?? "").trim();
+    if (platform && ["booking", "agoda", "airbnb", "ctrip", "owlnest", "owljourney", "owlting"]
+      .includes(platform) && /^[A-Za-z0-9-]{1,64}$/.test(externalOrderNo) &&
+      rows.every(row => identityPlatform(row?.values?.[2]) === platform &&
+        String(row?.values?.[13] ?? "").trim() === externalOrderNo))
+      return { platform, externalOrderNo };
+  }
+  return { platform: null, externalOrderNo: null };
+}
 function uniqueNights(cells: Night[]): Night[] {
   return [...new Map(cells.map((cell) => [keyOf(cell), cell])).values()];
 }
@@ -2823,6 +2843,11 @@ export class IronGateService {
         ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);
       if (link?.bookingId && (!linkedBooking || linkedBooking.version !== link.lastAppliedBookingVersion))
         return review("SOURCE_DIVERGED", [...cells, ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);
+      const priorIdentity = sourceIdentity(linkedBooking);
+      // A source notice's null/omitted labels mean no new identity evidence.
+      // The source key and version checks above establish which order it updates.
+      const nextIdentity = { platform: input.platform ?? priorIdentity.platform,
+        externalOrderNo: input.externalOrderNo ?? priorIdentity.externalOrderNo };
       if (input.kind === "upsert" && link && link.tombstoneNights.length)
         return review("SOURCE_TOMBSTONE_REACTIVATION", [...cells, ...link.tombstoneNights]);
       // A platform order number is only an auxiliary identity. It is not
@@ -2857,6 +2882,13 @@ export class IronGateService {
         (input.platform !== "owljourney" ||
           input.externalOrderNo !== undefined && input.externalOrderNo !== null))
         return review("SOURCE_IDENTITY_UNVERIFIED", cells);
+      if (input.kind === "upsert" && linkedBooking &&
+        (input.platform && priorIdentity.platform &&
+          identityPlatform(input.platform) !== identityPlatform(priorIdentity.platform) ||
+          input.externalOrderNo && priorIdentity.externalOrderNo &&
+          input.externalOrderNo !== priorIdentity.externalOrderNo))
+        return review("SOURCE_IDENTITY_MISMATCH", [...cells,
+          ...nightsFor(linkedBooking.stays, state.roomIds)]);
       if (channelMode && input.kind === "upsert" && !linkedBooking) {
         const signedNotice = providerManagedNotice &&
           input.previousSourceVersion === null && input.bookedAt === null &&
@@ -2945,8 +2977,7 @@ export class IronGateService {
           // A missing fee stays unknown. An imported fee cannot remain current
           // after a changed external order without fresh source evidence.
           booking.totalCents = input.totalCents ?? null;
-          booking.sourceCalendar = { platform: input.platform ?? null,
-            externalOrderNo: input.externalOrderNo ?? null };
+          booking.sourceCalendar = nextIdentity;
         }
       } else {
         booking = { id: crypto.randomUUID(), workspaceId: state.workspaceId, propertyId: state.propertyId,
