@@ -79,7 +79,8 @@ export function resolveCard(state: PropertyState, input: CardInput) {
     return {booking, previous, fingerprint, action: 'already_synced' as const, aliases: cardAliases(state, booking)};
   }
   if (booking.status !== 'confirmed' || booking.lineOverridePending ||
-    state.sourceLinks.some(link => link.bookingId === booking.id && link.diverged)) fail('CARD_ORDER_REVIEW');
+    state.sourceLinks.some(link => link.bookingId === booking.id &&
+      (link.diverged || link.lastAppliedBookingVersion !== booking.version))) fail('CARD_ORDER_REVIEW');
   const stays = booking.stays;
   if (!stays.length || stays.map(stay => stay.checkIn).sort()[0] !== input.checkIn ||
     stays.map(stay => stay.checkOut).sort().at(-1) !== input.checkOut) fail('CARD_STAY_MISMATCH');

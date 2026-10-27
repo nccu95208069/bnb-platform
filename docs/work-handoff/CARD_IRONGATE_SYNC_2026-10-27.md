@@ -12,6 +12,8 @@ Done appends one immutable credit-card received event with a deterministic prope
 
 The OS server-only `/api/internal/card-sync` bridge authenticates a dedicated secret, signs the reviewed input and version, uses the shared payment lock, checks every exact old SF/IG identity, then reserves those identities before the remote write. Both legacy OS receipt paths enforce those durable reservations. Unknown results keep the reservation; fresh preview/readback recovers the receipt. No automatic refund or deletion is part of recovery.
 
+Review correction (P1): a financial result must not make the next source-owned amendment/cancellation diverge solely because it increments the booking version. Aligned source links advance with this result in the same transaction; existing divergence remains blocked. A real service regression test first reproduced the missed cancellation and now passes for both Fail and Done, preserving the original receipt after cancellation.
+
 The finance snapshot includes only native OS bookings plus external bookings with canonical card receipts. OS replaces the matching legacy order projection with the canonical order and counts the whole multi-room/night total once. Credit-card entries are labeled Booking; manual native-payment controls remain limited to direct bookings. Calendar paid status derives from the same immutable receipt.
 
 ## Release contract
@@ -19,6 +21,7 @@ The finance snapshot includes only native OS bookings plus external bookings wit
 The companion GCO document `docs/CARD_IRONGATE_SYNC_2026-10-27.md` specifies the four-stage release and exact-source acceptance. Required new server configuration:
 
 - IronGate: dedicated credential with origin `finance`, actions `[card:sync]`, fields `[money]`, exact workspace/property/current epoch. Existing transactional JSON state persists results; no new database schema.
+- Prepare this credential with `node iron-gate/scripts/prepare-sweetfun-finance-grants.mjs NEW_PRIVATE_DIRECTORY --card-sync`; issuance SQL contains only the token hash, verifies authority and refuses duplicate active subjects. The plaintext grant is sent only to the OS production environment.
 - OS: `IRON_GATE_CARD_SYNC_GRANT`, `CC_SYNC_OS_TOKEN` (32+ random characters), `IRON_GATE_CARD_SYNC_ENABLED=true`; existing Sweetfun finance/calendar configuration remains required.
 - cc-sync: `CC_SYNC_TARGET=irongate`, `CC_SYNC_OS_URL=https://<OS>/api/internal/card-sync`, matching `CC_SYNC_OS_TOKEN`, existing IAM and source OAuth mounts. Dashboard always sends `target=irongate`.
 

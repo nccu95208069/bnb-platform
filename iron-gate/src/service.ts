@@ -1519,6 +1519,12 @@ export class IronGateService {
         const {bookingId: _id, expectedBookingVersion: _version, ...source} = input;
         booking.cardChargeResults.push({...source, fingerprint: result.fingerprint, recordedAt,
           actorId: principal.subjectId, paymentEventId});
+        // A financial result changes no source-owned stay facts. Keep an aligned
+        // source link aligned so the next OTA amendment/cancellation can apply.
+        for (const link of state.sourceLinks) {
+          if (link.bookingId === booking.id && !link.diverged &&
+            link.lastAppliedBookingVersion === booking.version) link.lastAppliedBookingVersion++;
+        }
         booking.version++;
         emit(tx, state, paymentEventId ? "payment.recorded" : "card.result_recorded", booking, principal, requestKey);
       }

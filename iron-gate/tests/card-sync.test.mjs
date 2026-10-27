@@ -25,3 +25,25 @@ test('failed result never clears the legacy source-paid display',async()=>{
  const result=await service.getBooking({...principal,origin:'os',actions:['booking:read'],fields:['payment_status']},p,b);
  assert.equal(result.paymentReview.status,'paid');assert.equal(result.cardChargeResult,undefined);
 });
+
+test('card results do not turn a later valid source cancellation into version divergence',async()=>{
+ for(const status of ['fail','done']) {
+  const {service,repository}=setup(s=>{s.bookings=[];s.sourceGrants=[{grantId:r,sourceSystem:'synthetic',sourceAccount:'synthetic',active:true}];});
+  const source={...principal,origin:'source',subjectId:'synthetic-writer',grantId:r,actions:['source:write'],fields:[],sourceSystem:'synthetic',sourceAccount:'synthetic'};
+  const notice={propertyId:p,sourceSystem:'synthetic',sourceAccount:'synthetic',externalOrderId:'L:SYNTHETIC-ONLY',sourceVersion:'v1',previousSourceVersion:null,kind:'upsert',expectedInventoryVersion:1,stays:[{checkIn:input.checkIn,checkOut:input.checkOut,roomIds:[r]}],guestName:'Synthetic',bookedAt:null,totalCents:input.amountCents,currency:'TWD',platform:'booking',externalOrderNo:input.orderId};
+  assert.equal((await service.applySourceEvent(source,crypto.randomUUID(),notice)).state,'applied');
+  await commit(service,{...input,status,chargeDate:status==='done'?input.chargeDate:null});
+  const before=await repository.read(p);
+  const result=await service.applySourceEvent(source,crypto.randomUUID(),{...notice,kind:'cancel',sourceVersion:'v2',previousSourceVersion:'v1',expectedInventoryVersion:before.version});
+  assert.equal(result.state,'applied');
+  const after=await repository.read(p);
+  assert.equal(after.bookings[0].status,'cancelled');
+  assert.equal(after.bookings[0].paymentEvents?.length??0,status==='done'?1:0);
+ }
+});
+
+test('card result cannot clear a pre-existing source version divergence',async()=>{
+ const {service,repository}=setup((s,b)=>{b.version=2;s.sourceLinks=[{bookingId:b.id,lastAppliedBookingVersion:1,diverged:false,externalOrderId:'L:SYNTHETIC-ONLY'}];});
+ await assert.rejects(()=>commit(service,{...input,status:'fail',chargeDate:null}),e=>e.code==='CARD_ORDER_REVIEW');
+ assert.equal((await repository.read(p)).sourceLinks[0].lastAppliedBookingVersion,1);
+});
