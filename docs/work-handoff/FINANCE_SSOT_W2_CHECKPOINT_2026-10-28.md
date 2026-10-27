@@ -10,11 +10,13 @@ This branch is stacked on W1 PR #106. It is a guarded implementation candidate, 
 - New finance grants require a connector UUID. OS and LINE keep their existing independently verified member/operator proofs. Card's dedicated `card:sync` grant cannot acquire a generic receipt scope.
 - `009` adds zero-cash operational status, recurring expense plan, and expected OTA payout rule operations with independent scopes and request receipts. `010` adds append-only evidence assertions and settlement batches with a deferred database link-balance check. Neither creates another room receipt.
 - Verified provider transaction references use the cross-property ownership unique index. If a transaction ref collides, the command returns a review code without revealing the other property.
+- `011` adds a reviewed, append-only source-order link and import issue workflow. A dedicated `finance:import` credential can preview and commit source links and historical commands while its connector has no cutover timestamp. Source links require an exact booking UUID/version, source snapshot hash, reviewer evidence, a confirmation flag and a short-lived signed preview. Import receipts and ledger remain readable after cutover; import writes then fail closed. Blocking issues can be listed and resolved with an auditable request receipt.
+- A settled event now rejects amendments and voids, preserving the exact event IDs and amounts referenced by the settlement batch. Refund amendment and reversal read-model cases are covered by the local database test.
 
 ## Gates and verified behavior
 
 - `IRON_GATE_FINANCE_COMMANDS_ENABLED` and `IRON_GATE_FINANCE_NATIVE_LEDGER_ENABLED` default off. Command preview also requires `IRON_GATE_FINANCE_PREVIEW_SECRET` of at least 32 characters. No production finance migration, connector, deployment, or writer was changed.
-- Local PostgreSQL 15 test database: migrations 008–010, scoped runtime role, command create/amend/void/refund, exact booking link, request retry, amount cap, duplicate review, provider transaction collision, zero-cash plans/status, balanced settlement, evidence promotion, property isolation, read model, and native/Card atomic rollback passed.
+- Local PostgreSQL 15 test database: migrations 008–011, scoped runtime role, command create/amend/void/refund, exact booking link, shadow import, issue resolution, request retry, amount cap, duplicate review, provider transaction collision, zero-cash plans/status, balanced settlement, evidence promotion, property isolation, read model, and native/Card atomic rollback passed.
 - `npm run check` passed. `npm test`: 446 tests, 433 passed, 13 skipped, 0 failed. The local PostgreSQL tests run sequentially with `IRON_GATE_FINANCE_TEST_DATABASE=iron_gate_finance_test3` because each test truncates its dedicated disposable database.
 
 ## Required before any W7 enablement
@@ -22,5 +24,5 @@ This branch is stacked on W1 PR #106. It is a guarded implementation candidate, 
 - W0 source snapshots and W3–W6 adapters, classification/account provisioning, backfill and per-source reconciliation are not done in this branch.
 - Generic refunds against a legacy native/Card receipt are explicitly blocked with a review code until a same-transaction booking JSON compatibility projection is implemented. The existing native refund path remains behind the native-ledger cutover flag.
 - Bookings with existing unmapped payment JSON, unclear OTA payee, or stale source link are blocked for review. They need exact source evidence and mapping before cutover.
-- Add import preview/commit, issue resolution and Sheet batch workflows, plus per-property flags and monitoring.
+- Build the source-specific import transform and human review UI, Sheet batch scanner/workbook, plus per-property flags and monitoring. The W2 API records only exact reviewed mappings; it does not infer a booking from a name, amount, or date.
 - The new read model currently serves only when the guarded command service is enabled. Do not enable it until old events are backfilled and individually reconciled.

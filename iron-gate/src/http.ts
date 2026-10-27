@@ -7,6 +7,17 @@ export type Authenticate = (request: Request) => Promise<Principal | null>;
 export type ChannelQueued = (job: { propertyId: string; operationKey: string }) => void;
 export type FinanceRoutes = {
   readonly enabled: boolean;
+  sourceLinkPreview(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  sourceLinkCommit(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  importPreview(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  importCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  importReceipt(principal: Principal, propertyId: string, requestKey: string): Promise<unknown>;
+  importLedger(principal: Principal, propertyId: string, query: { from: string | null; to: string | null;
+    cursor: string | null; limit: number }): Promise<unknown>;
+  importIssue(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  importIssues(principal: Principal, propertyId: string, status: string): Promise<unknown>;
+  resolveImportIssue(principal: Principal, propertyId: string, issueId: string,
+    input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   preview(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   command(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   receipt(principal: Principal, propertyId: string, requestKey: string): Promise<unknown>;
@@ -83,6 +94,43 @@ export function createHandler(service: IronGateService, authenticate: Authentica
       const principal = await authenticate(request);
       if (!principal) return json({ error: { code: "UNAUTHORIZED" } }, 401);
       if (parts[1] === "properties" && parts[2] && parts[3] === "finance" && finance) {
+        if (parts[4] === 'source-links' && parts[5] === 'preview' &&
+          parts.length === 6 && request.method === 'POST')
+          return json(await finance.sourceLinkPreview(principal,parts[2],
+            await body(request),requestKey(request)));
+        if (parts[4] === 'source-links' && parts.length === 5 && request.method === 'POST')
+          return json(await finance.sourceLinkCommit(principal,parts[2],
+            await body(request),requestKey(request)),201);
+        if (parts[4] === 'imports' && parts[5] === 'preview' &&
+          parts.length === 6 && request.method === 'POST')
+          return json(await finance.importPreview(principal,parts[2],
+            await body(request),requestKey(request)));
+        if (parts[4] === 'imports' && parts[5] === 'commands' &&
+          parts.length === 6 && request.method === 'POST')
+          return json(await finance.importCommand(principal,parts[2],
+            await body(request),requestKey(request)),201);
+        if (parts[4] === 'imports' && parts[5] === 'receipts' &&
+          parts[6] && parts.length === 7 && request.method === 'GET')
+          return json(await finance.importReceipt(principal,parts[2],
+            decodeURIComponent(parts[6])));
+        if (parts[4] === 'imports' && parts[5] === 'ledger' &&
+          parts.length === 6 && request.method === 'GET')
+          return json(await finance.importLedger(principal,parts[2],{
+            from:url.searchParams.get('from'),to:url.searchParams.get('to'),
+            cursor:url.searchParams.get('cursor'),
+            limit:Number(url.searchParams.get('limit') ?? '50') }));
+        if (parts[4] === 'imports' && parts[5] === 'issues' &&
+          parts.length === 6 && request.method === 'POST')
+          return json(await finance.importIssue(principal,parts[2],
+            await body(request),requestKey(request)),201);
+        if (parts[4] === 'imports' && parts[5] === 'issues' &&
+          parts.length === 6 && request.method === 'GET')
+          return json(await finance.importIssues(principal,parts[2],
+            url.searchParams.get('status') ?? 'open'));
+        if (parts[4] === 'imports' && parts[5] === 'issues' && parts[6] &&
+          parts[7] === 'resolve' && parts.length === 8 && request.method === 'POST')
+          return json(await finance.resolveImportIssue(principal,parts[2],
+            parts[6],await body(request),requestKey(request)),201);
         if (parts[4] === 'status-commands' && parts.length === 5 && request.method === 'POST')
           return json(await finance.statusCommand(principal,parts[2],await body(request),requestKey(request)),201);
         if (parts[4] === 'status' && parts.length === 5 && request.method === 'GET')

@@ -10,6 +10,7 @@ const propertyId = '10000000-0000-4000-8000-000000000002';
 const otherPropertyId = '10000000-0000-4000-8000-000000000003';
 const bookingId = '10000000-0000-4000-8000-000000000004';
 const connectorId = '10000000-0000-4000-8000-000000000005';
+const importConnectorId = '10000000-0000-4000-8000-000000000006';
 const secret = 'synthetic-finance-test-secret-32-bytes-long';
 
 function state(id, booking = false) {
@@ -215,6 +216,63 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       await assert.rejects(service.command(principal, propertyId,
         { ...excessive, preview_token: excessivePreview.preview_token }, excessive.request_key),
       e => e.code === 'ALLOCATION_MISMATCH');
+      await admin.query(`INSERT INTO iron_gate.finance_connector
+        (source_instance_id,property_id,source_system,enabled)
+        VALUES ($1,$2,'os_legacy_payment',true)`,[importConnectorId,propertyId]);
+      const importer = { ...principal,origin:'finance',
+        financeSourceInstanceId:importConnectorId,
+        actions:['finance:import','finance:refund'] };
+      const link = { request_key:'reviewed-link-1',source_order_key:'SF-IMPORTED-1',
+        booking_id:bookingId,expected_booking_version:1,
+        source_snapshot_hash:'b'.repeat(64),evidence_ref:'synthetic-review-1',
+        review_confirmed:true };
+      const linkPreview = await service.sourceLinkPreview(importer,propertyId,
+        link,link.request_key);
+      const linked = await service.sourceLinkCommit(importer,propertyId,
+        { ...link,preview_token:linkPreview.preview_token },link.request_key);
+      assert.equal(linked.cash_effect_cents,0);
+      assert.deepEqual(await service.sourceLinkCommit(importer,propertyId,
+        { ...link,preview_token:linkPreview.preview_token },link.request_key),linked);
+      const imported = { ...roomCommand('legacy-receipt-1',1000),
+        booking_allocations:[{source_order_key:'SF-IMPORTED-1',
+          amount_cents:1000,allocation_kind:'room'}] };
+      const importPreview = await service.importPreview(importer,propertyId,
+        imported,imported.request_key);
+      const importReceipt = await service.importCommand(importer,propertyId,
+        {...importPreview.resolved_command,preview_token:importPreview.preview_token},
+        imported.request_key);
+      assert.equal(importReceipt.receipt_status,'accepted');
+      assert.deepEqual(await service.importReceipt(importer,propertyId,
+        imported.request_key),importReceipt);
+      assert.equal((await service.importLedger(importer,propertyId,
+        {limit:100})).events.some(event => event.document_id===importReceipt.document_id),true);
+      const issue = { request_key:'import-issue-1',source_record_id:'legacy-ambiguous-1',
+        source_version:'1',reason_code:'BOOKING_MAPPING_AMBIGUOUS',severity:'blocking' };
+      const flagged = await service.importIssue(importer,propertyId,issue,issue.request_key);
+      assert.equal(flagged.issue_status,'open');
+      assert.deepEqual(await service.importIssue(importer,propertyId,issue,
+        issue.request_key),flagged);
+      await assert.rejects(service.importIssue(importer,propertyId,
+        {...issue,request_key:'import-issue-conflict',severity:'classification_only'},
+        'import-issue-conflict'),e => e.code === 'SOURCE_MAPPING_REVIEW_REQUIRED');
+      assert.equal((await service.importIssues(importer,propertyId)).issues.length,1);
+      const resolution = {request_key:'import-issue-resolve-1',
+        resolution_ref:'synthetic-review-2'};
+      const resolved = await service.resolveImportIssue(importer,propertyId,
+        flagged.issue_id,resolution,resolution.request_key);
+      assert.equal(resolved.issue_status,'resolved');
+      assert.equal((await service.importIssues(importer,propertyId)).issues.length,0);
+      await assert.rejects(service.command(importer,propertyId,importPreview.resolved_command,
+        imported.request_key),e => e.code === 'PROPERTY_FORBIDDEN');
+      await admin.query(`UPDATE iron_gate.finance_connector SET cutover_at=now()-interval '1 day'
+        WHERE source_instance_id=$1`,[importConnectorId]);
+      assert.deepEqual(await service.importReceipt(importer,propertyId,
+        imported.request_key),importReceipt);
+      assert.equal((await service.importLedger(importer,propertyId,{limit:100})).events
+        .some(event => event.document_id===importReceipt.document_id),true);
+      await assert.rejects(service.importCommand(importer,propertyId,
+        {...importPreview.resolved_command,preview_token:importPreview.preview_token},
+        imported.request_key),e => e.code === 'SOURCE_FORBIDDEN');
       await assert.rejects(service.receipt(principal, otherPropertyId, first.request_key),
         e => e.code === 'PROPERTY_FORBIDDEN');
     } finally {
