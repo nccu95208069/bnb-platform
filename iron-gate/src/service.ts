@@ -1,3 +1,4 @@
+import { resolveCard, hasCardReceipt, cardAliases, cardPaymentId, type CardInput } from "./card-sync.ts";
 import type {
   Action, AmendBookingInput, Booking, BookingReceipt, CreateBookingInput, CreateHoldInput,
   ExtendHoldInput, LineInventoryInput, LineInventoryBatchInput, LineBulkCancelInput,
@@ -434,6 +435,8 @@ function publicBooking(booking: Booking, principal: Principal,
     principal.fields.includes("notes")) result.notes = booking.notes;
   if (principal.origin === "os" && principal.fields.includes("payment_status"))
     result.paymentReview = calendarPaymentStatus(booking);
+  if (principal.origin === "os" && principal.fields.includes("money") && booking.cardChargeResults?.length)
+    result.cardChargeResult = structuredClone(booking.cardChargeResults.at(-1));
   if ((principal.origin === "os" || principal.origin === "finance") &&
     principal.fields.includes("money")) {
     result.totalCents = booking.totalCents;
@@ -857,7 +860,7 @@ function calendarPaymentStatus(booking: Booking): { status: "paid" | "deposit" |
   // A later booking-source amendment clears its old imported fee and advances
   // the booking version. Never reuse the frozen H flag for that changed order.
   const sourcePaid = booking.totalCents !== null &&
-    booking.version === 1 + events.length &&
+    booking.version === 1 + events.length + (booking.cardChargeResults ?? []).filter(result => result.status === "fail").length &&
     Array.isArray(rows) && rows.length > 0 && rows.every((row) =>
       Array.isArray(row?.values) && String(row.values[7] ?? "").trim() === "done");
   if (events.length) {
@@ -1464,6 +1467,70 @@ export class IronGateService {
     });
   }
 
+  async previewCardSync(principal: Principal, propertyId: string, input: CardInput): Promise<Record<string, unknown>> {
+    uuid(propertyId);
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    authorize(principal, state, "card:sync", true);
+    if (principal.origin !== "finance" || !principal.fields.includes("money")) reject("FORBIDDEN", 403);
+    const result = resolveCard(state, input);
+    return { bookingId: result.booking.id, bookingVersion: result.booking.version,
+      action: result.action, aliases: result.aliases, totalCents: result.booking.totalCents,
+      netReceivedCents: netReceived(result.booking), paymentEventId: result.previous?.paymentEventId ?? null,
+      financeSnapshot: this.cardFinanceProjection(state, result.booking) };
+  }
+
+  private cardFinanceProjection(state: PropertyState, booking: Booking) {
+    const bookings = hasCardReceipt(booking) ? [{ id: booking.id, propertyId: state.propertyId,
+      workspaceId: state.workspaceId, source: booking.source, cardManaged: true,
+      legacyAliases: cardAliases(state, booking), version: booking.version, status: booking.status,
+      stays: structuredClone(booking.stays), totalCents: booking.totalCents, currency: booking.currency,
+      paymentSummary: paymentTotals(booking), paymentEvents: structuredClone(booking.paymentEvents ?? []) }] : [];
+    const snapshot = { schema: 1, propertyId: state.propertyId, workspaceId: state.workspaceId,
+      authorityEpoch: state.authorityEpoch, inventoryVersion: state.version, bookings };
+    return {...snapshot, revision: createHash("sha256").update(JSON.stringify(snapshot), "utf8").digest("hex")};
+  }
+
+  async recordCardSync(principal: Principal, propertyId: string, requestKey: string,
+    input: CardInput & { bookingId: string; expectedBookingVersion: number }): Promise<Record<string, unknown>> {
+    uuid(propertyId); uuid(requestKey); uuid(input.bookingId);
+    if (!Number.isSafeInteger(input.expectedBookingVersion) || input.expectedBookingVersion < 1) reject("INVALID_VERSION");
+    const hash = await digest({action: "card:sync", input});
+    return this.repository.transact(propertyId, (state, tx) => {
+      authorize(principal, state, "card:sync", true);
+      if (principal.origin !== "finance" || !principal.fields.includes("money")) reject("FORBIDDEN", 403);
+      const prior = receiptFor(state, principal, requestKey, hash);
+      if (prior) return prior.response;
+      const result = resolveCard(state, input), booking = result.booking;
+      if (booking.id !== input.bookingId) reject("CARD_ORDER_CHANGED", 409);
+      if (!result.previous) {
+        if (booking.version !== input.expectedBookingVersion) reject("VERSION_CONFLICT", 409);
+        const recordedAt = new Date().toISOString();
+        const paymentEventId = input.status === "done" ? cardPaymentId(propertyId, booking.id) : null;
+        if (paymentEventId) {
+          if (state.bookings.some(item => (item.paymentEvents ?? []).some(event => event.id === paymentEventId)))
+            reject("PAYMENT_INTEGRITY_CONFLICT", 409);
+          booking.paymentEvents ??= [];
+          booking.paymentEvents.push({id: paymentEventId, kind: "received", amountCents: input.amountCents,
+            currency: "TWD", method: "credit_card", evidenceRef: `booking-card:${input.orderId}`,
+            occurredAt: `${input.chargeDate}T00:00:00+08:00`, recordedAt, actorId: principal.subjectId});
+        }
+        booking.cardChargeResults ??= [];
+        const {bookingId: _id, expectedBookingVersion: _version, ...source} = input;
+        booking.cardChargeResults.push({...source, fingerprint: result.fingerprint, recordedAt,
+          actorId: principal.subjectId, paymentEventId});
+        booking.version++;
+        emit(tx, state, paymentEventId ? "payment.recorded" : "card.result_recorded", booking, principal, requestKey);
+      }
+      const response = { bookingId: booking.id, bookingVersion: booking.version, action: result.action,
+        paymentEventId: booking.cardChargeResults!.find(item => item.fingerprint === result.fingerprint)!.paymentEventId,
+        netReceivedCents: netReceived(booking), aliases: result.aliases,
+        financeSnapshot: this.cardFinanceProjection(state, booking) };
+      saveReceipt(state, principal, requestKey, "card:sync", hash, response);
+      return response;
+    });
+  }
+
   async recordPaymentEvent(principal: Principal, propertyId: string, bookingId: string,
     requestKey: string, input: PaymentEventInput): Promise<Record<string, unknown>> {
     uuid(propertyId); uuid(bookingId); uuid(requestKey); uuid(input.eventId);
@@ -1641,9 +1708,10 @@ export class IronGateService {
     authorize(principal, state, "finance:ledger");
     if (principal.origin !== "os" || !principal.fields.includes("money")) reject("FORBIDDEN", 403);
     if (principal.authorityEpoch !== state.authorityEpoch) reject("AUTHORITY_MOVED", 409);
-    const bookings = state.bookings.filter(booking => booking.source === "os")
+    const bookings = state.bookings.filter(booking => booking.source === "os" || hasCardReceipt(booking))
       .sort((a, b) => a.id.localeCompare(b.id)).map(booking => ({
-        id: booking.id, propertyId, workspaceId: state.workspaceId, source: "os",
+        id: booking.id, propertyId, workspaceId: state.workspaceId, source: booking.source,
+        ...(hasCardReceipt(booking) ? {cardManaged: true, legacyAliases: cardAliases(state, booking)} : {}),
         version: booking.version, status: booking.status, stays: structuredClone(booking.stays),
         totalCents: booking.totalCents, currency: booking.currency,
         paymentSummary: paymentTotals(booking),

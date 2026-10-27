@@ -1,3 +1,4 @@
+import type { CardInput } from "./card-sync.ts";
 import { GateError, IronGateService } from "./service.ts";
 import type { AmendBookingInput, CreateBookingInput, CreateHoldInput, ExtendHoldInput, LineInventoryInput, LineInventoryBatchInput, LineBulkCancelInput, LineChannelActionInput, PaymentEventInput,
   Principal, ReadbackInput, SourceEventInput, SourceFactsInput, SourceOrderLookupInput } from "./types.ts";
@@ -237,6 +238,14 @@ export function createHandler(service: IronGateService, authenticate: Authentica
           return json(await service.recordPaymentEvent(principal, propertyId, parts[4], requestKey(request),
             value as PaymentEventInput), 201);
         }
+      }
+      if (parts[1] === "properties" && parts[2] && parts[3] === "card-sync" && parts.length === 5 &&
+        ["preview", "commit"].includes(parts[4]) && request.method === "POST") {
+        const value = await body(request);
+        exact(value, ["sheetId", "tab", "row", "platform", "orderId", "checkIn", "checkOut", "amountCents", "status", "chargeDate",
+          ...(parts[4] === "commit" ? ["bookingId", "expectedBookingVersion"] : [])]);
+        return json(parts[4] === "preview" ? await service.previewCardSync(principal, parts[2], value as CardInput) :
+          await service.recordCardSync(principal, parts[2], requestKey(request), value as CardInput & {bookingId:string;expectedBookingVersion:number}));
       }
       if (parts[1] === "properties" && parts[2] && parts[3] === "events" &&
         parts.length === 4 && request.method === "GET") {

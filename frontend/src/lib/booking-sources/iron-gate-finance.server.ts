@@ -35,19 +35,25 @@ export function projectDirectFinance(raw: Record<string, unknown>, config: Manua
     !Number.isSafeInteger(raw.inventoryVersion) || Number(raw.inventoryVersion) < 0 ||
     !Array.isArray(raw.bookings) || raw.bookings.length > 5000 ||
     typeof revision !== 'string' || revision !== createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')) invalid();
-  const entries: FinanceEntry[] = [], orders: FinanceOrder[] = [];
+  const entries: FinanceEntry[] = [], orders: FinanceOrder[] = [], replacedOrderIds: string[] = [];
   const ids = new Set<string>(), eventIds = new Set<string>();
   const roomNames = new Map(Object.entries(config.calendar.roomIds).map(([name, id]) => [id, name]));
   for (const value of raw.bookings as unknown[]) {
     if (!object(value) || !UUID.test(String(value.id)) || ids.has(String(value.id))) invalid();
     const booking = value as Record<string, unknown>;
-    const checked = checkPaymentBooking(booking, config, String(booking.id));
+    const card = booking.source === 'external' && booking.cardManaged === true;
+    const aliases = card ? booking.legacyAliases : [];
+    if (card && (!Array.isArray(aliases) || aliases.length < 2 || aliases.length > 20 ||
+      aliases.some(alias => typeof alias !== 'string' || !/^(?:SF-[a-f0-9]{20}|IG-[0-9a-f-]{36}|[0-9a-f-]{36})$/.test(alias)))) invalid();
+    const checked = checkPaymentBooking(booking, config, String(booking.id), card);
+    const identity = card ? aliases as string[] : [`IG-${checked.bookingId}`, checked.bookingId];
+    if (card) replacedOrderIds.push(...identity);
     ids.add(checked.bookingId);
     const id = `IG-${checked.bookingId}`, orderKey = ledgerKey('sweetfun', id);
     // Conflicting identity is a blocking incident, never an amount/date heuristic.
     if (legacyEntries.some(entry => entry.status === 'active' &&
-      (entry.order_key === orderKey || entry.order_id === id || entry.order_id === checked.bookingId ||
-        entry.allocations?.some(allocation => [id, checked.bookingId].includes(allocation.order_id)))))
+      (identity.some(alias => entry.order_key === ledgerKey('sweetfun', alias)) || identity.includes(entry.order_id ?? '') ||
+        entry.allocations?.some(allocation => identity.includes(allocation.order_id)))))
       throw Error('IRON_GATE_LEGACY_LEDGER_CONFLICT');
     if (checked.totalCents === null || !Array.isArray(booking.stays) || !booking.stays.length || booking.stays.length > 32) invalid();
     const stays = booking.stays as Record<string, unknown>[];
@@ -76,7 +82,7 @@ export function projectDirectFinance(raw: Record<string, unknown>, config: Manua
     const checkIn = stays.map(stay => String(stay.checkIn)).sort()[0];
     const checkOut = stays.map(stay => String(stay.checkOut)).sort().at(-1)!;
     orders.push({ id, calendar_id: id, booking_id: checked.bookingId, source: 'iron_gate',
-      status: checked.status as 'held' | 'confirmed' | 'cancelled', platform: 'direct', rooms: [...rooms].sort(),
+      status: checked.status as 'held' | 'confirmed' | 'cancelled', platform: card ? 'booking' : 'direct', rooms: [...rooms].sort(),
       check_in: checkIn, check_out: checkOut, total: checked.totalCents!, received: checked.netReceivedCents,
       receivable: checked.status !== 'confirmed' ? 0 : Math.max(0, checked.totalCents! - checked.netReceivedCents),
       credit: Math.max(0, checked.netReceivedCents - (checked.status === 'cancelled' ? 0 : checked.totalCents!)),
@@ -88,14 +94,14 @@ export function projectDirectFinance(raw: Record<string, unknown>, config: Manua
       entries.push({ id: `iron-gate:${config.grant.propertyId}:${event.id}`, property_id: 'sweetfun',
         kind: event.kind === 'received' ? 'income' : 'refund', category: 'lodging',
         amount_cents: event.amountCents, date: taipeiDate(new Date(event.occurredAt)),
-        description: `${event.kind === 'received' ? '直訂收款' : '直訂退款'} · ${event.evidenceRef}`,
+        description: `${card ? 'Booking 刷卡' : event.kind === 'received' ? '直訂收款' : '直訂退款'} · ${event.evidenceRef}`,
         method: event.method ?? 'other', source: 'iron_gate', actor: event.actorId,
         created_at: event.recordedAt, status: 'active', order_id: id, order_key: orderKey,
-        platform: 'direct', iron_gate_booking_id: checked.bookingId, payment_event_id: event.id,
+        platform: card ? 'booking' : 'direct', iron_gate_booking_id: checked.bookingId, payment_event_id: event.id,
         ...(event.refundOfEventId ? { refund_of_event_id: event.refundOfEventId } : {}) });
     }
   }
-  return { entries, orders, revision: revision as string };
+  return { entries, orders, replacedOrderIds, revision: revision as string };
 }
 
 export async function readDirectFinance(principal: Principal, config: ManualConfig,
