@@ -1,6 +1,6 @@
 export type BookingStatus = "held" | "confirmed" | "cancelled";
 export type ChannelSyncState = "not_required" | "action_required" | "awaiting_manual_sync" | "pending" | "verified" | "review_required" | "manually_confirmed";
-export type OperationState = "sync_pending" | "sync_verified" | "review_required";
+export type OperationState = "sync_pending" | "sync_verified" | "review_required" | "retired_source_managed";
 export type Action =
   | "booking:read"
   | "booking:aggregate"
@@ -139,6 +139,8 @@ export type FirstNewOrderNotification = Readonly<{
 }>;
 
 export type ChannelOperation = {
+  /** Staff-confirmed provider control; never changes OS occupancy or booking sync. */
+  controlMode?: "provider_only";
   key: string;
   bookingId: string | null;
   bookingVersion: number;
@@ -147,7 +149,7 @@ export type ChannelOperation = {
   createdAt: string;
   verifiedAt: string | null;
   providerVersion: string | null;
-  /** Present only for staff-confirmed, booking-bound LINE operations. */
+  /** Present only for staff-confirmed LINE operations. */
   lineGrantId?: string;
   lineActorId?: string;
   /** A pre-existing closed cell cannot prove it was closed for this booking. */
@@ -234,6 +236,7 @@ export type CreateBookingInput = {
   source: "os" | "line" | "website";
   /** Opt-in rollout policy, bound into the LINE preview and request receipt. */
   channelPolicy?: "manual";
+  acknowledgedClosedNights?: Night[];
 };
 
 export type LineInventoryInput = {
@@ -268,6 +271,7 @@ export type AmendBookingInput = {
   expectedInventoryVersion: number;
   changes: Partial<Pick<Booking, "stays" | "guestName" | "contact" | "notes" | "totalCents" | "roomNightPrices" | "bookedAt">>;
   channelPolicy?: "manual";
+  acknowledgedClosedNights?: Night[];
   reason?: string;
 };
 
@@ -304,6 +308,12 @@ export type SourceEventInput = {
   currency?: "TWD";
   platform?: string | null;
   externalOrderNo?: string | null;
+  /** Gmail's aligned DKIM/DMARC verdict, asserted by the bound Gmail writer. */
+  sourceIdentityEvidence?: {
+    kind: "gmail-owlnest-dkim-v1" | "gmail-owljourney-dkim-v1";
+    signedDomain: "owlting.com";
+    deliveredTo: "sweetfuntw@gmail.com";
+  };
 };
 
 export type SourceOrderLookupInput = Pick<SourceEventInput,
@@ -351,7 +361,7 @@ export type EventType =
   | "source.notification_recorded"
   | "reporting.policy_recorded"
   | "channel.requested" | "channel.verified" | "channel.review_required"
-  | "channel.review_claim_released";
+  | "channel.review_claim_released" | "channel.source_operation_retired";
 
 export type PendingEvent = {
   eventId: string;
@@ -382,6 +392,7 @@ export type AuditRecord = {
   requestKey: string | null;
   reason?: string;
   manualRoomHandling?: { closedNights: Night[]; handledCells: DesiredCell[] };
+  acknowledgedClosedNights?: Night[];
 };
 
 export type TransactionContext = {

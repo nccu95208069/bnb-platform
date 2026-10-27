@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import { databaseUrlForVercel } from "./index.mjs";
+import { databaseUrlForVercel } from "../dist/vercel-database.mjs";
 import { PostgresPropertyRepository } from "../dist/postgres-repository.mjs";
 import { IronGateService } from "../dist/service.js";
 import { createChannelWorker } from "../dist/channel-worker.mjs";
@@ -60,16 +60,16 @@ function response(status, state) {
 }
 
 /** Bounded one-operation tick. A missing configuration always fails closed. */
-export function createChannelWorkerFetch(env = process.env, dependencies = {}) {
+export function createChannelWorkerRunner(env = process.env, dependencies = {}) {
   let ready;
-  return async (request) => {
-    if (request.method !== "GET") return response(405, "method_not_allowed");
+  return async (target = null) => {
     if (env.VERCEL_ENV !== "production" ||
       env.IRON_GATE_PRODUCTION_CHANNEL_WORKER_ENABLED !== "true")
-      return response(503, "disabled");
-    if (!SECRET.test(env.CRON_SECRET ?? "") ||
-      request.headers.get("authorization") !== "Bearer " + env.CRON_SECRET)
-      return response(401, "unauthorized");
+      throw Error("CHANNEL_WORKER_DISABLED");
+    if (target !== null && (!UUID.test(target.propertyId ?? "") ||
+      !UUID.test(target.operationKey ?? "") ||
+      target.propertyId !== env.IRON_GATE_CHANNEL_PROPERTY_ID))
+      throw Error("CHANNEL_WORKER_TARGET_INVALID");
     try {
       ready ??= (async () => {
         const propertyId = env.IRON_GATE_CHANNEL_PROPERTY_ID;
@@ -145,12 +145,12 @@ export function createChannelWorkerFetch(env = process.env, dependencies = {}) {
       if (!state || state.channel?.grantId !== grantId || state.readOnly !== false ||
         state.channel?.mode !== "owlnest" || state.channel?.ready !== true ||
         state.channel?.sourceReadbackEnabled !== true)
-        return response(409, "property_not_ready");
+        throw Error("CHANNEL_WORKER_PROPERTY_NOT_READY");
       const principal = { clientId: "channel-cron", subjectId: "channel-cron",
         origin: "channel", workspaceId: state.workspaceId,
         propertyIds: [propertyId], authorityEpoch: state.authorityEpoch,
         actions: ["channel:verify"], fields: [], grantId };
-      if (env.IRON_GATE_CHANNEL_NOTICE_RETRY_ENABLED === "true") {
+      if (!target && env.IRON_GATE_CHANNEL_NOTICE_RETRY_ENABLED === "true") {
         const retryUrl = new URL(alertUrl);
         retryUrl.pathname = "/internal/iron-gate-channel-alert-retry";
         try {
@@ -163,12 +163,32 @@ export function createChannelWorkerFetch(env = process.env, dependencies = {}) {
           if (!retry?.ok) console.error("channel_notice_retry_failed", { propertyId });
         } catch { console.error("channel_notice_retry_failed", { propertyId }); }
       }
-      const result = await worker.runOne(principal, propertyId);
-      return response(result.state === "review_required" ? 409 : 200, result.state);
+      return await worker.runOne(principal, propertyId, target?.operationKey ?? null);
     } catch (error) {
       console.error("channel_worker_failed", {
         code: SAFE_ERRORS.has(error?.message) ? error.message : "INTERNAL_ERROR" });
-      return response(503, "unavailable");
+      throw error;
+    }
+  };
+}
+
+/** Cron remains an authenticated fallback; HTTP input cannot choose a target. */
+export function createChannelWorkerFetch(env = process.env, dependencies = {}) {
+  const run = createChannelWorkerRunner(env, dependencies);
+  return async (request) => {
+    if (request.method !== "GET") return response(405, "method_not_allowed");
+    if (env.VERCEL_ENV !== "production" ||
+      env.IRON_GATE_PRODUCTION_CHANNEL_WORKER_ENABLED !== "true")
+      return response(503, "disabled");
+    if (!SECRET.test(env.CRON_SECRET ?? "") ||
+      request.headers.get("authorization") !== "Bearer " + env.CRON_SECRET)
+      return response(401, "unauthorized");
+    try {
+      const result = await run();
+      return response(result.state === "review_required" ? 409 : 200, result.state);
+    } catch (error) {
+      return response(error?.message === "CHANNEL_WORKER_PROPERTY_NOT_READY" ? 409 : 503,
+        error?.message === "CHANNEL_WORKER_PROPERTY_NOT_READY" ? "property_not_ready" : "unavailable");
     }
   };
 }

@@ -9,7 +9,8 @@ import type {
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { GateError } from "./errors.ts";
 import { createBusinessReport, type BusinessReport } from "./business-report.ts";
-import { firstGmailNotification, GMAIL_NOTIFICATION_SUBJECT } from "./source-notification.ts";
+import { firstGmailNotification, GMAIL_NOTIFICATION_SOURCE,
+  GMAIL_NOTIFICATION_SUBJECT } from "./source-notification.ts";
 import { isOsDirectBooking, originalDirectOrderRef } from "./os-direct-booking.ts";
 export { GateError } from "./errors.ts";
 
@@ -93,7 +94,7 @@ async function linePreviewKey(secret: string): Promise<CryptoKey> {
 }
 async function signLinePreview(secret: string, principal: Principal,
   propertyId: string, inventoryVersion: number, inputHash: string,
-  action: "create" | "amend" | "cancel" | "inventory" | "inventory-batch" | "bulk-cancel" | "channel-action" = "create", bookingId: string | null = null,
+  action: "create" | "amend" | "cancel" | "inventory" | "inventory-batch" | "bulk-cancel" | "channel-action" | "room-control" = "create", bookingId: string | null = null,
   bookingVersion: number | null = null, targetHash: string | null = null): Promise<{
     token: string; expiresAt: string;
   }> {
@@ -112,7 +113,7 @@ async function signLinePreview(secret: string, principal: Principal,
 }
 function verifyLinePreview(secret: string, token: string | null | undefined,
   principal: Principal, propertyId: string, inventoryVersion: number,
-  inputHash: string, action: "create" | "amend" | "cancel" | "inventory" | "inventory-batch" | "bulk-cancel" | "channel-action" = "create",
+  inputHash: string, action: "create" | "amend" | "cancel" | "inventory" | "inventory-batch" | "bulk-cancel" | "channel-action" | "room-control" = "create",
   bookingId: string | null = null, bookingVersion: number | null = null,
   targetHash: string | null = null): number | null {
   try {
@@ -194,12 +195,27 @@ function lineScope(principal: Principal): Record<string, unknown> {
     { grantId: principal.grantId };
 }
 function occupies(booking: Booking): boolean { return booking.status === "held" || booking.status === "confirmed"; }
-function hasConflict(state: PropertyState, cells: Night[], exceptBookingId?: string, exceptFenceKey?: string): boolean {
+function hasConflict(state: PropertyState, cells: Night[], exceptBookingId?: string, exceptFenceKey?: string, acknowledgedBlocks = false): boolean {
   const asked = new Set(cells.map(keyOf));
-  if (state.manualBlocks.some((cell) => asked.has(keyOf(cell)))) return true;
+  if (!acknowledgedBlocks && state.manualBlocks.some((cell) => asked.has(keyOf(cell)))) return true;
   if (state.fences.some((fence) => fence.key !== exceptFenceKey && fence.cells.some((cell) => asked.has(keyOf(cell))))) return true;
   return state.bookings.some((booking) => booking.id !== exceptBookingId && occupies(booking) &&
     nightsFor(booking.stays, state.roomIds).some((cell) => asked.has(keyOf(cell))));
+}
+/** Only exact, explicitly acknowledged manual closures may be registered through LINE. */
+function acknowledgeClosedNights(state: PropertyState, cells: Night[], manual: boolean,
+  acknowledged: Night[] | undefined): boolean {
+  if (acknowledged === undefined) return false;
+  if (!manual) reject("FORBIDDEN", 403);
+  const selected = new Set(cells.map(keyOf));
+  const closed = state.manualBlocks.filter(cell => selected.has(keyOf(cell))).map(keyOf).sort();
+  if (!Array.isArray(acknowledged) || !acknowledged.length || acknowledged.length > 2190 ||
+    acknowledged.some(cell => !cell || typeof cell !== "object" || Array.isArray(cell) ||
+      Object.keys(cell).sort().join(",") !== "date,roomId" ||
+      typeof cell.roomId !== "string" || typeof cell.date !== "string") ||
+    canonical(acknowledged.map(keyOf).sort()) !== canonical(closed))
+    reject("CLOSED_ROOM_ACK_MISMATCH", 409);
+  return true;
 }
 /** The preview is invalidated only by changes to its own room nights. */
 function targetHash(state: PropertyState, cells: Night[], exceptBookingId?: string): string {
@@ -753,6 +769,23 @@ function requireLineInventory(principal: Principal, state: PropertyState,
   }
   return cell;
 }
+type LineRoomControlInput = Pick<LineInventoryBatchInput, "cells" | "desired">;
+function requireLineRoomControl(principal: Principal, state: PropertyState,
+  input: LineRoomControlInput): Night[] {
+  authorize(principal, state, "inventory:write", true);
+  if (!lineManagesAll(principal) || !principal.grantId ||
+    state.channel.mode !== "owlnest" || !state.channel.ready ||
+    state.channel.sourceReadbackEnabled !== true || !state.channel.grantId)
+    reject("LINE_CHANNEL_NOT_READY", 409);
+  if (!input || Object.keys(input).sort().join(",") !== "cells,desired") reject("INVALID_INPUT");
+  const cells = verifyLineChannelActionInput({ ...input,
+    expectedInventoryVersion: 0, expectedBookingVersion: 1 });
+  if (cells.some(cell => !state.roomIds.includes(cell.roomId))) reject("ROOM_NOT_FOUND", 404);
+  requireLineStockWindow(state, cells);
+  // OS occupancy, manual blocks, booking versions and deferred sync fences
+  // are not provider-control authority. The provider worker owns serialization.
+  return cells;
+}
 function requireAmendFields(principal: Principal, changes: AmendBookingInput["changes"]): void {
   const grants: [keyof AmendBookingInput["changes"], string][] = [
     ["guestName", "guest_name"], ["contact", "contact"], ["notes", "notes"],
@@ -856,7 +889,7 @@ function changedNights(before: Night[], after: Night[]): boolean {
 
 function emit(tx: TransactionContext, state: PropertyState, type: EventType,
   booking: Booking | null, principal: Principal, requestKey: string | null,
-  reason?: string, manualRoomHandling?: { closedNights: Night[]; handledCells: DesiredCell[] }): void {
+  reason?: string, evidence?: Night[] | { closedNights: Night[]; handledCells: DesiredCell[] }): void {
   const at = new Date().toISOString();
   tx.emit({ eventId: crypto.randomUUID(), at, type,
     propertyId: state.propertyId, bookingId: booking?.id ?? null,
@@ -867,7 +900,9 @@ function emit(tx: TransactionContext, state: PropertyState, type: EventType,
     inventoryVersion: state.version, actorOrigin: principal.origin,
     actorClientId: principal.clientId, actorSubjectId: principal.subjectId,
     actorGrantId: principal.grantId ?? null, requestKey,
-    ...(reason ? { reason } : {}), ...(manualRoomHandling ? { manualRoomHandling } : {}) });
+    ...(reason ? { reason } : {}),
+    ...(Array.isArray(evidence) ? { acknowledgedClosedNights: structuredClone(evidence) } :
+      evidence ? { manualRoomHandling: structuredClone(evidence) } : {}) });
 }
 
 export class IronGateService {
@@ -899,7 +934,8 @@ export class IronGateService {
       !exactNightPrices(input.roomNightPrices, cells, input.totalCents))
       reject("INVALID_NIGHT_PRICES");
     requireLineStockWindow(state, cells);
-    if (hasConflict(state, cells)) reject("ROOM_CONFLICT", 409);
+    const acknowledged = acknowledgeClosedNights(state, cells, manual, input.acknowledgedClosedNights);
+    if (hasConflict(state, cells, undefined, undefined, acknowledged)) reject("ROOM_CONFLICT", 409);
     const hash = await digest({ action: "booking:create", input });
     const scopeHash = manual ? await targetHash(state, cells) : null;
     const signed = await signLinePreview(this.linePreviewSecret, principal,
@@ -907,6 +943,7 @@ export class IronGateService {
     return { propertyId, inventoryVersion: input.expectedInventoryVersion,
       authorityEpoch: state.authorityEpoch, expiresAt: signed.expiresAt,
       previewToken: signed.token, channelSyncState: "preview_only",
+      ...(input.acknowledgedClosedNights ? { closedRoomNights: input.acknowledgedClosedNights } : {}),
       ...(manual ? { observedInventoryVersion: state.version } : {}) };
   }
 
@@ -951,7 +988,8 @@ export class IronGateService {
         !exactNightPrices(input.roomNightPrices, cells, input.totalCents))
         reject("INVALID_NIGHT_PRICES");
       if (principal.origin === "line") requireLineStockWindow(state, cells);
-      if (hasConflict(state, cells)) reject("ROOM_CONFLICT", 409);
+      const acknowledged = acknowledgeClosedNights(state, cells, manual, input.acknowledgedClosedNights);
+      if (hasConflict(state, cells, undefined, undefined, acknowledged)) reject("ROOM_CONFLICT", 409);
       const manualSync = principal.origin === "os" && state.channel.mode === "owlnest";
       const operationKey = state.channel.mode === "owlnest" && !manual && !manualSync ?
         crypto.randomUUID() : null;
@@ -986,7 +1024,8 @@ export class IronGateService {
       state.version++;
       const response = makeBookingReceipt(state, booking);
       saveReceipt(state, principal, requestKey, "booking:create", hash, { ...response });
-      emit(tx, state, "booking.created", booking, principal, requestKey);
+      emit(tx, state, "booking.created", booking, principal, requestKey, undefined,
+        input.acknowledgedClosedNights);
       return response;
     });
   }
@@ -1236,8 +1275,12 @@ export class IronGateService {
       const next = nightsFor((input as AmendBookingInput).changes.stays!, state.roomIds);
       requireLineStockWindow(state, next);
       if (hasConflict(state, next, bookingId,
-        manual ? linePendingFenceKey(bookingId) : undefined)) reject("ROOM_CONFLICT", 409);
+        manual ? linePendingFenceKey(bookingId) : undefined,
+        acknowledgeClosedNights(state, next, manual,
+          (input as AmendBookingInput).acknowledgedClosedNights))) reject("ROOM_CONFLICT", 409);
     }
+    if ((input as AmendBookingInput).acknowledgedClosedNights !== undefined &&
+      (action !== "amend" || !("stays" in (input as AmendBookingInput).changes))) reject("INVALID_INPUT");
     if (action === "amend") requireAmendFields(principal, (input as AmendBookingInput).changes);
     if (action === "amend" && "roomNightPrices" in (input as AmendBookingInput).changes) {
       const changes = (input as AmendBookingInput).changes;
@@ -1259,12 +1302,17 @@ export class IronGateService {
       inventoryVersion: input.expectedInventoryVersion, authorityEpoch: state.authorityEpoch,
       expiresAt: signed.expiresAt, previewToken: signed.token,
       channelSyncState: "preview_only",
+      ...((input as AmendBookingInput).acknowledgedClosedNights ?
+        { closedRoomNights: (input as AmendBookingInput).acknowledgedClosedNights } : {}),
       ...(manual ? { observedInventoryVersion: state.version } : {}) };
   }
 
   async amendBooking(principal: Principal, propertyId: string, bookingId: string, requestKey: string,
     input: AmendBookingInput, linePreviewToken: string | null = null): Promise<BookingReceipt> {
     uuid(propertyId); uuid(bookingId); uuid(requestKey); verifyAmend(input);
+    if (input.acknowledgedClosedNights !== undefined &&
+      (!("stays" in input.changes) || principal.origin !== "line" || input.channelPolicy !== "manual"))
+      reject("FORBIDDEN", 403);
     const osManual = principal.origin === "os" && input.channelPolicy === "manual";
     const manual = osManual ? false : lineManualPolicy(principal, input.channelPolicy);
     const hash = await digest({ action: "booking:amend", bookingId, input });
@@ -1350,10 +1398,11 @@ export class IronGateService {
             requireOsStockWindow(state, uniqueNights([...current, ...next]));
           }
         }
+        const acknowledged = acknowledgeClosedNights(state, next, manual, input.acknowledgedClosedNights);
         if (roomNightsChanged && hasConflict(state, next, booking.id,
           booking.manualRoomHandling ? manualHandlingFenceKey(booking.id) :
           (manual || osManual && booking.lineChannelBaselineNights !== undefined) ? linePendingFenceKey(booking.id) : booking.osManualRoomChange ?
-            osChangeFenceKey(booking.id) : undefined)) reject("ROOM_CONFLICT", 409);
+            osChangeFenceKey(booking.id) : undefined, acknowledged)) reject("ROOM_CONFLICT", 409);
         booking.stays = structuredClone(input.changes.stays!);
       }
       if ("guestName" in input.changes) booking.guestName = externalNameCorrection ?
@@ -1409,7 +1458,8 @@ export class IronGateService {
       if (roomNightsChanged || baselineReadbackNeeded) state.version++;
       const response = makeBookingReceipt(state, booking);
       saveReceipt(state, principal, requestKey, "booking:amend", hash, { ...response });
-      emit(tx, state, "booking.amended", booking, principal, requestKey, input.reason);
+      emit(tx, state, "booking.amended", booking, principal, requestKey, input.reason,
+        input.acknowledgedClosedNights);
       return response;
     });
   }
@@ -1776,12 +1826,57 @@ export class IronGateService {
     authorize(principal, state, "inventory:write");
     if (!lineManagesAll(principal) || !principal.grantId) reject("FORBIDDEN", 403);
     const operation = state.operations.find((item) => item.key === operationKey);
-    if (!operation || operation.lineGrantId !== principal.grantId)
+    if (!operation || operation.lineGrantId !== principal.grantId ||
+      operation.controlMode === "provider_only" && operation.lineActorId !== principal.subjectId)
       reject("OPERATION_NOT_FOUND", 404);
     return { propertyId, operationKey, bookingId: operation.bookingId,
+      ...(operation.controlMode ? { controlMode: operation.controlMode } : {}),
       bookingVersion: operation.bookingVersion, state: operation.state,
       cells: operation.cells, verifiedAt: operation.verifiedAt,
       providerVersion: operation.providerVersion };
+  }
+
+  async previewLineRoomControl(principal: Principal, propertyId: string,
+    input: LineRoomControlInput): Promise<Record<string, unknown>> {
+    uuid(propertyId);
+    if (principal.origin !== "line" || !this.linePreviewSecret)
+      reject("LINE_PREVIEW_UNAVAILABLE", 503);
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    const cells = requireLineRoomControl(principal, state, input);
+    const hash = await digest({ action: "channel:independent", input });
+    const signed = await signLinePreview(this.linePreviewSecret, principal, propertyId,
+      0, hash, "room-control");
+    return { propertyId, cells, desired: input.desired, controlMode: "provider_only",
+      authorityEpoch: state.authorityEpoch, expiresAt: signed.expiresAt,
+      previewToken: signed.token, channelSyncState: "preview_only" };
+  }
+
+  async requestLineRoomControl(principal: Principal, propertyId: string, requestKey: string,
+    input: LineRoomControlInput, linePreviewToken: string | null): Promise<Record<string, unknown>> {
+    uuid(propertyId); uuid(requestKey);
+    if (principal.origin !== "line" || !this.linePreviewSecret)
+      reject("LINE_PREVIEW_UNAVAILABLE", 503);
+    const hash = await digest({ action: "channel:independent", input });
+    return this.repository.transact(propertyId, (state, tx) => {
+      const cells = requireLineRoomControl(principal, state, input);
+      const prior = receiptFor(state, principal, requestKey, hash);
+      if (prior) return prior.response;
+      const expiry = verifyLinePreview(this.linePreviewSecret!, linePreviewToken, principal,
+        propertyId, 0, hash, "room-control");
+      if (expiry === null || Date.now() >= expiry) reject("LINE_PREVIEW_REQUIRED", 409);
+      if (state.operations.some(item => item.key === requestKey)) reject("OPERATION_ID_CONFLICT", 409);
+      state.operations.push({ key: requestKey, bookingId: null, bookingVersion: 0,
+        controlMode: "provider_only", state: "sync_pending",
+        cells: cells.map(cell => ({ ...cell, desired: input.desired })),
+        createdAt: new Date().toISOString(), verifiedAt: null, providerVersion: null,
+        lineGrantId: principal.grantId, lineActorId: principal.subjectId });
+      const response = { propertyId, operationKey: requestKey, operationState: "sync_pending",
+        controlMode: "provider_only", bookingId: null, cells, desired: input.desired };
+      saveReceipt(state, principal, requestKey, "inventory:write", hash, response);
+      emit(tx, state, "channel.requested", null, principal, requestKey, "independent_provider_control");
+      return response;
+    });
   }
 
   async previewLineInventory(principal: Principal, propertyId: string,
@@ -2244,6 +2339,7 @@ export class IronGateService {
     const operation = state.operations.find((item) => item.key === operationKey);
     if (!operation) reject("OPERATION_NOT_FOUND", 404);
     return { key: operation.key, bookingId: operation.bookingId, state: operation.state,
+      ...(operation.controlMode ? { controlMode: operation.controlMode } : {}),
       cells: operation.cells, verifiedAt: operation.verifiedAt,
       providerVersion: operation.providerVersion,
       ownCloseWriteRequired: operation.ownCloseWriteRequired === true,
@@ -2300,7 +2396,7 @@ export class IronGateService {
       operation.state = "review_required";
       const booking = state.bookings.find((item) => item.id === operation.bookingId) ?? null;
       if (booking?.channelOperationKey === operationKey) booking.channelSyncState = "review_required";
-      state.version++;
+      if (operation.controlMode !== "provider_only") state.version++;
       emit(tx, state, "channel.review_required", booking, principal, operationKey);
       return { state: "review_required", operationKey };
     });
@@ -2385,6 +2481,8 @@ export class IronGateService {
       if (new Set(applied.map(keyOf)).size !== applied.length) reject("INVALID_INPUT");
       const operation = state.operations.find((item) => item.key === input.operationKey);
       if (!operation) reject("OPERATION_NOT_FOUND", 404);
+      if (operation.state === "retired_source_managed")
+        reject("CHANNEL_OPERATION_NOT_DISPATCHABLE", 409);
       if (observed < timestamp(operation.createdAt)) reject("STALE_READBACK", 409);
       const booking = operation.bookingId === null ? null :
         state.bookings.find((item) => item.id === operation.bookingId) ?? null;
@@ -2398,8 +2496,10 @@ export class IronGateService {
         actual.every((cell, index) => cell === expected[index]);
       const desiredByCell = new Map(operation.cells.map((cell) => [keyOf(cell), cell.desired]));
       const providerMatches = complete && input.cells.every((cell) =>
-        desiredByCell.get(keyOf(cell)) === "closed" ? cell.count === 0 || cell.isLock :
-          cell.count > 0 && !cell.isLock);
+        desiredByCell.get(keyOf(cell)) === "closed" ?
+          operation.controlMode === "provider_only" ? cell.count === 0 && cell.isLock :
+            cell.count === 0 || cell.isLock :
+          (operation.controlMode === "provider_only" ? cell.count === 1 : cell.count > 0) && !cell.isLock);
       const closed = operation.cells.filter((cell) => cell.desired === "closed").map(keyOf).sort();
       const appliedKeys = applied.map(keyOf).sort();
       if (appliedKeys.some((cell) => !closed.includes(cell))) reject("INVALID_INPUT");
@@ -2415,7 +2515,11 @@ export class IronGateService {
         nightsFor(booking.stays, state.roomIds).map(keyOf) : []);
       // Payment or guest-detail edits may advance the booking version while
       // the same channel operation still owns these exact room nights.
-      const correctBooking = booking ? booking.channelOperationKey === operation.key &&
+      const correctBooking = operation.controlMode === "provider_only" ?
+        operation.bookingId === null && operation.bookingVersion === 0 &&
+        state.channelDispatch?.operationKey === operation.key &&
+        ["active", "review_required"].includes(state.channelDispatch.state) :
+        booking ? booking.channelOperationKey === operation.key &&
         operation.cells.every((cell) => cell.desired === "closed" ?
           operation.ownCloseWriteRequired === true ?
             booking.status === "confirmed" && currentNights.has(keyOf(cell)) :
@@ -2464,9 +2568,10 @@ export class IronGateService {
           booking.version++;
           if (sourceVersionCurrent) sourceLink.lastAppliedBookingVersion = booking.version;
         }
-        state.fences = state.fences.filter((fence) => fence.key !== operation.key);
+        if (operation.controlMode !== "provider_only")
+          state.fences = state.fences.filter((fence) => fence.key !== operation.key);
       }
-      state.version++;
+      if (operation.controlMode !== "provider_only") state.version++;
       emit(tx, state, operation.state === "sync_verified" ? "channel.verified" :
         "channel.review_required", booking, principal, operation.key);
       return { operationKey: operation.key, state: operation.state, bookingId: booking?.id ?? null,
@@ -2543,7 +2648,33 @@ export class IronGateService {
       let link = state.sourceLinks.find((item) => item.key === sourceKey);
       const linkedBooking = link?.bookingId ? state.bookings.find((item) => item.id === link!.bookingId) : null;
       const channelMode = state.channel.mode === "owlnest";
-      const sourceReadback = channelMode && state.channel.sourceReadbackEnabled === true;
+      const gmailSourceNotice = principal.subjectId === GMAIL_NOTIFICATION_SUBJECT &&
+        input.sourceSystem === GMAIL_NOTIFICATION_SOURCE;
+      const owlNestGmailOrderId = gmailSourceNotice &&
+        /^L:OBE[A-Z0-9]+$/.test(input.externalOrderId);
+      const evidence = input.sourceIdentityEvidence;
+      const verifiedGmailOwlNestNotice = owlNestGmailOrderId &&
+        /^gmail-v1:[1-9]\d{12}:[0-9a-f]{64}$/.test(input.sourceVersion) &&
+        evidence && typeof evidence === "object" &&
+        Object.keys(evidence).sort().join(",") === "deliveredTo,kind,signedDomain" &&
+        evidence.kind === "gmail-owlnest-dkim-v1" &&
+        evidence.signedDomain === "owlting.com" &&
+        evidence.deliveredTo === "sweetfuntw@gmail.com";
+      const verifiedGmailOwlJourneyNotice = gmailSourceNotice &&
+        /^L:OWJ[A-Z0-9]+$/.test(input.externalOrderId) &&
+        /^gmail-v1:[1-9]\d{12}:[0-9a-f]{64}$/.test(input.sourceVersion) &&
+        evidence && typeof evidence === "object" &&
+        Object.keys(evidence).sort().join(",") === "deliveredTo,kind,signedDomain" &&
+        evidence.kind === "gmail-owljourney-dkim-v1" &&
+        evidence.signedDomain === "owlting.com" &&
+        evidence.deliveredTo === "sweetfuntw@gmail.com";
+      // OwlNest has already changed its OTA inventory before sending Gmail.
+      // This source event mirrors the order in OS; it must never dispatch an
+      // additional channel operation or wait behind a manual channel claim.
+      const providerManagedNotice = channelMode &&
+        (verifiedGmailOwlNestNotice || verifiedGmailOwlJourneyNotice);
+      const sourceReadback = channelMode && state.channel.sourceReadbackEnabled === true &&
+        !providerManagedNotice;
       const review = (reason: string, affected: Night[]): Record<string, unknown> => {
         const key = `review:${sourceKey}`;
         const existing = state.fences.find((fence) => fence.key === key);
@@ -2623,18 +2754,54 @@ export class IronGateService {
       // A platform order number is only an auxiliary identity. It is not
       // enough to claim another booking, but a collision must never create a
       // second confirmed booking under a different source-event key.
-      if (input.kind === "upsert" && input.platform && input.externalOrderNo) {
+      if (input.kind === "upsert" &&
+        (input.platform && input.externalOrderNo || input.externalOrderId.startsWith("L:"))) {
+        const owlNestOrderId = input.externalOrderId.startsWith("L:") ?
+          input.externalOrderId.slice(2) : null;
         const aliasOwner = state.bookings.find((booking) => booking.id !== linkedBooking?.id &&
-          booking.sourceCalendar?.platform === input.platform &&
-          booking.sourceCalendar?.externalOrderNo === input.externalOrderNo);
+          (input.externalOrderNo && booking.sourceCalendar?.platform === input.platform &&
+            booking.sourceCalendar?.externalOrderNo === input.externalOrderNo ||
+            // Imported Sheet rows have no sourceKey. Their OwlNest ID in L
+            // and OTA alias in N must both block a second confirmed booking.
+            Array.isArray(booking.sweetfunSnapshot?.rows) &&
+            booking.sweetfunSnapshot.rows.some((row) =>
+              Array.isArray(row?.values) &&
+              (input.externalOrderNo &&
+                String(row.values[13] ?? "").trim() === input.externalOrderNo ||
+                owlNestOrderId !== null &&
+                String(row.values[11] ?? "").trim() === owlNestOrderId))));
         if (aliasOwner) return review("SOURCE_IDENTITY_COLLISION", [...cells,
           ...nightsFor(aliasOwner.stays, state.roomIds)]);
       }
-      // Stock readback proves room availability, not the identity of an OTA
-      // reservation. Until a provider-backed order lookup can claim a unique
-      // OwlNest identity, a new source event must not create a second order.
-      if (channelMode && input.kind === "upsert" && !linkedBooking)
+      // The authenticated Gmail writer may claim a new OwlNest order only
+      // when Gmail verified the provider's aligned DKIM/DMARC signature and
+      // the source notice carries an exact OTA alias and amount. An unsigned
+      // notice, generic source client, or ambiguous identity remains fenced.
+      if (channelMode && gmailSourceNotice && !providerManagedNotice)
         return review("SOURCE_IDENTITY_UNVERIFIED", cells);
+      if (verifiedGmailOwlJourneyNotice && input.kind === "upsert" &&
+        (input.platform !== "owljourney" ||
+          input.externalOrderNo !== undefined && input.externalOrderNo !== null))
+        return review("SOURCE_IDENTITY_UNVERIFIED", cells);
+      if (channelMode && input.kind === "upsert" && !linkedBooking) {
+        const signedNotice = providerManagedNotice &&
+          input.previousSourceVersion === null && input.bookedAt === null &&
+          typeof input.guestName === "string" && input.guestName.trim().length > 0 &&
+          (verifiedGmailOwlNestNotice &&
+            ["booking", "agoda", "airbnb", "ctrip"].includes(input.platform ?? "") &&
+            typeof input.externalOrderNo === "string" ||
+           verifiedGmailOwlJourneyNotice && input.platform === "owljourney" &&
+            (input.externalOrderNo === undefined || input.externalOrderNo === null)) &&
+          typeof input.totalCents === "number" &&
+          Number.isSafeInteger(input.totalCents) && input.currency === "TWD";
+        if (!signedNotice) return review("SOURCE_IDENTITY_UNVERIFIED", cells);
+      }
+      // A legacy Gmail event may already have queued an erroneous channel
+      // operation. A separate, audited repair must retire it before an update.
+      if (providerManagedNotice && linkedBooking &&
+        ["pending", "review_required"].includes(linkedBooking.channelSyncState))
+        return review("GMAIL_LEGACY_CHANNEL_OPERATION", [...cells,
+          ...nightsFor(linkedBooking.stays, state.roomIds)]);
       if (sourceReadback && (!state.channel.ready || !state.channel.grantId))
         return review("CHANNEL_NOT_READY", [...cells,
           ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);
@@ -2643,7 +2810,7 @@ export class IronGateService {
           linkedBooking.channelSyncState === "review_required"))
         return review("CHANNEL_PREVIOUS_OPERATION_UNRESOLVED", [...cells,
           ...nightsFor(linkedBooking.stays, state.roomIds)]);
-      if (channelMode && !sourceReadback && input.kind === "upsert") {
+      if (channelMode && !sourceReadback && !providerManagedNotice && input.kind === "upsert") {
         const current = linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds).map(keyOf).sort() : [];
         const requested = cells.map(keyOf).sort();
         if (current.length !== requested.length ||
@@ -2656,7 +2823,7 @@ export class IronGateService {
         const supplied = cells.map(keyOf).sort();
         if (current.length !== supplied.length || current.some((cell, index) => cell !== supplied[index]))
           return review("SOURCE_STAY_MISMATCH", [...cells, ...nightsFor(linkedBooking.stays, state.roomIds)]);
-        if (channelMode && !sourceReadback)
+        if (channelMode && !sourceReadback && !providerManagedNotice)
           return review("CHANNEL_CANCEL_REQUIRES_READBACK", cells);
       }
       if (input.kind === "cancel" && !linkedBooking) {
@@ -2679,6 +2846,18 @@ export class IronGateService {
       }
       if (input.kind === "upsert" && hasConflict(state, cells, linkedBooking?.id))
         return review("ROOM_CONFLICT", [...cells, ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);
+      // OwlJourney email masks the guest name. A provider-verified full name
+      // entered during a controlled repair must survive later signed notices.
+      const maskedOwlJourneyName = verifiedGmailOwlJourneyNotice && linkedBooking &&
+        input.kind === "upsert" && typeof input.guestName === "string" &&
+        input.guestName.includes("*") && typeof linkedBooking.guestName === "string" &&
+        !linkedBooking.guestName.includes("*");
+      const visibleGuestPrefix = maskedOwlJourneyName ?
+        input.guestName!.replace(/\s+/g, "").split("*", 1)[0] : "";
+      if (maskedOwlJourneyName && (!visibleGuestPrefix ||
+        !linkedBooking.guestName!.replace(/\s+/g, "").startsWith(visibleGuestPrefix)))
+        return review("SOURCE_GUEST_IDENTITY_MISMATCH", [...cells,
+          ...nightsFor(linkedBooking.stays, state.roomIds)]);
       const oldCells = linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [];
       let booking: Booking;
       if (linkedBooking) {
@@ -2687,7 +2866,7 @@ export class IronGateService {
         booking.status = input.kind === "cancel" ? "cancelled" : "confirmed";
         if (input.kind === "upsert") {
           booking.stays = structuredClone(input.stays);
-          booking.guestName = input.guestName;
+          booking.guestName = maskedOwlJourneyName ? linkedBooking.guestName : input.guestName;
           booking.bookedAt = input.bookedAt;
           // A missing fee stays unknown. An imported fee cannot remain current
           // after a changed external order without fresh source evidence.
@@ -2724,6 +2903,10 @@ export class IronGateService {
         const notification = firstGmailNotification(input.sourceSystem, input.sourceVersion,
           requestKey, booking.createdAt);
         if (notification) link.firstNewOrderNotification = notification;
+      }
+      if (providerManagedNotice) {
+        booking.channelSyncState = "not_required";
+        booking.channelOperationKey = null;
       }
       const channelNeeded = sourceReadback && (input.kind === "cancel" || !linkedBooking ||
         linkedBooking.channelSyncState !== "verified" || changedNights(oldCells, cells));

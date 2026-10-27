@@ -6,7 +6,7 @@ const HASH = /^[0-9a-f]{64}$/;
 const MANIFEST_KEYS = new Set(["schema", "propertyId", "workspaceId", "authorityEpoch", "expectedInventoryVersion",
   "sourceAccount", "clientId", "subjectId", "grantId", "sourceVersions", "recoveryKey", "notificationCoverageFrom"]);
 const ALLOWED_AUDITS = new Set(["source.applied", "source.facts_enriched", "channel.verified",
-  "channel.review_required", "payment.recorded"]);
+  "channel.review_required", "channel.source_operation_retired", "payment.recorded"]);
 const fail = (reason) => { throw Error(`NOTIFICATION_RECOVERY_${reason}`); };
 
 /** Pure preflight over a restricted projection. No guest, price, stay or raw mail is needed.

@@ -17,7 +17,7 @@ export function createChannelWorker({ repository, service, propertyConfigs,
   const adapter = provider ?? createOwlNestWebProvider({ propertyConfigs, getAuthorization });
   const claims = createChannelDispatchClaim(repository);
   return {
-    async runOne(principal, propertyId) {
+    async runOne(principal, propertyId, targetOperationKey = null) {
       if (principal?.origin !== "channel" || !principal.grantId)
         throw Error("CHANNEL_WORKER_PRINCIPAL_INVALID");
       const state = await repository.read(propertyId);
@@ -25,9 +25,19 @@ export function createChannelWorker({ repository, service, propertyConfigs,
         state.channel.ready !== true || state.channel.sourceReadbackEnabled !== true ||
         state.channel.grantId !== principal.grantId)
         throw Error("CHANNEL_WORKER_PROPERTY_NOT_READY");
+      // An authenticated confirmation may accelerate its own durable job.
+      // It must not drain an unrelated queue entry, take over an existing
+      // property claim, or re-run a completed/uncertain provider write.
+      let target;
+      if (targetOperationKey !== null) {
+        target = await service.channelOperation(principal, propertyId, targetOperationKey);
+        if (target.key !== targetOperationKey) throw Error("CHANNEL_WORKER_INVALID_PAGE");
+        if (target.state !== "sync_pending" || state.channelDispatch)
+          return { state: target.state, propertyId, operationKey: targetOperationKey };
+      }
       // Alert delivery is independent of the provider write. A failed GCO
       // callback is retried on later cron ticks with the same operation key.
-      const unalerted = state.operations.find((operation) => operation.lineGrantId &&
+      const unalerted = !target && state.operations.find((operation) => operation.lineGrantId &&
         operation.state === "review_required" && !operation.reviewAlertedAt);
       if (unalerted) {
         try {
@@ -51,7 +61,8 @@ export function createChannelWorker({ repository, service, propertyConfigs,
           if (error?.code !== "CHANNEL_CLAIM_NOT_STALE") throw error;
         }
       }
-      const page = await service.pendingChannelOperations(principal, propertyId, 1);
+      const page = target ? { propertyId, operations: [target] } :
+        await service.pendingChannelOperations(principal, propertyId, 1);
       if (page.propertyId !== propertyId || !Array.isArray(page.operations) ||
         page.operations.length > 1) throw Error("CHANNEL_WORKER_INVALID_PAGE");
       if (page.operations.length === 0) return { state: "idle", propertyId };

@@ -88,6 +88,52 @@ test("worker commits a fresh exact provider readback before releasing the claim"
   assert.equal((await set.worker.runOne(set.channel, propertyId)).state, "idle");
 });
 
+test("immediate dispatch runs only its exact operation and a repeat cannot write again", async () => {
+  const set = setup(), older = await createPending(set);
+  const target = await createPending(set, "2099-11-12");
+  const result = await set.worker.runOne(set.channel, propertyId, target);
+  assert.deepEqual(result, { state: "sync_verified", propertyId, operationKey: target });
+  assert.equal((await set.repository.read(propertyId)).operations.find(o => o.key === older).state,
+    "sync_pending");
+  assert.equal((await set.worker.runOne(set.channel, propertyId, target)).state, "sync_verified");
+  assert.equal(set.writes(), 1);
+});
+
+test("immediate dispatch preserves an existing property claim and cannot target an unknown key", async () => {
+  const set = setup(), operationKey = await createPending(set);
+  await assert.rejects(set.worker.runOne(set.channel, propertyId, crypto.randomUUID()),
+    error => error?.code === "OPERATION_NOT_FOUND");
+  assert.equal(set.writes(), 0);
+  const claim = { claimId: crypto.randomUUID(), operationKey, state: "active",
+    claimedAt: new Date().toISOString() };
+  await set.repository.transact(propertyId, state => { state.channelDispatch = claim; });
+  assert.equal((await set.worker.runOne(set.channel, propertyId, operationKey)).state, "sync_pending");
+  assert.deepEqual((await set.repository.read(propertyId)).channelDispatch, claim);
+  assert.equal(set.writes(), 0);
+});
+
+test("immediate dispatch and cron overlap without a second provider write", async () => {
+  const set = setup(), operationKey = await createPending(set);
+  let release, entered;
+  const held = new Promise(resolve => { release = resolve; });
+  const observing = new Promise(resolve => { entered = resolve; });
+  const observe = set.provider.observe;
+  set.provider.observe = async (...args) => {
+    entered();
+    await held;
+    return observe(...args);
+  };
+  const started = set.worker.runOne(set.channel, propertyId, operationKey);
+  await observing;
+  assert.equal((await set.worker.runOne(set.channel, propertyId)).state, "idle");
+  assert.equal((await set.worker.runOne(set.channel, propertyId, operationKey)).state, "sync_pending");
+  assert.equal(set.writes(), 0);
+  release();
+  assert.equal((await started).state, "sync_verified");
+  assert.equal(set.writes(), 1);
+  assert.deepEqual(set.alerts, []);
+});
+
 test("already-closed OwlNest night stays under review without a provider write", async () => {
   const set = setup({ initiallyClosed: true }), operationKey = await createPending(set);
   const result = await set.worker.runOne(set.channel, propertyId);

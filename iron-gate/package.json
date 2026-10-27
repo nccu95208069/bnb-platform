@@ -22,6 +22,7 @@
     "node": "22.x"
   },
   "dependencies": {
+    "@vercel/functions": "3.6.1",
     "pg": "8.20.0"
   }
 }

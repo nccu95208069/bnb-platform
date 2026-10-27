@@ -3,6 +3,7 @@ import type { AmendBookingInput, CreateBookingInput, CreateHoldInput, ExtendHold
   Principal, ReadbackInput, SourceEventInput, SourceFactsInput, SourceOrderLookupInput } from "./types.ts";
 
 export type Authenticate = (request: Request) => Promise<Principal | null>;
+export type ChannelQueued = (job: { propertyId: string; operationKey: string }) => void;
 const MAX_BODY_BYTES = 64 * 1024;
 
 function json(value: unknown, status = 200): Response {
@@ -50,7 +51,8 @@ function requestKey(request: Request): string {
 }
 
 /** Route adapter. Production must inject a durable repository and current, independently verified auth. */
-export function createHandler(service: IronGateService, authenticate: Authenticate) {
+export function createHandler(service: IronGateService, authenticate: Authenticate,
+  onLineChannelQueued?: ChannelQueued) {
   return async function handle(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
@@ -59,11 +61,25 @@ export function createHandler(service: IronGateService, authenticate: Authentica
       const principal = await authenticate(request);
       if (!principal) return json({ error: { code: "UNAUTHORIZED" } }, 401);
 
+      if (parts[1] === "properties" && parts[2] && parts.length === 4 &&
+        ["line-room-control-previews", "line-room-controls"].includes(parts[3]) && request.method === "POST") {
+        const value = await body(request);
+        exact(value, ["cells", "desired"]);
+        const input = value as Pick<LineInventoryBatchInput, "cells" | "desired">;
+        if (parts[3] === "line-room-control-previews")
+          return json(await service.previewLineRoomControl(principal, parts[2], input));
+        const receipt = await service.requestLineRoomControl(principal, parts[2],
+          requestKey(request), input, request.headers.get("x-iron-gate-line-preview"));
+        try { onLineChannelQueued?.({ propertyId: parts[2], operationKey: receipt.operationKey as string }); }
+        catch { console.error("line_channel_start_unavailable"); }
+        return json(receipt, 202);
+      }
+
       if (parts[1] === "properties" && parts[2] && parts[3] === "line-create-previews" &&
         parts.length === 4 && request.method === "POST") {
         const value = await body(request);
         exact(value, ["expectedInventoryVersion", "stays", "guestName", "contact", "notes", "totalCents", "bookedAt", "source"],
-          ["roomNightPrices", "channelPolicy"]);
+          ["roomNightPrices", "channelPolicy", "acknowledgedClosedNights"]);
         return json(await service.previewLineCreate(principal, parts[2], value as CreateBookingInput));
       }
       if (parts[1] === "properties" && parts[2] && parts.length === 4 &&
@@ -117,7 +133,8 @@ export function createHandler(service: IronGateService, authenticate: Authentica
       if (parts[1] === "properties" && parts[2] && parts[3] === "line-channel-actions") {
         if (parts.length === 6 && parts[4] === "requests" && request.method === "GET") {
           const result = await service.requestResult(principal, parts[2], parts[5]);
-          if (!result.bookingId || !result.operationKey || !Array.isArray(result.cells))
+          if ((!result.bookingId && result.controlMode !== "provider_only") ||
+            !result.operationKey || !Array.isArray(result.cells))
             throw new GateError("REQUEST_NOT_FOUND", 404);
           return json(result);
         }
@@ -138,7 +155,7 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         if (parts.length === 4 && request.method === "POST") {
           const value = await body(request);
           exact(value, ["expectedInventoryVersion", "stays", "guestName", "contact", "notes", "totalCents", "bookedAt", "source"],
-            ["roomNightPrices", "channelPolicy"]);
+            ["roomNightPrices", "channelPolicy", "acknowledgedClosedNights"]);
           const result = await service.createBooking(principal, propertyId, requestKey(request),
             value as CreateBookingInput, request.headers.get("x-iron-gate-line-preview"));
           return json(result, result.operationState === "sync_pending" ? 202 : 201);
@@ -149,7 +166,7 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         if (parts.length === 5 && request.method === "PATCH") {
           const value = await body(request);
           exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "changes"],
-            ["channelPolicy", "reason"]);
+            ["channelPolicy", "reason", "acknowledgedClosedNights"]);
           const result = await service.amendBooking(principal, propertyId, parts[4], requestKey(request),
             value as AmendBookingInput, request.headers.get("x-iron-gate-line-preview"));
           return json(result, result.operationState === "sync_pending" ? 202 : 200);
@@ -178,7 +195,7 @@ export function createHandler(service: IronGateService, authenticate: Authentica
           if (!input || typeof input !== "object" || Array.isArray(input))
             throw new GateError("INVALID_INPUT", 400);
           exact(input as Record<string, unknown>, ["expectedBookingVersion", "expectedInventoryVersion"],
-            value.action === "amend" ? ["changes", "channelPolicy"] : ["channelPolicy"]);
+            value.action === "amend" ? ["changes", "channelPolicy", "acknowledgedClosedNights"] : ["channelPolicy"]);
           if (value.action === "amend" && !("changes" in input))
             throw new GateError("INVALID_INPUT", 400);
           return json(await service.previewLineAction(principal, propertyId, parts[4],
@@ -193,9 +210,16 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         if (parts.length === 6 && parts[5] === "line-channel-actions" && request.method === "POST") {
           const value = await body(request);
           exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "desired", "cells"]);
-          return json(await service.requestLineChannelAction(principal, propertyId, parts[4],
+          const receipt = await service.requestLineChannelAction(principal, propertyId, parts[4],
             requestKey(request), value as LineChannelActionInput,
-            request.headers.get("x-iron-gate-line-preview")), 202);
+            request.headers.get("x-iron-gate-line-preview"));
+          // Authorization, preview, scope and durable operation commit all
+          // precede dispatch. A scheduler failure cannot undo that receipt;
+          // the existing cron remains the recovery path for an unclaimed job.
+          try {
+            onLineChannelQueued?.({ propertyId, operationKey: receipt.operationKey as string });
+          } catch { console.error("line_channel_start_unavailable"); }
+          return json(receipt, 202);
         }
         if (parts.length === 6 && parts[5] === "cancel" && request.method === "POST") {
           const value = await body(request);
@@ -290,7 +314,7 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         const value = await body(request);
         exact(value, ["propertyId", "sourceSystem", "sourceAccount", "externalOrderId", "sourceVersion",
           "previousSourceVersion", "kind", "expectedInventoryVersion", "stays", "guestName", "bookedAt"],
-          ["totalCents", "currency", "platform", "externalOrderNo"]);
+          ["totalCents", "currency", "platform", "externalOrderNo", "sourceIdentityEvidence"]);
         const result = await service.applySourceEvent(principal, requestKey(request), value as SourceEventInput);
         return json(result, result.state === "review_required" ? 409 : 200);
       }
