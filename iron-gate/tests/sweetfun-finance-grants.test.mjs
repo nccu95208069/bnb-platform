@@ -3,7 +3,18 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { financeGrantPackage, prepareFinanceGrantFiles } from '../scripts/prepare-sweetfun-finance-grants.mjs';
+import { financeGrantPackage, cardSyncGrantPackage, prepareFinanceGrantFiles } from '../scripts/prepare-sweetfun-finance-grants.mjs';
+
+test('card issuance has only one scoped money grant and never includes plaintext in SQL',()=>{
+  const plan=cardSyncGrantPackage();
+  assert.equal(plan.items.length,1);
+  const item=plan.items[0];
+  assert.equal(item.grant.origin,'finance');
+  assert.deepEqual(item.grant.actions,['card:sync']);
+  assert.deepEqual(item.grant.fields,['money']);
+  assert.equal(plan.sql.includes(item.environment.token),false);
+  assert.equal(plan.sql.includes(item.tokenHash),true);
+});
 
 test('issuance SQL contains only hashes and two distinct current-property OS money scopes', () => {
   const start = Date.now(), plan = financeGrantPackage(start);

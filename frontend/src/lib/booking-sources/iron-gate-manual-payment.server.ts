@@ -17,9 +17,10 @@ function bookingPath(config: ManualConfig, bookingId: string): string {
   if (!UUID.test(bookingId)) throw Error('MANUAL_INVALID_INPUT');
   return `/v1/properties/${config.grant.propertyId}/bookings/${bookingId}`;
 }
-export function checkPaymentBooking(raw: Record<string, unknown>, config: ManualConfig, bookingId: string) {
+export function checkPaymentBooking(raw: Record<string, unknown>, config: ManualConfig, bookingId: string, allowCard = false) {
   if (raw.id !== bookingId || raw.propertyId !== config.grant.propertyId ||
-    raw.workspaceId !== config.grant.workspaceId || raw.source !== 'os' ||
+    raw.workspaceId !== config.grant.workspaceId ||
+    (raw.source !== 'os' && !(allowCard && raw.source === 'external' && raw.cardManaged === true)) ||
     !Number.isSafeInteger(raw.version) || Number(raw.version) < 1 ||
     !['held', 'confirmed', 'cancelled'].includes(String(raw.status)) ||
     raw.currency !== 'TWD' ||

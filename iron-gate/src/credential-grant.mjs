@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 const actions = new Set(["booking:read", "booking:aggregate", "booking:create", "booking:amend", "booking:cancel", "booking:manage_all", "inventory:write",
-  "hold:write", "payment:write", "finance:ledger", "event:read", "occupancy:aggregate",
+  "hold:write", "card:sync", "payment:write", "finance:ledger", "event:read", "occupancy:aggregate",
   "housekeeping:read", "source:write", "channel:verify"]);
 const fields = new Set(["guest_name", "contact", "notes", "money", "payment_status"]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -61,9 +61,12 @@ export function validateGrantShape(grant) {
     action !== "event:read" && action !== "booking:read" && action !== "booking:aggregate" &&
     action !== "occupancy:aggregate" && action !== "housekeeping:read")))
     throw new Error("INVALID_SERVICE_SCOPE");
+  if (grant.actions.includes("card:sync") && (grant.origin !== "finance" ||
+    grant.actions.some(action => action !== "card:sync") ||
+    grant.fields.length !== 1 || grant.fields[0] !== "money")) throw new Error("INVALID_CARD_SCOPE");
   if (grant.origin === "finance" && (grant.actions.some((action) =>
     action !== "event:read" && action !== "booking:read" && action !== "payment:write" &&
-    action !== "finance:ledger") ||
+    action !== "finance:ledger" && action !== "card:sync") ||
     grant.fields.some((field) => field !== "money"))) throw new Error("INVALID_FINANCE_SCOPE");
   if (grant.origin !== "os" && grant.fields.includes("payment_status"))
     throw new Error("INVALID_PAYMENT_STATUS_SCOPE");

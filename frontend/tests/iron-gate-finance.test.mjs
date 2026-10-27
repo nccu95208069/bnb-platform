@@ -1,3 +1,6 @@
+import {previewCardSync,commitCardSync} from '../src/lib/booking-sources/iron-gate-card-sync.server.ts';
+import {assertNotCardManaged} from '../src/lib/card-payment-ownership.ts';
+import {cardAliases} from '../../iron-gate/src/card-sync.ts';
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { gzipSync } from 'node:zlib';
@@ -37,6 +40,8 @@ const principal = { clientId, subjectId: owner.id, origin: 'os', workspaceId,
 async function fixture(t) {
   const env = { CALENDAR_SOURCE: 'sheet_snapshot', SHEET_MONITOR_ENABLED: 'true', BOOKING_SHEET_SOURCES: 'sweetfun',
     CALENDAR_OWNER_CODE_HASH: 'a'.repeat(64), CALENDAR_OWNER_SESSION_SECRET: 'b'.repeat(64),
+    IRON_GATE_CARD_SYNC_ENABLED:'true', CC_SYNC_OS_TOKEN:'synthetic-card-secret-at-least-32-bytes',
+    IRON_GATE_CARD_SYNC_GRANT:JSON.stringify({...grant,token:'c'.repeat(43)}),
     KV_REST_API_URL: 'https://redis.invalid', KV_REST_API_TOKEN: 'test',
     IRON_GATE_SWEETFUN_CALENDAR_ENABLED: 'true', IRON_GATE_SWEETFUN_MANUAL_ENABLED: 'true',
     IRON_GATE_SWEETFUN_MANUAL_PAYMENTS_ENABLED: 'true', IRON_GATE_SWEETFUN_FINANCE_ENABLED: 'true',
@@ -54,6 +59,7 @@ async function fixture(t) {
     sourceGrants: [], bookings: [], sourceLinks: [], operations: [], fences: [], manualBlocks: [], receipts: [] });
   const service = new IronGateService(repository), verifier = createOsMemberProofVerifier(secret);
   const handle = createHandler(service, async request => {
+    if(request.headers.get('authorization')==='Bearer '+'c'.repeat(43))return {...principal,origin:'finance',subjectId:'card-sync',actions:['card:sync']};
     const proof = await verifier(request, { ...grant, origin: 'os' });
     return proof ? { ...principal, subjectId: proof.subjectId, actions: proof.actions, fields: proof.fields } : null;
   });
@@ -73,6 +79,7 @@ async function fixture(t) {
     if (String(url).startsWith('https://iron-gate.example/')) {
       if (String(url).endsWith('/direct-snapshot') && state.failSnapshots) return Response.json({}, { status: 503 });
       const response = await send(url, options);
+      if(String(url).endsWith('/card-sync/commit')&&state.cardUnknown&&response.ok)throw Error('simulated response lost after commit');
       if (options.method === 'POST' && String(url).endsWith('/payment-events')) {
         state.writeCalls++;
         if (state.failAfterWrite && response.ok) state.failSnapshots = true;
@@ -88,6 +95,9 @@ async function fixture(t) {
       result = ['0', [...db.keys()].filter(key => pattern.test(key))];
     } else if (command[0] === 'SET') {
       if (!command.includes('NX') || !db.has(command[1])) { db.set(command[1], command[2]); result = 'OK'; }
+    } else if(command[0]==='EVAL'&&command[1].includes('for i=2,#KEYS')){
+      const keys=command.slice(3,3+command[2]),args=command.slice(3+command[2]);
+      if(db.get(keys[0])!==args[0])result=-1;else if(keys.slice(1).some(key=>db.has(key)&&db.get(key)!==args[1]))result=-2;else{for(const key of keys.slice(1))db.set(key,args[1]);result=1;}
     } else if (command[0] === 'EVAL' && command[1].includes('INCR')) result = 1;
     else if (command[0] === 'EVAL' && command[1].includes('DEL')) {
       if (db.get(command[3]) === command[4]) { db.delete(command[3]); result = 1; }
@@ -239,4 +249,50 @@ test('missing finance configuration fails closed and a source failure cannot pro
     await assert.rejects(readDirectFinance({ ...owner, ...patch }, ironGateFinanceConfig(), [],
       async () => { calls++; throw Error('must not send'); }), /FORBIDDEN/);
   assert.equal(calls, 0);
+});
+
+const cardInput={sheetId:'1ccdaF5t0uIo0yqoJdSgKoG68UnBeWzCXfV5dQtMeK4A',tab:'20261027-20261101',row:2,platform:'booking',orderId:'1234567890',checkIn:'2026-10-15',checkOut:'2026-10-17',amountCents:100000,status:'done',chargeDate:'2026-10-27'};
+async function cardFixture(t){
+ const f=await fixture(t);
+ const rows=['101','102'].flatMap(room=>['15','16'].map((night,i)=>[room,'Synthetic','Booking.com',`2026-10-${night}`,`2026-10-${Number(night)+1}`,'2026-10-01','250','not_yet','OK',`synthetic-${room}-${i}`,'','synthetic-order','2','1234567890','','','']));
+ await f.repository.transact(propertyId,state=>{const b=state.bookings[0];b.source='external';b.sourceCalendar={platform:'Booking.com',externalOrderNo:cardInput.orderId};b.sweetfunSnapshot={groupKey:'L:synthetic-order',rows:rows.map(values=>({values,roomFeeCents:25000}))};});
+ const snapshot=adaptSheetBookings([HEADERS,...rows],source.sourceId,new Date().toISOString(),[],[],source.property);
+ f.db.set('sweetfun:sheet-monitor:v1:sweetfun-operations-sheet-v1:state','gz1:'+gzipSync(JSON.stringify(initialState(snapshot))).toString('base64'));
+ f.aliases=cardAliases(await f.repository.read(propertyId),(await f.repository.read(propertyId)).bookings[0]);
+ return f;
+}
+test('Booking card preview/commit and actual OS finance route count whole multi-room stay once across retries and week moves',async t=>{
+ const f=await cardFixture(t),before=await body(await f.finance());
+ assert.equal(before.orders.length,1);assert.equal(before.entries.length,0);
+ const preview=await previewCardSync(cardInput);assert.equal(preview.action,'record_received');
+ const confirmed=await commitCardSync({input:cardInput,previewToken:preview.previewToken});assert.equal(confirmed.financeVerified,true);
+ await commitCardSync({input:cardInput,previewToken:preview.previewToken});
+ const after=await body(await f.finance());assert.equal(after.orders.length,1);assert.equal(after.entries.length,1);
+ assert.equal(after.orders[0].platform,'booking');assert.equal(after.orders[0].total,100000);assert.equal(after.orders[0].received,100000);assert.equal(after.orders[0].receivable,0);
+ assert.equal(after.entries[0].method,'credit_card');assert.equal(after.entries[0].date,'2026-10-27');
+ assert.equal((await previewCardSync({...cardInput,row:8,tab:'20261102-20261108'})).action,'already_synced');
+ for(const alias of f.aliases)await assert.rejects(()=>assertNotCardManaged('sweetfun',[alias]),/CARD_PAYMENT_REVIEW_REQUIRED/);
+ assert.equal(f.foreignCalls,0);
+});
+test('OS legacy receipt under original SF identity blocks before IronGate write',async t=>{
+ const f=await cardFixture(t),alias=f.aliases.find(id=>id.startsWith('SF-'));
+ f.db.set(ledgerKey('sweetfun',alias),JSON.stringify({version:1,receipts:[{id:uuid(),status_only:true}]}));
+ await assert.rejects(()=>previewCardSync(cardInput),/CARD_LEGACY_PAYMENT_REVIEW/);
+ assert.equal((await f.repository.read(propertyId)).bookings[0].paymentEvents?.length??0,0);
+});
+test('lost response retains ownership; fresh preview and replay find exactly the original event',async t=>{
+ const f=await cardFixture(t),preview=await previewCardSync(cardInput);f.cardUnknown=true;
+ await assert.rejects(()=>commitCardSync({input:cardInput,previewToken:preview.previewToken}),/CARD_RESULT_UNKNOWN/);
+ assert.equal((await f.repository.read(propertyId)).bookings[0].paymentEvents.length,1);
+ for(const alias of f.aliases)await assert.rejects(()=>assertNotCardManaged('sweetfun',[alias]),/CARD_PAYMENT_REVIEW_REQUIRED/);
+ assert.equal((await previewCardSync(cardInput)).action,'already_synced');f.cardUnknown=false;
+ await commitCardSync({input:cardInput,previewToken:preview.previewToken});assert.equal((await body(await f.finance())).entries.length,1);
+});
+test('signed plan rejects edits, and a legacy receipt between preview and confirm blocks',async t=>{
+ const f=await cardFixture(t),preview=await previewCardSync(cardInput);
+ await assert.rejects(()=>commitCardSync({input:{...cardInput,amountCents:200000},previewToken:preview.previewToken}),/CARD_SOURCE_CHANGED/);
+ await assert.rejects(()=>commitCardSync({input:cardInput,previewToken:preview.previewToken+'x'}),/CARD_PREVIEW_REQUIRED/);
+ f.db.set(ledgerKey('sweetfun',f.aliases[0]),JSON.stringify({version:1,receipts:[{id:uuid(),status_only:true}]}));
+ await assert.rejects(()=>commitCardSync({input:cardInput,previewToken:preview.previewToken}),/CARD_LEGACY_PAYMENT_REVIEW/);
+ assert.equal((await f.repository.read(propertyId)).bookings[0].paymentEvents?.length??0,0);
 });

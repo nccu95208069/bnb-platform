@@ -12,14 +12,22 @@ const workspaceId = '4273c91e-e067-4036-8719-29dd5810daf6';
 const quote = value => `'${String(value).replaceAll("'", "''")}'`;
 
 export function financeGrantPackage(now = Date.now()) {
+  return grantPackage([
+    { name: 'finance', origin: 'os', subjectId: 'sweetfun-os-finance-read', actions: ['finance:ledger'] },
+    { name: 'payment', origin: 'os', subjectId: 'sweetfun-os-direct-payments', actions: ['booking:read', 'payment:write'] },
+  ], now);
+}
+
+export function cardSyncGrantPackage(now = Date.now()) {
+  return grantPackage([{ name: 'card-sync', origin: 'finance', subjectId: 'sweetfun-booking-card-sync', actions: ['card:sync'] }], now);
+}
+
+function grantPackage(definitions, now) {
   // 28 days stays safely within the canonical maximum 30-day policy.
   const expiresAt = new Date(now + 28 * 86_400_000).toISOString();
-  const items = [
-    { name: 'finance', subjectId: 'sweetfun-os-finance-read', actions: ['finance:ledger'] },
-    { name: 'payment', subjectId: 'sweetfun-os-direct-payments', actions: ['booking:read', 'payment:write'] },
-  ].map(({ name, subjectId, actions }) => {
+  const items = definitions.map(({ name, origin, subjectId, actions }) => {
     const grant = { credentialId: randomUUID(), clientId: randomUUID(), subjectId,
-      propertyId, workspaceId, authorityEpoch: 1, origin: 'os', actions, fields: ['money'] };
+      propertyId, workspaceId, authorityEpoch: 1, origin, actions, fields: ['money'] };
     validateGrant(grant, expiresAt);
     const token = randomBytes(32).toString('base64url');
     return { name, grant, tokenHash: tokenHash(token), expiresAt,
@@ -64,11 +72,11 @@ FROM iron_gate.credentials WHERE credential_id IN (${items.map(item => quote(ite
   return { projectRef: 'brcszrkwkgiwatrxevkf', expiresAt, items, sql };
 }
 
-export async function prepareFinanceGrantFiles(directory) {
+export async function prepareFinanceGrantFiles(directory, cardSync = false) {
   const output = resolve(directory);
   // A new private directory is mandatory; never overwrite an uncertain issuance.
   await mkdir(output, { mode: 0o700 });
-  const plan = financeGrantPackage();
+  const plan = cardSync ? cardSyncGrantPackage() : financeGrantPackage();
   for (const item of plan.items)
     await writeFile(`${output}/${item.name}.json`, JSON.stringify(item.environment), { flag: 'wx', mode: 0o600 });
   await writeFile(`${output}/issue.sql`, plan.sql, { flag: 'wx', mode: 0o600 });
@@ -79,7 +87,7 @@ export async function prepareFinanceGrantFiles(directory) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  if (process.argv.length !== 3) throw Error('USAGE: prepare-sweetfun-finance-grants.mjs NEW_PRIVATE_DIRECTORY');
-  try { process.stdout.write(JSON.stringify(await prepareFinanceGrantFiles(process.argv[2])) + '\n'); }
+  if (process.argv.length !== 3 && !(process.argv.length === 4 && process.argv[3] === '--card-sync')) throw Error('USAGE: prepare-sweetfun-finance-grants.mjs NEW_PRIVATE_DIRECTORY [--card-sync]');
+  try { process.stdout.write(JSON.stringify(await prepareFinanceGrantFiles(process.argv[2], process.argv[3] === '--card-sync')) + '\n'); }
   catch { process.stderr.write('FINANCE_GRANT_PREPARATION_FAILED: preserve any existing package for recovery.\n'); process.exitCode = 1; }
 }

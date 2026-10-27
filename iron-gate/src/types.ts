@@ -10,6 +10,7 @@ export type Action =
   | "booking:manage_all"
   | "inventory:write"
   | "hold:write"
+  | "card:sync"
   | "payment:write"
   | "finance:ledger"
   | "event:read"
@@ -92,6 +93,7 @@ export type Booking = {
   hold?: { schema: 1; scope: "platform_only"; startedAt: string; expiresAt: string;
     state: "active" | "converted" | "released"; convertedAt?: string; releasedAt?: string;
     latePaymentReview?: boolean };
+  cardChargeResults?: import("./card-sync.ts").CardResult[];
   paymentEvents?: PaymentEvent[];
   /** Immutable source evidence for a read-only OS shadow import; never projected to API callers. */
   osSnapshot?: Record<string, unknown>;
@@ -355,6 +357,7 @@ export type EventType =
   | "channel.sync_requested" | "channel.preflight_open"
   | "channel.manually_confirmed"
   | "hold.created" | "hold.extended" | "hold.converted" | "hold.released"
+  | "card.result_recorded"
   | "payment.recorded" | "source.applied" | "source.review_required"
   | "inventory.blocked" | "inventory.opened"
   | "source.facts_enriched"
