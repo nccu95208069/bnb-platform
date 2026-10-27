@@ -9,6 +9,7 @@ export type FinanceRoutes = {
   readonly enabled: boolean;
   sourceLinkPreview(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   sourceLinkCommit(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  sourceLinks(principal: Principal, propertyId: string): Promise<unknown>;
   importPreview(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   importCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   importReceipt(principal: Principal, propertyId: string, requestKey: string): Promise<unknown>;
@@ -23,10 +24,15 @@ export type FinanceRoutes = {
   receipt(principal: Principal, propertyId: string, requestKey: string): Promise<unknown>;
   ledger(principal: Principal, propertyId: string, query: { from: string | null; to: string | null;
     cursor: string | null; limit: number }): Promise<unknown>;
+  activity(principal: Principal, propertyId: string, page: number,
+    action: string, query: string): Promise<unknown>;
   bookingFinance(principal: Principal, propertyId: string, bookingId: string): Promise<unknown>;
   expenses(principal: Principal, propertyId: string, month: string | null, limit: number,
     cursor: string | null): Promise<unknown>;
   accounts(principal: Principal, propertyId: string): Promise<unknown>;
+  accountCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  categories(principal: Principal, propertyId: string): Promise<unknown>;
+  categoryCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   statusCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   statuses(principal: Principal, propertyId: string, bookingId: string | null): Promise<unknown>;
   recurringRule(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
@@ -101,6 +107,8 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         if (parts[4] === 'source-links' && parts.length === 5 && request.method === 'POST')
           return json(await finance.sourceLinkCommit(principal,parts[2],
             await body(request),requestKey(request)),201);
+        if (parts[4] === 'source-links' && parts.length === 5 && request.method === 'GET')
+          return json(await finance.sourceLinks(principal,parts[2]));
         if (parts[4] === 'imports' && parts[5] === 'preview' &&
           parts.length === 6 && request.method === 'POST')
           return json(await finance.importPreview(principal,parts[2],
@@ -154,11 +162,23 @@ export function createHandler(service: IronGateService, authenticate: Authentica
           return json(await finance.ledger(principal, parts[2], {
             from: url.searchParams.get('from'), to: url.searchParams.get('to'),
             cursor: url.searchParams.get('cursor'), limit: Number(url.searchParams.get('limit') ?? '50') }));
+        if (parts[4] === 'activity' && parts.length === 5 && request.method === 'GET')
+          return json(await finance.activity(principal,parts[2],
+            Number(url.searchParams.get('page') ?? '1'),
+            url.searchParams.get('action') ?? '',url.searchParams.get('q') ?? ''));
         if (parts[4] === "expenses" && parts.length === 5 && request.method === "GET")
           return json(await finance.expenses(principal, parts[2], url.searchParams.get('month'),
             Number(url.searchParams.get('limit') ?? '50'), url.searchParams.get('cursor')));
         if (parts[4] === "accounts" && parts.length === 5 && request.method === "GET")
           return json(await finance.accounts(principal, parts[2]));
+        if (parts[4] === "accounts" && parts.length === 5 && request.method === "POST")
+          return json(await finance.accountCommand(principal,parts[2],
+            await body(request),requestKey(request)),201);
+        if (parts[4] === "categories" && parts.length === 5 && request.method === "GET")
+          return json(await finance.categories(principal,parts[2]));
+        if (parts[4] === "categories" && parts.length === 5 && request.method === "POST")
+          return json(await finance.categoryCommand(principal,parts[2],
+            await body(request),requestKey(request)),201);
         if (parts[4] === "commands" && parts[5] === "preview" && parts.length === 6 &&
           request.method === "POST") return json(await finance.preview(principal, parts[2],
             await body(request), requestKey(request)));

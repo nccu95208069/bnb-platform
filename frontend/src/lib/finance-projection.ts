@@ -11,7 +11,11 @@ export function projectOrders(rows:CalendarBooking[],entries:FinanceEntry[],rule
   const total=bookings.reduce((s,b)=>s+Math.round(b.room_rate*100),0),platform=bookings[0].platform;
   const check_in=bookings.map(b=>b.check_in).sort()[0],check_out=bookings.map(b=>b.check_out).sort().at(-1)!;
   const key=ledgerKey(bookings[0].property_id,id);
-  const received=entries.filter(e=>e.status==='active'&&e.kind==='income'&&e.method!=='ota').reduce((s,e)=>s+(e.order_key===key&&e.category==='lodging'?e.amount_cents:e.allocations?.filter(a=>a.order_id===id).reduce((n,a)=>n+a.amount_cents,0)??0),0);
+  const received=entries.filter(e=>e.status==='active'&&['income','refund'].includes(e.kind)&&e.method!=='ota').reduce((s,e)=>{
+    const allocated=e.order_key===key&&e.category==='lodging'?e.amount_cents:
+      e.allocations?.filter(a=>a.order_id===id).reduce((n,a)=>n+a.amount_cents,0)??0;
+    return s+(e.kind==='refund'?-allocated:allocated);
+  },0);
   let eligible_date:string|null=null;
   if(platform==='agoda'){const d=new Date(check_out+'T00:00:00Z');d.setUTCDate(d.getUTCDate()+30);eligible_date=d.toISOString().slice(0,10);}
   const rule=rules.find(r=>r.platform===platform);

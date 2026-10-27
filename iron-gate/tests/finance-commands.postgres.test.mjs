@@ -30,6 +30,8 @@ function expense(action, sourceVersion, amount = 1000) {
     action, ...(action === 'void' ? {} : { event_kind: 'expense_paid', amount_cents: amount,
       currency: 'TWD', effective_on: '2026-10-28', cash_on: '2026-10-28',
       category_code: 'supplies', evidence_level: 'operator_attested',
+      advanced_by_ref:'synthetic-operator',advanced_by_kind:'self',
+      advanced_by_label:'Synthetic operator',
       expense_attributions: [{ month: '2026-10-01', amount_cents: amount,
         allocation_policy: 'ig_v1_earliest_cent' }] }) };
 }
@@ -143,6 +145,15 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       const secondPage = await service.ledger(principal, propertyId,
         { from:'2026-10-28', to:'2026-10-29', limit:10, cursor:ledger.next_cursor });
       assert.ok(secondPage.events.length >= 2);
+      const fullLedger = await service.ledger(principal,propertyId,{limit:100});
+      assert.equal(fullLedger.events.find(event=>event.document_id===receipt.document_id &&
+        event.event_kind==='expense_paid')?.advanced_by_kind,'self');
+      const activity = await service.activity(principal,propertyId,1,'expense_voided','synthetic-operator');
+      assert.equal(activity.total,1);
+      assert.equal(activity.activities[0].target_id,receipt.document_id);
+      assert.equal(activity.activities[0].before_amount_cents,'1200');
+      assert.equal(activity.activities[0].ui_action,'expense_voided');
+      assert.equal((await service.activity(principal,propertyId,1,'','no-such-operator')).total,0);
       const expenses = await service.expenses(principal, propertyId,'2026-10-01');
       assert.equal(expenses.total_cents,0);
       const beforeStatus = await admin.query(`SELECT count(*)::int AS count
@@ -158,20 +169,36 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       assert.equal((await service.statuses(principal,propertyId,bookingId)).statuses.length,1);
       const recurring = { request_key:'rule-1',source_record_id:'monthly-1',version:1,
         cadence:'monthly',start_on:'2026-10-01',end_on:null,next_due_on:'2026-11-01',
-        status:'active',category_code:'supplies' };
+        status:'active',category_code:'supplies',amount_cents:2000,
+        safe_description:'Monthly supplies',payment_method_code:'bank_transfer',due_day:10 };
       const rule = await service.recurringRule(principal,propertyId,recurring,recurring.request_key);
       assert.equal(rule.cash_effect_cents,0);
       assert.equal((await service.recurringRules(principal,propertyId)).recurring_rules.length,1);
       const payout = { request_key:'payout-rule-1',platform:'booking',version:1,
-        mode:'fixed_day',day:10,status:'active' };
+        mode:'fixed_day',day:10,offset_months:1,status:'active' };
       await service.payoutRule(principal,propertyId,payout,payout.request_key);
       assert.equal((await service.payoutRules(principal,propertyId)).payout_rules.length,1);
+      const account = {request_key:'account-1',code:'os-account-1',
+        display_name:'Test account',kind:'bank',last_digits:'12345'};
+      const accountResult = await service.accountCommand(principal,propertyId,
+        account,account.request_key);
+      assert.equal(accountResult.cash_effect_cents,0);
+      assert.equal((await service.accounts(principal,propertyId)).accounts[0].last_digits,'12345');
+      const category = {request_key:'category-1',code:'custom_test',
+        label:'Test category',kind:'expense'};
+      await service.categoryCommand(principal,propertyId,category,category.request_key);
+      assert.equal((await service.categories(principal,propertyId)).categories.length,2);
+      const accountActivity=await service.activity(principal,propertyId,1,
+        'payment_account_created','synthetic-operator');
+      assert.equal(accountActivity.total,1);
+      assert.equal(accountActivity.activities[0].target_id,'os-account-1');
       const afterStatus = await admin.query(`SELECT count(*)::int AS count
         FROM iron_gate.finance_event WHERE property_id=$1`, [propertyId]);
       assert.equal(afterStatus.rows[0].count,beforeStatus.rows[0].count);
       const fee = { request_key:'fee-1',source_record_id:'fee-1',source_version:'1',
         action:'create',event_kind:'processor_fee_paid',amount_cents:100,
         currency:'TWD',effective_on:'2026-10-28',cash_on:'2026-10-28',
+        payment_method_code:'bank_transfer',payment_account_ref:'os-account-1',
         category_code:'supplies',evidence_level:'operator_attested',
         expense_attributions:[{month:'2026-10-01',amount_cents:100,
           allocation_policy:'ig_v1_earliest_cent'}] };
@@ -231,6 +258,7 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       const linked = await service.sourceLinkCommit(importer,propertyId,
         { ...link,preview_token:linkPreview.preview_token },link.request_key);
       assert.equal(linked.cash_effect_cents,0);
+      assert.equal((await service.sourceLinks(principal,propertyId)).source_links.length,2);
       assert.deepEqual(await service.sourceLinkCommit(importer,propertyId,
         { ...link,preview_token:linkPreview.preview_token },link.request_key),linked);
       const imported = { ...roomCommand('legacy-receipt-1',1000),
