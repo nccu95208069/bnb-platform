@@ -1,3 +1,6 @@
+import {createHash} from 'node:crypto';
+import {amountFixture} from '../../iron-gate/tests/airbnb-amount-fixture.mjs';
+import {readSweetfunIronGatePaymentOrder,ironGateCalendarConfig} from '../src/lib/booking-sources/iron-gate-calendar.server.ts';
 import {previewCardSync,commitCardSync} from '../src/lib/booking-sources/iron-gate-card-sync.server.ts';
 import {assertNotCardManaged} from '../src/lib/card-payment-ownership.ts';
 import {cardAliases} from '../../iron-gate/src/card-sync.ts';
@@ -17,7 +20,7 @@ import { HEADERS } from '../src/lib/sheet-monitor/reconcile.ts';
 import { financeKey } from '../src/lib/finance-store.ts';
 import { ledgerKey } from '../src/lib/os-payments.ts';
 import { summarize, revenueSummary } from '../src/lib/finance-model.ts';
-import { ironGateFinanceConfig, readDirectFinance, projectDirectFinance } from '../src/lib/booking-sources/iron-gate-finance.server.ts';
+import { ironGateFinanceConfig, readDirectFinance, projectDirectFinance, applyFinanceAmountCorrections } from '../src/lib/booking-sources/iron-gate-finance.server.ts';
 import { createManualBooking, ironGateManualConfig } from '../src/lib/booking-sources/iron-gate-manual.server.ts';
 import { GET as financeGET, POST as financePOST } from '../src/app/api/v1/finance/route.ts';
 import { POST as paymentPOST } from '../src/app/api/v1/bookings/manual/[bookingId]/payments/route.ts';
@@ -98,6 +101,10 @@ async function fixture(t) {
     } else if(command[0]==='EVAL'&&command[1].includes('for i=2,#KEYS')){
       const keys=command.slice(3,3+command[2]),args=command.slice(3+command[2]);
       if(db.get(keys[0])!==args[0])result=-1;else if(keys.slice(1).some(key=>db.has(key)&&db.get(key)!==args[1]))result=-2;else{for(const key of keys.slice(1))db.set(key,args[1]);result=1;}
+    } else if (command[0] === 'EVAL' && command[1].includes('if #KEYS>1')) {
+      const keys=command.slice(3,3+command[2]),args=command.slice(3+command[2]);
+      if((keys.length>1&&db.get(keys[1])!==args[2])||(db.get(keys[0])??'')!==args[0])result=0;
+      else {db.set(keys[0],args[1]);result=1;}
     } else if (command[0] === 'EVAL' && command[1].includes('INCR')) result = 1;
     else if (command[0] === 'EVAL' && command[1].includes('DEL')) {
       if (db.get(command[3]) === command[4]) { db.delete(command[3]); result = 1; }
@@ -295,4 +302,48 @@ test('signed plan rejects edits, and a legacy receipt between preview and confir
  f.db.set(ledgerKey('sweetfun',f.aliases[0]),JSON.stringify({version:1,receipts:[{id:uuid(),status_only:true}]}));
  await assert.rejects(()=>commitCardSync({input:cardInput,previewToken:preview.previewToken}),/CARD_LEGACY_PAYMENT_REVIEW/);
  assert.equal((await f.repository.read(propertyId)).bookings[0].paymentEvents?.length??0,0);
+});
+
+
+test('verified Airbnb correction joins the original finance identity; real receipts use the new net amount once', async t => {
+  const f=await fixture(t), {corrected}=amountFixture();
+  for (const b of corrected.bookings) {
+    b.propertyId=propertyId;b.workspaceId=workspaceId;
+    const room=b.sweetfunSnapshot.rows[0].room;b.stays[0].roomIds=[roomIds[room]];
+    b.sourceAmountReconciliation.roomId=roomIds[room];
+  }
+  await f.repository.transact(propertyId,state=>{state.bookings.push(...corrected.bookings);});
+  const rows=corrected.bookings.map(b=>b.sweetfunSnapshot.rows[0].values);
+  const snapshot=adaptSheetBookings([HEADERS,...rows],source.sourceId,new Date().toISOString(),[],[],source.property);
+  f.db.set('sweetfun:sheet-monitor:v1:sweetfun-operations-sheet-v1:state','gz1:'+gzipSync(JSON.stringify(initialState(snapshot))).toString('base64'));
+  const initial=await body(await f.finance()), orders=initial.orders.filter(o=>o.platform==='airbnb');
+  assert.equal(orders.length,5);assert.equal(orders.reduce((s,o)=>s+o.total,0),1943500);
+  assert.equal(orders.reduce((s,o)=>s+o.receivable,0),1943500);assert.equal(initial.entries.length,0);
+  assert.ok(orders.every(o=>o.received===0&&o.source_paid===false&&o.id.startsWith('SF-')));
+  const authoritative=await f.service.directFinanceSnapshot(principal,propertyId);
+  for(const change of [r=>r.sourceAmountReconciliations.pop(),r=>r.sourceAmountReconciliations[0].netCents++,
+    r=>r.sourceAmountReconciliations[0].groupTaxCents++,r=>r.sourceAmountReconciliations[1]=r.sourceAmountReconciliations[0]]){
+    const bad=structuredClone(authoritative);change(bad);const {revision,...snapshot}=bad;void revision;
+    bad.revision=createHash('sha256').update(JSON.stringify(snapshot)).digest('hex');
+    assert.throws(()=>projectDirectFinance(bad,ironGateFinanceConfig(),[]));
+  }
+  const projected=projectDirectFinance(authoritative,ironGateFinanceConfig(),[]);
+  assert.equal(projected.entries.length,0);
+  assert.throws(()=>applyFinanceAmountCorrections([],projected.amountReconciliations),/INCOMPLETE/);
+  const target=orders.find(o=>o.rooms.includes('101'));
+  const payment=await readSweetfunIronGatePaymentOrder(target.amount_reconciliation.bookingId,owner,ironGateCalendarConfig(),f.send);
+  assert.equal(payment.paymentOrderId,target.id);assert.equal(payment.totalCents,471900);
+  assert.equal(payment.sourcePaid,false);
+  const requestId=uuid(),input={property_id:'sweetfun',year:2026,expected_version:initial.version,
+    projection_version:initial.projection_version,request_id:requestId,action:'create',kind:'income',
+    category:'lodging',date:'2026-10-01',description:'Synthetic actual payout evidence',platform:'airbnb',
+    method:'bank_transfer',amount:100,allocations:[{order_id:target.id,amount_cents:10000}]};
+  await body(await financePOST(f.request('/api/v1/finance',input)));
+  await body(await financePOST(f.request('/api/v1/finance',input)));
+  const after=await body(await f.finance()), updated=after.orders.find(o=>o.id===target.id);
+  assert.equal(updated.total,471900);assert.equal(updated.received,10000);assert.equal(updated.receivable,461900);
+  assert.equal(after.entries.length,1);assert.equal(f.foreignCalls,0,'reconciled allocations never re-read or write the frozen Sheet');
+  assert.ok((await f.repository.read(propertyId)).bookings.every(b=>(b.paymentEvents?.length??0)===0));
+  await f.repository.transact(propertyId,state=>{state.bookings.find(b=>b.id===target.amount_reconciliation.bookingId).totalCents++;});
+  await body(await f.finance(),503);
 });

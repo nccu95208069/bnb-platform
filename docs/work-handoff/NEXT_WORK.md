@@ -1,5 +1,7 @@
 # Next Work — Ordered Milestones and Acceptance Criteria
 
+2026-10-28 Airbnb amount correction: [verified gross/fee/net reconciliation](AIRBNB_AMOUNT_RECONCILIATION_2026-10-28.md) adds a guarded five-room correction and finance overlay while preserving original evidence and actual-receipt accounting. Final rollout evidence belongs to the linked PR.
+
 2026-10-27 card sync: [Credit Card → IronGate → OS implementation and isolated acceptance](CARD_IRONGATE_SYNC_2026-10-27.md). Two-step confirmation, full Booking receipts, exact matching, durable duplicate prevention and OS projection are implemented; no production rollout or real payment is claimed.
 
 2026-10-24 水芳手動訂單：直訂新增、改房／改期、取消的 OS→Iron Gate 入口已正式發布；新單建立與 OwlNest 同步分成兩次明確操作。指定 2027-03-20 水芳 101 的[真實關房、回讀、取消與復原驗收](SWEETFUN_MANUAL_BOOKING_IMPLEMENTATION_2026-10-24.md#正式房況驗收台灣時間-18441846)已完成，原可售 1 已恢復；下一步是觀測首筆真實旅客操作、輪替手動 credential，並另行處理全館庫存觀測、OTA 身分及財務帳本整合。OTA 補登與房晚／金額更正仍不開放。

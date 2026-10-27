@@ -1,3 +1,4 @@
+import { checkedAmountBreakdown, type SourceAmountBreakdown } from '../source-amount-reconciliation.ts';
 import { createHash } from 'node:crypto';
 import type { Principal } from '../workspace-auth/types';
 import type { FinanceEntry, FinanceOrder } from '../finance-model';
@@ -101,7 +102,8 @@ export function projectDirectFinance(raw: Record<string, unknown>, config: Manua
         ...(event.refundOfEventId ? { refund_of_event_id: event.refundOfEventId } : {}) });
     }
   }
-  return { entries, orders, replacedOrderIds, revision: revision as string };
+  const amountReconciliations = checkedFinanceCorrections(raw.sourceAmountReconciliations ?? [], config);
+  return { entries, orders, replacedOrderIds, amountReconciliations, revision: revision as string };
 }
 
 export async function readDirectFinance(principal: Principal, config: ManualConfig,
@@ -110,4 +112,51 @@ export async function readDirectFinance(principal: Principal, config: ManualConf
     `/v1/properties/${config.grant.propertyId}/finance/direct-snapshot`, null, null,
     send, ['finance:ledger'], ['money'], 2_100_000);
   return projectDirectFinance(raw, config, legacyEntries);
+}
+
+
+type FinanceCorrection = SourceAmountBreakdown & {bookingId:string;version:number;status:string;orderId:string;room:string};
+function checkedFinanceCorrections(raw: unknown, config: ManualConfig): FinanceCorrection[] {
+  if (!Array.isArray(raw) || raw.length > 5000) return invalid();
+  const rows = raw.map(value => {
+    if (!object(value) || !UUID.test(String(value.bookingId)) ||
+      !['confirmed','cancelled'].includes(String(value.status))) return invalid();
+    const amount = checkedAmountBreakdown(value, Number(value.netCents), Number(value.version));
+    const room = Object.entries(config.calendar.roomIds).find(([,id]) => id === amount.roomId)?.[0];
+    if (!room) return invalid();
+    const orderId = `SF-${createHash('sha256').update(
+      `sweetfun-operations-sheet-v1:order:ungrouped:${amount.sourceOrderRef.slice(2)}`).digest('hex').slice(0,20)}`;
+    return {...amount,bookingId:String(value.bookingId),version:Number(value.version),status:String(value.status),orderId,room};
+  });
+  if (new Set(rows.map(r => r.bookingId)).size !== rows.length ||
+    new Set(rows.map(r => r.orderId)).size !== rows.length) return invalid();
+  const fields = ['groupOriginalCents','groupGrossCents','groupHostFeeCents','groupNetCents',
+    'groupTaxCents','groupGuestFeeCents','groupGuestPaidCents','externalOrderNo','checkIn','checkOut'] as const;
+  for (const groupId of new Set(rows.map(r => r.groupId))) {
+    const group=rows.filter(r => r.groupId===groupId), first=group[0];
+    if (group.length!==first.groupSize || new Set(group.map(r => r.roomId)).size!==group.length ||
+      group.some(r => fields.some(k => r[k]!==first[k])) ||
+      group.reduce((s,r)=>s+r.originalTotalCents,0)!==first.groupOriginalCents ||
+      group.reduce((s,r)=>s+r.grossCents,0)!==first.groupGrossCents ||
+      group.reduce((s,r)=>s+r.hostFeeCents,0)!==first.groupHostFeeCents ||
+      group.reduce((s,r)=>s+r.netCents,0)!==first.groupNetCents) return invalid();
+  }
+  return rows;
+}
+
+export function applyFinanceAmountCorrections(orders: FinanceOrder[], corrections: FinanceCorrection[]) {
+  for (const correction of corrections) {
+    const matches=orders.filter(o => o.id===correction.orderId);
+    const order=matches[0];
+    if (matches.length!==1 || order.source || order.platform!=='airbnb' ||
+      order.rooms.length!==1 || order.rooms[0]!==correction.room ||
+      order.check_in!==correction.checkIn || order.check_out!==correction.checkOut ||
+      order.total!==correction.originalTotalCents) return invalid();
+    order.total=correction.netCents;
+    order.status=correction.status as 'confirmed'|'cancelled';
+    order.receivable=order.status==='cancelled'?0:Math.max(0,order.total-order.received);
+    order.credit=Math.max(0,order.received-(order.status==='cancelled'?0:order.total));
+    order.source_version=`${correction.bookingId}:${correction.version}`;
+    order.amount_reconciliation=correction;
+  }
 }

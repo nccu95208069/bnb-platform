@@ -1,5 +1,5 @@
 import type {Principal} from './workspace-auth/types';
-import {ironGateFinanceConfig,readDirectFinance} from './booking-sources/iron-gate-finance.server.ts';
+import {ironGateFinanceConfig,readDirectFinance,applyFinanceAmountCorrections} from './booking-sources/iron-gate-finance.server.ts';
 import type {FinanceAuditEvent} from './finance-audit';
 import {redisCommand} from './workspace-auth/store';
 import {readFinance,calendarIncome,type FinanceState} from './finance-store';
@@ -25,6 +25,7 @@ export async function financeContext(source:SheetSourceDefinition,year:number,in
  const ruleMap=new Map<string,PayoutRule>();for(const s of states)for(const r of s.state.payout_rules??[])if((r.updated_at??'')>=(ruleMap.get(r.platform)?.updated_at??''))ruleMap.set(r.platform,r);
  const payout_rules=['ctrip','owljourney'].map(platform=>ruleMap.get(platform)??{platform,mode:'manual' as const,day:10,offset:1});
  const {orders,excluded}=projectOrders(snapshot.bookings.filter(b=>!direct?.replacedOrderIds.includes(b.order_id)),entries,payout_rules);
+ if(direct)applyFinanceAmountCorrections(orders,direct.amountReconciliations);
  if(direct){const ids=new Set(direct.orders.map(order=>order.id));if(orders.some(order=>ids.has(order.id)))throw Error('IRON_GATE_LEGACY_LEDGER_CONFLICT');orders.push(...direct.orders);orders.sort((a,b)=>a.check_in.localeCompare(b.check_in));}
  const selected=states[sorted.indexOf(year)];
  return {iron_gate_revision:direct?.revision??null,iron_gate_direct_excluded:source.property.id==='sweetfun'&&process.env.CALENDAR_SOURCE==='sheet_snapshot'&&process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED==='true'&&!direct,audit,raw:selected.raw,state:selected.state as FinanceState,entries,orders,recurring,payment_accounts,payout_rules,excluded_orders:excluded,versions:Object.fromEntries(sorted.map((y,i)=>[y,states[i].state.version])),due:[...new Set([...recurring.map(r=>Number(r.start.slice(0,4))),year])].flatMap(start=>Array.from({length:Math.max(0,year-start+1)},(_,i)=>start+i)).filter((y,i,a)=>a.indexOf(y)===i).flatMap(y=>recurrenceDue(recurring,entries,y)),projection_version:projectionVersion([snapshot.bookings.map(b=>[b.id,b.order_id,b.room_rate,b.check_in,b.check_out,b.platform,b.source_conflict,b.reservation_status]),states.filter(s=>s.state.version>0).map(s=>s.state),calendar,direct?.revision??null]),asof:taipeiDate()};

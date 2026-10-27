@@ -1,3 +1,4 @@
+import { checkedAmountBreakdown } from '../source-amount-reconciliation.ts';
 import { createHash, createHmac } from 'node:crypto';
 import { getVercelOidcToken } from '@vercel/oidc';
 import type { CalendarBooking } from '../../components/calendar/calendar-types';
@@ -311,6 +312,8 @@ function calendarBooking(booking: Record<string, unknown>,
     booked_at: optionalDate(source?.bookedAt ?? booking.bookedAt),
     room_rate: cents / 100,
     source_order_total_cents: orderTotalCents,
+    ...(viewPrices && booking.sourceAmountReconciliation ? {source_amount_reconciliation:
+      checkedAmountBreakdown(booking.sourceAmountReconciliation, Number(booking.totalCents), Number(booking.version))} : {}),
     payment_status: paymentStatus, reservation_status: 'confirmed',
     notes: null, payments: [], audit_log: [], extra_guest_count: 0,
     extra_bed_count: 0, pet_count: 0, baby_supplies: [], service_note: null,

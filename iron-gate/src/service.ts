@@ -1,3 +1,4 @@
+import { reconciledAmount, reconciledFinanceAmounts } from './source-amount-reconciliation.ts';
 import { resolveCard, hasCardReceipt, cardAliases, cardPaymentId, type CardInput } from "./card-sync.ts";
 import type {
   Action, AmendBookingInput, Booking, BookingReceipt, CreateBookingInput, CreateHoldInput,
@@ -83,7 +84,8 @@ function uniqueNights(cells: Night[]): Night[] {
   return [...new Map(cells.map((cell) => [keyOf(cell), cell])).values()];
 }
 function identityEnrichmentLabels(booking: Booking): { sourceOrderRef: string; bookedAt: string | null } | null {
-  const marker = booking.sourceIdentityEnrichment, rows = booking.sweetfunSnapshot?.rows;
+  const amount = reconciledAmount(booking);
+  const marker = amount ? { schema: 1, bookingVersion: booking.version, sourceOrderRef: amount.sourceOrderRef } : booking.sourceIdentityEnrichment, rows = booking.sweetfunSnapshot?.rows;
   if (!marker || marker.schema !== 1 || marker.bookingVersion !== booking.version ||
     booking.source !== "external" || booking.sourceCalendar?.platform !== "airbnb" ||
     !/^HM[A-Z0-9]{8}$/.test(booking.sourceCalendar.externalOrderNo ?? "") ||
@@ -93,7 +95,7 @@ function identityEnrichmentLabels(booking: Booking): { sourceOrderRef: string; b
     rows[0]?.values?.[2] !== "Airbnb" || rows[0]?.values?.[13] !== "" ||
     marker.sourceOrderRef !== `J:${rows[0]?.values?.[9]}` ||
     rows[0]?.checkIn !== booking.stays[0].checkIn || rows[0]?.checkOut !== booking.stays[0].checkOut ||
-    rows[0]?.roomFeeCents !== booking.totalCents) return null;
+    rows[0]?.roomFeeCents !== (amount?.originalTotalCents ?? booking.totalCents)) return null;
   const match = /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})$/.exec(booking.bookedAt ?? "");
   const date = match ? `${match[1]}-${match[2].padStart(2, "0")}-${match[3].padStart(2, "0")}` : null;
   const bookedAt = date && Number.isFinite(Date.parse(`${date}T00:00:00Z`)) &&
@@ -393,7 +395,7 @@ function publicBooking(booking: Booking, principal: Principal,
   if ((principal.origin === "os" || principal.origin === "line") &&
     principal.fields.includes("guest_name")) {
     result.guestName = booking.guestName;
-    const enriched = identityEnrichmentLabels(booking);
+    const enriched = principal.fields.includes("money") ? identityEnrichmentLabels(booking) : null;
     if (principal.origin === "os" && booking.sourceCalendar) {
       result.sourceCalendar = { platform: booking.sourceCalendar.platform,
         ...(principal.fields.includes("money") ?
@@ -480,6 +482,8 @@ function publicBooking(booking: Booking, principal: Principal,
     result.cardChargeResult = structuredClone(booking.cardChargeResults.at(-1));
   if ((principal.origin === "os" || principal.origin === "finance") &&
     principal.fields.includes("money")) {
+    const amount = reconciledAmount(booking);
+    if (amount) result.sourceAmountReconciliation = amount;
     result.totalCents = booking.totalCents;
     result.currency = booking.currency;
     result.paymentSummary = paymentTotals(booking);
@@ -1767,7 +1771,8 @@ export class IronGateService {
     const eventIds = bookings.flatMap(booking => booking.paymentEvents.map(event => event.id));
     if (new Set(eventIds).size !== eventIds.length) reject("PAYMENT_INTEGRITY_CONFLICT", 409);
     const snapshot = { schema: 1, propertyId, workspaceId: state.workspaceId,
-      authorityEpoch: state.authorityEpoch, inventoryVersion: state.version, bookings };
+      authorityEpoch: state.authorityEpoch, inventoryVersion: state.version, bookings,
+      sourceAmountReconciliations: reconciledFinanceAmounts(state.bookings) };
     const encoded = JSON.stringify(snapshot);
     if (bookings.length > 5000 || new TextEncoder().encode(encoded).byteLength > 2_000_000)
       reject("READ_CAPACITY_LIMIT", 409);
