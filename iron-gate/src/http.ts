@@ -61,6 +61,20 @@ export function createHandler(service: IronGateService, authenticate: Authentica
       const principal = await authenticate(request);
       if (!principal) return json({ error: { code: "UNAUTHORIZED" } }, 401);
 
+      if (parts[1] === "properties" && parts[2] && parts.length === 4 &&
+        ["line-room-control-previews", "line-room-controls"].includes(parts[3]) && request.method === "POST") {
+        const value = await body(request);
+        exact(value, ["cells", "desired"]);
+        const input = value as Pick<LineInventoryBatchInput, "cells" | "desired">;
+        if (parts[3] === "line-room-control-previews")
+          return json(await service.previewLineRoomControl(principal, parts[2], input));
+        const receipt = await service.requestLineRoomControl(principal, parts[2],
+          requestKey(request), input, request.headers.get("x-iron-gate-line-preview"));
+        try { onLineChannelQueued?.({ propertyId: parts[2], operationKey: receipt.operationKey as string }); }
+        catch { console.error("line_channel_start_unavailable"); }
+        return json(receipt, 202);
+      }
+
       if (parts[1] === "properties" && parts[2] && parts[3] === "line-create-previews" &&
         parts.length === 4 && request.method === "POST") {
         const value = await body(request);
@@ -119,7 +133,8 @@ export function createHandler(service: IronGateService, authenticate: Authentica
       if (parts[1] === "properties" && parts[2] && parts[3] === "line-channel-actions") {
         if (parts.length === 6 && parts[4] === "requests" && request.method === "GET") {
           const result = await service.requestResult(principal, parts[2], parts[5]);
-          if (!result.bookingId || !result.operationKey || !Array.isArray(result.cells))
+          if ((!result.bookingId && result.controlMode !== "provider_only") ||
+            !result.operationKey || !Array.isArray(result.cells))
             throw new GateError("REQUEST_NOT_FOUND", 404);
           return json(result);
         }

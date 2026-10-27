@@ -42,15 +42,20 @@ export function validateManifest(manifest) {
   const allIds = new Set(), allNights = new Set(), allAliases = new Set();
   const orders = manifest.orders.map((order) => {
     const event = order?.event;
-    if (!event || Object.keys(event).sort().join(",") !==
-      "bookedAt,currency,expectedInventoryVersion,externalOrderId,externalOrderNo,guestName,kind,platform,previousSourceVersion,propertyId,sourceAccount,sourceSystem,sourceVersion,stays,totalCents" ||
+    const owlJourney = /^L:OWJ[A-Z0-9]+$/.test(event?.externalOrderId ?? "");
+    const expectedKeys = ["bookedAt", "currency", "expectedInventoryVersion",
+      "externalOrderId", "guestName", "kind", "platform", "previousSourceVersion",
+      "propertyId", "sourceAccount", "sourceSystem", "sourceVersion", "stays", "totalCents",
+      ...(!owlJourney ? ["externalOrderNo"] : [])].sort().join(",");
+    if (!event || Object.keys(event).sort().join(",") !== expectedKeys ||
       event.propertyId !== PROPERTY || event.sourceSystem !== SOURCE_SYSTEM ||
       event.sourceAccount !== SOURCE_ACCOUNT || event.kind !== "upsert" ||
       event.previousSourceVersion !== null || event.bookedAt !== null ||
-      !/^L:OBE[A-Z0-9]+$/.test(event.externalOrderId) ||
+      !(owlJourney || /^L:OBE[A-Z0-9]+$/.test(event.externalOrderId)) ||
       !SOURCE_VERSION.test(event.sourceVersion) ||
-      !["booking", "agoda", "airbnb", "ctrip"].includes(event.platform) ||
-      !/^[A-Za-z0-9-]{1,64}$/.test(event.externalOrderNo ?? "") ||
+      !(owlJourney ? event.platform === "owljourney" :
+        ["booking", "agoda", "airbnb", "ctrip"].includes(event.platform) &&
+        /^[A-Za-z0-9-]{1,64}$/.test(event.externalOrderNo ?? "")) ||
       typeof event.guestName !== "string" || !event.guestName.trim() ||
       event.guestName.length > 200 ||
       !Number.isSafeInteger(event.totalCents) || event.totalCents < 0 ||
@@ -63,8 +68,13 @@ export function validateManifest(manifest) {
       !UUID.test(order.originalRequestKey ?? "") ||
       !HEX.test(order.originalRequestHash ?? "") ||
       !/^[0-9a-f]{16}$/.test(order.sourceMessageId ?? "") ||
-      ![order.bookingId, order.operationKey, order.repairRequestKey].every((id) => UUID.test(id ?? "")) ||
+      ![order.bookingId, order.repairRequestKey].every((id) => UUID.test(id ?? "")) ||
       order.providerStatus !== "confirmed" ||
+      (owlJourney && (typeof order.providerGuestName !== "string" ||
+        !order.providerGuestName.trim() || order.providerGuestName.length > 200 ||
+        !order.providerGuestName.replace(/\s+/g, "").startsWith(
+          event.guestName.replace(/[\s*]/g, "")))) ||
+      (!owlJourney && order.providerGuestName !== undefined) ||
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(order.providerCheckedAt ?? ""))
       throw Error("INVALID_REPAIR_ORDER");
     const match = SOURCE_VERSION.exec(event.sourceVersion);
@@ -72,13 +82,24 @@ export function validateManifest(manifest) {
       sha256(canonical({ action: "source:write", input: event })) !== order.originalRequestHash)
       throw Error("ORIGINAL_SOURCE_REQUEST_MISMATCH");
     const cells = nights(event.stays[0]);
+    const effectiveTotalCents = order.providerTotalCents ?? event.totalCents;
+    if (!Number.isSafeInteger(effectiveTotalCents) || effectiveTotalCents < 0 ||
+      (order.providerTotalCents !== undefined &&
+        ((owlJourney ? event.totalCents !== effectiveTotalCents :
+          event.totalCents - effectiveTotalCents !== 50) ||
+          !Array.isArray(order.providerNightTotalsCents) ||
+          order.providerNightTotalsCents.length !== cells.length ||
+          order.providerNightTotalsCents.some((amount) =>
+            !Number.isSafeInteger(amount) || amount < 0) ||
+          order.providerNightTotalsCents.reduce((sum, amount) => sum + amount, 0) !==
+            effectiveTotalCents))) throw Error("PROVIDER_AMOUNT_MISMATCH");
     const sourceKey = JSON.stringify([SOURCE_SYSTEM, SOURCE_ACCOUNT, event.externalOrderId]);
     const receivedAt = new Date(Number(match[1])).toISOString();
     if (!Number.isFinite(Date.parse(order.providerCheckedAt)) ||
       new Date(order.providerCheckedAt).toISOString() !== order.providerCheckedAt ||
       Date.parse(order.providerCheckedAt) < Number(match[1]))
       throw Error("PROVIDER_CHECK_BEFORE_NOTICE");
-    for (const id of [order.originalRequestKey, order.bookingId, order.operationKey,
+    for (const id of [order.originalRequestKey, order.bookingId,
       order.repairRequestKey, sourceKey]) {
       if (allIds.has(id)) throw Error("DUPLICATE_REPAIR_ID");
       allIds.add(id);
@@ -88,9 +109,11 @@ export function validateManifest(manifest) {
       if (allNights.has(key)) throw Error("OVERLAPPING_REPAIR_ORDERS");
       allNights.add(key);
     }
-    if (allAliases.has(event.externalOrderNo)) throw Error("DUPLICATE_OTA_ALIAS");
-    allAliases.add(event.externalOrderNo);
-    return { ...order, cells, sourceKey, receivedAt };
+    if (!owlJourney) {
+      if (allAliases.has(event.externalOrderNo)) throw Error("DUPLICATE_OTA_ALIAS");
+      allAliases.add(event.externalOrderNo);
+    }
+    return { ...order, cells, sourceKey, receivedAt, effectiveTotalCents };
   });
   return { ...manifest, orders };
 }
@@ -111,7 +134,6 @@ DECLARE
   review_key text;
   booking jsonb;
   link jsonb;
-  operation jsonb;
   receipt jsonb;
   event_json jsonb;
   audit_json jsonb;
@@ -181,10 +203,12 @@ BEGIN
             WHERE stay->>'checkIn'<=c->>'date' AND
               stay->>'checkOut'>c->>'date' AND
               stay->'roomIds' ? (c->>'roomId'))) OR
-          b->'sourceCalendar'->>'externalOrderNo'=e->>'externalOrderNo' OR
+          (e ? 'externalOrderNo' AND
+            b->'sourceCalendar'->>'externalOrderNo'=e->>'externalOrderNo') OR
           EXISTS (SELECT 1 FROM jsonb_array_elements(
             coalesce(b->'sweetfunSnapshot'->'rows','[]'::jsonb)) row
-            WHERE row->'values'->>13=e->>'externalOrderNo' OR
+            WHERE (e ? 'externalOrderNo' AND
+              row->'values'->>13=e->>'externalOrderNo') OR
               row->'values'->>11=substring(e->>'externalOrderId' from 3))) OR
       EXISTS (SELECT 1 FROM iron_gate.occupied_room_nights n,
         jsonb_array_elements(cells) c WHERE n.property_id='${PROPERTY}'::uuid AND
@@ -193,8 +217,6 @@ BEGIN
         jsonb_array_elements(op->'cells') oc, jsonb_array_elements(cells) c
         WHERE op->>'state' IN ('sync_pending','review_required') AND
           oc->>'roomId'=c->>'roomId' AND oc->>'date'=c->>'date') OR
-      EXISTS (SELECT 1 FROM jsonb_array_elements(s->'operations') op
-        WHERE op->>'key'=o->>'operationKey') OR
       EXISTS (SELECT 1 FROM jsonb_array_elements(s->'receipts') r
         WHERE r->>'key'=o->>'repairRequestKey') THEN
       RAISE EXCEPTION 'REPAIR_TARGET_DRIFT';
@@ -202,10 +224,10 @@ BEGIN
     next_version := next_version + 1;
     booking := jsonb_build_object(
       'id',o->>'bookingId','workspaceId',s->>'workspaceId','propertyId','${PROPERTY}',
-      'version',1,'status','confirmed','channelSyncState','pending',
-      'channelOperationKey',o->>'operationKey','stays',e->'stays',
-      'guestName',e->'guestName','contact',NULL,'notes',NULL,
-      'totalCents',e->'totalCents','currency','TWD','bookedAt',NULL,
+      'version',1,'status','confirmed','channelSyncState','not_required',
+      'channelOperationKey',NULL,'stays',e->'stays',
+      'guestName',coalesce(o->>'providerGuestName',e->>'guestName'),'contact',NULL,'notes',NULL,
+      'totalCents',(o->>'effectiveTotalCents')::integer,'currency','TWD','bookedAt',NULL,
       'createdAt',at_iso,'source','external','sourceKey',source_key,
       'sourceCalendar',jsonb_build_object('platform',e->'platform',
         'externalOrderNo',e->'externalOrderNo'));
@@ -217,27 +239,18 @@ BEGIN
       'firstNewOrderNotification',jsonb_build_object('schema',1,
         'receivedAt',o->>'receivedAt','sourceVersion',e->>'sourceVersion',
         'requestKey',o->>'repairRequestKey'));
-    operation := jsonb_build_object('key',o->>'operationKey',
-      'bookingId',o->>'bookingId','bookingVersion',1,'state','sync_pending',
-      'cells',(SELECT jsonb_agg(c || jsonb_build_object('desired','closed'))
-        FROM jsonb_array_elements(cells) c),
-      'createdAt',at_iso,'verifiedAt',NULL,'providerVersion',NULL);
     receipt := jsonb_build_object('key',o->>'repairRequestKey',
       'clientId',original->>'clientId','subjectId',original->>'subjectId',
       'grantId',original->>'grantId','propertyId','${PROPERTY}',
       'action','source:write','requestHash',o->>'originalRequestHash',
       'response',jsonb_build_object('state','applied','bookingId',o->>'bookingId',
         'bookingVersion',1,'inventoryVersion',next_version,
-        'channelSyncState','pending','operationKey',o->>'operationKey',
         'reconciledFromRequestKey',o->>'originalRequestKey'));
     s := jsonb_set(s,'{fences}',
       (SELECT coalesce(jsonb_agg(f),'[]'::jsonb) FROM jsonb_array_elements(s->'fences') f
-        WHERE f->>'key'<>review_key) ||
-      jsonb_build_array(jsonb_build_object('key',o->>'operationKey',
-        'cells',cells,'reason','channel_pending')));
+        WHERE f->>'key'<>review_key));
     s := jsonb_set(s,'{bookings}',s->'bookings' || jsonb_build_array(booking));
     s := jsonb_set(s,'{sourceLinks}',s->'sourceLinks' || jsonb_build_array(link));
-    s := jsonb_set(s,'{operations}',s->'operations' || jsonb_build_array(operation));
     s := jsonb_set(s,'{receipts}',s->'receipts' || jsonb_build_array(receipt));
     INSERT INTO iron_gate.occupied_room_nights(property_id,room_id,night,booking_id)
       SELECT '${PROPERTY}'::uuid,(c->>'roomId')::uuid,(c->>'date')::date,
@@ -254,6 +267,13 @@ BEGIN
       'actorOrigin','source','actorClientId',original->>'clientId',
       'actorSubjectId',original->>'subjectId','actorGrantId',original->>'grantId',
       'requestKey',o->>'repairRequestKey');
+    IF (o->>'effectiveTotalCents')::integer <> (e->>'totalCents')::integer THEN
+      audit_json := audit_json || jsonb_build_object(
+        'sourceNoticeTotalCents',(e->>'totalCents')::integer,
+        'providerVerifiedTotalCents',(o->>'effectiveTotalCents')::integer,
+        'providerNightTotalsCents',o->'providerNightTotalsCents',
+        'amountReconciliation','owlnest_half_unit_rounding');
+    END IF;
     INSERT INTO iron_gate.audit_log(audit_id,property_id,audit_json)
       VALUES ((audit_json->>'auditId')::uuid,'${PROPERTY}'::uuid,audit_json);
   END LOOP;
@@ -265,9 +285,11 @@ BEGIN
 END $repair$;
 SELECT inventory_version,
   (SELECT count(*) FROM jsonb_array_elements(state_json->'sourceLinks') l
-    WHERE l->>'externalOrderId' LIKE 'L:OBE%') AS owlnest_source_links,
+    WHERE l->>'externalOrderId' LIKE 'L:OBE%' OR
+      l->>'externalOrderId' LIKE 'L:OWJ%') AS provider_source_links,
   (SELECT count(*) FROM jsonb_array_elements(state_json->'fences') f
-    WHERE f->>'key' LIKE 'review:%L:OBE%') AS owlnest_review_fences
+    WHERE f->>'key' LIKE 'review:%L:OBE%' OR
+      f->>'key' LIKE 'review:%L:OWJ%') AS provider_review_fences
 FROM iron_gate.property_state WHERE property_id='${PROPERTY}'::uuid;
 ${dryRun ? "ROLLBACK;" : "COMMIT;"}`;
 }

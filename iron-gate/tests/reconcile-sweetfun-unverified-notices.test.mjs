@@ -29,7 +29,7 @@ function syntheticOrder({ orderId = "OBESYNTHETIC001", checkIn = "2026-11-09",
   return { sourceMessageId, originalRequestKey: randomUUID(),
     originalRequestHash: hash(canonical({ action: "source:write", input: event })),
     originalReceiptVersion: version, bookingId: randomUUID(),
-    operationKey: randomUUID(), repairRequestKey: randomUUID(),
+    repairRequestKey: randomUUID(),
     providerStatus: "confirmed", providerCheckedAt: "2026-10-25T11:25:00.000Z",
     event };
 }
@@ -46,6 +46,8 @@ test("repair manifest ties every room night to an unchanged source receipt", () 
   assert.match(checked.orders[0].sourceKey, /OBESYNTHETIC001/);
   assert.match(repairSql(source, true), /ROLLBACK;$/);
   assert.match(repairSql(source, false), /COMMIT;$/);
+  assert.match(repairSql(source, true), /'channelSyncState','not_required'/);
+  assert.doesNotMatch(repairSql(source, true), /'channel_pending'/);
   source.orders[0].event.guestName = "Changed Guest";
   assert.throws(() => validateManifest(source), /ORIGINAL_SOURCE_REQUEST_MISMATCH/);
 });
@@ -67,4 +69,47 @@ test("repair refuses alias duplication, overlapping nights, and absent provider 
   second.originalRequestHash = hash(canonical({ action: "source:write", input: second.event }));
   second.providerStatus = "unknown";
   assert.throws(() => validateManifest(manifest([first, second])), /INVALID_REPAIR_ORDER/);
+});
+
+test("provider half-unit rounding preserves the signed notice and books the exact total", () => {
+  const order = syntheticOrder();
+  order.event.totalCents = 684300;
+  order.originalRequestHash = hash(canonical({ action: "source:write", input: order.event }));
+  order.providerTotalCents = 684250;
+  order.providerNightTotalsCents = [332350, 351900];
+  const checked = validateManifest(manifest([order]));
+  assert.equal(checked.orders[0].event.totalCents, 684300);
+  assert.equal(checked.orders[0].effectiveTotalCents, 684250);
+  const sql = repairSql(manifest([order]), true);
+  assert.match(sql, /'totalCents',\(o->>'effectiveTotalCents'\)::integer/);
+  assert.match(sql, /providerVerifiedTotalCents/);
+  order.providerNightTotalsCents = [332350, 351950];
+  assert.throws(() => validateManifest(manifest([order])), /PROVIDER_AMOUNT_MISMATCH/);
+  order.providerNightTotalsCents = [332350, 351900];
+  order.providerTotalCents = 684200;
+  assert.throws(() => validateManifest(manifest([order])), /PROVIDER_AMOUNT_MISMATCH/);
+});
+
+test("OwlJourney repair uses its exact source receipt and has no fabricated OTA alias", () => {
+  const source = syntheticOrder({ orderId: "OWJSYNTHETIC001" });
+  source.event.platform = "owljourney";
+  delete source.event.externalOrderNo;
+  source.event.totalCents = 805000;
+  source.originalRequestHash = hash(canonical({ action: "source:write", input: source.event }));
+  source.providerGuestName = "Synthetic Guest";
+  source.providerTotalCents = 805000;
+  source.providerNightTotalsCents = [391000, 414000];
+  const checked = validateManifest(manifest([source]));
+  assert.equal(checked.orders[0].effectiveTotalCents, 805000);
+  assert.deepEqual(checked.orders[0].cells.map((cell) => cell.date),
+    ["2026-11-09", "2026-11-10"]);
+  assert.match(repairSql(manifest([source]), true), /ROLLBACK;$/);
+  source.event.externalOrderNo = "FABRICATED";
+  assert.throws(() => validateManifest(manifest([source])), /INVALID_REPAIR_ORDER/);
+  delete source.event.externalOrderNo;
+  source.providerNightTotalsCents = [391000, 413900];
+  assert.throws(() => validateManifest(manifest([source])), /PROVIDER_AMOUNT_MISMATCH/);
+  source.providerNightTotalsCents = [391000, 414000];
+  source.providerGuestName = "Other Guest";
+  assert.throws(() => validateManifest(manifest([source])), /INVALID_REPAIR_ORDER/);
 });

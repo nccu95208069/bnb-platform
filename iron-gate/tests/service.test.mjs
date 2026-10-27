@@ -1754,6 +1754,8 @@ test("new OwlNest source events require a verified order identity even with stoc
 
 const signedOwlNestEvidence = { kind: "gmail-owlnest-dkim-v1",
   signedDomain: "owlting.com", deliveredTo: "sweetfuntw@gmail.com" };
+const signedOwlJourneyEvidence = { kind: "gmail-owljourney-dkim-v1",
+  signedDomain: "owlting.com", deliveredTo: "sweetfuntw@gmail.com" };
 async function signedSourceSetup() {
   const context = setup("owlnest");
   await context.repository.transact(propertyId, (state) => {
@@ -1768,7 +1770,7 @@ async function signedSourceSetup() {
   return { ...context, actor, input };
 }
 
-test("signed OwlNest new-order notice creates one linked booking and a channel readback", async () => {
+test("signed OwlNest new-order notice mirrors the booking without a channel write", async () => {
   const { service, repository, actor, input } = await signedSourceSetup();
   const result = await service.applySourceEvent(actor, key(), input);
   assert.equal(result.state, "applied");
@@ -1776,8 +1778,155 @@ test("signed OwlNest new-order notice creates one linked booking and a channel r
   assert.equal(state.bookings.length, 1);
   assert.equal(state.sourceLinks.length, 1);
   assert.equal(state.bookings[0].totalCents, 197000);
-  assert.equal(state.operations.length, 1);
-  assert.equal(state.operations[0].state, "sync_pending");
+  assert.equal(state.bookings[0].channelSyncState, "not_required");
+  assert.equal(state.operations.length, 0);
+  assert.equal(state.fences.length, 0);
+});
+
+test("signed OwlJourney notice creates one two-night booking without a channel write", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  const journey = { ...input, externalOrderId: "L:OWJSYNTHETIC001",
+    stays: [{ checkIn: "2026-11-22", checkOut: "2026-11-24", roomIds: [roomId] }],
+    platform: "owljourney", externalOrderNo: null, totalCents: 805000,
+    sourceIdentityEvidence: signedOwlJourneyEvidence };
+  const result = await service.applySourceEvent(actor, key(), journey);
+  assert.equal(result.state, "applied");
+  const state = await repository.read(propertyId);
+  assert.equal(state.bookings.length, 1);
+  assert.equal(state.bookings[0].stays[0].checkOut, "2026-11-24");
+  assert.equal(state.bookings[0].totalCents, 805000);
+  assert.equal(state.bookings[0].channelSyncState, "not_required");
+  assert.equal(state.sourceLinks.length, 1);
+  assert.equal(state.operations.length, 0);
+  assert.equal(state.fences.length, 0);
+});
+
+test("OwlJourney sender evidence cannot claim an OTA or unsigned order", async () => {
+  for (const mutate of [
+    (input) => ({ ...input, sourceIdentityEvidence: undefined }),
+    (input) => ({ ...input, sourceIdentityEvidence: signedOwlNestEvidence }),
+    (input) => ({ ...input, platform: "booking" }),
+    (input) => ({ ...input, externalOrderNo: "OTA123" }),
+  ]) {
+    const { service, repository, actor, input } = await signedSourceSetup();
+    const journey = mutate({ ...input, externalOrderId: "L:OWJSYNTHETIC001",
+      platform: "owljourney", externalOrderNo: null,
+      sourceIdentityEvidence: signedOwlJourneyEvidence });
+    const result = await service.applySourceEvent(actor, key(), journey);
+    assert.equal(result.reason, "SOURCE_IDENTITY_UNVERIFIED");
+    assert.equal((await repository.read(propertyId)).bookings.length, 0);
+  }
+});
+
+test("signed OwlJourney amendment cannot relabel its linked booking as an OTA", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  const journey = { ...input, externalOrderId: "L:OWJSYNTHETIC001",
+    platform: "owljourney", externalOrderNo: null,
+    sourceIdentityEvidence: signedOwlJourneyEvidence };
+  const created = await service.applySourceEvent(actor, key(), journey);
+  const changed = await service.applySourceEvent(actor, key(), { ...journey,
+    expectedInventoryVersion: created.inventoryVersion,
+    previousSourceVersion: journey.sourceVersion,
+    sourceVersion: `gmail-v1:1792859315000:${"b".repeat(64)}`,
+    platform: "booking", externalOrderNo: "FABRICATED" });
+  assert.equal(changed.reason, "SOURCE_IDENTITY_UNVERIFIED");
+  assert.equal((await repository.read(propertyId)).bookings[0].sourceCalendar.platform,
+    "owljourney");
+});
+
+test("signed OwlJourney follow-up preserves a provider-verified full guest name", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  const journey = { ...input, externalOrderId: "L:OWJSYNTHETIC001",
+    platform: "owljourney", externalOrderNo: null, guestName: "Synth**",
+    sourceIdentityEvidence: signedOwlJourneyEvidence };
+  const created = await service.applySourceEvent(actor, key(), journey);
+  await repository.transact(propertyId, (state) => {
+    state.bookings[0].guestName = "Synthetic Guest";
+  });
+  const next = { ...journey, expectedInventoryVersion: created.inventoryVersion,
+    previousSourceVersion: journey.sourceVersion,
+    sourceVersion: `gmail-v1:1792859315000:${"b".repeat(64)}` };
+  const updated = await service.applySourceEvent(actor, key(), next);
+  assert.equal(updated.state, "applied");
+  assert.equal((await repository.read(propertyId)).bookings[0].guestName,
+    "Synthetic Guest");
+  const wrong = await service.applySourceEvent(actor, key(), { ...next,
+    expectedInventoryVersion: updated.inventoryVersion,
+    previousSourceVersion: next.sourceVersion,
+    sourceVersion: `gmail-v1:1792859316000:${"c".repeat(64)}`,
+    guestName: "Other**" });
+  assert.equal(wrong.reason, "SOURCE_GUEST_IDENTITY_MISMATCH");
+});
+
+test("OwlJourney order number in imported Sheet L blocks a second booking", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  await service.applySourceEvent(actor, key(), input);
+  await repository.transact(propertyId, (state) => {
+    state.bookings[0].sweetfunSnapshot = { rows: [{ values:
+      Array.from({ length: 14 }, (_, index) => index === 11 ? "OWJSYNTHETIC001" : "") }] };
+  });
+  const journey = { ...input, expectedInventoryVersion: (await repository.read(propertyId)).version,
+    externalOrderId: "L:OWJSYNTHETIC001", platform: "owljourney",
+    externalOrderNo: null, sourceIdentityEvidence: signedOwlJourneyEvidence };
+  const result = await service.applySourceEvent(actor, key(), journey);
+  assert.equal(result.reason, "SOURCE_IDENTITY_COLLISION");
+  assert.equal((await repository.read(propertyId)).bookings.length, 1);
+});
+
+test("signed OwlNest changes and cancellation mirror occupancy without channel writes", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  const created = await service.applySourceEvent(actor, key(), input);
+  const changed = await service.applySourceEvent(actor, key(), { ...input,
+    expectedInventoryVersion: created.inventoryVersion,
+    previousSourceVersion: input.sourceVersion,
+    sourceVersion: `gmail-v1:1792859315000:${"b".repeat(64)}`,
+    stays: [{ checkIn: "2026-11-12", checkOut: "2026-11-14", roomIds: [roomId] }] });
+  assert.equal(changed.state, "applied");
+  const cancelled = await service.applySourceEvent(actor, key(), { ...input,
+    kind: "cancel", expectedInventoryVersion: changed.inventoryVersion,
+    previousSourceVersion: `gmail-v1:1792859315000:${"b".repeat(64)}`,
+    sourceVersion: `gmail-v1:1792859316000:${"c".repeat(64)}`,
+    stays: [{ checkIn: "2026-11-12", checkOut: "2026-11-14", roomIds: [roomId] }] });
+  assert.equal(cancelled.state, "applied");
+  const state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].status, "cancelled");
+  assert.equal(state.bookings[0].channelSyncState, "not_required");
+  assert.equal(state.operations.length, 0);
+  assert.equal(state.fences.length, 0);
+});
+
+test("unsigned Gmail follow-up cannot mutate a linked OwlNest order or channel", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  const created = await service.applySourceEvent(actor, key(), input);
+  const result = await service.applySourceEvent(actor, key(), { ...input,
+    expectedInventoryVersion: created.inventoryVersion,
+    previousSourceVersion: input.sourceVersion,
+    sourceVersion: `gmail-v1:1792859315000:${"b".repeat(64)}`,
+    sourceIdentityEvidence: undefined });
+  assert.equal(result.reason, "SOURCE_IDENTITY_UNVERIFIED");
+  const state = await repository.read(propertyId);
+  assert.equal(state.bookings[0].version, 1);
+  assert.equal(state.operations.length, 0);
+});
+
+test("retired Gmail channel operation cannot be dispatched or verified", async () => {
+  const { service, repository, actor, input } = await signedSourceSetup();
+  const created = await service.applySourceEvent(actor, key(), input);
+  const operationKey = key();
+  await repository.transact(propertyId, (state) => {
+    state.operations.push({ key: operationKey, bookingId: created.bookingId,
+      bookingVersion: 1, state: "retired_source_managed",
+      cells: [{ roomId, date: "2026-11-10", desired: "closed" }],
+      createdAt: new Date(Date.now() - 1000).toISOString(),
+      verifiedAt: null, providerVersion: null });
+  });
+  const channel = principal("channel");
+  const pending = await service.pendingChannelOperations(channel, propertyId, 10);
+  assert.deepEqual(pending.operations, []);
+  await assert.rejects(service.recordChannelReadback(channel, { propertyId,
+    operationKey, providerVersion: "synthetic", observedAt: new Date().toISOString(),
+    cells: [{ roomId, date: "2026-11-10", count: 0, isLock: true }] }),
+  errorCode("CHANNEL_OPERATION_NOT_DISPATCHABLE"));
 });
 
 test("unsigned, ambiguous, and unbound OwlNest new orders stay under review", async () => {
