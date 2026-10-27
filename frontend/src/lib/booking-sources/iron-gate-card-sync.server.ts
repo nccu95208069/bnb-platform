@@ -19,6 +19,10 @@ export function cardSyncConfig(env:NodeJS.ProcessEnv=process.env):Config {
   if(!object(grant)||grant.propertyId!==finance.grant.propertyId||grant.workspaceId!==finance.grant.workspaceId||
     !UUID.test(String(grant.credentialId))||!UUID.test(String(grant.clientId))||
     typeof grant.token!=='string'||!/^[A-Za-z0-9_-]{43}$/.test(grant.token))throw Error('CARD_SYNC_UNAVAILABLE');
+  if(env.OS_SWEETFUN_FINANCE_SSOT_ENABLED==='true'&&(
+    !UUID.test(String(grant.financeSourceInstanceId))||
+    grant.financeSourceInstanceId!==env.IRON_GATE_SWEETFUN_CARD_FINANCE_SOURCE_INSTANCE_ID))
+    throw Error('CARD_SYNC_UNAVAILABLE');
   return {finance,token:grant.token,secret:env.CC_SYNC_OS_TOKEN};
 }
 export function cardSyncAuthorized(supplied:string,secret:string) {

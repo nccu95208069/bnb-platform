@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import {amountFixture} from '../../iron-gate/tests/airbnb-amount-fixture.mjs';
 import {readSweetfunIronGatePaymentOrder,ironGateCalendarConfig} from '../src/lib/booking-sources/iron-gate-calendar.server.ts';
-import {previewCardSync,commitCardSync} from '../src/lib/booking-sources/iron-gate-card-sync.server.ts';
+import {cardSyncConfig,previewCardSync,commitCardSync} from '../src/lib/booking-sources/iron-gate-card-sync.server.ts';
 import {assertNotCardManaged} from '../src/lib/card-payment-ownership.ts';
 import {cardAliases} from '../../iron-gate/src/card-sync.ts';
 import assert from 'node:assert/strict';
@@ -259,6 +259,18 @@ test('missing finance configuration fails closed and a source failure cannot pro
 });
 
 const cardInput={sheetId:'1ccdaF5t0uIo0yqoJdSgKoG68UnBeWzCXfV5dQtMeK4A',tab:'20261027-20261101',row:2,platform:'booking',orderId:'1234567890',checkIn:'2026-10-15',checkOut:'2026-10-17',amountCents:100000,status:'done',chargeDate:'2026-10-27'};
+test('card connector binding is required when Sweetfun finance SSOT is enabled',async t=>{
+ await fixture(t);
+ const sourceId='40000000-0000-4000-8000-000000000001';
+ process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED='true';
+ assert.throws(()=>cardSyncConfig(),/CARD_SYNC_UNAVAILABLE/);
+ process.env.IRON_GATE_SWEETFUN_CARD_FINANCE_SOURCE_INSTANCE_ID=sourceId;
+ process.env.IRON_GATE_CARD_SYNC_GRANT=JSON.stringify({...grant,
+   token:'c'.repeat(43),financeSourceInstanceId:sourceId});
+ assert.equal(cardSyncConfig().finance.grant.propertyId,propertyId);
+ process.env.IRON_GATE_SWEETFUN_CARD_FINANCE_SOURCE_INSTANCE_ID='40000000-0000-4000-8000-000000000002';
+ assert.throws(()=>cardSyncConfig(),/CARD_SYNC_UNAVAILABLE/);
+});
 async function cardFixture(t){
  const f=await fixture(t);
  const rows=['101','102'].flatMap(room=>['15','16'].map((night,i)=>[room,'Synthetic','Booking.com',`2026-10-${night}`,`2026-10-${Number(night)+1}`,'2026-10-01','250','not_yet','OK',`synthetic-${room}-${i}`,'','synthetic-order','2','1234567890','','','']));
