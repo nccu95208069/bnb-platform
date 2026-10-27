@@ -1,6 +1,6 @@
 # Booking Credit Card sync — 2026-10-27
 
-Implemented and tested with synthetic data. No production grant creation, deployment, Sheet write or real receipt has been performed.
+Released on 2026-10-27 after owner-authorized review and deployment. The record below distinguishes production connectivity checks from synthetic receipt/replay acceptance; no real Sheet status or payment was changed by release validation.
 
 ## Behavior
 
@@ -33,9 +33,37 @@ The integration baseline combines backend release `c3c215f` with released OS/Off
 
 Verified locally:
 
-- IronGate check/build and suite: 334 passed, 9 environment-dependent checks skipped.
+- IronGate check/build and post-review full suite: 339 passed, 9 environment-dependent checks skipped.
 - Actual OS finance/legacy-payment route tests: card full-total multi-room/night projection, duplicate replay, changed week, pre-existing SF receipt, lost response recovery, modified signed input and a legacy write between preview/confirm.
 - Cross-repository acceptance: GCO parser and HMAC preview → actual OS internal route → actual IronGate HTTP/transaction → actual OS finance context. Fail, Done, repeated confirmation and Done→Fail all preserve the expected single-receipt balance.
 - Frontend lint has zero errors; seven existing warnings remain. Production build passed.
 
-`frontend/tests/helpers/card-sync-wire.mjs` is a synthetic stdin/stdout harness for the companion GCO acceptance command. It rejects all external network access. These checks do not prove real Google/production service connectivity; live preview and a specifically authorized real-item confirmation remain release acceptance steps.
+`frontend/tests/helpers/card-sync-wire.mjs` is a synthetic stdin/stdout harness for the companion GCO acceptance command. It rejects all external network access. The synthetic checks prove receipt/replay behavior. Production preview checks below establish real Google/service connectivity; an actual real-item confirmation remains a separate operational step.
+
+## Authorized production release — 2026-10-27
+
+The owner requested code review, fixes for P1 or higher, then deployment. Review corrected two P1 issues, each with a failing regression before the fix and a passing regression afterward:
+
+1. Card results incremented booking version without advancing an already-aligned source link, so the next valid source amendment/cancellation could be incorrectly blocked. The same transaction now advances aligned links and preserves pre-existing divergence.
+2. The cc-sync reader assumed fixed source-column positions. After header movement it could request a sensitive card column. It now validates unique allowlisted header names before requesting only the safe columns and rechecks the headers after reading; unknown/ambiguous headers stop before row reads.
+
+Post-review checks passed: IronGate 339 tests (9 environment-dependent skips), GCO 6,348 offline tests (11 deliberately deselected), dashboard 424 tests, relevant OS tests/builds and cross-repository synthetic acceptance. Remote CI passed for all three feature PRs. Fail creates no receipt; Fail → Done → repeated confirmation or response-loss recovery retains exactly one receipt.
+
+| Component | Source / merge evidence | Production release |
+| --- | --- | --- |
+| IronGate | tested `0a94299`, merged PR #97 / `9410edb` on the dedicated release base | `dpl_9ojA57F6Y8ApsZrxE1UAXY7jJfUe`, primary alias READY |
+| Sweetfun OS | same tested BnB source | `dpl_5vJsPAzq9BqGj3KY6J5Q2cEU664U`, primary alias READY |
+| Independent cc-sync | GCO `1472c25`, merged GCO PR #107 / `2dcaec7` | Cloud Run revision `cc-sync-card-1472c25`, 100% traffic |
+| Sean dashboard | `b43add9`, merged dashboard PR #107 / `088c076` | `dpl_BLy8KFjrnmqHNGGaukBuNDKvV2Dn`, primary alias READY |
+
+The BnB release combines the previously released backend/OS baselines described above and does not include the open amendment-button PR #95. GCO packaging came from the exact pushed commit through its release allowlist. The independent cc-sync service was first deployed at zero traffic, validated, then promoted. Gmail, LINE, notification and scheduler services were not deployed or changed.
+
+A dedicated `finance` grant permits only `card:sync` and `money` for the existing Sweetfun workspace/property/current epoch. The versioned grant-preparation script produced the issuance SQL. Readback confirmed its scope and expiry at 2026-11-24 09:53:33 UTC. The OS bridge uses a separate secret pinned as `booking-card-sync-os-token:1` in cc-sync; existing credentials were not rotated. Operators must renew the scoped grant before expiry through the established issuance procedure.
+
+Runtime comparisons preserved existing regions, routes, cron configuration, compute limits, timeouts, concurrency, identities, secret mounts/pins and IAM bindings. The only configuration additions were the scoped card grant/flag/bridge token in OS and the explicit IronGate target/OS URL/token in cc-sync. No frozen main-Sheet writer is used as fallback.
+
+Candidate and primary-domain authenticated previews succeeded. The scoped card grant was also denied generic booking access. Real source preview of the current-week Credit Card tab returned HTTP 200 with 10 prospective full receipts and 1 audit-only failed result; 1 additional unmatched order was blocked for manual review. Guest/order identifiers, source content, credentials and screenshots remain private and are not included here. The authenticated production Dashboard browser displayed the same 11 pending items, zero already-synced items, one blocked item, and the explicit confirmation control. No preview was confirmed and no real receipt was invented for testing.
+
+Release-window checks found no error/fatal logs on the newly deployed IronGate and OS functions. The completed cc-sync read-only probes returned HTTP 200. These observations are timestamped release evidence, not a claim about future service health.
+
+For rollback/pause, disable new card writes while retaining receipt projection and ownership fences. Once real receipts exist, do not restore an implementation that hides them, clear reservations, or re-enable frozen main-Sheet writes.
