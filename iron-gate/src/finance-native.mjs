@@ -71,6 +71,8 @@ async function receipt(client, propertyId, sourceId, intent, response) {
 export async function appendNativeFinance(client, propertyId, intent, response) {
   if (intent.type === 'payment') {
     const sourceId = await connector(client,propertyId,'iron_gate_native');
+    if (intent.sourceInstanceId !== sourceId)
+      throw new GateError('SOURCE_FORBIDDEN',403);
     if (intent.bookingSource !== 'os')
       throw new GateError('SOURCE_MAPPING_REVIEW_REQUIRED',409);
     if (intent.previousEventIds?.length) {
@@ -135,6 +137,8 @@ export async function appendNativeFinance(client, propertyId, intent, response) 
   }
   if (intent.type !== 'card') throw new GateError('FINANCE_NATIVE_INTENT_INVALID', 500);
   const sourceId = await connector(client,propertyId,'sweetfun_card');
+  if (intent.sourceInstanceId !== sourceId)
+    throw new GateError('SOURCE_FORBIDDEN',403);
   const nativeSourceId = await connector(client,propertyId,'iron_gate_native');
   const existing = await client.query(`SELECT current_version FROM iron_gate.finance_document
     WHERE property_id=$1 AND source_instance_id=$2 AND source_record_id=$3`,

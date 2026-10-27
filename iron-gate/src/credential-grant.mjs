@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
 const actions = new Set(["booking:read", "booking:aggregate", "booking:create", "booking:amend", "booking:cancel", "booking:manage_all", "inventory:write",
   "hold:write", "card:sync", "payment:write", "finance:ledger", "finance:read",
   "finance:record_receipt", "finance:record_expense", "finance:correct", "finance:refund",
-  "finance:import", "finance:project", "event:read", "occupancy:aggregate",
+  "finance:import", "finance:project", "finance:status", "finance:plan",
+  "finance:evidence", "finance:settlement", "event:read", "occupancy:aggregate",
   "housekeeping:read", "source:write", "channel:verify"]);
 const fields = new Set(["guest_name", "contact", "notes", "money", "payment_status"]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -68,6 +69,9 @@ export function validateGrantShape(grant) {
     action !== "finance:ledger");
   if (financeActions.length && (!validCredentialId(grant.financeSourceInstanceId) ||
     !["os", "line", "finance"].includes(grant.origin)))
+    throw new Error("INVALID_FINANCE_CONNECTOR_SCOPE");
+  if (grant.financeSourceInstanceId !== undefined &&
+    !validCredentialId(grant.financeSourceInstanceId))
     throw new Error("INVALID_FINANCE_CONNECTOR_SCOPE");
   if (grant.actions.includes("card:sync") && (grant.origin !== "finance" ||
     grant.actions.some(action => action !== "card:sync") ||

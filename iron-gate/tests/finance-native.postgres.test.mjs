@@ -39,7 +39,8 @@ test('native payment commits its legacy booking projection and new ledger in one
     const service = new IronGateService(repo);
     const principal = { workspaceId, propertyIds: [propertyId], authorityEpoch: 1,
       origin: 'os', subjectId: 'synthetic-operator', clientId: 'synthetic-os',
-      actions: ['payment:write'], fields: ['money'] };
+      actions: ['payment:write'], fields: ['money'],
+      financeSourceInstanceId:nativeConnector };
     try {
       await admin.query('TRUNCATE iron_gate.property_state CASCADE');
       await admin.query(`INSERT INTO iron_gate.property_state
@@ -83,7 +84,8 @@ test('native payment commits its legacy booking projection and new ledger in one
         sourceCalendar: { platform: 'Booking.com', externalOrderNo: '12345678' } });
       await admin.query(`UPDATE iron_gate.property_state SET state_json=$1::jsonb
         WHERE property_id=$2`, [JSON.stringify(cardState),propertyId]);
-      const cardPrincipal = { ...principal, origin: 'finance', actions: ['card:sync'] };
+      const cardPrincipal = { ...principal, origin: 'finance', actions: ['card:sync'],
+        financeSourceInstanceId:cardConnector };
       const cardInput = { sheetId: CARD_SHEET_ID, tab: '20261027-20261102', row: 2,
         platform: 'booking', orderId: '12345678', checkIn: '2026-11-12',
         checkOut: '2026-11-13', amountCents: 10000, status: 'done',

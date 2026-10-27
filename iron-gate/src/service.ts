@@ -1574,6 +1574,7 @@ export class IronGateService {
         booking.version++;
         emit(tx, state, paymentEventId ? "payment.recorded" : "card.result_recorded", booking, principal, requestKey);
         tx.financeNative?.({ type: "card", requestKey, actorRef: principal.subjectId,
+          sourceInstanceId: principal.financeSourceInstanceId,
           bookingId: booking.id, fingerprint: result.fingerprint,
           paymentEventId, amountCents: input.amountCents, chargeDate: input.chargeDate });
       }
@@ -1651,6 +1652,7 @@ export class IronGateService {
       saveReceipt(state, principal, requestKey, "payment:write", hash, response);
       emit(tx, state, "payment.recorded", booking, principal, requestKey);
       tx.financeNative?.({ type: "payment", requestKey, actorRef: principal.subjectId,
+        sourceInstanceId: principal.financeSourceInstanceId,
         bookingId, eventId: input.eventId, kind: input.kind, amountCents: input.amountCents,
         bookingSource: booking.source,
         bookingTotalCents: booking.totalCents,

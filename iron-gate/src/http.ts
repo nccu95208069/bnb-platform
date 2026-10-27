@@ -16,6 +16,15 @@ export type FinanceRoutes = {
   expenses(principal: Principal, propertyId: string, month: string | null, limit: number,
     cursor: string | null): Promise<unknown>;
   accounts(principal: Principal, propertyId: string): Promise<unknown>;
+  statusCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  statuses(principal: Principal, propertyId: string, bookingId: string | null): Promise<unknown>;
+  recurringRule(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  recurringRules(principal: Principal, propertyId: string): Promise<unknown>;
+  payoutRule(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  payoutRules(principal: Principal, propertyId: string): Promise<unknown>;
+  evidenceAssertion(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  settlement(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  settlements(principal: Principal, propertyId: string, limit: number, cursor: string | null): Promise<unknown>;
 };
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -74,6 +83,25 @@ export function createHandler(service: IronGateService, authenticate: Authentica
       const principal = await authenticate(request);
       if (!principal) return json({ error: { code: "UNAUTHORIZED" } }, 401);
       if (parts[1] === "properties" && parts[2] && parts[3] === "finance" && finance) {
+        if (parts[4] === 'status-commands' && parts.length === 5 && request.method === 'POST')
+          return json(await finance.statusCommand(principal,parts[2],await body(request),requestKey(request)),201);
+        if (parts[4] === 'status' && parts.length === 5 && request.method === 'GET')
+          return json(await finance.statuses(principal,parts[2],url.searchParams.get('bookingId')));
+        if (parts[4] === 'recurring-rules' && parts.length === 5 && request.method === 'POST')
+          return json(await finance.recurringRule(principal,parts[2],await body(request),requestKey(request)),201);
+        if (parts[4] === 'recurring-rules' && parts.length === 5 && request.method === 'GET')
+          return json(await finance.recurringRules(principal,parts[2]));
+        if (parts[4] === 'payout-rules' && parts.length === 5 && request.method === 'POST')
+          return json(await finance.payoutRule(principal,parts[2],await body(request),requestKey(request)),201);
+        if (parts[4] === 'payout-rules' && parts.length === 5 && request.method === 'GET')
+          return json(await finance.payoutRules(principal,parts[2]));
+        if (parts[4] === 'evidence-assertions' && parts.length === 5 && request.method === 'POST')
+          return json(await finance.evidenceAssertion(principal,parts[2],await body(request),requestKey(request)),201);
+        if (parts[4] === 'settlements' && parts.length === 5 && request.method === 'POST')
+          return json(await finance.settlement(principal,parts[2],await body(request),requestKey(request)),201);
+        if (parts[4] === 'settlements' && parts.length === 5 && request.method === 'GET')
+          return json(await finance.settlements(principal,parts[2],
+            Number(url.searchParams.get('limit') ?? '50'),url.searchParams.get('cursor')));
         if (parts[4] === "ledger" && parts.length === 5 && request.method === "GET" && finance.enabled)
           return json(await finance.ledger(principal, parts[2], {
             from: url.searchParams.get('from'), to: url.searchParams.get('to'),

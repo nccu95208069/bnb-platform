@@ -21,7 +21,8 @@ function state(id, booking = false) {
 const principal = { origin: 'os', workspaceId, propertyIds: [propertyId], authorityEpoch: 1,
   subjectId: 'synthetic-operator', financeSourceInstanceId: connectorId,
   actions: ['finance:read','finance:record_receipt','finance:record_expense',
-    'finance:correct','finance:refund'] };
+    'finance:correct','finance:refund','finance:status','finance:plan',
+    'finance:evidence','finance:settlement'] };
 function expense(action, sourceVersion, amount = 1000) {
   return { request_key: `expense-${sourceVersion}`, source_record_id: 'expense-1',
     source_version: sourceVersion, ...(action === 'create' ? {} : { expected_version: Number(sourceVersion) - 1 }),
@@ -89,7 +90,8 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
         FROM iron_gate.finance_event WHERE property_id=$1`, [propertyId]);
       assert.equal(Number(balance.rows[0].cents), 0);
       const room = { ...roomCommand('room-1', 6000), booking_allocations: [{
-        source_order_key:'SF-EXACT-1', amount_cents:6000, allocation_kind:'room' }] };
+        source_order_key:'SF-EXACT-1', amount_cents:6000, allocation_kind:'room' }],
+        payment_method_code:'bank_transfer',provider_transaction_ref:'provider-transaction-1' };
       const preview = await service.preview(principal, propertyId, room, room.request_key);
       assert.equal(preview.bookings[0].bookingId, bookingId);
       assert.equal(preview.resolved_command.booking_allocations[0].booking_id,bookingId);
@@ -100,6 +102,13 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       await assert.rejects(service.command(principal, propertyId,
         { ...duplicate, preview_token: duplicatePreview.preview_token }, duplicate.request_key),
       e => e.code === 'SOURCE_MAPPING_REVIEW_REQUIRED');
+      const transactionDuplicate = { ...roomCommand('room-provider-duplicate',2000),
+        payment_method_code:'bank_transfer',provider_transaction_ref:'provider-transaction-1' };
+      const transactionPreview = await service.preview(principal,propertyId,
+        transactionDuplicate,transactionDuplicate.request_key);
+      await assert.rejects(service.command(principal,propertyId,
+        { ...transactionDuplicate,preview_token:transactionPreview.preview_token },
+        transactionDuplicate.request_key),e => e.code === 'SOURCE_MAPPING_REVIEW_REQUIRED');
       const refund = { request_key: 'refund-1', source_record_id: 'refund-1', source_version: '1',
         action: 'create', event_kind: 'property_refund', amount_cents: 3000,
         currency: 'TWD', effective_on: '2026-10-28', cash_on: '2026-10-28',
@@ -108,7 +117,7 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
         evidence_level: 'operator_attested', booking_allocations: [{ booking_id: bookingId,
           expected_booking_version: 1, amount_cents: 3000, allocation_kind: 'room' }] };
       const refundPreview = await service.preview(principal, propertyId, refund, refund.request_key);
-      await service.command(principal, propertyId,
+      const refundAccepted = await service.command(principal, propertyId,
         { ...refund, preview_token: refundPreview.preview_token }, refund.request_key);
       const refundAmend = { ...refund, request_key:'refund-amend', source_version:'2',
         expected_version:1, action:'amend', amount_cents:2000,
@@ -132,6 +141,57 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       assert.ok(secondPage.events.length >= 2);
       const expenses = await service.expenses(principal, propertyId,'2026-10-01');
       assert.equal(expenses.total_cents,0);
+      const beforeStatus = await admin.query(`SELECT count(*)::int AS count
+        FROM iron_gate.finance_event WHERE property_id=$1`, [propertyId]);
+      const statusInput = { request_key:'status-1',source_record_id:'legacy-status-1',
+        version:1,status_code:'room_confirmed',settles_room:true,
+        booking_id:bookingId,expected_booking_version:1 };
+      const statusResult = await service.statusCommand(principal,propertyId,
+        statusInput,statusInput.request_key);
+      assert.equal(statusResult.cash_effect_cents,0);
+      assert.deepEqual(await service.statusCommand(principal,propertyId,
+        statusInput,statusInput.request_key),statusResult);
+      assert.equal((await service.statuses(principal,propertyId,bookingId)).statuses.length,1);
+      const recurring = { request_key:'rule-1',source_record_id:'monthly-1',version:1,
+        cadence:'monthly',start_on:'2026-10-01',end_on:null,next_due_on:'2026-11-01',
+        status:'active',category_code:'supplies' };
+      const rule = await service.recurringRule(principal,propertyId,recurring,recurring.request_key);
+      assert.equal(rule.cash_effect_cents,0);
+      assert.equal((await service.recurringRules(principal,propertyId)).recurring_rules.length,1);
+      const payout = { request_key:'payout-rule-1',platform:'booking',version:1,
+        mode:'fixed_day',day:10,status:'active' };
+      await service.payoutRule(principal,propertyId,payout,payout.request_key);
+      assert.equal((await service.payoutRules(principal,propertyId)).payout_rules.length,1);
+      const afterStatus = await admin.query(`SELECT count(*)::int AS count
+        FROM iron_gate.finance_event WHERE property_id=$1`, [propertyId]);
+      assert.equal(afterStatus.rows[0].count,beforeStatus.rows[0].count);
+      const fee = { request_key:'fee-1',source_record_id:'fee-1',source_version:'1',
+        action:'create',event_kind:'processor_fee_paid',amount_cents:100,
+        currency:'TWD',effective_on:'2026-10-28',cash_on:'2026-10-28',
+        category_code:'supplies',evidence_level:'operator_attested',
+        expense_attributions:[{month:'2026-10-01',amount_cents:100,
+          allocation_policy:'ig_v1_earliest_cent'}] };
+      const feeAccepted = await service.command(principal,propertyId,fee,fee.request_key);
+      const assertion = { request_key:'assertion-1',event_id:roomAccepted.event_ids[0],
+        evidence_level:'processor_confirmed',evidence_ref:'synthetic-processor-proof',
+        processor_transaction_ref:'synthetic-transaction-1' };
+      const assertionResult = await service.evidenceAssertion(principal,propertyId,
+        assertion,assertion.request_key);
+      assert.equal(assertionResult.cash_effect_cents,0);
+      const verified = await service.bookingFinance(principal,propertyId,bookingId);
+      assert.equal(verified.events.find(event => event.id===roomAccepted.event_ids[0]).evidence_level,
+        'processor_confirmed');
+      const settlement = { request_key:'settlement-1',
+        settlement_batch_ref:'synthetic-batch-1',gross_cents:6000,refund_cents:3000,
+        fee_cents:100,net_cents:2900,bank_on:'2026-10-28',
+        evidence_ref:'synthetic-batch-proof',links:[
+          {event_id:roomAccepted.event_ids[0],role:'gross',amount_cents:6000},
+          {event_id:refundAccepted.event_ids[0],role:'refund',amount_cents:3000},
+          {event_id:feeAccepted.event_ids[0],role:'fee',amount_cents:100} ] };
+      const settled = await service.settlement(principal,propertyId,
+        settlement,settlement.request_key);
+      assert.equal(settled.cash_effect_cents,0);
+      assert.equal((await service.settlements(principal,propertyId)).settlements.length,1);
       const excessive = roomCommand('room-excess', 8000);
       const excessivePreview = await service.preview(principal, propertyId, excessive, excessive.request_key);
       await assert.rejects(service.command(principal, propertyId,
