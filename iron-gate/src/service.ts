@@ -2572,10 +2572,19 @@ export class IronGateService {
         evidence.kind === "gmail-owlnest-dkim-v1" &&
         evidence.signedDomain === "owlting.com" &&
         evidence.deliveredTo === "sweetfuntw@gmail.com";
+      const verifiedGmailOwlJourneyNotice = gmailSourceNotice &&
+        /^L:OWJ[A-Z0-9]+$/.test(input.externalOrderId) &&
+        /^gmail-v1:[1-9]\d{12}:[0-9a-f]{64}$/.test(input.sourceVersion) &&
+        evidence && typeof evidence === "object" &&
+        Object.keys(evidence).sort().join(",") === "deliveredTo,kind,signedDomain" &&
+        evidence.kind === "gmail-owljourney-dkim-v1" &&
+        evidence.signedDomain === "owlting.com" &&
+        evidence.deliveredTo === "sweetfuntw@gmail.com";
       // OwlNest has already changed its OTA inventory before sending Gmail.
       // This source event mirrors the order in OS; it must never dispatch an
       // additional channel operation or wait behind a manual channel claim.
-      const providerManagedNotice = channelMode && verifiedGmailOwlNestNotice;
+      const providerManagedNotice = channelMode &&
+        (verifiedGmailOwlNestNotice || verifiedGmailOwlJourneyNotice);
       const sourceReadback = channelMode && state.channel.sourceReadbackEnabled === true &&
         !providerManagedNotice;
       const review = (reason: string, affected: Night[]): Record<string, unknown> => {
@@ -2657,18 +2666,20 @@ export class IronGateService {
       // A platform order number is only an auxiliary identity. It is not
       // enough to claim another booking, but a collision must never create a
       // second confirmed booking under a different source-event key.
-      if (input.kind === "upsert" && input.platform && input.externalOrderNo) {
+      if (input.kind === "upsert" &&
+        (input.platform && input.externalOrderNo || input.externalOrderId.startsWith("L:"))) {
         const owlNestOrderId = input.externalOrderId.startsWith("L:") ?
           input.externalOrderId.slice(2) : null;
         const aliasOwner = state.bookings.find((booking) => booking.id !== linkedBooking?.id &&
-          (booking.sourceCalendar?.platform === input.platform &&
+          (input.externalOrderNo && booking.sourceCalendar?.platform === input.platform &&
             booking.sourceCalendar?.externalOrderNo === input.externalOrderNo ||
             // Imported Sheet rows have no sourceKey. Their OwlNest ID in L
             // and OTA alias in N must both block a second confirmed booking.
             Array.isArray(booking.sweetfunSnapshot?.rows) &&
             booking.sweetfunSnapshot.rows.some((row) =>
               Array.isArray(row?.values) &&
-              (String(row.values[13] ?? "").trim() === input.externalOrderNo ||
+              (input.externalOrderNo &&
+                String(row.values[13] ?? "").trim() === input.externalOrderNo ||
                 owlNestOrderId !== null &&
                 String(row.values[11] ?? "").trim() === owlNestOrderId))));
         if (aliasOwner) return review("SOURCE_IDENTITY_COLLISION", [...cells,
@@ -2678,14 +2689,21 @@ export class IronGateService {
       // when Gmail verified the provider's aligned DKIM/DMARC signature and
       // the source notice carries an exact OTA alias and amount. An unsigned
       // notice, generic source client, or ambiguous identity remains fenced.
-      if (channelMode && gmailSourceNotice && !verifiedGmailOwlNestNotice)
+      if (channelMode && gmailSourceNotice && !providerManagedNotice)
+        return review("SOURCE_IDENTITY_UNVERIFIED", cells);
+      if (verifiedGmailOwlJourneyNotice && input.kind === "upsert" &&
+        (input.platform !== "owljourney" ||
+          input.externalOrderNo !== undefined && input.externalOrderNo !== null))
         return review("SOURCE_IDENTITY_UNVERIFIED", cells);
       if (channelMode && input.kind === "upsert" && !linkedBooking) {
-        const signedNotice = verifiedGmailOwlNestNotice &&
+        const signedNotice = providerManagedNotice &&
           input.previousSourceVersion === null && input.bookedAt === null &&
           typeof input.guestName === "string" && input.guestName.trim().length > 0 &&
-          ["booking", "agoda", "airbnb", "ctrip"].includes(input.platform ?? "") &&
-          typeof input.externalOrderNo === "string" &&
+          (verifiedGmailOwlNestNotice &&
+            ["booking", "agoda", "airbnb", "ctrip"].includes(input.platform ?? "") &&
+            typeof input.externalOrderNo === "string" ||
+           verifiedGmailOwlJourneyNotice && input.platform === "owljourney" &&
+            (input.externalOrderNo === undefined || input.externalOrderNo === null)) &&
           typeof input.totalCents === "number" &&
           Number.isSafeInteger(input.totalCents) && input.currency === "TWD";
         if (!signedNotice) return review("SOURCE_IDENTITY_UNVERIFIED", cells);
@@ -2740,6 +2758,18 @@ export class IronGateService {
       }
       if (input.kind === "upsert" && hasConflict(state, cells, linkedBooking?.id))
         return review("ROOM_CONFLICT", [...cells, ...(linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [])]);
+      // OwlJourney email masks the guest name. A provider-verified full name
+      // entered during a controlled repair must survive later signed notices.
+      const maskedOwlJourneyName = verifiedGmailOwlJourneyNotice && linkedBooking &&
+        input.kind === "upsert" && typeof input.guestName === "string" &&
+        input.guestName.includes("*") && typeof linkedBooking.guestName === "string" &&
+        !linkedBooking.guestName.includes("*");
+      const visibleGuestPrefix = maskedOwlJourneyName ?
+        input.guestName!.replace(/\s+/g, "").split("*", 1)[0] : "";
+      if (maskedOwlJourneyName && (!visibleGuestPrefix ||
+        !linkedBooking.guestName!.replace(/\s+/g, "").startsWith(visibleGuestPrefix)))
+        return review("SOURCE_GUEST_IDENTITY_MISMATCH", [...cells,
+          ...nightsFor(linkedBooking.stays, state.roomIds)]);
       const oldCells = linkedBooking ? nightsFor(linkedBooking.stays, state.roomIds) : [];
       let booking: Booking;
       if (linkedBooking) {
@@ -2748,7 +2778,7 @@ export class IronGateService {
         booking.status = input.kind === "cancel" ? "cancelled" : "confirmed";
         if (input.kind === "upsert") {
           booking.stays = structuredClone(input.stays);
-          booking.guestName = input.guestName;
+          booking.guestName = maskedOwlJourneyName ? linkedBooking.guestName : input.guestName;
           booking.bookedAt = input.bookedAt;
           // A missing fee stays unknown. An imported fee cannot remain current
           // after a changed external order without fresh source evidence.
