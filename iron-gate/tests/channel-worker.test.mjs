@@ -153,6 +153,8 @@ test("already-closed OwlNest night stays under review without a provider write",
 test("reviewed manual close releases only the property claim, then unrelated work proceeds", async () => {
   const set = setup({ initiallyClosed: true }), reviewedKey = await createPending(set);
   assert.equal((await set.worker.runOne(set.channel, propertyId)).state, "review_required");
+  // Historical operator recovery remains supported; new claims use scoped holds.
+  await set.repository.transact(propertyId, state => {delete state.channelDispatch.scopeVersion;});
   const nextKey = await createPending(set, "2099-11-12");
   assert.equal((await set.worker.runOne(set.channel, propertyId)).state, "idle");
   const before = await set.repository.read(propertyId);
