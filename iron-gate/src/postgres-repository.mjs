@@ -1,5 +1,6 @@
 import { GateError } from "./errors.ts";
 import { nightsFor } from "./service.ts";
+import { appendNativeFinance } from "./finance-native.mjs";
 
 function occupancyRows(state) {
   const rows = [];
@@ -24,7 +25,11 @@ async function scope(client, propertyId) {
  */
 export class PostgresPropertyRepository {
   #pool;
-  constructor(pool) { this.#pool = pool; }
+  #financeNativeEnabled;
+  constructor(pool, financeNativeEnabled = false) {
+    this.#pool = pool;
+    this.#financeNativeEnabled = financeNativeEnabled;
+  }
 
   async read(propertyId) {
     const client = await this.#pool.connect();
@@ -71,8 +76,11 @@ export class PostgresPropertyRepository {
         const draft = structuredClone(current.rows[0].state_json);
         const pending = [];
         const pendingAudits = [];
+        const pendingFinance = [];
         const result = await fn(draft, { emit: (event) => pending.push(structuredClone(event)),
-          audit: (record) => pendingAudits.push(structuredClone(record)) });
+          audit: (record) => pendingAudits.push(structuredClone(record)),
+          ...(this.#financeNativeEnabled ? { financeNative: intent =>
+            pendingFinance.push(structuredClone(intent)) } : {}) });
         const updated = await client.query(`UPDATE iron_gate.property_state SET
           state_json = $1::jsonb, authority_epoch = $2, inventory_version = $3, updated_at = now()
           WHERE property_id = $4 AND authority_epoch = $5 AND inventory_version = $6`,
@@ -86,6 +94,7 @@ export class PostgresPropertyRepository {
         for (const record of pendingAudits) await client.query(`INSERT INTO iron_gate.audit_log
           (audit_id, property_id, audit_json) VALUES ($1, $2, $3::jsonb)`,
           [record.auditId, propertyId, JSON.stringify(record)]);
+        for (const intent of pendingFinance) await appendNativeFinance(client, propertyId, intent, result);
         await client.query("COMMIT");
         return result;
       } catch (error) {

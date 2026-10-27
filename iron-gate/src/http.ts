@@ -5,6 +5,38 @@ import type { AmendBookingInput, CreateBookingInput, CreateHoldInput, ExtendHold
 
 export type Authenticate = (request: Request) => Promise<Principal | null>;
 export type ChannelQueued = (job: { propertyId: string; operationKey: string }) => void;
+export type FinanceRoutes = {
+  readonly enabled: boolean;
+  sourceLinkPreview(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  sourceLinkCommit(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  importPreview(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  importCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  importReceipt(principal: Principal, propertyId: string, requestKey: string): Promise<unknown>;
+  importLedger(principal: Principal, propertyId: string, query: { from: string | null; to: string | null;
+    cursor: string | null; limit: number }): Promise<unknown>;
+  importIssue(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  importIssues(principal: Principal, propertyId: string, status: string): Promise<unknown>;
+  resolveImportIssue(principal: Principal, propertyId: string, issueId: string,
+    input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  preview(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  command(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  receipt(principal: Principal, propertyId: string, requestKey: string): Promise<unknown>;
+  ledger(principal: Principal, propertyId: string, query: { from: string | null; to: string | null;
+    cursor: string | null; limit: number }): Promise<unknown>;
+  bookingFinance(principal: Principal, propertyId: string, bookingId: string): Promise<unknown>;
+  expenses(principal: Principal, propertyId: string, month: string | null, limit: number,
+    cursor: string | null): Promise<unknown>;
+  accounts(principal: Principal, propertyId: string): Promise<unknown>;
+  statusCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  statuses(principal: Principal, propertyId: string, bookingId: string | null): Promise<unknown>;
+  recurringRule(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  recurringRules(principal: Principal, propertyId: string): Promise<unknown>;
+  payoutRule(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  payoutRules(principal: Principal, propertyId: string): Promise<unknown>;
+  evidenceAssertion(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  settlement(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  settlements(principal: Principal, propertyId: string, limit: number, cursor: string | null): Promise<unknown>;
+};
 const MAX_BODY_BYTES = 64 * 1024;
 
 function json(value: unknown, status = 200): Response {
@@ -53,7 +85,7 @@ function requestKey(request: Request): string {
 
 /** Route adapter. Production must inject a durable repository and current, independently verified auth. */
 export function createHandler(service: IronGateService, authenticate: Authenticate,
-  onLineChannelQueued?: ChannelQueued) {
+  onLineChannelQueued?: ChannelQueued, finance?: FinanceRoutes) {
   return async function handle(request: Request): Promise<Response> {
     try {
       const url = new URL(request.url);
@@ -61,6 +93,80 @@ export function createHandler(service: IronGateService, authenticate: Authentica
       if (parts[0] !== "v1") return json({ error: { code: "NOT_FOUND" } }, 404);
       const principal = await authenticate(request);
       if (!principal) return json({ error: { code: "UNAUTHORIZED" } }, 401);
+      if (parts[1] === "properties" && parts[2] && parts[3] === "finance" && finance) {
+        if (parts[4] === 'source-links' && parts[5] === 'preview' &&
+          parts.length === 6 && request.method === 'POST')
+          return json(await finance.sourceLinkPreview(principal,parts[2],
+            await body(request),requestKey(request)));
+        if (parts[4] === 'source-links' && parts.length === 5 && request.method === 'POST')
+          return json(await finance.sourceLinkCommit(principal,parts[2],
+            await body(request),requestKey(request)),201);
+        if (parts[4] === 'imports' && parts[5] === 'preview' &&
+          parts.length === 6 && request.method === 'POST')
+          return json(await finance.importPreview(principal,parts[2],
+            await body(request),requestKey(request)));
+        if (parts[4] === 'imports' && parts[5] === 'commands' &&
+          parts.length === 6 && request.method === 'POST')
+          return json(await finance.importCommand(principal,parts[2],
+            await body(request),requestKey(request)),201);
+        if (parts[4] === 'imports' && parts[5] === 'receipts' &&
+          parts[6] && parts.length === 7 && request.method === 'GET')
+          return json(await finance.importReceipt(principal,parts[2],
+            decodeURIComponent(parts[6])));
+        if (parts[4] === 'imports' && parts[5] === 'ledger' &&
+          parts.length === 6 && request.method === 'GET')
+          return json(await finance.importLedger(principal,parts[2],{
+            from:url.searchParams.get('from'),to:url.searchParams.get('to'),
+            cursor:url.searchParams.get('cursor'),
+            limit:Number(url.searchParams.get('limit') ?? '50') }));
+        if (parts[4] === 'imports' && parts[5] === 'issues' &&
+          parts.length === 6 && request.method === 'POST')
+          return json(await finance.importIssue(principal,parts[2],
+            await body(request),requestKey(request)),201);
+        if (parts[4] === 'imports' && parts[5] === 'issues' &&
+          parts.length === 6 && request.method === 'GET')
+          return json(await finance.importIssues(principal,parts[2],
+            url.searchParams.get('status') ?? 'open'));
+        if (parts[4] === 'imports' && parts[5] === 'issues' && parts[6] &&
+          parts[7] === 'resolve' && parts.length === 8 && request.method === 'POST')
+          return json(await finance.resolveImportIssue(principal,parts[2],
+            parts[6],await body(request),requestKey(request)),201);
+        if (parts[4] === 'status-commands' && parts.length === 5 && request.method === 'POST')
+          return json(await finance.statusCommand(principal,parts[2],await body(request),requestKey(request)),201);
+        if (parts[4] === 'status' && parts.length === 5 && request.method === 'GET')
+          return json(await finance.statuses(principal,parts[2],url.searchParams.get('bookingId')));
+        if (parts[4] === 'recurring-rules' && parts.length === 5 && request.method === 'POST')
+          return json(await finance.recurringRule(principal,parts[2],await body(request),requestKey(request)),201);
+        if (parts[4] === 'recurring-rules' && parts.length === 5 && request.method === 'GET')
+          return json(await finance.recurringRules(principal,parts[2]));
+        if (parts[4] === 'payout-rules' && parts.length === 5 && request.method === 'POST')
+          return json(await finance.payoutRule(principal,parts[2],await body(request),requestKey(request)),201);
+        if (parts[4] === 'payout-rules' && parts.length === 5 && request.method === 'GET')
+          return json(await finance.payoutRules(principal,parts[2]));
+        if (parts[4] === 'evidence-assertions' && parts.length === 5 && request.method === 'POST')
+          return json(await finance.evidenceAssertion(principal,parts[2],await body(request),requestKey(request)),201);
+        if (parts[4] === 'settlements' && parts.length === 5 && request.method === 'POST')
+          return json(await finance.settlement(principal,parts[2],await body(request),requestKey(request)),201);
+        if (parts[4] === 'settlements' && parts.length === 5 && request.method === 'GET')
+          return json(await finance.settlements(principal,parts[2],
+            Number(url.searchParams.get('limit') ?? '50'),url.searchParams.get('cursor')));
+        if (parts[4] === "ledger" && parts.length === 5 && request.method === "GET" && finance.enabled)
+          return json(await finance.ledger(principal, parts[2], {
+            from: url.searchParams.get('from'), to: url.searchParams.get('to'),
+            cursor: url.searchParams.get('cursor'), limit: Number(url.searchParams.get('limit') ?? '50') }));
+        if (parts[4] === "expenses" && parts.length === 5 && request.method === "GET")
+          return json(await finance.expenses(principal, parts[2], url.searchParams.get('month'),
+            Number(url.searchParams.get('limit') ?? '50'), url.searchParams.get('cursor')));
+        if (parts[4] === "accounts" && parts.length === 5 && request.method === "GET")
+          return json(await finance.accounts(principal, parts[2]));
+        if (parts[4] === "commands" && parts[5] === "preview" && parts.length === 6 &&
+          request.method === "POST") return json(await finance.preview(principal, parts[2],
+            await body(request), requestKey(request)));
+        if (parts[4] === "commands" && parts.length === 5 && request.method === "POST")
+          return json(await finance.command(principal, parts[2], await body(request), requestKey(request)), 201);
+        if (parts[4] === "receipts" && parts[5] && parts.length === 6 && request.method === "GET")
+          return json(await finance.receipt(principal, parts[2], decodeURIComponent(parts[5])));
+      }
 
       if (parts[1] === "properties" && parts[2] && parts.length === 4 &&
         ["line-room-control-previews", "line-room-controls"].includes(parts[3]) && request.method === "POST") {
@@ -144,6 +250,8 @@ export function createHandler(service: IronGateService, authenticate: Authentica
       }
       if (parts[1] === "properties" && parts[2] && parts[3] === "bookings") {
         const propertyId = parts[2];
+        if (finance?.enabled && parts.length === 6 && parts[5] === 'finance' && request.method === 'GET')
+          return json(await finance.bookingFinance(principal, propertyId, parts[4]));
         if (parts.length === 4 && request.method === "GET") {
           return json(await service.listBookings(principal, propertyId, {
             limit: Number(url.searchParams.get("limit") ?? "50"),

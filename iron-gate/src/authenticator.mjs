@@ -48,6 +48,7 @@ export function createGrantAuthenticator(directory, repository, verifyOsMember =
       authorityEpoch: grant.authorityEpoch, actions: allowedActions, fields: allowedFields,
       grantId: grant.grantId, bindingId: grant.bindingId,
       bookingIdScope: grant.bookingIdScope, sourceSystem: grant.sourceSystem,
-      sourceAccount: grant.sourceAccount };
+      sourceAccount: grant.sourceAccount,
+      financeSourceInstanceId: grant.financeSourceInstanceId };
   };
 }

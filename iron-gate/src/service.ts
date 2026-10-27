@@ -1573,6 +1573,10 @@ export class IronGateService {
         }
         booking.version++;
         emit(tx, state, paymentEventId ? "payment.recorded" : "card.result_recorded", booking, principal, requestKey);
+        tx.financeNative?.({ type: "card", requestKey, actorRef: principal.subjectId,
+          sourceInstanceId: principal.financeSourceInstanceId,
+          bookingId: booking.id, fingerprint: result.fingerprint,
+          paymentEventId, amountCents: input.amountCents, chargeDate: input.chargeDate });
       }
       const response = { bookingId: booking.id, bookingVersion: booking.version, action: result.action,
         paymentEventId: booking.cardChargeResults!.find(item => item.fingerprint === result.fingerprint)!.paymentEventId,
@@ -1647,6 +1651,14 @@ export class IronGateService {
         refundReviewRequired: booking.status === "cancelled" && netReceived(booking) > 0 };
       saveReceipt(state, principal, requestKey, "payment:write", hash, response);
       emit(tx, state, "payment.recorded", booking, principal, requestKey);
+      tx.financeNative?.({ type: "payment", requestKey, actorRef: principal.subjectId,
+        sourceInstanceId: principal.financeSourceInstanceId,
+        bookingId, eventId: input.eventId, kind: input.kind, amountCents: input.amountCents,
+        bookingSource: booking.source,
+        bookingTotalCents: booking.totalCents,
+        previousEventIds: booking.paymentEvents.slice(0, -1).map(event => event.id),
+        occurredAt: input.occurredAt, method: input.method ?? null,
+        refundOfEventId: input.refundOfEventId ?? null });
       return response;
     });
   }
