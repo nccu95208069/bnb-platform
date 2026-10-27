@@ -12,6 +12,7 @@ const bookingId = '10000000-0000-4000-8000-000000000004';
 const connectorId = '10000000-0000-4000-8000-000000000005';
 const importConnectorId = '10000000-0000-4000-8000-000000000006';
 const lineConnectorId = '10000000-0000-4000-8000-000000000010';
+const lineBookingId = '10000000-0000-4000-8000-000000000011';
 const secret = 'synthetic-finance-test-secret-32-bytes-long';
 
 function state(id, booking = false) {
@@ -317,7 +318,34 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
         VALUES ($1,$2,'line_finance',true,now()-interval '1 day')`,
         [lineConnectorId,propertyId]);
       const line={...principal,origin:'line',financeSourceInstanceId:lineConnectorId,
-        actions:['finance:read','finance:link']};
+        actions:['finance:read','finance:link','finance:record_receipt','finance:correct']};
+      const lineState=await admin.query(`SELECT state_json FROM iron_gate.property_state
+        WHERE property_id=$1`,[propertyId]);
+      const directState=lineState.rows[0].state_json;
+      directState.bookings.push({...directState.bookings[0],id:lineBookingId,
+        source:'external',sourceCalendar:{platform:'Booking.com',externalOrderNo:'SYN-1'},
+        paymentEvents:[],version:1});
+      await admin.query(`UPDATE iron_gate.property_state SET state_json=$1::jsonb
+        WHERE property_id=$2`,[JSON.stringify(directState),propertyId]);
+      const direct={...roomCommand('line:10000000000040008000000000000012',2000),
+        booking_allocations:[{booking_id:lineBookingId,expected_booking_version:1,
+          amount_cents:2000,allocation_kind:'room'}]};
+      const directPreview=await service.preview(line,propertyId,direct,direct.request_key);
+      assert.equal(directPreview.bookings[0].bookingId,lineBookingId);
+      const directAccepted=await service.command(line,propertyId,
+        {...direct,preview_token:directPreview.preview_token},direct.request_key);
+      assert.equal(directAccepted.receipt_status,'accepted');
+      const directVoid={request_key:'line-direct-void',source_record_id:direct.source_record_id,
+        source_version:'2',expected_version:1,action:'void'};
+      await assert.rejects(service.preview(line,propertyId,directVoid,directVoid.request_key),
+        e=>e.code==='VERSION_CONFLICT');
+      const guarded={...directVoid,booking_guards:[{booking_id:lineBookingId,
+        expected_booking_version:1}]};
+      const guardedPreview=await service.preview(line,propertyId,guarded,guarded.request_key);
+      assert.equal(guardedPreview.bookings[0].bookingId,lineBookingId);
+      const voidReceipt=await service.command(line,propertyId,
+        {...guarded,preview_token:guardedPreview.preview_token},guarded.request_key);
+      assert.equal(voidReceipt.receipt_status,'accepted');
       const exact={request_key:'line-link-1',source_order_key:`${bookingId}:v1`,
         booking_id:bookingId,expected_booking_version:1,review_confirmed:true};
       const exactPreview=await service.liveSourceLinkPreview(line,propertyId,

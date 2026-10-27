@@ -17,7 +17,7 @@ const COMMAND_KEYS = new Set(['request_key', 'source_record_id', 'source_version
   'category_code', 'receipt_purpose', 'payment_method_code', 'payment_account_ref',
   'advanced_by_ref','advanced_by_kind','advanced_by_label',
   'safe_description', 'evidence_level', 'evidence_ref',
-  'booking_allocations', 'expense_attributions', 'related_receipt_document_id',
+  'booking_allocations', 'booking_guards', 'expense_attributions', 'related_receipt_document_id',
   'related_receipt_event_id', 'reason_code', 'reason_note',
   'preview_token','provider_transaction_ref']);
 
@@ -89,6 +89,13 @@ function normalize(raw, requestKey) {
     fail('INVALID_INPUT');
   if (new Set(allocations.map(a => `${a.booking_id}:${a.allocation_kind}`)).size !== allocations.length)
     fail('ALLOCATION_MISMATCH', 422);
+  const guards = raw.booking_guards ?? [];
+  if (!Array.isArray(guards) || guards.length > 100 ||
+    (action !== 'void' && guards.length) || guards.some(g => !g ||
+      !UUID.test(g.booking_id) || !Number.isSafeInteger(g.expected_booking_version) ||
+      g.expected_booking_version < 1 ||
+      Object.keys(g).some(key => !['booking_id','expected_booking_version'].includes(key))) ||
+    new Set(guards.map(g => g.booking_id)).size !== guards.length) fail('INVALID_INPUT');
   const attributions = raw.expense_attributions ?? [];
   if (!Array.isArray(attributions) || attributions.length > 120 || attributions.some(a =>
     !a || !DAY.test(a.month) || !a.month.endsWith('-01') ||
@@ -166,7 +173,8 @@ function normalize(raw, requestKey) {
     advanced_by_label: safeText(raw.advanced_by_label, 100),
     safe_description: safeText(raw.safe_description, 500),
     evidence_level: level, evidence_ref: safeText(raw.evidence_ref, 256),
-    booking_allocations: allocations, expense_attributions: attributions,
+    booking_allocations: allocations, booking_guards: guards,
+    expense_attributions: attributions,
     related_receipt_document_id: raw.related_receipt_document_id ?? null,
     related_receipt_event_id: raw.related_receipt_event_id ?? null,
     provider_transaction_ref: safeText(raw.provider_transaction_ref,128),
@@ -273,17 +281,36 @@ export class FinanceCommandService {
       fail('VERSION_CONFLICT', 409);
   }
   #bookings(state, command) {
-    return command.booking_allocations.map(a => {
+    return (command.action === 'void' ? command.booking_guards : command.booking_allocations).map(a => {
       const booking = state.bookings.find(b => b.id === a.booking_id);
       if (!booking || booking.propertyId !== state.propertyId) fail('UNKNOWN_BOOKING', 422);
       if (booking.version !== a.expected_booking_version) fail('VERSION_CONFLICT', 409);
-      if (booking.status !== 'confirmed') fail('SOURCE_MAPPING_REVIEW_REQUIRED', 409);
+      if (command.action !== 'void' && booking.status !== 'confirmed')
+        fail('SOURCE_MAPPING_REVIEW_REQUIRED', 409);
       return { bookingId: booking.id, version: booking.version, snapshotHash: hash({
         id: booking.id, version: booking.version, totalCents: booking.totalCents,
         currency: booking.currency, source: booking.source, status: booking.status,
         sourceCalendar: booking.sourceCalendar ?? null,
       }) };
     });
+  }
+  async #assertVoidGuards(client, principal, propertyId, command) {
+    if (command.action !== 'void') return;
+    const rows = await client.query(`SELECT d.id FROM iron_gate.finance_document d
+      WHERE d.property_id=$1 AND d.source_instance_id=$2 AND d.source_record_id=$3
+        AND d.current_version=$4 AND d.status='active'`,
+      [propertyId,principal.financeSourceInstanceId,command.source_record_id,
+        command.expected_version]);
+    if (rows.rows.length !== 1) fail('VERSION_CONFLICT',409);
+    const allocations = await client.query(`SELECT DISTINCT a.booking_id
+      FROM iron_gate.finance_allocation a JOIN iron_gate.finance_event e
+        ON e.property_id=a.property_id AND e.id=a.event_id
+      WHERE e.property_id=$1 AND e.document_id=$2 AND e.revision_version=$3
+        AND e.event_kind<>'reversal'`,
+      [propertyId,rows.rows[0].id,command.expected_version]);
+    const actual = allocations.rows.map(row => row.booking_id).sort();
+    const requested = command.booking_guards.map(g => g.booking_id).sort();
+    if (canonical(actual) !== canonical(requested)) fail('VERSION_CONFLICT',409);
   }
   async preview(principal, propertyId, raw, requestKey, shadowImport = false) {
     this.#authorize(principal, propertyId, shadowImport ? 'finance:import' : 'finance:read');
@@ -310,6 +337,7 @@ export class FinanceCommandService {
         }
       }
       const command = normalize(resolved, requestKey);
+      await this.#assertVoidGuards(client,principal,propertyId,command);
       const bookings = this.#bookings(state, command);
       return { bookings, preview_token: bookings.length ? this.#token(principal, propertyId, command, bookings) : null,
         command_hash: hash(command), resolved_command: command };
@@ -1235,6 +1263,7 @@ export class FinanceCommandService {
         if (priorReceipt.rows[0].request_hash !== requestHash) fail('REQUEST_KEY_REUSED', 409);
         return priorReceipt.rows[0].response_json;
       }
+      await this.#assertVoidGuards(client,principal,propertyId,command);
       const bookings = this.#bookings(state, command);
       if (bookings.length) this.#verifyToken(raw.preview_token, principal, propertyId, command, bookings);
       for (const a of command.booking_allocations) if (a.source_order_key != null) {
@@ -1370,7 +1399,8 @@ export class FinanceCommandService {
         for (const allocation of command.booking_allocations) {
           const booking = state.bookings.find(b => b.id === allocation.booking_id);
           if (!Number.isSafeInteger(booking.totalCents) || booking.totalCents <= 0 ||
-            (booking.source !== 'os' && !allocation.source_order_key))
+            (booking.source !== 'os' && !allocation.source_order_key &&
+              source.source_system !== 'line_finance'))
             fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
           // Until old payments have been mapped exactly, their ownership is ambiguous.
           if (booking.paymentEvents?.length || booking.cardChargeResults?.some(r => r.status === 'Done'))
