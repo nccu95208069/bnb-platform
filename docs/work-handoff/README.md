@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-27 owner decision: [independent LINE provider room controls](LINE_INDEPENDENT_CHANNEL_2026-10-27.md) separate OwlNest commands from OS occupancy and booking synchronization. Implementation and synthetic wire acceptance are complete; not deployed. Existing uncertain provider claims remain protected.
+
 - [LINE confirmation immediately executes its room action](LINE_IMMEDIATE_CHANNEL_2026-10-25.md) — paired GCO result-reply change; 304 tests pass, nine database tests skipped; not deployed.
 
 - [LINE manual-closure registration and risk warning](LINE_CLOSED_ROOM_WARNING_2026-10-25.md) — implementation verified; rollout pending.

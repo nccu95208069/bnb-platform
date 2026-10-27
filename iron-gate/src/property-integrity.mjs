@@ -73,6 +73,20 @@ export function checkPropertyIntegrity(state, occupancyRows) {
   for (const operation of state.operations) {
     if (operation?.state !== "sync_pending" && operation?.state !== "review_required") continue;
     counts.pendingOperations++;
+    if (operation.controlMode === "provider_only") {
+      // Provider work must not create a platform occupancy fence. Still count
+      // pending work, and never let a malformed mode marker waive integrity.
+      if (operation.bookingId !== null || operation.bookingVersion !== 0 ||
+        typeof operation.key !== "string" || !operation.key ||
+        typeof operation.lineGrantId !== "string" || !operation.lineGrantId ||
+        typeof operation.lineActorId !== "string" || !operation.lineActorId ||
+        !Array.isArray(operation.cells) || !operation.cells.length ||
+        operation.cells.some(cell => !cell || !state.roomIds.includes(cell.roomId) ||
+          typeof cell.date !== "string" || !["open", "closed"].includes(cell.desired)) ||
+        new Set(operation.cells.map(cell => cellKey(cell.roomId, cell.date))).size !== operation.cells.length)
+        issues.add("INVALID_PROVIDER_CONTROL_OPERATION");
+      continue;
+    }
     if (!Array.isArray(operation.cells) || operation.cells.some((cell) =>
       !cell || typeof cell.roomId !== "string" || typeof cell.date !== "string" ||
       !fenceCells.has(cellKey(cell.roomId, cell.date)))) issues.add("UNFENCED_CHANNEL_OPERATION");

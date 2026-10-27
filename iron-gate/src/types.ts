@@ -136,6 +136,8 @@ export type FirstNewOrderNotification = Readonly<{
 }>;
 
 export type ChannelOperation = {
+  /** Staff-confirmed provider control; never changes OS occupancy or booking sync. */
+  controlMode?: "provider_only";
   key: string;
   bookingId: string | null;
   bookingVersion: number;
@@ -144,7 +146,7 @@ export type ChannelOperation = {
   createdAt: string;
   verifiedAt: string | null;
   providerVersion: string | null;
-  /** Present only for staff-confirmed, booking-bound LINE operations. */
+  /** Present only for staff-confirmed LINE operations. */
   lineGrantId?: string;
   lineActorId?: string;
   /** A pre-existing closed cell cannot prove it was closed for this booking. */
