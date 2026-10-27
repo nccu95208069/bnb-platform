@@ -91,6 +91,7 @@ export type Booking = {
   /** Current source-event labels. Absent on legacy imports, whose immutable snapshot supplies labels. */
   sourceCalendar?: { platform: string | null; externalOrderNo: string | null };
   /** Private marker for a verified identity-only maintenance write; invalid after another booking mutation. */
+  sourceAmountReconciliation?: import("./source-amount-reconciliation.ts").SourceAmountReconciliation;
   sourceIdentityEnrichment?: { schema: 1; bookingVersion: number; sourceOrderRef: string };
   hold?: { schema: 1; scope: "platform_only"; startedAt: string; expiresAt: string;
     state: "active" | "converted" | "released"; convertedAt?: string; releasedAt?: string;

@@ -1007,11 +1007,11 @@ const uiLocale = useIntlLocale();
                   {permissions.viewPrices && (
                     <>
                       <DetailRow
-                        label={uiText("本筆房費")}
+                        label={uiText(booking.source_amount_reconciliation ? "本房預計淨入帳" : "本筆房費")}
                         value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : booking.price_hidden ? uiText("待核對") : formatMoney(booking.room_rate, uiLocale)}
                       />
                       <DetailRow
-                        label={booking.source_read_only && sourceOrderTotalCents !== undefined ? uiText("已串接訂單總額") : booking.source_read_only ? uiText("已串接紀錄合計") : uiText("訂單總額")}
+                        label={booking.source_amount_reconciliation ? uiText("本房應收總額") : booking.source_read_only && sourceOrderTotalCents !== undefined ? uiText("已串接訂單總額") : booking.source_read_only ? uiText("已串接紀錄合計") : uiText("訂單總額")}
                         value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : sourceOrderTotalCents !== undefined ? formatMoney(sourceOrderTotalCents / 100, uiLocale) : orderSegments.some(segment => segment.price_hidden) ? uiText("待核對") : formatMoney(orderTotal, uiLocale)}
                       />
                     </>
@@ -1038,6 +1038,20 @@ const uiLocale = useIntlLocale();
                   {booking.source_read_only && <DetailRow label={uiText("入住需求")} value={uiText("來源未提供結構化資料，尚未確認")} /> }
                 </dl>
               </section>
+
+              {permissions.viewPrices && booking.source_amount_reconciliation && (
+                <section className="rounded-xl border bg-muted/30 p-4">
+                  <h3 className="text-sm font-semibold">Airbnb 訂單金額（五房合計）</h3>
+                  <dl className="mt-2 divide-y">
+                    <DetailRow label="住宿房費" value={formatMoney(booking.source_amount_reconciliation.groupGrossCents / 100, uiLocale)} />
+                    <DetailRow label="Airbnb 房東服務費" value={formatMoney(booking.source_amount_reconciliation.groupHostFeeCents / 100, uiLocale)} />
+                    <DetailRow label="預計淨入帳" value={formatMoney(booking.source_amount_reconciliation.groupNetCents / 100, uiLocale)} />
+                    <DetailRow label="平台另收稅額" value={formatMoney(booking.source_amount_reconciliation.groupTaxCents / 100, uiLocale)} />
+                    <DetailRow label="旅客支付合計" value={formatMoney(booking.source_amount_reconciliation.groupGuestPaidCents / 100, uiLocale)} />
+                  </dl>
+                  <p className="mt-3 text-xs text-muted-foreground">本房金額依原五房比例分攤；以上是預計金額，實際入帳以收款紀錄為準。</p>
+                </section>
+              )}
 
               {permissions.viewPrices && booking.nightly_amounts && (
                 <section>
