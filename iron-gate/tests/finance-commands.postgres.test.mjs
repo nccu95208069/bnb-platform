@@ -317,6 +317,11 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       assert.equal(exactReceipt.source_snapshot_hash,exactPreview.source_snapshot_hash);
       assert.deepEqual(await service.liveSourceLinkCommit(line,propertyId,
         {...exact,preview_token:exactPreview.preview_token},exact.request_key),exactReceipt);
+      await new Promise(resolve=>setTimeout(resolve,5));
+      const retryPreview=await service.liveSourceLinkPreview(line,propertyId,
+        exact,exact.request_key);
+      assert.deepEqual(await service.liveSourceLinkCommit(line,propertyId,
+        {...exact,preview_token:retryPreview.preview_token},exact.request_key),exactReceipt);
       await assert.rejects(service.liveSourceLinkPreview(line,propertyId,
         {...exact,request_key:'line-link-rebind',source_order_key:'SF-OTHER'},
         'line-link-rebind'),e=>e.code==='INVALID_INPUT');

@@ -551,7 +551,8 @@ export class FinanceCommandService {
     if (!raw || Array.isArray(raw) || typeof raw !== 'object' ||
       raw.request_key !== requestKey || !/^[A-Za-z0-9._:-]{1,256}$/.test(requestKey))
       fail('INVALID_INPUT');
-    const requestHash = hash(raw);
+    const requestHash = hash(action === 'finance:link' ?
+      Object.fromEntries(Object.entries(raw).filter(([key]) => key !== 'preview_token')) : raw);
     return this.#transaction(propertyId, true, async client => {
       const context = await this.#context(client, principal, propertyId, true, shadowImport);
       const previous = await client.query(`SELECT request_hash,response_json
