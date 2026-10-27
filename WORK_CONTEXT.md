@@ -1,6 +1,6 @@
 # BnB SaaS / Sweetfun OS — Authoritative Work Context
 
-2026-10-27 owner decision: [independent LINE provider room controls](docs/work-handoff/LINE_INDEPENDENT_CHANNEL_2026-10-27.md) separate OwlNest commands from OS occupancy and booking synchronization. Implementation and synthetic wire acceptance are complete; not deployed. Existing uncertain provider claims remain protected.
+2026-10-27 owner decision: [independent LINE provider room controls](docs/work-handoff/LINE_INDEPENDENT_CHANNEL_2026-10-27.md) separate OwlNest commands from OS occupancy and booking synchronization. PR #94 is merged; coordinated Iron Gate runtime `2502416` and GCO runtime `d8058e7` are released, preserving the concurrent OwlJourney fixes. Signed production open/closed previews and independent runtime/ingress checks passed; no production room write or phone acceptance is claimed. Existing uncertain provider claims remain protected.
 
 2026-10-25 LINE room-action confirmation: [immediate execution and result reply](docs/work-handoff/LINE_IMMEDIATE_CHANNEL_2026-10-25.md) implements the owner's reiterated confirm → execute → verify → reply behavior. Type checking, build and synthetic verification pass (304 tests; nine database tests skipped); this is not a production release. Existing uncertain room-operation claims remain protected.
 

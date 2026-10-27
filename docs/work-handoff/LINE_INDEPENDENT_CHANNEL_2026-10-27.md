@@ -66,7 +66,7 @@ its public font download. No frontend source changed. The paired GCO suite passe
 6,310 tests with 11 deselected. Database integration requires its separate test
 environment; this is not live OwlNest or phone acceptance.
 
-Status: implementation candidate, not merged or deployed. Deploy this compatible
+Initial implementation checkpoint: candidate, then not merged or deployed. Deploy this compatible
 API before switching GCO to the new calls. Existing uncertain provider claims
 remain protected and subject to release/recovery gates. No production settings,
 data or notification targets were changed.
@@ -75,3 +75,36 @@ Rollback must stop new GCO confirmations first. Keep this Iron Gate version unti
 all `provider_only` work is verified and its claims resolved; an older worker does
 not understand this persisted mode. Never roll back the worker over pending or
 uncertain independent operations, or erase them to make a rollback pass.
+
+## Coordinated production release — 2026-10-27 16:00 Asia/Taipei
+
+The owner explicitly requested merging both paired PRs and releasing production,
+after coordination with the other maintenance chats. The backend maintainer
+confirmed no competing cutover; the OS maintainer confirmed its desktop-button
+work changes only frontend files. This release does not publish that frontend.
+
+- PR #94 merged as `dd08e85fa4f35ea5d1383d250da5134eb41ccd28`. Product source
+  `25024163e70682cd019c1626a36a2ee331fe47a2` includes the concurrent OwlJourney
+  branch `f11121ee9161e9702e20204b021551a2bfe405ca`; ancestry was checked.
+- Clean-source Iron Gate production candidate was promoted first. Primary-domain
+  readback resolves to that Ready deployment, with source metadata matching the
+  exported commit. Full deployment env/settings/routes match the preceding release.
+- Paired GCO PR #105 merged as `da1bc3b`; product runtime `d8058e7` retains the
+  live OwlJourney changes. It now serves 100% after a zero-traffic check, a complete
+  305-second drain, fresh business checks and restoration of all seven background
+  entrances at 15:59:16 Taipei. Independent runtime/IAM/ingress verification passed.
+- Integrated regression: Iron Gate 329 passed, nine database tests skipped,
+  zero failures; GCO 6,316 passed, 11 deselected. Both PR CI suites passed, as did
+  the signed synthetic cross-service contract and 130 release/recovery checks.
+- Actual production signed open and closed previews return `provider_only` with
+  null bookingId. No confirmation was submitted. OS state and the existing held
+  dispatch claim remained identical before/after preview and after both releases.
+- Production request authorization rejects unsigned preview calls. GCO candidate,
+  production and independent readback each passed 14 boundary/asset checks.
+  Post-cutover log inspection found no server errors; exact private operational
+  evidence is retained with the paired release record.
+
+Existing accepted review records and quarantined source mail remain unresolved
+and unchanged. No real booking/provider write or test notification was performed;
+physical LINE/OwlNest-write acceptance remains separate. The rollback constraint
+above continues to apply to newly persisted independent operations.
