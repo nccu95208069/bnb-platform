@@ -85,6 +85,7 @@ export async function POST(request:NextRequest){
     if(action==='preview'){
       const result=await preview(actor);
       return response({status:'preview',preview_token:result.preview.preview_token,
+        workbook_url:`https://docs.google.com/spreadsheets/d/${result.settings.binding.spreadsheetId}/edit`,
         expires_at:result.preview.expires_at,
         rows:result.preview.safe_rows.map(candidate=>({
           row_id:candidate.row.row_id,sheet_row:candidate.row.sheet_row,

@@ -5,6 +5,9 @@ import {financeSheetDocumentsFromLedger,scanFinanceSheet,
 import {readFinanceSheetLedger} from './finance-sheet-bulk-ledger';
 import {financeSheetBulkConfig} from './finance-sheet-bulk-config';
 import {withFinanceSheetLock} from './finance-sheet-bulk-lock';
+import {financeSheetProjections,financeSheetProjectionDigest}
+  from './finance-sheet-bulk-projections';
+import {publishFinanceSheetProjections} from './finance-sheet-bulk-publisher';
 
 /** Scheduled reconciliation never submits a money command. */
 export async function runFinanceSheetBulkScan(){
@@ -51,9 +54,17 @@ export async function runFinanceSheetBulkScan(){
       catch{issues.push({sheet_row:row.sheet_row,row_id:row.row_id,
         code:'SHEET_PROJECTION_RETRY'});}
     }
+    const final=scanFinanceSheet(await readFinanceSheet(settings.binding),
+      settings.binding.propertyDisplay);
+    issues.push(...final.issues);
+    const projections=financeSheetProjections(events,final,
+      settings.binding.propertyDisplay,settings.sourceInstanceId);
+    const output=await publishFinanceSheetProjections(settings.binding,projections);
     return {status:issues.length?'review':'ok',assigned,projected,
       unassigned:Math.max(0,current.unassigned.length-assigned),
-      issues:issues.map(issue=>({sheet_row:issue.sheet_row,code:issue.code})),
-      ledger_events:events.length};
+      issue_count:issues.length,issues:issues.slice(0,50).map(issue=>({
+        sheet_row:issue.sheet_row,code:issue.code})),
+      ledger_events:events.length,output_status:output.status,
+      projection_digest:financeSheetProjectionDigest(projections)};
   });
 }

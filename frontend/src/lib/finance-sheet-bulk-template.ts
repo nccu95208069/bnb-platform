@@ -16,7 +16,7 @@ export function financeSheetTemplateRequests(sheetIds:number[],serviceEmail:stri
   const requests:Record<string,unknown>[]=[];
   for(let index=0;index<FINANCE_SHEET_TABS.length;index++){
     requests.push({addSheet:{properties:{sheetId:sheetIds[index],
-      title:FINANCE_SHEET_TABS[index],gridProperties:{rowCount:501,
+      title:FINANCE_SHEET_TABS[index],gridProperties:{rowCount:index===0?501:5001,
         columnCount:index===0?20:12}}}});
   }
   requests.push({updateCells:{range:{sheetId:sheetIds[0],startRowIndex:0,

@@ -10,6 +10,7 @@ type Row={row_id:string;sheet_row:number;action:string;event_kind:string;
   allocation_months:number|null;safe_description:string|null;source_version:number};
 type Issue={sheet_row:number;row_id:string|null;code:string};
 type Preview={status:'preview';preview_token:string;expires_at:number;
+  workbook_url:string;
   rows:Row[];issues:Issue[];unassigned:{sheet_row:number;content_hash:string}[]};
 type Commit={status:'completed';results:{row_id:string;status:string;
   projection?:string;code?:string;version?:number}[];issues:Issue[]};
@@ -77,6 +78,8 @@ export function FinanceSheetBulkWorkspace(){
     </header>
     {error&&<p role="alert" className="rounded border border-red-300 p-3 text-sm text-red-700">{error}</p>}
     {preview&&<>
+      <a href={preview.workbook_url} target="_blank" rel="noopener noreferrer"
+        className="text-sm underline">開啟專用 Google 工作簿</a>
       <p className="text-sm">預覽有效至 {new Date(preview.expires_at).toLocaleString('zh-TW',
         {timeZone:'Asia/Taipei'})}；每次最多提交 10 列。</p>
       {preview.unassigned.length>0&&<section className="space-y-2 rounded border p-4">
