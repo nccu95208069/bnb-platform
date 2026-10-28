@@ -306,7 +306,8 @@ export class FinanceCommandService {
       const booking = state.bookings.find(b => b.id === a.booking_id);
       if (!booking || booking.propertyId !== state.propertyId) fail('UNKNOWN_BOOKING', 422);
       if (booking.version !== a.expected_booking_version) fail('VERSION_CONFLICT', 409);
-      if (command.action !== 'void' && booking.status !== 'confirmed')
+      if (command.action !== 'void' && booking.status !== 'confirmed' &&
+        !(command.event_kind === 'property_refund' && booking.status === 'cancelled'))
         fail('SOURCE_MAPPING_REVIEW_REQUIRED', 409);
       return { bookingId: booking.id, version: booking.version, snapshotHash: hash({
         id: booking.id, version: booking.version, totalCents: booking.totalCents,
@@ -314,6 +315,35 @@ export class FinanceCommandService {
         sourceCalendar: booking.sourceCalendar ?? null,
       }) };
     });
+  }
+  async #assertLegacyPaymentsMapped(client, propertyId, booking) {
+    const events = booking.paymentEvents ?? [];
+    const cardResults = booking.cardChargeResults ?? [];
+    if (!Array.isArray(events) || !Array.isArray(cardResults)) fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
+    const ids = events.map(event => event?.id);
+    if (ids.some(id => !UUID.test(id ?? '')) || new Set(ids).size !== ids.length)
+      fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
+    const doneIds = cardResults.filter(result =>
+      String(result?.status).toLowerCase() === 'done').map(result => result.paymentEventId);
+    if (doneIds.some(id => !UUID.test(id ?? '') || !ids.includes(id)))
+      fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
+    if (!ids.length) return;
+    const mapped = await client.query(`SELECT o.existing_payment_event_id,o.provider_code
+      FROM iron_gate.finance_payment_ownership o
+      JOIN iron_gate.finance_document d ON d.property_id=o.property_id
+        AND d.id=o.canonical_document_id
+      WHERE o.property_id=$1 AND o.booking_id=$2
+        AND o.existing_payment_event_id=ANY($3::uuid[]) AND d.status='active'
+        AND EXISTS (SELECT 1 FROM iron_gate.finance_event e
+          JOIN iron_gate.finance_allocation a ON a.property_id=e.property_id
+            AND a.event_id=e.id
+          WHERE e.property_id=d.property_id AND e.document_id=d.id
+            AND e.event_kind IN ('property_receipt','property_refund')
+            AND a.booking_id=o.booking_id)`,
+      [propertyId,booking.id,ids]);
+    const owned = new Map(mapped.rows.map(row => [row.existing_payment_event_id,row.provider_code]));
+    if (owned.size !== ids.length || doneIds.some(id => owned.get(id) !== 'sweetfun_card'))
+      fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
   }
   async #assertVoidGuards(client, principal, propertyId, command) {
     if (command.action !== 'void') return;
@@ -1348,6 +1378,11 @@ export class FinanceCommandService {
         if (priorReceipt.rows[0].request_hash !== requestHash) fail('REQUEST_KEY_REUSED', 409);
         return priorReceipt.rows[0].response_json;
       }
+      // A payment method is not a verified processor identity. Until a
+      // connector supplies one, a caller-provided transaction reference cannot
+      // safely claim the cross-source uniqueness key.
+      if (command.action === 'create' && command.provider_transaction_ref)
+        fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
       await this.#assertVoidGuards(client,principal,propertyId,command);
       const bookings = this.#bookings(state, command);
       if (bookings.length) this.#verifyToken(raw.preview_token, principal, propertyId, command, bookings);
@@ -1389,12 +1424,17 @@ export class FinanceCommandService {
           fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
       }
       if (command.action !== 'create') {
-        const priorKind = await client.query(`SELECT event_kind FROM iron_gate.finance_event
+        const priorKind = await client.query(`SELECT event_kind,related_receipt_document_id,
+          related_receipt_event_id FROM iron_gate.finance_event
           WHERE property_id=$1 AND document_id=$2 AND revision_version=$3 AND event_kind<>'reversal'`,
           [propertyId, documentId, version - 1]);
         if (priorKind.rows.length !== 1 ||
           (command.action === 'amend' && command.event_kind !== priorKind.rows[0].event_kind))
           fail('VERSION_CONFLICT', 409);
+        if (command.action === 'amend' && command.event_kind === 'property_refund' &&
+          (command.related_receipt_document_id !== priorKind.rows[0].related_receipt_document_id ||
+            command.related_receipt_event_id !== priorKind.rows[0].related_receipt_event_id))
+          fail('VERSION_CONFLICT',409);
         if (priorKind.rows[0].event_kind === 'property_refund' &&
           !principal.actions.includes('finance:refund')) fail('PROPERTY_FORBIDDEN',403);
         // A settlement names exact event IDs and amounts. Replacing a settled
@@ -1429,17 +1469,25 @@ export class FinanceCommandService {
           FROM iron_gate.finance_document d JOIN iron_gate.finance_event e
           ON e.property_id=d.property_id AND e.document_id=d.id AND
              e.revision_version=d.current_version
-          WHERE d.property_id=$1 AND d.id=$2 AND e.id=$3 AND
+          WHERE d.property_id=$1 AND d.id=$2 AND
             e.event_kind='property_receipt'`, [propertyId,
-            command.related_receipt_document_id, command.related_receipt_event_id]);
+            command.related_receipt_document_id]);
         if (!original.rows.length || original.rows[0].status !== 'active') fail('REFUND_LIMIT', 422);
-        // Legacy Card/native receipts still have a booking JSON read path.
-        // A generic refund must wait for its reviewed compatibility projection.
+        if (original.rows[0].id !== command.related_receipt_event_id) {
+          if (command.action !== 'amend') fail('VERSION_CONFLICT',409);
+          const historical = await client.query(`SELECT 1 FROM iron_gate.finance_event
+            WHERE property_id=$1 AND document_id=$2 AND id=$3
+              AND event_kind='property_receipt'`, [propertyId,
+              command.related_receipt_document_id,command.related_receipt_event_id]);
+          if (historical.rows.length !== 1) fail('VERSION_CONFLICT',409);
+        }
+        // Native and Card receipts retain a separate booking JSON read path.
+        // Their refunds require an atomic compatibility projection.
         if (['sweetfun_card','iron_gate_native'].includes(original.rows[0].source_system))
           fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
         const originalAllocations = await client.query(`SELECT booking_id,amount_cents,allocation_kind
           FROM iron_gate.finance_allocation WHERE property_id=$1 AND event_id=$2`,
-          [propertyId, command.related_receipt_event_id]);
+          [propertyId, original.rows[0].id]);
         if (command.booking_allocations.some(a => !originalAllocations.rows.some(o =>
             o.booking_id === a.booking_id && o.allocation_kind === a.allocation_kind &&
             a.amount_cents <= Number(o.amount_cents)))) fail('ALLOCATION_MISMATCH', 422);
@@ -1478,6 +1526,36 @@ export class FinanceCommandService {
         if (Number(activeRefunds.rows[0].total) > (command.action === 'void' ? 0 :
           command.event_kind === 'property_receipt' ? command.amount_cents : MAX_AMOUNT))
           fail('REFUND_LIMIT', 422);
+        if (command.action === 'amend' && command.event_kind === 'property_receipt') {
+          const refundedAllocations = await client.query(`SELECT a.booking_id,a.allocation_kind,
+            sum(a.amount_cents)::bigint AS total
+            FROM iron_gate.finance_allocation a
+            JOIN iron_gate.finance_event e ON e.property_id=a.property_id AND e.id=a.event_id
+            JOIN iron_gate.finance_document d ON d.property_id=e.property_id AND d.id=e.document_id
+            WHERE e.property_id=$1 AND e.event_kind='property_refund'
+              AND e.related_receipt_document_id=$2
+              AND e.revision_version=d.current_version AND d.status='active'
+            GROUP BY a.booking_id,a.allocation_kind`,[propertyId,documentId]);
+          if (refundedAllocations.rows.some(row =>
+            Number(row.total) > (command.booking_allocations.find(a =>
+              a.booking_id === row.booking_id &&
+                a.allocation_kind === row.allocation_kind)?.amount_cents ?? 0)))
+            fail('REFUND_LIMIT',422);
+        }
+      }
+      if (command.action === 'create' && command.event_kind === 'property_receipt') {
+        for (const allocation of command.booking_allocations) {
+          const suspected = await client.query(`SELECT 1 FROM iron_gate.finance_allocation a
+            JOIN iron_gate.finance_event e ON e.property_id=a.property_id AND e.id=a.event_id
+            JOIN iron_gate.finance_document d ON d.property_id=e.property_id AND d.id=e.document_id
+            WHERE a.property_id=$1 AND a.booking_id=$2 AND a.amount_cents=$3
+              AND e.event_kind='property_receipt' AND
+                e.effective_on BETWEEN ($4::date - 3) AND ($4::date + 3)
+              AND e.revision_version=d.current_version AND d.status='active'
+            LIMIT 1`, [propertyId, allocation.booking_id, allocation.amount_cents,
+              command.effective_on]);
+          if (suspected.rows.length) fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
+        }
       }
       if (command.action !== 'void' && command.event_kind === 'property_receipt' &&
         ['room','deposit'].includes(command.receipt_purpose)) {
@@ -1487,9 +1565,7 @@ export class FinanceCommandService {
             (booking.source !== 'os' && !allocation.source_order_key &&
               !['line_finance','sheet_bulk'].includes(source.source_system)))
             fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
-          // Until old payments have been mapped exactly, their ownership is ambiguous.
-          if (booking.paymentEvents?.length || booking.cardChargeResults?.some(r => r.status === 'Done'))
-            fail('SOURCE_MAPPING_REVIEW_REQUIRED', 409);
+          await this.#assertLegacyPaymentsMapped(client,propertyId,booking);
           const current = await client.query(`SELECT COALESCE(sum(CASE
               WHEN e.event_kind='property_refund' THEN -a.amount_cents
               WHEN e.event_kind='reversal' AND original.event_kind='property_refund'
@@ -1502,18 +1578,6 @@ export class FinanceCommandService {
               (e.event_kind IN ('property_receipt','property_refund') OR
                (e.event_kind='reversal' AND original.event_kind IN ('property_receipt','property_refund')))
               AND e.document_id<>$3`, [propertyId, allocation.booking_id, documentId]);
-          if (command.action === 'create') {
-            const suspected = await client.query(`SELECT 1 FROM iron_gate.finance_allocation a
-              JOIN iron_gate.finance_event e ON e.property_id=a.property_id AND e.id=a.event_id
-              JOIN iron_gate.finance_document d ON d.property_id=e.property_id AND d.id=e.document_id
-              WHERE a.property_id=$1 AND a.booking_id=$2 AND a.amount_cents=$3
-                AND e.event_kind='property_receipt' AND
-                  e.effective_on BETWEEN ($4::date - 3) AND ($4::date + 3)
-                AND e.revision_version=d.current_version AND d.status='active'
-              LIMIT 1`, [propertyId, allocation.booking_id, allocation.amount_cents,
-                command.effective_on]);
-            if (suspected.rows.length) fail('SOURCE_MAPPING_REVIEW_REQUIRED', 409);
-          }
           if (Number(current.rows[0].total) + allocation.amount_cents > booking.totalCents)
             fail('ALLOCATION_MISMATCH', 422);
         }
@@ -1594,13 +1658,6 @@ export class FinanceCommandService {
           (property_id,event_id,month,amount_cents,allocation_policy) VALUES ($1,$2,$3,$4,$5)`,
           [propertyId, eventId, a.month, a.amount_cents, a.allocation_policy]);
         eventIds.push(eventId);
-        if (command.action === 'create' && command.provider_transaction_ref)
-          await client.query(`INSERT INTO iron_gate.finance_payment_ownership
-          (id,property_id,provider_code,source_account_ref,provider_transaction_ref,
-           booking_id,canonical_document_id)
-          VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [randomUUID(),propertyId,command.payment_method_code,source.source_account_ref,
-            command.provider_transaction_ref,command.booking_allocations[0].booking_id,documentId]);
       }
       const changeSeq = await appendFinanceChange(client,propertyId,
         'document_revision',documentId,String(version));

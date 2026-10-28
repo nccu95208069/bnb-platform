@@ -116,7 +116,7 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       const room = { ...roomCommand('room-1', 6000), booking_allocations: [{
         source_order_key:'SF-EXACT-1', amount_cents:6000, allocation_kind:'room' }],
         service_on:'2026-11-10',
-        payment_method_code:'bank_transfer',provider_transaction_ref:'provider-transaction-1' };
+        payment_method_code:'bank_transfer' };
       const preview = await service.preview(principal, propertyId, room, room.request_key);
       assert.equal(preview.bookings[0].bookingId, bookingId);
       assert.equal(preview.resolved_command.booking_allocations[0].booking_id,bookingId);
@@ -127,13 +127,13 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       await assert.rejects(service.command(principal, propertyId,
         { ...duplicate, preview_token: duplicatePreview.preview_token }, duplicate.request_key),
       e => e.code === 'SOURCE_MAPPING_REVIEW_REQUIRED');
-      const transactionDuplicate = { ...roomCommand('room-provider-duplicate',2000),
+      const unverifiedTransaction = { ...roomCommand('room-provider-unverified',2000),
         payment_method_code:'bank_transfer',provider_transaction_ref:'provider-transaction-1' };
       const transactionPreview = await service.preview(principal,propertyId,
-        transactionDuplicate,transactionDuplicate.request_key);
+        unverifiedTransaction,unverifiedTransaction.request_key);
       await assert.rejects(service.command(principal,propertyId,
-        { ...transactionDuplicate,preview_token:transactionPreview.preview_token },
-        transactionDuplicate.request_key),e => e.code === 'SOURCE_MAPPING_REVIEW_REQUIRED');
+        { ...unverifiedTransaction,preview_token:transactionPreview.preview_token },
+        unverifiedTransaction.request_key),e => e.code === 'SOURCE_MAPPING_REVIEW_REQUIRED');
       const refund = { request_key: 'refund-1', source_record_id: 'refund-1', source_version: '1',
         action: 'create', event_kind: 'property_refund', amount_cents: 3000,
         currency: 'TWD', effective_on: '2026-10-28', cash_on: '2026-10-28',
