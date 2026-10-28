@@ -1,5 +1,7 @@
 # BnB SaaS / Sweetfun OS — Authoritative Work Context
 
+2026-10-28 Offland shared finance: [property-scoped OS/LINE ledger candidate, authoritative booking reads, general income/expenses and historical coverage boundaries](docs/work-handoff/OFFLAND_FINANCE_PARITY_2026-10-28.md). Isolated verification passes; no production cutover. Offland uses separate grants/connectors, while imported booking receipts remain under review pending complete source coverage and authoritative remaining balances.
+
 2026-10-28 calendar performance: [request-scoped authentication, server session bootstrap, immediate month prefetch commits and private-data-safe timing](docs/work-handoff/CALENDAR_LOAD_PERFORMANCE_2026-10-28.md) implement the first two approved optimization steps. Reloads invalidate neighboring windows even without an inventory-version change; authorization remains server-enforced. Release and browser timing evidence are retained privately.
 
 2026-10-28 LINE room control: [scope unresolved provider reviews to their exact room nights and expose truthful dispatch status](docs/work-handoff/LINE_CHANNEL_REVIEW_ISOLATION_2026-10-28.md). PR #102 is merged and runtime `cc524005` is released with its paired LINE status fix. One active writer remains enforced, and historical uncertain operations retain scoped review holds. The optional runtime operator is disabled by default. Private live acceptance evidence is retained outside this public repository. Never roll back to a backend that cannot enforce review holds.

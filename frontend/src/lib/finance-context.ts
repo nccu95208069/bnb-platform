@@ -1,6 +1,7 @@
 import {offlandIronGateCalendarConfig,readSourceAmountSnapshot} from './booking-sources/iron-gate-calendar.server.ts';
 import type {Principal} from './workspace-auth/types';
 import {ssotFinanceContext} from './finance-ssot-context';
+import {ssotFinanceEnabled} from './booking-sources/iron-gate-ssot-finance.server.ts';
 import {ironGateFinanceConfig,readDirectFinance,applyFinanceAmountCorrections,checkedFinanceCorrections} from './booking-sources/iron-gate-finance.server.ts';
 import type {FinanceAuditEvent} from './finance-audit';
 import {redisCommand} from './workspace-auth/store';
@@ -10,7 +11,7 @@ import type {SheetSourceDefinition} from './booking-sources/config';
 import {projectOrders,projectionVersion} from './finance-projection';
 import {recurrenceDue,taipeiDate,type PayoutRule} from './finance-model';
 export async function financeContext(source:SheetSourceDefinition,year:number,includeAudit=false,actor?:Principal){
- if(source.property.id==='sweetfun'&&process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED==='true'){
+ if(ssotFinanceEnabled(source.property.id)){
   if(!actor)throw Error('FORBIDDEN');
   return ssotFinanceContext(source,year,actor);
  }

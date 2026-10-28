@@ -4,6 +4,8 @@ import {privateHeaders,sameOrigin,inputBody} from '@/lib/workspace-auth/http';
 import {canUseFinance} from '@/lib/finance-store';
 import {activeSources} from '@/lib/booking-sources/config';
 import {financeContext} from '@/lib/finance-context';
+import {ssotFinanceEnabled} from '@/lib/booking-sources/iron-gate-ssot-finance.server';
+import {summarizeSsotOrders} from '@/lib/finance-ssot-summary';
 import {readOperationalSheet} from '@/lib/sheet-monitor/google';
 import {normalizeRows,HEADERS} from '@/lib/sheet-monitor/reconcile';
 import {adaptSheetBookings} from '@/lib/booking-sources/sweetfun-sheet';
@@ -19,6 +21,12 @@ async function context(request:NextRequest){
  const property=request.nextUrl.searchParams.get('property')||sources[0]?.property.id;
  const source=sources.find(s=>s.property.id===property);if(!source)throw new Error('FORBIDDEN');
  await new RedisWorkspaceStore().limit(`finance-summary:${actor.id}`,120,3600);
+ if(source.property.id==='offland'&&ssotFinanceEnabled('offland')){
+  const [report,registry]=await Promise.all([financeContext(source,new Date().getUTCFullYear(),false,actor),readSummaryRegistry('offland')]);
+  const summary=summarizeSsotOrders('offland',report.orders,report.entries,registry.state);
+  return {actor,source,registry,summary,source_version:summaryVersion([summary.orders,report.projection_version]),
+   properties:sources.map(s=>({id:s.property.id,name:s.property.name})),issues:summary.orders.filter(o=>o.issues.length).length};
+ }
  const [report,values,registry]=await Promise.all([financeContext(source,new Date().getUTCFullYear(),false,actor),readOperationalSheet(source),readSummaryRegistry(source.property.id)]);
  const normalized=normalizeRows(values,source);
  const snapshot=adaptSheetBookings([HEADERS,...normalized.map(r=>r.cells)],source.sourceId,new Date().toISOString(),[],normalized.map(r=>r.sourceRow),source.property);

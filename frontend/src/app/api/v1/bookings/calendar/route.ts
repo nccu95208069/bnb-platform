@@ -1,6 +1,7 @@
 import { configuredPrivateCalendarCache } from "@/lib/booking-sources/private-calendar-snapshot";
 import { overlayPayments } from "@/lib/os-payments";
 import { ssotFinanceContext } from "@/lib/finance-ssot-context";
+import { ssotFinanceEnabled } from "@/lib/booking-sources/iron-gate-ssot-finance.server";
 import { overlaySsotCalendarPayments } from "@/lib/finance-ssot-calendar";
 import { canUseFinance } from "@/lib/finance-store";
 import { principalFor, sessionMember } from "@/lib/workspace-auth/session";
@@ -290,7 +291,7 @@ async function readCalendarRequest(request: NextRequest, timing: CalendarServerT
         const imported = igPayments.filter(booking => booking.iron_gate_source !== 'os');
         if (principal.viewPrices && imported.length) {
           try {
-            const ssot=process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED==='true';
+            const ssot=ssotFinanceEnabled('sweetfun');
             if(ssot&&!canUseFinance(principal))throw Error('FORBIDDEN');
             const overlaid=await timing.measure('payment', async () => ssot?overlaySsotCalendarPayments(imported,
               (await ssotFinanceContext(definitions.find(d=>d.key==='sweetfun')!,
@@ -304,8 +305,21 @@ async function readCalendarRequest(request: NextRequest, timing: CalendarServerT
             booking.iron_gate_source === 'os' ? booking : unconfirmedPayment(booking));
             paymentWarning = [{ property_id: 'sweetfun', label: 'Iron Gate 訂房紀錄', phase: 'payments' }]; }
         }
+        let offlandPayments=offlandIg?.bookings??[];
+        if(principal.viewPrices&&offlandPayments.length&&ssotFinanceEnabled('offland')){
+          try{
+            if(!canUseFinance(principal))throw Error('FORBIDDEN');
+            offlandPayments=await timing.measure('payment',async()=>overlaySsotCalendarPayments(
+              offlandPayments,(await ssotFinanceContext(definitions.find(d=>d.key==='offland')!,
+                Number(new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric'})
+                  .format(new Date())),principal)).orders,'offland'));
+          }catch{
+            offlandPayments=offlandPayments.map(unconfirmedPayment);
+            paymentWarning.push({property_id:'offland',label:'OFFLAND Iron Gate 訂房紀錄',phase:'payments'});
+          }
+        }
         const bookings = projectBookings([...igPayments,
-          ...(offlandIg?.bookings ?? []), ...(other?.bookings ?? [])], principal);
+          ...offlandPayments, ...(other?.bookings ?? [])], principal);
         let manualEnabled = false;
         let manualPaymentEnabled = false;
         if (ig && principal.viewPrices && ["owner", "admin", "god"].includes(principal.role) &&
@@ -349,7 +363,9 @@ async function readCalendarRequest(request: NextRequest, timing: CalendarServerT
           quarantined_rows: 0,
           blocked_room_nights: offlandIg.blockedRoomNights,
           missing_order_id: 0,
-          missing_payment_status: offlandIg.soldRoomNights } : null;
+          missing_payment_status: offlandPayments.filter(b=>!b.source_conflict&&b.payment_status==='unknown')
+            .reduce((sum,b)=>sum+Math.max(0,Math.round((Math.min(Date.parse(`${b.check_out}T00:00:00Z`),endDate.getTime())-
+              Math.max(Date.parse(`${b.check_in}T00:00:00Z`),startDate.getTime()))/DAY_MS)),0) } : null;
         const primarySource = source ?? offlandSource;
         const primarySummary = sourceSummary ?? offlandSummary;
         if (!primarySource || !primarySummary) throw Error('IRON_GATE_CALENDAR_UNAVAILABLE');
@@ -378,7 +394,8 @@ async function readCalendarRequest(request: NextRequest, timing: CalendarServerT
           data_mode: "iron_gate_booking_only",
           iron_gate_manual_enabled: manualEnabled,
           iron_gate_manual_payment_enabled: manualPaymentEnabled,
-          finance_ssot_enabled: process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED==='true',
+          finance_ssot_enabled: ssotFinanceEnabled('sweetfun'),
+          finance_ssot_properties: definitions.filter(d=>ssotFinanceEnabled(d.property.id)).map(d=>d.property.id),
         }, { headers });
       }
       const result = await timing.measure('source', () => readCalendarSources(definitions, start, end, principal.viewPrices, {

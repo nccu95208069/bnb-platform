@@ -1070,6 +1070,12 @@ const uiLocale = useIntlLocale();
         paymentWorkspace={
           data?.source?.read_only && selectedBooking?.snapshot_only ? (
             <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">目前為唯讀快照。請重新載入並確認最新訂單後，再登錄付款。</p>
+          ) : data?.source?.read_only && selectedBooking?.property_id==='offland' &&
+            data.finance_ssot_properties?.includes('offland') && permissions.viewPrices ? (
+            <div role="status" className="space-y-2 rounded-lg border p-3 text-sm">
+              <p>收款與支出統一在遺忘無際財務頁登記，與 LINE 共用同一份帳。</p>
+              <Link className="inline-block font-semibold underline" href="/finance/bookkeeping?property=offland">開啟遺忘無際收支</Link>
+            </div>
           ) : data?.source?.read_only &&
             (selectedBooking?.iron_gate_source === "os" ||
               (selectedBooking?.iron_gate_card_managed && data?.finance_ssot_enabled)) &&

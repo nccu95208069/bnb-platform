@@ -144,6 +144,7 @@ export type CalendarResponse = {
   iron_gate_manual_enabled?: boolean;
   iron_gate_manual_payment_enabled?: boolean;
   finance_ssot_enabled?: boolean;
+  finance_ssot_properties?: string[];
 };
 
 export type CalendarPeriod = {
