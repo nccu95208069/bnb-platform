@@ -1,0 +1,30 @@
+# Finance SSOT W7 offline checkpoint — 2026-10-28
+
+**Decision: Sweetfun cutover remains closed.** This branch is a local, disabled historical-import candidate. It has not read the production Firestore or Redis finance books, imported a real record, applied a production migration, changed a writer flag, published a service, or edited a workbook. A synthetic `matched` report is only a test of the supplied fixture and the comparison contract; it is not approval to cut over.
+
+## Local candidate
+
+The `bnb-platform` worktree `finance-ssot-w7-integrated-20261028` (`codex/finance-ssot-w7-integrated-20261028`) combines the W6 candidate with these W7 pieces:
+
+| Source | Implemented candidate | Required proof before use |
+| --- | --- | --- |
+| Existing Iron Gate native payments and Sweetfun Card | Source-specific, locked preview and atomic import preserve original event IDs, Card Fail as zero cash, Done ownership and alias, refund links, source actor and source time. No automatic runner or HTTP route is enabled. | Inspect every real payment event and Card result, then establish exact ownership and cross-source aliases; aggregate counts are insufficient. |
+| OS Redis manual and legacy payment | Offline, double-read snapshot capture, per-revision command plan, source-specific holds for ambiguity, and complete pinned readback reconciliation. Money source versions remain original Redis versions; Iron Gate target revision is separate. The private CLI writes only outside the repository. | Obtain independently verifiable full Redis source and payment-order identity snapshots at the same watermark; review every hold; import through the guarded preview/receipt path and prove zero per-record differences. |
+| OS non-money status, recurrence, payout, account and category | Property-scoped pre-cutover import routes and append-only catalog preserve original source hash, version, actor and time separately from the importing principal and commit time. Status links are checked against a reviewed booking/source snapshot. | Reconstruct verifiable original operations, resolve unsupported paid-occurrence identity, and compare every catalog row and target at a pinned watermark. |
+| LINE Firestore | Separate local GCO LINE candidate `gco-line-room-control-fix-20261025`: property-scoped hashed original actor and source time per revision, with ownership mapping only for configured current staff and exact Iron Gate readback checks. Iron Gate's ledger response now includes its property ID so the offline reconciler can independently bind the source actor hash to that property. | Obtain a full immutable Firestore snapshot and pending-operation inventory, prove aliases and source watermarks, then run private per-record reconciliation. |
+
+Details and limitations: [native/Card history](FINANCE_SSOT_W7_NATIVE_CARD_HISTORY_2026-10-28.md), [OS backfill](FINANCE_SSOT_OS_BACKFILL_CANDIDATE_2026-10-28.md), [OS non-money contract](FINANCE_SSOT_W7_NONMONEY_IMPORT_2026-10-28.md), and the [W7 readiness review](FINANCE_SSOT_W7_READINESS_REVIEW_2026-10-28.md). Earlier W1–W6 components, including the dedicated Sheet batch adapter, remain candidates; the live baseline in the readiness review is a point-in-time observation, not a current snapshot.
+
+## Verification boundary
+
+The integrated Iron Gate TypeScript check and offline `npm test` pass: 462 passed, 18 skipped, 0 failed. Six source/command PostgreSQL tests passed against a disposable local PostgreSQL 15 fixture; migration 004, a production credential grant, was intentionally omitted. OS backfill's 17 focused tests pass. The separate GCO LINE candidate has 58 focused tests passing before final provenance follow-up. Its broader offline suite recorded 6,583 passes and five environment/dependency failures, with one OwlNest test file unable to collect because `google.cloud.storage` is missing. These checks use synthetic records and do not verify live source completeness or real connector behavior.
+
+## Required sequence before any Sweetfun source cutover
+
+1. Capture current private Firestore and Redis snapshots, high-water marks, operation queues and immutable backups, with a complete payment-order identity source. Keep raw guest, actor, bank and card evidence private. The four October 21 Iron Gate source-evidence captures and Sheet projection counts in the readiness review do not satisfy this step.
+2. Review exact property, connector, booking and event identity for every source. Resolve native/Card overlap, OS legacy/native overlap, LINE amend/void effects, OTA payout semantics, unknown receipts, unsupported recurrence identities and all review holds. Do not infer a payment from a status or Card Fail, or bank settlement from Card Done.
+3. Run the source-specific offline plans and guarded shadow imports against an isolated property. Confirm every original request key, source version, source actor/time and receipt. Read all ledger and non-money catalog pages at one property change sequence; reject missing, extra, changed or unsequenced rows. Require zero per-record differences, zero duplicate money and a separately reviewed final delta.
+4. Provision a dedicated private Sheet workbook and connector and verify actual Google API, OS route, persistent Redis evidence, full-book projection and readback. Exercise LINE group, direct message and LIFF plus OS flows in an isolated release with flags closed to ordinary production use.
+5. Agree a source-specific Sweetfun pause window, repeat W0/final-delta checks and authorize the actual cutover only after the owner reviews the evidence. Observe a full operating cycle, including the real Sweetfun Card workflow if it occurs. Preserve Offland's current writer and projection throughout.
+
+Until these steps are evidenced, the existing source writers remain responsible for unmigrated records. Once a future cutover has accepted operational events, recovery must converge forward from Iron Gate receipts instead of reopening a second writer. See the [readiness review](FINANCE_SSOT_W7_READINESS_REVIEW_2026-10-28.md) for the exact recovery boundary.

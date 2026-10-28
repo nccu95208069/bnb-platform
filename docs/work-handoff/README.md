@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-28 finance SSOT W7: [offline integrated checkpoint and remaining Sweetfun cutover gates](FINANCE_SSOT_W7_OFFLINE_CHECKPOINT_2026-10-28.md). Native/Card, OS and separate LINE historical candidates are local and disabled; no real source import or cutover has occurred.
+
 2026-10-28 W7 native/Card finance history: [source-specific, offline historical import candidate and per-record reconciliation](FINANCE_SSOT_W7_NATIVE_CARD_HISTORY_2026-10-28.md). Synthetic PostgreSQL checks pass; live W0 ownership and cross-source proof remain required before any cutover.
 
 2026-10-28 Sweetfun OS finance SSOT candidate: [read-only preview, explicit confirmation, exact command recovery, and local build limits](FINANCE_SSOT_OS_PREVIEW_2026-10-28.md). This work has no production finance write or release claim.

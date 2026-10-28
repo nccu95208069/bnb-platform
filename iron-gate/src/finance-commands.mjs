@@ -1247,6 +1247,7 @@ export class FinanceCommandService {
       return { events: page, next_cursor: rows.rows.length > limit && last ?
         base64(JSON.stringify([last.effective_on,last.id])) : null,
         as_of_event_id: last?.id ?? null,
+        property_id:propertyId,
         source_instance_id:principal.financeSourceInstanceId,
         source_system:source.source_system,
         source_sheet_ref:source.source_sheet_ref ?? null,

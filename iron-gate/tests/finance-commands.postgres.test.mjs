@@ -166,6 +166,7 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       assert.equal(projection.unmapped_legacy_payment_events,0);
       const ledger = await service.ledger(principal, propertyId,
         { from:'2026-10-28', to:'2026-10-29', limit:2 });
+      assert.equal(ledger.property_id,propertyId);
       assert.equal(ledger.source_instance_id,connectorId);
       assert.equal(ledger.source_system,'os_manual');
       assert.equal(ledger.source_sheet_ref,null);
@@ -364,8 +365,10 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
         historicalActor.rows[0].source_recorded_at.toISOString());
       assert.deepEqual(await service.importReceipt(importer,propertyId,
         imported.request_key),importReceipt);
-      const importedEvent=(await service.importLedger(importer,propertyId,
-        {limit:100})).events.find(event => event.document_id===importReceipt.document_id);
+      const importLedger=await service.importLedger(importer,propertyId,{limit:100});
+      assert.equal(importLedger.property_id,propertyId);
+      const importedEvent=importLedger.events.find(event =>
+        event.document_id===importReceipt.document_id);
       assert.equal(importedEvent.source_recorded_at.toISOString(),
         '2026-10-27T03:42:13.000Z');
       assert.equal(importedEvent.revision_source_recorded_at.toISOString(),
