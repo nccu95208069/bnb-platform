@@ -1,5 +1,6 @@
 -- Manual rollback for an unused W1-W7 schema installation only.
--- Never run after any finance credential, connector, command, backfill or cutover.
+-- Never run after any new finance connector, SSOT credential, command,
+-- backfill or cutover. Legacy card:sync / finance:ledger grants predate this schema.
 -- The guard checks all known finance tables and audit records before dropping anything.
 BEGIN;
 SET LOCAL lock_timeout = '5s';
@@ -27,7 +28,7 @@ BEGIN
       OR EXISTS (SELECT 1 FROM jsonb_array_elements_text(
         CASE WHEN jsonb_typeof(c.grant_json->'actions') = 'array'
           THEN c.grant_json->'actions' ELSE '[]'::jsonb END) AS a(value)
-        WHERE a.value LIKE 'finance:%' OR a.value = 'card:sync')) THEN
+        WHERE a.value LIKE 'finance:%' AND a.value <> 'finance:ledger')) THEN
     RAISE EXCEPTION 'FINANCE_ROLLBACK_CREDENTIAL_PRESENT';
   END IF;
   IF EXISTS (SELECT 1 FROM iron_gate.audit_log
