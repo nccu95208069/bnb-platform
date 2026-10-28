@@ -1,6 +1,8 @@
 -- Every accepted finance mutation has one property-local, ordered change.
 -- Old outbox rows remain readable; new writers attach their rows to a change.
 BEGIN;
+SET LOCAL lock_timeout = '5s';
+SET LOCAL statement_timeout = '60s';
 LOCK TABLE iron_gate.property_state IN SHARE ROW EXCLUSIVE MODE;
 
 CREATE TABLE IF NOT EXISTS iron_gate.finance_change (

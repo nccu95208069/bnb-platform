@@ -80,10 +80,13 @@ FROM iron_gate.finance_connector c
 ON CONFLICT (property_id,source_instance_id,version) DO NOTHING;
 
 ALTER TABLE iron_gate.finance_connector_config_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE iron_gate.finance_connector_config_history FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS finance_connector_history_property_read ON iron_gate.finance_connector_config_history;
 CREATE POLICY finance_connector_history_property_read
   ON iron_gate.finance_connector_config_history FOR SELECT TO iron_gate_runtime
   USING (property_id::text = current_setting('iron_gate.property_id', true));
+REVOKE ALL ON iron_gate.finance_connector_config_history
+  FROM PUBLIC, anon, authenticated, iron_gate_runtime;
 GRANT SELECT ON iron_gate.finance_connector_config_history TO iron_gate_runtime;
 
 COMMIT;
