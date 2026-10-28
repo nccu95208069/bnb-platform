@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { supabase } from "@/lib/supabase/client";
+import type { CalendarSessionData } from "@/lib/workspace-auth/session";
 
 export type WorkspaceRole =
   | "god"
@@ -232,7 +233,12 @@ type AccessControlState = {
   membership: AccessMembership | null;
   previewRole: WorkspaceRole | null;
   members: WorkspaceMember[];
-  initialize: () => Promise<void>;
+  sessionVerifiedAt: number;
+  sessionGeneration: number;
+  sessionLoading: boolean;
+  bootstrapSession: CalendarSessionData | null;
+  bootstrap: (session: CalendarSessionData) => void;
+  initialize: (options?: { force?: boolean }) => Promise<void>;
   refreshMembers: () => Promise<void>;
   mailConfigured: boolean;
   saveMember: (input: SaveWorkspaceMemberInput) => Promise<void>;
@@ -252,20 +258,37 @@ export const useAccessControl = create<AccessControlState>()(
       membership: DEMO_MODE && !LIVE_SHEET ? DEMO_OWNER : null,
       previewRole: null,
       members: DEMO_MODE && !LIVE_SHEET ? DEFAULT_DEMO_MEMBERS : [],
+      sessionVerifiedAt: 0,
+      sessionGeneration: 0,
+      sessionLoading: false,
+      bootstrapSession: null,
+      bootstrap: (session) => {
+        if (!LIVE_SHEET) return;
+        set({ bootstrapSession: session, sessionGeneration: get().sessionGeneration + 1,
+          sessionVerifiedAt: Date.now(), initialized: true, loading: false, sessionLoading: false, error: null,
+          requiresPasswordReset: Boolean(session.requires_password_reset),
+          membership: session.membership, members: [], previewRole: null });
+      },
 
-      initialize: async () => {
+      initialize: async (options) => {
         if (LIVE_SHEET) {
-          if (get().loading) return;
+          if (get().sessionLoading) return;
+          if (!options?.force && get().initialized && Date.now() - get().sessionVerifiedAt < 30_000) return;
+          const generation = get().sessionGeneration;
           // Owner requested removal of the three browser-only test members.
           try { window.localStorage.removeItem("sweetfun-os-access-control"); } catch { /* Storage can be unavailable. */ }
-          set({ loading: true });
+          set({ loading: true, sessionLoading: true });
           try {
             const response = await fetch("/api/calendar-session", { cache: "no-store" });
             const data = await response.json();
+            if (generation !== get().sessionGeneration) return;
             if (!response.ok) throw new Error(data.detail || "無法確認登入");
-            set({ requiresPasswordReset: Boolean(data.requires_password_reset), membership: data.membership ?? null, initialized: true, loading: false, error: null,
+            set({ sessionVerifiedAt: Date.now(), requiresPasswordReset: Boolean(data.requires_password_reset), membership: data.membership ?? null, initialized: true, loading: false, sessionLoading: false, error: null,
               ...(data.membership?.role !== "owner" ? { previewRole: null, members: [] } : {}) });
-          } catch (error) { set({ membership: null, members: [], previewRole: null, initialized: true, loading: false, error: error instanceof Error ? error.message : "無法確認登入" }); }
+          } catch (error) {
+            if (generation !== get().sessionGeneration) return;
+            set({ sessionVerifiedAt: 0, membership: null, members: [], previewRole: null, initialized: true, loading: false, sessionLoading: false, error: error instanceof Error ? error.message : "無法確認登入" });
+          }
           return;
         }
         if (get().initialized) return;
@@ -418,7 +441,12 @@ export const useAccessControl = create<AccessControlState>()(
 
       reset: () =>
         set({
-          initialized: DEMO_MODE,
+          sessionGeneration: get().sessionGeneration + 1,
+          sessionVerifiedAt: 0,
+          sessionLoading: false,
+          bootstrapSession: null,
+          requiresPasswordReset: false,
+          initialized: DEMO_MODE && !LIVE_SHEET,
           loading: false,
           error: null,
           membership: DEMO_MODE && !LIVE_SHEET ? DEMO_OWNER : null,
