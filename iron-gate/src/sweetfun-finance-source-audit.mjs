@@ -56,6 +56,8 @@ function verifiedIgBookings(readback) {
   if (readback.schema !== 1 || readback.source !== "iron_gate" ||
     readback.property_key !== property || !uuid.test(readback.property_id ?? "") ||
     readback.read_only !== true || readback.complete !== true ||
+    readback.scope !== "all IG-prefixed receipt orders in paired OS source snapshot" ||
+    readback.watermark_kind !== "inventory_version" ||
     !Number.isSafeInteger(readback.as_of_change_seq) ||
     readback.as_of_change_seq < 0 || !sha256.test(readback.snapshot_hash ?? "") ||
     typeof readback.captured_at !== "string" ||
@@ -167,6 +169,7 @@ export function auditSweetfunFinanceSources(osRaw, lineRaw, sheetMap, lineProjec
       allocations: entry.allocations?.map((allocation) => ({
         orderId: allocation.order_id, amountCents: allocation.amount_cents })) }));
   const receiptRows = [], verifiedIg = [];
+  const igOrderIds = new Set();
   let sourceReceiptCount = 0;
   for (const [key, ledger] of ledgerRecords) {
     if (!Number.isSafeInteger(ledger.version) || !Array.isArray(ledger.receipts))
@@ -180,16 +183,20 @@ export function auditSweetfunFinanceSources(osRaw, lineRaw, sheetMap, lineProjec
         receipt.audit?.request_id !== receipt.request_id)
         throw Error("OS_RECEIPT_AUDIT_MISMATCH");
       if (/^IG-[0-9a-f-]{36}$/i.test(orderId) &&
-        uuid.test(orderId.slice(3)))
+        uuid.test(orderId.slice(3))) {
+        igOrderIds.add(orderId);
         verifiedIg.push(verifyIgStatusReceipt(receipt, orderId, igBookings,
           receiptIndex));
-      else if (!orderIds.has(orderId)) throw Error("OS_RECEIPT_ORDER_NOT_IN_SHEET");
+      } else if (!orderIds.has(orderId)) throw Error("OS_RECEIPT_ORDER_NOT_IN_SHEET");
       receiptRows.push({ id: receipt.id, orderId,
         amountCents: centsFromTwd(receipt.amount), date: taipeiDay(receipt.received_at),
         statusOnly: receipt.status_only === true, requestId: receipt.request_id,
         sourceKey: key });
     }
   }
+  if (igBookings && (igBookings.size !== igOrderIds.size ||
+    [...igBookings.keys()].some(id => !igOrderIds.has(`IG-${id}`))))
+    throw Error("OS_IG_BOOKING_EVIDENCE_MISMATCH");
   if (sourceReceiptCount !== receiptRows.length) throw Error("OS_RECEIPT_COVERAGE_MISMATCH");
   const receiptIds = new Set(receiptRows.map((receipt) => receipt.id));
   if (receiptIds.size !== receiptRows.length || missionRecords.length !== receiptRows.length)
@@ -255,7 +262,9 @@ export function auditSweetfunFinanceSources(osRaw, lineRaw, sheetMap, lineProjec
     lineDetailProjections: [lineProjection], sheetMarkers,
     ...(verifiedIg.length ? { igBookingEvidence: {
       propertyId: igBookingReadback.property_id,
-      asOfChangeSeq: igBookingReadback.as_of_change_seq,
+      inventoryVersion: igBookingReadback.as_of_change_seq,
+      watermarkKind: igBookingReadback.watermark_kind,
+      scope: igBookingReadback.scope,
       snapshotHash: igBookingReadback.snapshot_hash,
       bookings: verifiedIg,
     } } : {}),

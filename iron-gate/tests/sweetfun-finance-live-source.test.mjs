@@ -100,6 +100,8 @@ function withIgStatus() {
       receipt_id: receipt.id, status: "completed" }) });
   const igReadback = { schema: 1, source: "iron_gate", property_key: "sweetfun",
     property_id: propertyId, read_only: true, complete: true,
+    scope: "all IG-prefixed receipt orders in paired OS source snapshot",
+    watermark_kind: "inventory_version",
     as_of_change_seq: 30, captured_at: "2026-10-28T00:00:00.000Z",
     snapshot_hash: "a".repeat(64), bookings: [{ id: bookingId,
       property_id: propertyId, status: "confirmed", version: 3,
@@ -184,7 +186,11 @@ test("IG status-only receipt requires exact authoritative booking readback", () 
     proof => { proof.bookings[0].status = "cancelled"; },
     proof => { proof.bookings[0].version = 4; },
     proof => { proof.bookings.push(structuredClone(proof.bookings[0])); },
+    proof => { proof.bookings.push({ ...proof.bookings[0],
+      id: "44444444-4444-4444-8444-444444444444" }); },
     proof => { proof.complete = false; },
+    proof => { proof.scope = "all finance changes"; },
+    proof => { proof.watermark_kind = "finance_change_seq"; },
   ]) {
     const invalid = structuredClone(data.igReadback);
     mutate(invalid);
