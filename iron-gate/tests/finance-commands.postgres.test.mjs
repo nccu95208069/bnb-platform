@@ -164,6 +164,9 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       assert.equal(projection.unmapped_legacy_payment_events,0);
       const ledger = await service.ledger(principal, propertyId,
         { from:'2026-10-28', to:'2026-10-29', limit:2 });
+      assert.equal(ledger.source_instance_id,connectorId);
+      assert.equal(ledger.source_system,'os_manual');
+      assert.equal(ledger.source_sheet_ref,null);
       assert.equal(ledger.events.length,2);
       assert.ok(ledger.next_cursor);
       const secondPage = await service.ledger(principal, propertyId,
