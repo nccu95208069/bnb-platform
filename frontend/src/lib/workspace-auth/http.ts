@@ -1,8 +1,8 @@
 import {NextRequest,NextResponse} from 'next/server';
 export const privateHeaders={'Cache-Control':'private, no-store',Vary:'Cookie','Referrer-Policy':'no-referrer'};
 export function sameOrigin(request:NextRequest) {if(request.headers.get('origin')!==`${request.nextUrl.protocol}//${request.headers.get('host')}`)throw new Error('FORBIDDEN');}
-export async function inputBody(request:NextRequest) {
-  const text=await request.text();if(text.length>5000)throw new Error('INVALID_INPUT');
+export async function inputBody(request:NextRequest,maxLength=5000) {
+  const text=await request.text();if(text.length>maxLength)throw new Error('INVALID_INPUT');
   try {const input=JSON.parse(text);if(!input||typeof input!=='object'||Array.isArray(input))throw new Error();return input;}catch{throw new Error('INVALID_INPUT');}
 }
 export function authFailure(error:unknown) {

@@ -51,6 +51,20 @@ test('OS bridge previews linked booking, commits once and compares the authorita
     ['finance/commands','commands/preview','finance/commands',`receipts/${key}`]);
 });
 
+test('a confirmed OS command never silently obtains a replacement preview',async()=>{
+  const paths=[];
+  const send=async(url)=>{
+    const path=new URL(url).pathname;
+    paths.push(path);
+    return reply({error:{code:'VERSION_CONFLICT'}},409);
+  };
+  await assert.rejects(submitSsotFinanceCommand(config,actor,
+    {...command,preview_token:'original-token'},key,send,
+    {repreviewOnConflict:false}),/VERSION_CONFLICT/);
+  assert.equal(paths.length,1);
+  assert.ok(paths[0].endsWith('/commands'));
+});
+
 test('unknown POST outcome recovers only through the original request receipt',async()=>{
   let called=0;
   const send=async url=>{

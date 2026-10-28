@@ -4,6 +4,7 @@ import type {FinanceReport} from '@/lib/finance-model';
 
 type PendingSummary={request_id:string;status:'pending'|'accepted'|'rejected';
   action:string;created_at:string};
+type FinancePreview={request_id:string;preview_proof:string;lines:string[]};
 const changed='finance-ssot-pending-changed';
 const unknown='結果尚未確認。請查詢原請求，暫時不要再登記一次。';
 const pendingUrl=(property:string)=>`/api/v1/finance/pending?property=${encodeURIComponent(property)}`;
@@ -53,9 +54,13 @@ export function useFinanceSave(report:FinanceReport,onSaved:()=>void){
       if(response.ok&&result.verified===true){
         await acknowledge(requestId);onSaved();return;
       }
-      if(response.status===409&&result.rejected===true){
+      if(response.status===409&&(result.rejected===true||
+        result.code==='FINANCE_PREVIEW_EXPIRED'||
+        result.code==='FINANCE_PREVIEW_REQUIRED')){
         await acknowledge(requestId);
-        setError('原請求未入帳，請修正後重新送出。');
+        setError(result.code==='FINANCE_PREVIEW_EXPIRED'?
+          '預覽已過期，請重新整理後再預覽。':
+          '原請求未入帳，請修正後重新送出。');
         return;
       }
       setError(typeof result.detail==='string'?result.detail:unknown);
@@ -70,12 +75,33 @@ export function useFinanceSave(report:FinanceReport,onSaved:()=>void){
     if(busy)return;
     if(report.ssot_enabled&&pending){await retryPending();return;}
     setBusy(true);setError('');
-    const payload=!report.ssot_enabled&&pending?pending:{...fields,property_id:report.property_id,
+    const payload:Record<string,unknown>=!report.ssot_enabled&&pending?pending:{...fields,property_id:report.property_id,
       year:Number(fields.year??report.year),
       expected_version:report.versions?.[String(fields.year??report.year)]??0,
       projection_version:report.projection_version,request_id:crypto.randomUUID()};
     if(!report.ssot_enabled)setPending(payload);
+    let submitted=false;
     try{
+      if(report.ssot_enabled){
+        const previewResponse=await fetch('/api/v1/finance/preview',{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify(payload)});
+        const preview=await previewResponse.json() as FinancePreview&{
+          detail?:string};
+        if(!previewResponse.ok){
+          setError(preview.detail??'財務預覽暫時無法完成。');return;
+        }
+        if(preview.request_id!==payload.request_id||
+          typeof preview.preview_proof!=='string'||
+          !Array.isArray(preview.lines)||
+          preview.lines.some(line=>typeof line!=='string'))
+          throw Error('FINANCE_PREVIEW_REQUIRED');
+        if(!window.confirm(`請核對以下財務操作：\n\n${preview.lines.join('\n')}\n\n確認後才會送出。`))
+          return;
+        payload.ssot_preview_proof=preview.preview_proof;
+        setPending(payload);
+      }
+      submitted=true;
       const response=await fetch('/api/v1/finance',{method:'POST',
         headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
       const result=await response.json() as Record<string,unknown>;
@@ -96,8 +122,8 @@ export function useFinanceSave(report:FinanceReport,onSaved:()=>void){
       }else if(response.status<500)setPending(null);
       setError(typeof result.detail==='string'?result.detail:unknown);
     }catch{
-      if(report.ssot_enabled)await refreshPending().catch(()=>{});
-      setError(unknown);
+      if(report.ssot_enabled&&submitted)await refreshPending().catch(()=>{});
+      setError(submitted?unknown:'財務預覽暫時無法完成。');
     }finally{setBusy(false);}
   }
 

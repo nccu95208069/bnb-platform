@@ -22,7 +22,8 @@ async function scope(request:NextRequest,property:unknown){
 function failure(error:unknown){
   const code=error instanceof Error?error.message:'UNAVAILABLE';
   const status=code==='UNAUTHORIZED'?401:code==='FORBIDDEN'?403:
-    ['FINANCE_PENDING_REQUEST','VERSION_CONFLICT','IDEMPOTENCY_CONFLICT'].includes(code)?409:
+    ['FINANCE_PENDING_REQUEST','VERSION_CONFLICT','IDEMPOTENCY_CONFLICT',
+      'FINANCE_PREVIEW_REQUIRED','FINANCE_PREVIEW_EXPIRED'].includes(code)?409:
     code==='INVALID_INPUT'?400:503;
   return NextResponse.json({code,detail:code==='FINANCE_PENDING_REQUEST'?
     '上一筆財務請求尚未完成或確認。請先查詢原請求。':
