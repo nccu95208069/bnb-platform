@@ -3,7 +3,7 @@ import test from 'node:test';
 import {previewSsotFinanceCommand,readSsotReceipt,
   submitSsotFinanceCommand,submitSsotPlan} from
   '../src/lib/booking-sources/iron-gate-ssot-finance.server.ts';
-import {osFinanceOriginHash,resumeSsotFinance} from
+import {bookingGuardsForVoid,osFinanceOriginHash,resumeSsotFinance} from
   '../src/lib/finance-ssot-operations.ts';
 
 const propertyId='10000000-0000-4000-8000-000000000001';
@@ -121,4 +121,15 @@ test('OS receipt lookup distinguishes a missing request from an unavailable read
   const down=async()=>reply({error:{code:'UNAVAILABLE'}},503);
   await assert.rejects(readSsotReceipt(config,actor,key,down),
     /UNAVAILABLE/);
+});
+
+test('voiding a booking-linked OS receipt carries the exact current booking guard',()=>{
+  const entry={allocations:[{order_id:'SF-SYNTHETIC',amount_cents:1000}]};
+  const orders=[{id:'SF-SYNTHETIC',booking_id:bookingId,
+    ssot_booking_version:7}];
+  assert.deepEqual(bookingGuardsForVoid(entry,orders),[{
+    booking_id:bookingId,expected_booking_version:7}]);
+  assert.deepEqual(bookingGuardsForVoid({allocations:[]},orders),[]);
+  assert.throws(()=>bookingGuardsForVoid(entry,[{...orders[0],
+    ssot_booking_version:undefined}]),/SOURCE_MAPPING_REVIEW_REQUIRED/);
 });

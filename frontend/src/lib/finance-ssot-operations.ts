@@ -69,6 +69,17 @@ function allocations(input:Record<string,unknown>,orders:FinanceOrder[]){
   });
 }
 
+export function bookingGuardsForVoid(entry:FinanceEntry,orders:FinanceOrder[]){
+  return (entry.allocations??[]).map(allocation=>{
+    const order=orders.find(candidate=>candidate.id===allocation.order_id);
+    if(!order||!UUID.test(order.booking_id??'')||
+      !Number.isSafeInteger(order.ssot_booking_version))
+      throw Error('SOURCE_MAPPING_REVIEW_REQUIRED');
+    return {booking_id:order.booking_id!,
+      expected_booking_version:order.ssot_booking_version!};
+  });
+}
+
 async function ensureCategory(report:Report,actor:Principal,requestId:string,
   kind:'income'|'expense',code:string,label:string){
   const found=report.ssot_catalog.categories.find(value=>
@@ -169,7 +180,8 @@ export async function applySsotFinance(input:Record<string,unknown>,report:Repor
         source_record_id:old!.ssot_source_record_id!,
         source_version:String(old!.ssot_document_version!+1),
         expected_version:old!.ssot_document_version,action:'void',
-        reason_code:'os_operator_void',reason_note:reason};
+        reason_code:'os_operator_void',reason_note:reason,
+        booking_guards:bookingGuardsForVoid(old!,report.orders)};
       const receipt=await submitSsotFinanceCommand(config,actor,command,requestId);
       return {verified:true,entry_id:old!.id,version:0,receipt};
     }
