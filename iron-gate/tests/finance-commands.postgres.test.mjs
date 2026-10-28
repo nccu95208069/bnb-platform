@@ -71,7 +71,7 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
           (property_id,workspace_id,authority_epoch,inventory_version,state_json)
           VALUES ($1,$2,1,1,$3::jsonb)`, [id, workspaceId, JSON.stringify(state(id, withBooking))]);
       await admin.query(`INSERT INTO iron_gate.finance_write_scope(property_id,mode)
-        VALUES ($1,'general_only')`,[propertyId]);
+        VALUES ($1,'full')`,[propertyId]);
       await admin.query(`INSERT INTO iron_gate.finance_connector
         (source_instance_id,property_id,source_system,enabled,cutover_at)
         VALUES ($1,$2,'os_manual',true,now()-interval '1 day')`, [connectorId, propertyId]);

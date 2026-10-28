@@ -56,7 +56,7 @@ async function setup(admin) {
     (property_id,workspace_id,authority_epoch,inventory_version,state_json)
     VALUES ($1,$2,1,7,$3::jsonb)`,[propertyId,workspaceId,JSON.stringify(state())]);
   await admin.query(`INSERT INTO iron_gate.finance_write_scope(property_id,mode)
-    VALUES ($1,'general_only')`,[propertyId]);
+    VALUES ($1,'full')`,[propertyId]);
   await admin.query(`INSERT INTO iron_gate.finance_connector
     (source_instance_id,property_id,source_system,enabled)
     VALUES ($1,$4,'iron_gate_native',true),($2,$4,'sweetfun_card',true),
