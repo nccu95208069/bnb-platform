@@ -4,17 +4,21 @@ import {applyHistoricalSettlements} from '../src/lib/finance-ssot-settlement.ts'
 import {revenueSummary} from '../src/lib/finance-model.ts';
 import {overlaySsotCalendarPayments} from '../src/lib/finance-ssot-calendar.ts';
 import {projectBookings} from '../src/lib/workspace-auth/projection.ts';
+import {checkRows} from '../src/lib/os-payments.ts';
 
 const bookingId='10000000-0000-4000-8000-000000000001';
 const hash='a'.repeat(64);
+const sheetVersion='c'.repeat(64);
 const order={id:'SF-synthetic',calendar_id:'calendar',platform:'direct',rooms:['201'],
   check_in:'2026-10-16',check_out:'2026-10-17',total:10000,received:0,
-  receivable:10000,eligible_date:null,source_paid:false,credit:0,source_version:'v1',
+  receivable:10000,eligible_date:null,source_paid:false,credit:0,
+  source_version:sheetVersion,
   booking_id:bookingId,ssot_booking_version:2,ssot_source_snapshot_hash:hash};
 const settled={property_id:'sweetfun',booking_id:bookingId,
   status:'settled_before_cutover_cash_details_unknown',booking_version:2,
   booking_total_cents:10000,booking_snapshot_hash:'b'.repeat(64),
-  source_link_snapshot_hash:hash,cash_effect_cents:0,collection_hold:true,
+  source_link_snapshot_hash:hash,sheet_order_source_version:sheetVersion,
+  cash_effect_cents:0,collection_hold:true,
   historical_cash_detail_missing:true,review_required:false,
   remaining_due_cents:0,room_received_cents:0,room_refunded_cents:0,
   recorded_change_seq:7,as_of_change_seq:7};
@@ -83,6 +87,27 @@ test('changed booking or new cash requires review and cannot be collected automa
   assert.equal(calendar.legacy_settlement_status,'review_required');
 });
 
+test('changed Sheet payment flag blocks collection even with the same total and booking version',()=>{
+  const sheetRow={id:'sheet-row-1',property_id:'sweetfun',order_id:order.id,
+    room_id:'201',room_number:'201',check_in:order.check_in,
+    check_out:order.check_out,room_rate:100,payment_status:'unknown',
+    reservation_status:'confirmed'};
+  const before=checkRows([sheetRow],'sweetfun',order.id);
+  const after=checkRows([{...sheetRow,payment_status:'paid'}],'sweetfun',order.id);
+  assert.equal(before.total,after.total);
+  assert.notEqual(before.source_version,after.source_version);
+  const unpaid={...settled,status:'unpaid_at_cutover',collection_hold:false,
+    historical_cash_detail_missing:false,remaining_due_cents:10000,
+    sheet_order_source_version:before.source_version};
+  const [result]=applyHistoricalSettlements([{...order,
+    source_version:after.source_version,source_paid:true}],[unpaid],'sweetfun');
+  assert.equal(result.total,order.total);
+  assert.equal(result.ssot_booking_version,unpaid.booking_version);
+  assert.equal(result.receivable,0);
+  assert.equal(result.receivable_review_required,true);
+  assert.equal(result.legacy_settlement.review_required,true);
+});
+
 test('missing exact source link and incoherent cash flags fail closed',()=>{
   assert.throws(()=>applyHistoricalSettlements([{...order,
     ssot_source_snapshot_hash:undefined}],[settled],'sweetfun'),/FINANCE_SSOT_READBACK_MISMATCH/);
@@ -93,4 +118,6 @@ test('missing exact source link and incoherent cash flags fail closed',()=>{
   /FINANCE_SSOT_READBACK_MISMATCH/);
   assert.throws(()=>applyHistoricalSettlements([order],[{...settled,
     property_id:'offland'}],'sweetfun'),/FINANCE_SSOT_READBACK_MISMATCH/);
+  assert.throws(()=>applyHistoricalSettlements([order],[{...settled,
+    sheet_order_source_version:'invalid'}],'sweetfun'),/FINANCE_SSOT_READBACK_MISMATCH/);
 });

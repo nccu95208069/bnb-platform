@@ -20,6 +20,7 @@ export function applyHistoricalSettlements(orders:FinanceOrder[],
     const order=byBooking.get(row.booking_id)??fail();
     if(updates.has(order.id))fail();
     if(!HEX.test(order.ssot_source_snapshot_hash??'')||
+      !HEX.test(row.sheet_order_source_version??'')||
       !Number.isSafeInteger(order.ssot_booking_version)||
       !['settled_before_cutover_cash_details_unknown','unpaid_at_cutover'].includes(row.status)||
       row.cash_effect_cents!==0)fail();
@@ -28,6 +29,7 @@ export function applyHistoricalSettlements(orders:FinanceOrder[],
       !row.review_required && (row.remaining_due_cents===null||
         settled&&row.remaining_due_cents!==0))fail();
     const localMismatch=order.ssot_source_snapshot_hash!==row.source_link_snapshot_hash||
+      order.source_version!==row.sheet_order_source_version||
       order.ssot_booking_version!==row.booking_version||
       order.total!==row.booking_total_cents||
       order.received!==row.room_received_cents-row.room_refunded_cents;

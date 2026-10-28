@@ -95,6 +95,7 @@ export type HistoricalSettlementReadback={
     'settled_before_cutover_cash_details_unknown'|'unpaid_at_cutover';
   booking_version:number;booking_total_cents:number;
   booking_snapshot_hash:string;source_link_snapshot_hash:string;
+  sheet_order_source_version:string;
   cash_effect_cents:0;
   collection_hold:boolean;historical_cash_detail_missing:boolean;
   review_required:boolean;remaining_due_cents:number|null;
@@ -122,6 +123,7 @@ export async function readSsotHistoricalSettlements(config:ManualConfig,actor:Pr
       !Number.isSafeInteger(row.booking_total_cents)||row.booking_total_cents<1||
       !/^[0-9a-f]{64}$/.test(row.booking_snapshot_hash)||
       !/^[0-9a-f]{64}$/.test(row.source_link_snapshot_hash)||
+      !/^[0-9a-f]{64}$/.test(row.sheet_order_source_version)||
       row.cash_effect_cents!==0||typeof row.collection_hold!=='boolean'||
       typeof row.historical_cash_detail_missing!=='boolean'||
       typeof row.review_required!=='boolean'||

@@ -173,7 +173,8 @@ test('historical settlements require the same property and pinned change sequenc
   const row={property_id:propertyId,booking_id:bookingId,
     status:'settled_before_cutover_cash_details_unknown',booking_version:2,
     booking_total_cents:10000,booking_snapshot_hash:'a'.repeat(64),
-    source_link_snapshot_hash:'b'.repeat(64),cash_effect_cents:0,collection_hold:true,
+    source_link_snapshot_hash:'b'.repeat(64),sheet_order_source_version:'c'.repeat(64),
+    cash_effect_cents:0,collection_hold:true,
     historical_cash_detail_missing:true,review_required:false,
     remaining_due_cents:0,room_received_cents:0,room_refunded_cents:0,
     recorded_change_seq:2,as_of_change_seq:3};
@@ -185,6 +186,10 @@ test('historical settlements require the same property and pinned change sequenc
   };
   assert.deepEqual(await readSsotHistoricalSettlements(config,actor,3,send),[row]);
   assert.equal(queried[0].searchParams.get('as_of_change_seq'),'3');
+  await assert.rejects(readSsotHistoricalSettlements(config,actor,3,
+    async()=>reply({property_id:propertyId,legacy_settlements:[{
+      ...row,sheet_order_source_version:'changed'}],
+      as_of_change_seq:3,current_change_seq:3})),/FINANCE_SSOT_READBACK_MISMATCH/);
   await assert.rejects(readSsotHistoricalSettlements(config,actor,3,
     async()=>reply({property_id:bookingId,legacy_settlements:[row],
       as_of_change_seq:3,current_change_seq:3})),/FINANCE_SSOT_READBACK_MISMATCH/);
