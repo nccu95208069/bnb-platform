@@ -365,6 +365,7 @@ export async function GET(request: NextRequest) {
           data_mode: "iron_gate_booking_only",
           iron_gate_manual_enabled: manualEnabled,
           iron_gate_manual_payment_enabled: manualPaymentEnabled,
+          finance_ssot_enabled: process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED==='true',
         }, { headers });
       }
       const result = await readCalendarSources(definitions, start, end, principal.viewPrices, {

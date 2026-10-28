@@ -94,6 +94,7 @@ export type CalendarBooking = {
   iron_gate_booking_version?: number;
   iron_gate_edit_mode?: "full" | "guest_name" | "none";
   iron_gate_source?: "os" | "line" | "website" | "external";
+  iron_gate_card_managed?: boolean;
   iron_gate_channel_sync?: "not_required" | "action_required" | "awaiting_manual_sync" | "pending" | "verified" | "review_required" | "manually_confirmed";
   iron_gate_manual_confirmation_available?: boolean;
   iron_gate_manual_handling?: boolean;
@@ -142,6 +143,7 @@ export type CalendarResponse = {
   price_hidden?: boolean;
   iron_gate_manual_enabled?: boolean;
   iron_gate_manual_payment_enabled?: boolean;
+  finance_ssot_enabled?: boolean;
 };
 
 export type CalendarPeriod = {

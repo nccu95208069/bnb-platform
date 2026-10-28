@@ -1067,14 +1067,17 @@ const uiLocale = useIntlLocale();
         paymentWorkspace={
           data?.source?.read_only && selectedBooking?.snapshot_only ? (
             <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">目前為唯讀快照。請重新載入並確認最新訂單後，再登錄付款。</p>
-          ) : data?.source?.read_only && selectedBooking?.iron_gate_source === "os" &&
+          ) : data?.source?.read_only &&
+            (selectedBooking?.iron_gate_source === "os" ||
+              (selectedBooking?.iron_gate_card_managed && data?.finance_ssot_enabled)) &&
             data?.iron_gate_manual_payment_enabled && selectedBooking.iron_gate_booking_id ? (
             <IronGateManualPaymentPanel key={selectedBooking.iron_gate_booking_id}
               bookingId={selectedBooking.iron_gate_booking_id}
               canRecord={permissions.recordPayments} onChange={() => setReloadKey(v => v + 1)} />
-          ) : data?.source?.read_only && selectedBooking?.iron_gate_source === "os" ? (
+          ) : data?.source?.read_only &&
+            (selectedBooking?.iron_gate_source === "os" || selectedBooking?.iron_gate_card_managed) ? (
             <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
-              此筆直訂的收退款功能尚未啟用，請先保留收付憑證，避免在其他入口重複登記。</p>
+              此筆訂單的收退款功能尚未啟用，請先保留收付憑證，避免在其他入口重複登記。</p>
           ) : data?.source?.read_only && selectedBooking && permissions.viewPrices && !selectedBooking.source_conflict ? (
             <OsPaymentPanel key={selectedBooking.payment_order_id??selectedBooking.order_id} property={selectedBooking.property_id} order={selectedBooking.payment_order_id??selectedBooking.order_id} sourceBookingId={selectedBooking.order_id.startsWith('IG-')?selectedBooking.order_id:undefined} canRecord={permissions.recordPayments} onChange={() => setReloadKey(v=>v+1)} />
           ) : PAYMENT_SANDBOX && selectedBooking && permissions.viewPrices ? (

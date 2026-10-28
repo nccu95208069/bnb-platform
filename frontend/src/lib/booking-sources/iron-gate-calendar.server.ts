@@ -291,6 +291,8 @@ function calendarBooking(booking: Record<string, unknown>,
     iron_gate_booking_id: String(booking.id),
     iron_gate_booking_version: Number(booking.version),
     iron_gate_source: booking.source as CalendarBooking['iron_gate_source'],
+    iron_gate_card_managed: viewPrices && booking.source === 'external' &&
+      booking.cardManaged === true,
     iron_gate_channel_sync: booking.channelSyncState as CalendarBooking['iron_gate_channel_sync'],
     iron_gate_source_review: booking.sourceReviewRequired === true,
     iron_gate_manual_confirmation_available: booking.manualRoomConfirmationAvailable === true,

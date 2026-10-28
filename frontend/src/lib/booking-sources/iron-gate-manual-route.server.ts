@@ -61,6 +61,7 @@ export function manualError(error: unknown, key?: string) {
       code === 'GUEST_NAME_REQUIRED' || code === 'PRICE_REQUIRED' ||
       code === 'MANUAL_IDEMPOTENCY_KEY_REQUIRED' || code === 'FUTURE_RECEIPT' ||
       code === 'INVALID_PAYMENT_METHOD' || code === 'INVALID_REFUND_REFERENCE' ||
+      code === 'REFUND_SOURCE_REQUIRED' ||
       code === 'INVALID_AMOUNT' || code === 'INVALID_CURRENCY' ? 400 :
     code === 'ROOM_CONFLICT' || code.includes('VERSION') ||
       code.includes('NOT_READY') || code.includes('READ_ONLY') ||
@@ -69,6 +70,7 @@ export function manualError(error: unknown, key?: string) {
       code === 'IRON_GATE_LEGACY_LEDGER_CONFLICT' || code === 'RECEIPT_EXCEEDS_DUE' ||
       code === 'PAYMENT_EVENT_LIMIT' || code === 'PAYMENT_EVENT_EXISTS' ||
       code === 'PAYMENT_EVIDENCE_EXISTS' ||
+      code === 'SOURCE_MAPPING_REVIEW_REQUIRED' ||
       code === 'IDEMPOTENCY_CONFLICT' ? 409 :
     code === 'BOOKING_NOT_FOUND' || code === 'REQUEST_NOT_FOUND' ? 404 : 503;
   // Iron Gate errors use stable codes; never return guest or provider payloads.

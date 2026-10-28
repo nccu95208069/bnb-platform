@@ -9,8 +9,11 @@ export async function GET(request: NextRequest,
   try {
     const { principal } = await manualContext(request);
     const { bookingId } = await context.params;
-    return NextResponse.json(await readManualPayment(principal,
-      ironGateManualPaymentConfig(), bookingId), { headers: privateHeaders });
+    const detail=await readManualPayment(principal,
+      ironGateManualPaymentConfig(), bookingId);
+    return NextResponse.json({...detail,cardRefundEnabled:detail.cardManaged&&
+      process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED==='true'},
+      { headers: privateHeaders });
   } catch (error) { return manualError(error); }
 }
 
