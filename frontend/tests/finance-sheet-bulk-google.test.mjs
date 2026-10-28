@@ -88,3 +88,18 @@ test('identity write fails verification if row moves or changes during the write
       /SHEET_WRITE_UNCONFIRMED/);
   }finally{delete process.env[binding.credentialEnv];}
 });
+
+test('input read requests formulas and a formula amount cannot receive an import identity',async()=>{
+  process.env[binding.credentialEnv]=JSON.stringify({client_email:'synthetic@example.test',
+    private_key:privateKey.export({type:'pkcs8',format:'pem'})});
+  try{
+    const formula=business();
+    formula[FINANCE_SHEET_HEADERS.indexOf('amount_twd')]='=100+1';
+    const google=fakeGoogle([[...FINANCE_SHEET_HEADERS],formula]);
+    const scan=scanFinanceSheet(await readFinanceSheet(binding,google.send),'Sweetfun');
+    assert.equal(scan.unassigned.length,0);
+    assert.equal(scan.issues[0].code,'SHEET_FORMULA_FORBIDDEN');
+    assert.ok(google.calls.some(call=>call.url.includes('valueRenderOption=FORMULA')&&
+      call.url.includes('dateTimeRenderOption=FORMATTED_STRING')));
+  }finally{delete process.env[binding.credentialEnv];}
+});
