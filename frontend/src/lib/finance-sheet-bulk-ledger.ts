@@ -3,6 +3,8 @@ import type {ManualConfig} from './booking-sources/iron-gate-manual.server';
 const TOKEN=/^[A-Za-z0-9_-]{43}$/;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const sequence=(value:unknown)=>typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
+const SHEET=/^[A-Za-z0-9_-]{10,128}$/;
+type Identity={sourceInstanceId:string;spreadsheetId:string};
 
 export type FinanceSheetLedgerSnapshot={events:Record<string,unknown>[];
   asOfChangeSeq:number;currentChangeSeq:number;unsequencedEventCount:number};
@@ -16,8 +18,10 @@ function ledgerUrl(config:ManualConfig,token:string){
   return new URL(`/v1/properties/${config.grant.propertyId}/finance/ledger`,origin);
 }
 
-async function page(config:ManualConfig,token:string,limit:number,cursor:string|null,
-  pin:number|null,send:typeof fetch){
+async function page(config:ManualConfig,token:string,identity:Identity,
+  limit:number,cursor:string|null,pin:number|null,send:typeof fetch){
+  if(!UUID.test(identity.sourceInstanceId)||!SHEET.test(identity.spreadsheetId))
+    throw Error('SHEET_SCAN_CONFIG_INVALID');
   const url=ledgerUrl(config,token);
   url.searchParams.set('limit',String(limit));
   if(cursor)url.searchParams.set('cursor',cursor);
@@ -32,6 +36,9 @@ async function page(config:ManualConfig,token:string,limit:number,cursor:string|
   try{body=await response.json() as Record<string,unknown>;}
   catch{throw Error('SHEET_LEDGER_INVALID');}
   if(!body||typeof body!=='object'||!Array.isArray(body.events)||
+    body.source_instance_id!==identity.sourceInstanceId||
+    body.source_system!=='sheet_bulk'||
+    body.source_sheet_ref!==identity.spreadsheetId||
     body.events.length>limit||!sequence(body.as_of_change_seq)||
     !sequence(body.current_change_seq)||
     Number(body.current_change_seq)<Number(body.as_of_change_seq)||
@@ -44,12 +51,12 @@ async function page(config:ManualConfig,token:string,limit:number,cursor:string|
 
 /** Read a property-local ledger snapshot across pages at one immutable change sequence. */
 export async function readFinanceSheetLedger(config:ManualConfig,token:string,
-  send:typeof fetch=fetch):Promise<FinanceSheetLedgerSnapshot>{
+  identity:Identity,send:typeof fetch=fetch):Promise<FinanceSheetLedgerSnapshot>{
   const events:Record<string,unknown>[]=[];
   const ids=new Set<string>();
   let cursor:string|null=null,pin:number|null=null,current=0;
   for(let index=0;index<200;index++){
-    const body=await page(config,token,100,cursor,pin,send);
+    const body=await page(config,token,identity,100,cursor,pin,send);
     pin??=body.as_of_change_seq;
     current=Math.max(current,body.current_change_seq);
     for(const raw of body.events){
@@ -71,7 +78,7 @@ export async function readFinanceSheetLedger(config:ManualConfig,token:string,
 
 /** An unpinned head detects changes made after a pinned full scan. */
 export async function readFinanceSheetLedgerHead(config:ManualConfig,token:string,
-  send:typeof fetch=fetch):Promise<number>{
-  const body=await page(config,token,1,null,null,send);
+  identity:Identity,send:typeof fetch=fetch):Promise<number>{
+  const body=await page(config,token,identity,1,null,null,send);
   return body.as_of_change_seq;
 }

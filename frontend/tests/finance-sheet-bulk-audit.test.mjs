@@ -12,7 +12,7 @@ const digest='a'.repeat(64);
 const snapshot={source_record_id:`sheet:${sheet}:${rowId}`,current_version:1,
   status:'active',accepted_hash:digest,event_id:eventId};
 const row={sheet_row:2,row_id:rowId,base_version:1,accepted_hash:digest,
-  event_id:eventId,sync_status:'accepted',content_hash:digest};
+  event_id:eventId,sync_status:'accepted',content_hash:digest,action:'create'};
 const base={spreadsheetId:sheet,propertyId:property,sourceInstanceId:source,
   values:[['header'],['row']],readbackValues:[['header'],['row']],
   events:[{id:eventId,change_seq:1}],asOfChangeSeq:1,observedChangeSeq:1,
@@ -27,6 +27,10 @@ test('full-book audit compares each accepted row with the exact ledger revision'
     issues:[],unassigned:[]},documents,sheet)[0].code,'SHEET_LEDGER_ROW_MISMATCH');
   assert.equal(financeSheetFullBookIssues({rows:[],issues:[],unassigned:[]},
     documents,sheet)[0].code,'SHEET_MISSING_ACCEPTED_ROW');
+  const voidEdit=financeSheetFullBookIssues({rows:[{...row,action:'void'}],
+    issues:[],unassigned:[]},documents,sheet);
+  assert.equal(voidEdit[0].code,'SHEET_PENDING_ACTION');
+  assert.equal(buildFinanceSheetAudit({...base,issues:voidEdit}).status,'review');
 });
 
 test('daily record binds both readbacks and the pinned ledger watermark',()=>{

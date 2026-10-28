@@ -38,9 +38,11 @@ export function financeSheetFullBookIssues(scan:FinanceSheetScan,
       row.accepted_hash!==document.accepted_hash||
       row.event_id!==document.event_id||
       row.sync_status!==(document.status==='void'?'void':'accepted')||
-      row.content_hash!==document.accepted_hash)
+      row.content_hash!==document.accepted_hash||
+      (row.action==='void')!==(document.status==='void'))
       issues.push({sheet_row:row.sheet_row,row_id:row.row_id,
-        code:'SHEET_LEDGER_ROW_MISMATCH'});
+        code:(row.action==='void')!==(document.status==='void')?
+          'SHEET_PENDING_ACTION':'SHEET_LEDGER_ROW_MISMATCH'});
   }
   for(const source of documents.keys())if(!listed.has(source))
     issues.push({sheet_row:0,row_id:source.split(':').at(-1)??null,

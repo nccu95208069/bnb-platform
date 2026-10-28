@@ -152,4 +152,12 @@ test('canceled imported booking keeps verified historical receipt without receiv
   assert.throws(()=>entriesFromLedger([receipt],'sweetfun',current,
     {...catalog,links:[link,{...link,source_order_key:'OTHER'}]}),
   /FINANCE_SSOT_READBACK_MISMATCH/);
+  const versioned=[{...link,source_order_key:`${bookingId}:v1`},
+    {...link,source_order_key:`${bookingId}:v2`,verified_booking_version:2}];
+  const nativeHistory=entriesFromLedger([receipt],'sweetfun',current,
+    {...catalog,links:versioned});
+  assert.equal(nativeHistory[0].allocations[0].order_id,bookingId);
+  assert.throws(()=>entriesFromLedger([receipt],'sweetfun',current,
+    {...catalog,links:[...versioned,{...link,source_order_key:'OTHER'}]}),
+  /FINANCE_SSOT_READBACK_MISMATCH/);
 });

@@ -39,3 +39,10 @@ test('read-only finance tabs keep refunds, reversals and costs separate',()=>{
   assert.equal(tabs[4].rows.length,6);
   assert.equal(financeSheetProjectionDigest(tabs),financeSheetProjectionDigest(tabs));
 });
+
+test('accepted row with an action-only void edit remains visible for review',()=>{
+  const scan={rows:[{sheet_row:2,row_id:booking,action:'void',
+    sync_status:'accepted'}],issues:[],unassigned:[]};
+  const pending=financeSheetProjections([],scan,'Sweetfun',source)[0].rows;
+  assert.equal(pending[1][4],'SHEET_PENDING_ACTION');
+});

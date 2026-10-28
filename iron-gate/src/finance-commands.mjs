@@ -967,7 +967,7 @@ export class FinanceCommandService {
       } catch { fail('INVALID_CURSOR'); }
     }
     return this.#transaction(propertyId, false, async client => {
-      await this.#context(client, principal, propertyId, false, shadowImport);
+      const {source} = await this.#context(client, principal, propertyId, false, shadowImport);
       const currentSeq = await financeWatermark(client,propertyId);
       if (requestedSeq !== null && requestedSeq > currentSeq) fail('INVALID_CURSOR');
       const snapshotSeq = requestedSeq ?? currentSeq;
@@ -1063,6 +1063,9 @@ export class FinanceCommandService {
       return { events: page, next_cursor: rows.rows.length > limit && last ?
         base64(JSON.stringify([last.effective_on,last.id])) : null,
         as_of_event_id: last?.id ?? null,
+        source_instance_id:principal.financeSourceInstanceId,
+        source_system:source.source_system,
+        source_sheet_ref:source.source_sheet_ref ?? null,
         as_of_change_seq:snapshotSeq,current_change_seq:currentSeq,
         unsequenced_event_count:Number(unsequenced.rows[0].total) };
     });

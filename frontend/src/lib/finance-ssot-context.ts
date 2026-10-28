@@ -83,10 +83,17 @@ function orderMap(orders:FinanceOrder[],catalog:Catalog){
     if(!order){
       // A canceled imported booking is absent from current orders, but its
       // verified source link still identifies historical cash allocations.
+      // LINE refreshes this link per booking version. All such keys refer to
+      // the same booking, so use its UUID as the stable historical display ID.
       const key=`${row.source_instance_id}:${row.booking_id}`;
+      const versioned=sourceOrderKey.startsWith(`${row.booking_id}:v`)&&
+        /^[1-9][0-9]*$/.test(sourceOrderKey.slice(`${row.booking_id}:v`.length));
+      if(versioned&&Number(sourceOrderKey.slice(`${row.booking_id}:v`.length))!==
+        Number(row.verified_booking_version))fail();
+      const historicalId=versioned?String(row.booking_id):sourceOrderKey;
       const old=historical.get(key);
-      if(old&&old!==sourceOrderKey)fail();
-      historical.set(key,sourceOrderKey);
+      if(old&&old!==historicalId)fail();
+      historical.set(key,historicalId);
       continue;
     }
     const id=String(row.booking_id),old=byBooking.get(id);

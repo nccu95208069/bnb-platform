@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {previewSsotFinanceCommand,readSsotReceipt,
+import {previewSsotFinanceCommand,readSsotLedger,readSsotReceipt,
   submitSsotFinanceCommand,submitSsotPlan} from
   '../src/lib/booking-sources/iron-gate-ssot-finance.server.ts';
 import {bookingGuardsForVoid,osFinanceOriginHash,resumeSsotFinance} from
@@ -121,6 +121,37 @@ test('OS receipt lookup distinguishes a missing request from an unavailable read
   const down=async()=>reply({error:{code:'UNAVAILABLE'}},503);
   await assert.rejects(readSsotReceipt(config,actor,key,down),
     /UNAVAILABLE/);
+});
+
+test('OS and Sheet finance reads pin every ledger page to one change sequence',async()=>{
+  const queries=[];
+  const first={id:'10000000-0000-4000-8000-000000000010',
+    document_id:'10000000-0000-4000-8000-000000000011',change_seq:3};
+  const second={id:'10000000-0000-4000-8000-000000000012',
+    document_id:'10000000-0000-4000-8000-000000000013',change_seq:2};
+  const send=async url=>{
+    const query=Object.fromEntries(new URL(url).searchParams);
+    queries.push(query);
+    return reply(queries.length===1?{events:[first],next_cursor:'next',
+      as_of_change_seq:3,current_change_seq:3,unsequenced_event_count:0}:
+      {events:[second],next_cursor:null,as_of_change_seq:3,
+        current_change_seq:4,unsequenced_event_count:0});
+  };
+  assert.deepEqual((await readSsotLedger(config,actor,send)).map(event=>event.id),
+    [first.id,second.id]);
+  assert.equal(queries[0].as_of_change_seq,undefined);
+  assert.equal(queries[1].as_of_change_seq,'3');
+  const moved=async()=>reply({events:[second],next_cursor:null,
+    as_of_change_seq:4,current_change_seq:4,unsequenced_event_count:0});
+  await assert.rejects(readSsotLedger(config,actor,async(url)=>{
+    if(!new URL(url).searchParams.has('cursor'))return reply({events:[first],
+      next_cursor:'next',as_of_change_seq:3,current_change_seq:3,
+      unsequenced_event_count:0});
+    return moved(url);
+  }),/FINANCE_SSOT_READBACK_MISMATCH/);
+  await assert.rejects(readSsotLedger(config,actor,async()=>reply({events:[first],
+    next_cursor:null,as_of_change_seq:3,current_change_seq:3,
+    unsequenced_event_count:1})),/FINANCE_SSOT_READBACK_MISMATCH/);
 });
 
 test('voiding a booking-linked OS receipt carries the exact current booking guard',()=>{

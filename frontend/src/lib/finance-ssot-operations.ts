@@ -1,9 +1,9 @@
 import {createHash} from 'node:crypto';
 import type {Principal,Member} from './workspace-auth/types';
-import {applyFinance} from './finance-store';
-import {validateFinanceLinks} from './finance-projection';
+import {applyFinance} from './finance-store.ts';
+import {validateFinanceLinks} from './finance-projection.ts';
 import type {FinanceEntry,FinanceOrder} from './finance-model';
-import {EXPENSE_CATEGORIES,INCOME_CATEGORIES,taipeiDate} from './finance-model';
+import {EXPENSE_CATEGORIES,INCOME_CATEGORIES,taipeiDate} from './finance-model.ts';
 import type {ssotFinanceContext} from './finance-ssot-context';
 import {ironGateSsotFinanceConfig,submitSsotFinanceCommand,
   submitSsotPlan,readSsotCatalog,readSsotReceipt} from './booking-sources/iron-gate-ssot-finance.server.ts';

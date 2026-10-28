@@ -91,9 +91,11 @@ export function financeSheetProjections(events:unknown[],scan:FinanceSheetScan,
     String(row.sheet_row),'','待派發編號','SHEET_IDENTITY_PENDING','']);
   const issueIds=new Set(scan.issues.map(issue=>issue.row_id));
   for(const row of scan.rows)if(!issueIds.has(row.row_id)&&
-    !['accepted','void'].includes(row.sync_status))
+    (!['accepted','void'].includes(row.sync_status)||
+      (row.action==='void')!==(row.sync_status==='void')))
     issues.push([propertyDisplay,String(row.sheet_row),row.row_id,
-      '待預覽確認',row.sync_status||'pending','']);
+      '待預覽確認',(row.action==='void')!==(row.sync_status==='void')?
+        'SHEET_PENDING_ACTION':row.sync_status||'pending','']);
   const bookingRows=[...bookings].sort(([a],[b])=>a.localeCompare(b))
     .map(([bookingId,bucket])=>[propertyDisplay,bookingId,
       String(bucket.receipt??0),String(bucket.refund??0),

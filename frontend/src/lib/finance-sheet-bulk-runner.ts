@@ -29,7 +29,9 @@ export async function runFinanceSheetBulkScan(){
     const current=scanFinanceSheet(await readFinanceSheet(settings.binding),
       settings.binding.propertyDisplay);
     issues.push(...current.issues);
-    const ledger=await readFinanceSheetLedger(settings.ironGate,settings.scanToken);
+    const identity={sourceInstanceId:settings.sourceInstanceId,
+      spreadsheetId:settings.binding.spreadsheetId};
+    const ledger=await readFinanceSheetLedger(settings.ironGate,settings.scanToken,identity);
     const events=ledger.events;
     const documents=financeSheetDocumentsFromLedger(events,settings.sourceInstanceId,
       settings.binding.spreadsheetId);
@@ -63,7 +65,7 @@ export async function runFinanceSheetBulkScan(){
     const projectionDigest=financeSheetProjectionDigest(projections);
     const [readbackValues,observedChangeSeq]=await Promise.all([
       readFinanceSheet(settings.binding),
-      readFinanceSheetLedgerHead(settings.ironGate,settings.scanToken)]);
+      readFinanceSheetLedgerHead(settings.ironGate,settings.scanToken,identity)]);
     const audit=buildFinanceSheetAudit({spreadsheetId:settings.binding.spreadsheetId,
       propertyId:settings.ironGate.grant.propertyId,
       sourceInstanceId:settings.sourceInstanceId,values:finalValues,
