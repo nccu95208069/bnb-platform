@@ -334,7 +334,7 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
         { ...link,preview_token:linkPreview.preview_token },link.request_key),linked);
       const imported = { ...roomCommand('legacy-receipt-1',1000),
         source_actor_ref:'line_actor:synthetic-reviewed-1',
-        source_recorded_at:'2026-10-27T11:42:13+08:00',
+        source_recorded_at:'2026-10-27T11:42:13.590172+08:00',
         booking_allocations:[{source_order_key:'SF-IMPORTED-1',
           amount_cents:1000,allocation_kind:'room'}] };
       await assert.rejects(service.importPreview(importer,propertyId,
@@ -354,27 +354,28 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
         imported.request_key);
       assert.equal(importReceipt.receipt_status,'accepted');
       const historicalActor=await admin.query(`SELECT actor_ref,source_actor_ref,
-        source_recorded_at,created_at
+        to_char(source_recorded_at AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS source_recorded_at,created_at
         FROM iron_gate.finance_revision WHERE property_id=$1 AND document_id=$2`,
         [propertyId,importReceipt.document_id]);
       assert.equal(historicalActor.rows[0].actor_ref,importer.subjectId);
       assert.equal(historicalActor.rows[0].source_actor_ref,imported.source_actor_ref);
-      assert.equal(historicalActor.rows[0].source_recorded_at.toISOString(),
-        '2026-10-27T03:42:13.000Z');
+      assert.equal(historicalActor.rows[0].source_recorded_at,
+        '2026-10-27T03:42:13.590172Z');
       assert.notEqual(historicalActor.rows[0].created_at.toISOString(),
-        historicalActor.rows[0].source_recorded_at.toISOString());
+        historicalActor.rows[0].source_recorded_at);
       assert.deepEqual(await service.importReceipt(importer,propertyId,
         imported.request_key),importReceipt);
       const importLedger=await service.importLedger(importer,propertyId,{limit:100});
       assert.equal(importLedger.property_id,propertyId);
       const importedEvent=importLedger.events.find(event =>
         event.document_id===importReceipt.document_id);
-      assert.equal(importedEvent.source_recorded_at.toISOString(),
-        '2026-10-27T03:42:13.000Z');
-      assert.equal(importedEvent.revision_source_recorded_at.toISOString(),
-        '2026-10-27T03:42:13.000Z');
+      assert.equal(importedEvent.source_recorded_at,
+        '2026-10-27T03:42:13.590172Z');
+      assert.equal(importedEvent.revision_source_recorded_at,
+        '2026-10-27T03:42:13.590172Z');
       assert.notEqual(importedEvent.created_at.toISOString(),
-        importedEvent.source_recorded_at.toISOString());
+        importedEvent.source_recorded_at);
       const nonmoneyBefore = await admin.query(`SELECT count(*)::int AS count
         FROM iron_gate.finance_event WHERE property_id=$1`,[propertyId]);
       const historicalOrigin={source_actor_ref:`os_actor:${'a'.repeat(64)}`,

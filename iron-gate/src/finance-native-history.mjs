@@ -260,11 +260,15 @@ export class NativeCardHistoryService {
     const documents=await client.query(`SELECT id,source_instance_id,source_system,source_record_id,kind,
         current_version,status FROM iron_gate.finance_document WHERE property_id=$1`,[propertyId]),
       revisions=await client.query(`SELECT document_id,version,action,source_version,request_hash,
-        source_actor_ref,source_recorded_at FROM iron_gate.finance_revision
+        source_actor_ref,to_char(source_recorded_at AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS source_recorded_at
+        FROM iron_gate.finance_revision
         WHERE property_id=$1`,[propertyId]),
       events=await client.query(`SELECT id,document_id,revision_version,event_kind,amount_cents,
         cash_effect_cents,effective_on,cash_on,receipt_purpose,payment_method_code,
-        related_receipt_document_id,related_receipt_event_id,evidence_ref,source_recorded_at
+        related_receipt_document_id,related_receipt_event_id,evidence_ref,
+        to_char(source_recorded_at AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS source_recorded_at
         FROM iron_gate.finance_event WHERE property_id=$1`,[propertyId]),
       allocations=await client.query(`SELECT event_id,booking_id,amount_cents,allocation_kind
         FROM iron_gate.finance_allocation WHERE property_id=$1`,[propertyId]),

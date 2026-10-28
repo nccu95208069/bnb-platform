@@ -1,6 +1,6 @@
 # Finance SSOT W7 offline checkpoint — 2026-10-28
 
-**Decision: Sweetfun cutover remains closed.** This branch is a local, disabled historical-import candidate. It has not read the production Firestore or Redis finance books, imported a real record, applied a production migration, changed a writer flag, published a service, or edited a workbook. A synthetic `matched` report is only a test of the supplied fixture and the comparison contract; it is not approval to cut over.
+**Decision: Sweetfun cutover remains closed.** This branch is a local, disabled historical-import candidate. A separate read-only tool has now captured the production Sweetfun LINE Firestore finance book, but no real record has been imported, no production Redis finance book has been captured, and this branch has not applied a production migration, changed a writer flag, published an Iron Gate/OS service, or edited a workbook. A synthetic `matched` report is only a test of the supplied fixture and comparison contract; it is not approval to cut over.
 
 ## Local candidate
 
@@ -18,6 +18,10 @@ Details and limitations: [native/Card history](FINANCE_SSOT_W7_NATIVE_CARD_HISTO
 ## Verification boundary
 
 The integrated Iron Gate TypeScript check and offline `npm test` pass: 462 passed, 18 skipped, 0 failed. Six source/command PostgreSQL tests passed against a disposable local PostgreSQL 15 fixture; migration 004, a production credential grant, was intentionally omitted. OS backfill's 17 focused tests pass. The separate GCO LINE candidate has 62 focused tests passing after its provenance fixes. Its earlier broader offline suite recorded 6,583 passes and five environment/dependency failures, with one OwlNest test file unable to collect because `google.cloud.storage` is missing. These checks use synthetic records and do not verify live source completeness or real connector behavior.
+
+### Later W0 evidence and precision correction
+
+At the 2026-10-28 read-only check, a double capture of the Sweetfun LINE Firestore finance book was stable: one entry, one version, one audit, one recorded operation, data revision 1 and book revision 24. No Sweetfun confirming/editing draft was found in the separate shared conversation store. The raw snapshot is private and remains outside Git. Its one original timestamp has **six fractional digits**. The earlier LINE and Iron Gate candidate validators accepted only milliseconds, so the first offline report correctly held the row. This branch now accepts and compares microseconds exactly, returns PostgreSQL source timestamps with six-digit precision, and does not infer identity from a millisecond match. One finance transaction and two native/Card history PostgreSQL tests passed on a disposable PostgreSQL 15 database after this change; the full Iron Gate TypeScript check and offline suite passed with 463 passed, 18 skipped, 0 failed. The companion GCO parser fix passed 38 focused tests. Re-running the private snapshot removed only the timestamp blocker; booking link, payment method, source actor review and Iron Gate property readback are still outstanding. These are point-in-time observations, not a paused-source cutover boundary.
 
 ## Required sequence before any Sweetfun source cutover
 

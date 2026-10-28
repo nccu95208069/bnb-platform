@@ -856,7 +856,9 @@ export class FinanceCommandService {
     return this.#transaction(propertyId,false,async client => {
       await this.#context(client,principal,propertyId,false);
       const result = await client.query(`SELECT id,booking_id,source_record_id,version,
-        status_code,settles_room,recorded_at,source_recorded_at
+        status_code,settles_room,recorded_at,
+        to_char(source_recorded_at AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS source_recorded_at
         FROM iron_gate.finance_operational_status
         WHERE property_id=$1 AND ($2::uuid IS NULL OR booking_id=$2::uuid)
         ORDER BY COALESCE(source_recorded_at,recorded_at) DESC,id DESC LIMIT 100`,
@@ -1163,7 +1165,10 @@ export class FinanceCommandService {
         e.payment_method_code,e.payment_account_ref,e.advanced_by_ref,
         e.advanced_by_kind,e.advanced_by_label,
         e.safe_description,e.actor_ref,r.source_actor_ref,
-        e.source_recorded_at,r.source_recorded_at AS revision_source_recorded_at,
+        to_char(e.source_recorded_at AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS source_recorded_at,
+        to_char(r.source_recorded_at AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS revision_source_recorded_at,
         e.evidence_ref,e.created_at,
         first_event.actor_ref AS origin_actor_ref,
         first_event.created_at AS origin_recorded_at,
@@ -1268,7 +1273,8 @@ export class FinanceCommandService {
       const rows = await client.query(`WITH activity AS (
         SELECT r.created_at AS at, r.document_id::text || ':' || r.version::text AS id,
           'money'::text AS source, r.action, r.actor_ref,r.source_actor_ref,
-          r.source_recorded_at,
+          to_char(r.source_recorded_at AT TIME ZONE 'UTC',
+            'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS source_recorded_at,
           r.document_id::text AS target_id, r.version AS version,
           d.source_system, e.event_kind, e.amount_cents,
           e.safe_description, r.reason_note,
@@ -1300,7 +1306,7 @@ export class FinanceCommandService {
           'operation'::text AS source,a.audit_json->>'action' AS action,
           a.audit_json->>'actorRef' AS actor_ref,
           NULL::text AS source_actor_ref,
-          NULL::timestamptz AS source_recorded_at,
+          NULL::text AS source_recorded_at,
           COALESCE(rr.response_json->>'rule_id',rr.response_json->>'account_code',
             rr.response_json->>'category_code',rr.response_json->>'status_id',
             rr.response_json->>'platform',rr.response_json->>'settlement_id',
