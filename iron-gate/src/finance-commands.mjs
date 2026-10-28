@@ -1239,7 +1239,19 @@ export class FinanceCommandService {
         [propertyId,bookingId,validLegacyIds]) :
         { rows: [] };
       const unmappedLegacyPaymentEvents = legacyIds.length - mapped.rows.length;
-      const legacyUnmapped = unmappedLegacyPaymentEvents > 0;
+      const cardResults = booking.cardChargeResults ?? [];
+      const cardDone = Array.isArray(cardResults) ?
+        cardResults.filter(result => String(result?.status ?? '').toLowerCase() === 'done') : [null];
+      const validCardEventIds = cardDone.map(result => result?.paymentEventId)
+        .filter(id => UUID.test(id ?? ''));
+      const mappedCardDone = validCardEventIds.length ? await client.query(`
+        SELECT existing_payment_event_id FROM iron_gate.finance_payment_ownership
+        WHERE property_id=$1 AND booking_id=$2 AND provider_code='sweetfun_card'
+          AND existing_payment_event_id=ANY($3::uuid[])`,
+        [propertyId,bookingId,validCardEventIds]) : { rows: [] };
+      const unmappedCardDoneResults = cardDone.length - mappedCardDone.rows.length;
+      const cardPaymentReviewRequired = unmappedCardDoneResults > 0;
+      const legacyUnmapped = unmappedLegacyPaymentEvents > 0 || cardPaymentReviewRequired;
       const remaining = booking.source === 'os' && Number.isSafeInteger(booking.totalCents) &&
         !legacyUnmapped && summary.ota_guest_observed_cents === 0 &&
         summary.ota_payout_cents === 0 ?
@@ -1250,6 +1262,8 @@ export class FinanceCommandService {
         summary, remaining_due_cents: remaining,
         legacy_payment_review_required: legacyUnmapped,
         unmapped_legacy_payment_events: unmappedLegacyPaymentEvents,
+        card_payment_review_required: cardPaymentReviewRequired,
+        unmapped_card_done_results: unmappedCardDoneResults,
         review_required: legacyUnmapped || remaining === null,
         events: events.rows.map(row => ({ ...row, effective_on: pgDay(row.effective_on),
           cash_on: pgDay(row.cash_on) })), as_of_event_id: events.rows.at(-1)?.id ?? null,

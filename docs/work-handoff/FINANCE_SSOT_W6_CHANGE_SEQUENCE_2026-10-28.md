@@ -45,11 +45,15 @@ stable request key when recovering an unknown HTTP result.
 returns `legacy_payment_review_required` (boolean) and
 `unmapped_legacy_payment_events` (integer). They count legacy booking
 `paymentEvents` that lack a verified same-property ownership mapping, including
-malformed IDs. A new LINE booking with no legacy payment events returns
-`false` and `0`, even though the general `review_required` field may remain
-true because its remaining due is unknown. New LINE ledger receipts do not
-create legacy booking payment events. Connectors must still check their own
-pending or unknown source operations separately.
+malformed IDs. `card_payment_review_required` and
+`unmapped_card_done_results` separately flag Card Done results without a
+same-property `sweetfun_card` ownership mapping. The broader
+`legacy_payment_review_required` is true for either condition. A new LINE
+booking with no legacy payment or Card Done results returns false and zero
+for these fields, even though the general `review_required` may remain true
+because its remaining due is unknown. New LINE ledger receipts do not create
+legacy booking payment events. Connectors must still check their own pending
+or unknown source operations separately.
 
 ## Existing shadow rows and release gate
 

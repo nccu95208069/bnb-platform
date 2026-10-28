@@ -498,6 +498,26 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       assert.equal(mappedLegacy.legacy_payment_review_required,false);
       assert.equal(mappedLegacy.unmapped_legacy_payment_events,0);
       assert.ok(Number.isSafeInteger(mappedLegacy.remaining_due_cents));
+      const cardDoneId=randomUUID();
+      oldBookingState.bookings[0].cardChargeResults=[{
+        status:'done',paymentEventId:cardDoneId}];
+      await admin.query(`UPDATE iron_gate.property_state SET state_json=$1::jsonb
+        WHERE property_id=$2`,[JSON.stringify(oldBookingState),propertyId]);
+      const unmappedCard=await service.bookingFinance(principal,propertyId,bookingId);
+      assert.equal(unmappedCard.legacy_payment_review_required,true);
+      assert.equal(unmappedCard.card_payment_review_required,true);
+      assert.equal(unmappedCard.unmapped_card_done_results,1);
+      assert.equal(unmappedCard.unmapped_legacy_payment_events,0);
+      assert.equal(unmappedCard.remaining_due_cents,null);
+      await admin.query(`INSERT INTO iron_gate.finance_payment_ownership
+        (id,property_id,provider_code,booking_id,existing_payment_event_id,
+         canonical_document_id) VALUES ($1,$2,'sweetfun_card',$3,$4,$5)`,
+        [randomUUID(),propertyId,bookingId,cardDoneId,roomAccepted.document_id]);
+      const mappedCard=await service.bookingFinance(principal,propertyId,bookingId);
+      assert.equal(mappedCard.legacy_payment_review_required,false);
+      assert.equal(mappedCard.card_payment_review_required,false);
+      assert.equal(mappedCard.unmapped_card_done_results,0);
+      assert.ok(Number.isSafeInteger(mappedCard.remaining_due_cents));
 
       // Simulate a pre-015 shadow event, then reapply the migration as the
       // explicit repair path. It must not silently disappear from ledger reads.
