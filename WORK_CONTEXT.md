@@ -1,6 +1,6 @@
 # BnB SaaS / Sweetfun OS — Authoritative Work Context
 
-2026-10-28 Offland shared finance: [property-scoped OS/LINE ledger candidate, authoritative booking reads, general income/expenses and historical coverage boundaries](docs/work-handoff/OFFLAND_FINANCE_PARITY_2026-10-28.md). Isolated verification passes; no production cutover. Offland uses separate grants/connectors, while imported booking receipts remain under review pending complete source coverage and authoritative remaining balances.
+2026-10-28 Offland shared finance: [property-scoped OS/LINE ledger candidate, authoritative booking reads, general income/expenses and historical coverage boundaries](docs/work-handoff/OFFLAND_FINANCE_PARITY_2026-10-28.md). Isolated verification passes. The owner subsequently authorized deployment of new Offland general income/expenses only, postponing historical import and balance reconciliation. New-ledger totals are labeled as excluding history, original OS records have a read-only archive, and imported booking receipts remain under review. Production cutover requires separate runtime evidence.
 
 2026-10-28 calendar performance: [request-scoped authentication, server session bootstrap, immediate month prefetch commits and private-data-safe timing](docs/work-handoff/CALENDAR_LOAD_PERFORMANCE_2026-10-28.md) implement the first two approved optimization steps. Reloads invalidate neighboring windows even without an inventory-version change; authorization remains server-enforced. Release and browser timing evidence are retained privately.
 

@@ -60,7 +60,30 @@ selected Sweetfun orders is not such a coverage proof. Imported lodging receipt
 parity remains an explicit dependency, even after general income/expenses are
 ready for independent acceptance.
 
-## Per-property rollout contract
+## Owner-authorized new-entry rollout — 2026-10-29
+
+The owner explicitly authorized step 1 (deploy OS/LINE shared finance) and
+postponed steps 2 and 3 (historical import/reconciliation and historical booking
+balance verification). This supersedes the historical-import prerequisite below
+for **new Offland general income and expenses only**. Sweetfun's existing writer
+and settings stay unchanged. No historical receipt is inferred or imported.
+
+- The independent Offland flag selects the canonical ledger and disables the
+  legacy OS money writer. It must remain off until the common backend, scoped
+  source connectors and separate grants are verified.
+- `OS_OFFLAND_FINANCE_HISTORY_STATUS=not_imported` explicitly marks the report
+  as new-ledger cash only. Financial overview, bookkeeping and order summary
+  explain that historical cash is absent and is not evidence of nonpayment.
+- `/finance/history?property=offland` reads the original OS finance entries and
+  calendar receipts without modifying them or reconciling sources. The endpoint
+  enforces current finance role, property scope and private response headers.
+- Old LINE and OS records remain in their original stores; legacy requests must
+  not be automatically replayed into the new ledger. Imported booking receipts
+  remain under review until a separate authoritative balance check is completed.
+- Release identity, cutover timestamp and both-client acceptance remain separate
+  operational evidence; these code changes alone do not mean production is live.
+
+## Original full-history rollout contract
 
 1. Review the common backend and deploy the prerequisite additive migrations in
    their prescribed order, with all new finance writers closed. Verify a real

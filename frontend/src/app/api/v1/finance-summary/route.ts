@@ -1,3 +1,4 @@
+import {financeHistoryStatus} from '@/lib/finance-history-policy';
 import {NextRequest,NextResponse} from 'next/server';
 import {principalFor} from '@/lib/workspace-auth/session';
 import {privateHeaders,sameOrigin,inputBody} from '@/lib/workspace-auth/http';
@@ -35,7 +36,7 @@ async function context(request:NextRequest){
  return {actor,source,registry,summary,source_version:summaryVersion([summary.orders,report.projection_version]),properties:sources.map(s=>({id:s.property.id,name:s.property.name})),issues:snapshot.issues.length};
 }
 function failure(e:unknown){const code=e instanceof Error?e.message:'';const status=({UNAUTHORIZED:401,FORBIDDEN:403,VERSION_CONFLICT:409,INVALID_INPUT:400,RATE_LIMITED:429} as Record<string,number>)[code]??503;return NextResponse.json({code:status===503?'UNAVAILABLE':code},{status,headers:privateHeaders});}
-export async function GET(request:NextRequest){try{const c=await context(request);return NextResponse.json({schema:1,property_id:c.source.property.id,properties:c.properties,registry_version:c.registry.state.version,source_version:c.source_version,orders:c.summary.orders,retained_orders:c.summary.retained.length,source_issues:c.issues,last_capture:c.registry.state.audits.at(-1)?.at??null,sheet_write:false,iron_gate_direct_excluded:c.source.property.id==='sweetfun'&&process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED!=='true'&&process.env.CALENDAR_SOURCE==='sheet_snapshot'&&process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED==='true',updated_at:new Date().toISOString()},{headers:privateHeaders});}catch(e){return failure(e);}}
+export async function GET(request:NextRequest){try{const c=await context(request);return NextResponse.json({schema:1,history_status:financeHistoryStatus(c.source.property.id),property_id:c.source.property.id,properties:c.properties,registry_version:c.registry.state.version,source_version:c.source_version,orders:c.summary.orders,retained_orders:c.summary.retained.length,source_issues:c.issues,last_capture:c.registry.state.audits.at(-1)?.at??null,sheet_write:false,iron_gate_direct_excluded:c.source.property.id==='sweetfun'&&process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED!=='true'&&process.env.CALENDAR_SOURCE==='sheet_snapshot'&&process.env.IRON_GATE_SWEETFUN_CALENDAR_ENABLED==='true',updated_at:new Date().toISOString()},{headers:privateHeaders});}catch(e){return failure(e);}}
 export async function POST(request:NextRequest){try{
  sameOrigin(request);const input=await inputBody(request);const c=await context(request);
  if(input.source_version!==c.source_version||input.expected_version!==c.registry.state.version)throw new Error('VERSION_CONFLICT');

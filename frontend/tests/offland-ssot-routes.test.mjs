@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {NextRequest} from 'next/server';
+import {GET as historyGet} from '../src/app/api/v1/finance/legacy/route.ts';
 import {GET as financeGet} from '../src/app/api/v1/finance/route.ts';
 import {GET as summaryGet} from '../src/app/api/v1/finance-summary/route.ts';
 import {GET as calendarGet} from '../src/app/api/v1/bookings/calendar/route.ts';
@@ -20,6 +21,7 @@ test('Offland finance, summary and calendar read the same ledger without Sheet a
   IRON_GATE_OFFLAND_ROOM_IDS:JSON.stringify({'包棟':id(6)}),
   IRON_GATE_OFFLAND_OS_PROOF_SECRET:'synthetic-offland-proof-secret-32-bytes-long',
   IRON_GATE_OFFLAND_BASE_URL:'https://ig.example',IRON_GATE_OFFLAND_AUTHORITY_EPOCH:'1'});
+ const archived={id:'old-expense',property_id:'offland',kind:'expense',category:'other',amount_cents:500,date:'2026-10-01',created_at:'2026-10-01T01:00:00Z',status:'active',source:'manual'};
  const member={id:'c'.repeat(32),displayName:'Synthetic operator',role:'admin',status:'active',
   allProperties:false,propertyIds:['offland'],credential:{schema:1,kind:'password',revision:'d'.repeat(64),salt:'e'.repeat(32),hash:'f'.repeat(128)}};
  let review=false;const commands=[];
@@ -39,7 +41,8 @@ test('Offland finance, summary and calendar read the same ledger without Sheet a
  t.mock.method(globalThis,'fetch',async(url,options)=>{
   if(String(url)==='https://redis.example'){
    const command=JSON.parse(options.body);commands.push(command);
-   if(command[0]==='GET')return Response.json({result:command[1].includes(':workspace-auth:')?JSON.stringify({version:1,members:[member]}):null});
+   if(command[0]==='GET')return Response.json({result:command[1].includes(':workspace-auth:')?JSON.stringify({version:1,members:[member]}):command[1]==='sweetfun-os:finance:v1:offland:2026'?JSON.stringify({version:1,entries:[archived],operations:[]}):null});
+   if(command[0]==='SCAN'){assert.ok(command[3].startsWith('sweetfun-os:payments:v1:offland:'));return Response.json({result:['0',[]]});}
    if(command[0]==='EVAL'&&command[1].includes('INCR'))return Response.json({result:1});
    throw Error('Unexpected Redis write');
   }
@@ -59,7 +62,7 @@ test('Offland finance, summary and calendar read the same ledger without Sheet a
   ...(body?{body:JSON.stringify(body)}:{})});
  const response=await financeGet(request('/api/v1/finance?property=offland&year=2026'));
  assert.equal(response.status,200);const report=await response.json();
- assert.equal(report.ssot_enabled,true);assert.equal(report.entries.length,1);
+ assert.equal(report.history_status,'not_imported');assert.equal(report.ssot_enabled,true);assert.equal(report.entries.length,1);
  assert.equal(report.entries[0].ssot_source_system,'line_finance');assert.equal(report.orders[0].received,200000);
  const summary=await summaryGet(request('/api/v1/finance-summary?property=offland'));
  assert.equal(summary.status,200);assert.equal((await summary.json()).orders[0].recorded_received_cents,200000);
@@ -72,6 +75,11 @@ test('Offland finance, summary and calendar read the same ledger without Sheet a
  assert.equal(unknown.bookings[0].payment_status,'unknown');assert.equal(unknown.source_summary.missing_payment_status,1);
  const legacy=await legacyPost(request('/api/v1/order-payments',{property_id:'offland',order_id:`IG-${id(7)}`}));
  assert.equal(legacy.status,409);assert.equal((await legacy.json()).code,'FINANCE_SSOT_ORDER_PAYMENT_MOVED');
+ const archive=await historyGet(request('/api/v1/finance/legacy?property=offland&year=2026'));
+ assert.equal(archive.status,200);const archiveBody=await archive.json();assert.equal(archiveBody.read_only,true);assert.deepEqual(archiveBody.entries,[archived]);
+ assert.equal((await historyGet(request('/api/v1/finance/legacy?property=sweetfun&year=2026'))).status,403);
+ assert.equal((await historyGet(request('/api/v1/finance/legacy?property=offland&year=oops'))).status,400);
+ assert.equal((await historyGet(new NextRequest('https://os.example/api/v1/finance/legacy?property=offland&year=2026'))).status,401);
  assert.ok(!commands.some(command=>command[0]==='SET'));
  assert.equal((await financeGet(request('/api/v1/finance?property=sweetfun&year=2026'))).status,403);
 });

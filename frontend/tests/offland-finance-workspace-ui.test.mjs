@@ -107,3 +107,13 @@ test('Sweetfun existing native SSOT receipts keep their dedicated payment panel'
   assert.equal(ui.button('儲存收入'),undefined);
   assert.ok(calls.some(path=>!path.startsWith('/api/v1/finance')));
 });
+
+
+test('New Offland ledger explicitly separates preserved history from empty new cash',async t=>{
+ financeFetch(t,{...report,history_status:'not_imported',orders:[]});
+ const ui=await mount(t,FinanceWorkspace,{view:'bookkeeping'},'finance/bookkeeping?month=2026-10&property=offland');
+ assert.match(document.body.textContent,/目前只顯示新帳本的收支/);
+ const link=[...document.querySelectorAll('a')].find(a=>a.textContent==='查看 OS 舊帳（唯讀）');
+ assert.equal(link?.getAttribute('href'),'/finance/history?property=offland');
+ assert.ok(ui.button('新增支出'));await ui.click(ui.button('收入'));assert.ok(ui.button('新增收入'));
+});
