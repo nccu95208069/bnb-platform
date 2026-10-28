@@ -41,7 +41,6 @@ export function RetainedOrdersControl({ canWrite, viewPrices, storageScope, relo
     let active = true;
     const restore = () => { if (active) selectTarget(null); };
     // This synchronizes browser-only durable recovery state after hydration.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     restore();
     window.addEventListener("storage", restore);
     return () => { active = false; window.removeEventListener("storage", restore); };
