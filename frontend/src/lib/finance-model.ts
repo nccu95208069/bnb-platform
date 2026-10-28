@@ -30,7 +30,13 @@ export function summarize(entries:FinanceEntry[],month:string) {
 }
 
 export const PLATFORMS:Record<string,string>={direct:'LINE／電話／直訂',agoda:'Agoda',ctrip:'Trip.com',owljourney:'奧丁丁',booking:'Booking.com',airbnb:'Airbnb',other:'其他'};
-export type FinanceOrder={ssot_command_eligible?:boolean;ssot_payment_coverage?:'verified_current'|'historical_review_required';amount_review_required?:boolean;amount_reconciliation?:import('./source-amount-reconciliation').SourceAmountBreakdown & {bookingId:string;version:number};source?:'iron_gate';booking_id?:string;ssot_booking_version?:number;ssot_source_snapshot_hash?:string;receivable_review_required?:boolean;status?:'held'|'confirmed'|'cancelled';id:string;calendar_id:string;platform:string;rooms:string[];check_in:string;check_out:string;total:number;received:number;receivable:number;eligible_date:string|null;source_paid:boolean;credit:number;source_version:string};
+export type FinanceOrder={ssot_command_eligible?:boolean;ssot_payment_coverage?:'verified_current'|'historical_review_required';amount_review_required?:boolean;amount_reconciliation?:import('./source-amount-reconciliation').SourceAmountBreakdown & {bookingId:string;version:number};source?:'iron_gate';booking_id?:string;ssot_booking_version?:number;ssot_source_snapshot_hash?:string;receivable_review_required?:boolean;status?:'held'|'confirmed'|'retained'|'cancelled';retained_credit_cents?:number|null;retained_credit_review_required?:boolean;id:string;calendar_id:string;platform:string;rooms:string[];check_in:string;check_out:string;total:number;received:number;receivable:number;eligible_date:string|null;source_paid:boolean;credit:number;source_version:string};
+/** A historical price or an empty new ledger never establishes usable retained funds. */
+export function verifiedRetainedCredit(order:Pick<FinanceOrder,'retained_credit_cents'|'retained_credit_review_required'>):number|null{
+ return order.retained_credit_review_required===false&&
+   Number.isSafeInteger(order.retained_credit_cents)&&Number(order.retained_credit_cents)>=0?
+   Number(order.retained_credit_cents):null;
+}
 export type RecurringExpense={id:string;year:number;category:string;category_name?:string;amount_cents:number;description:string;method:FinanceEntry['method'];start:string;end:string|null;day:number;created_at:string;actor:string;stopped_at?:string;stopped_by?:string;ssot_source_record_id?:string;ssot_version?:number};
 export type DueExpense={id:string;rule_id:string;year:number;date:string;category:string;category_name?:string;amount_cents:number;description:string;method:FinanceEntry['method']};
 export type PayoutRule={platform:string;mode:'manual'|'monthly';day:number;offset:number;updated_at?:string;ssot_version?:number};
@@ -42,7 +48,7 @@ export function recurrenceDue(rules:RecurringExpense[],entries:FinanceEntry[],ye
 // Stay-month order amounts are split into actual receipts and outstanding balances.
 // Unallocated service income is counted in its actual receipt month, once only.
 export function revenueSummary(orders:FinanceOrder[],entries:FinanceEntry[],month:string){
- const selected=orders.filter(o=>o.status!=='held'&&o.status!=='cancelled'&&o.check_in.startsWith(month));
+ const selected=orders.filter(o=>(o.status===undefined||o.status==='confirmed')&&o.check_in.startsWith(month));
  const extra=entries.filter(e=>e.status==='active'&&e.kind==='income'&&
    e.method!=='ota'&&e.date.startsWith(month)).reduce((sum,e)=>{
    if(!e.allocations?.length)return sum+(!e.order_key||e.category!=='lodging'?e.amount_cents:0);

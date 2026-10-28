@@ -60,7 +60,7 @@ function allocations(input:Record<string,unknown>,orders:FinanceOrder[]){
     if(!object(raw)||typeof raw.order_id!=='string'||
       !Number.isSafeInteger(raw.amount_cents))throw Error('INVALID_INPUT');
     const order=orders.find(o=>o.id===raw.order_id);
-    if(!order||!UUID.test(order.booking_id??'')||
+    if(!order||order.status==='retained'||!UUID.test(order.booking_id??'')||
       !Number.isSafeInteger(order.ssot_booking_version)||
       Number(order.ssot_booking_version)<1||
       (order.source==='iron_gate'?!order.ssot_command_eligible:

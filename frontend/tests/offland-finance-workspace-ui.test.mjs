@@ -8,6 +8,8 @@ const bootstrap=new JSDOM('<body></body>');
 globalThis.window=bootstrap.window;
 globalThis.document=bootstrap.window.document;
 const {FinanceWorkspace}=await import('../src/components/finance/finance-workspace.tsx');
+const {FinanceSummary}=await import('../src/components/finance/finance-summary.tsx');
+const {SummaryReceipt}=await import('../src/components/finance/summary-receipt.tsx');
 after(()=>bootstrap.window.close());
 
 const bookingId='10000000-0000-4000-8000-000000000007';
@@ -120,4 +122,83 @@ test('New Offland ledger explicitly separates preserved history from empty new c
  const dialog=document.querySelector('[role=dialog]');assert.ok(dialog);
  assert.equal(dialog.querySelector('option[value=lodging]'),null);assert.ok(dialog.querySelector('option[value=other]'));
  assert.match(dialog.textContent,/請勿改用其他分類登記房費/);
+});
+
+test('retained funds stay visible with unknown amount and never enter receivables or receipt selection',async t=>{
+  const retained={...order,status:'retained',rooms:['Retained villa'],
+    retained_credit_cents:null,retained_credit_review_required:true,
+    // Simulate a stale pre-retention amount/eligibility in an already open view.
+    receivable:8000,ssot_command_eligible:true,receivable_review_required:true};
+  financeFetch(t,{...report,orders:[retained]});
+  const ui=await mount(t,FinanceWorkspace,{view:'bookkeeping'},
+    'finance/bookkeeping?month=2026-10&property=offland');
+  const section=document.querySelector('section[aria-label="保留訂單款項"]');
+  assert.ok(section);
+  assert.match(section.textContent,/保留可用款 · 金額待核/);
+  assert.match(section.textContent,/可以先重新安排入住，差額另行核對/);
+  assert.equal(ui.button('登記收到房費').disabled,true);
+  await ui.click([...document.querySelectorAll('input[type=checkbox]')][0]);
+  assert.doesNotMatch(document.body.textContent,/筆訂單應收待核對/);
+  await ui.click(ui.button('收入'));
+  await ui.click(ui.button('新增收入'));
+  const dialog=document.querySelector('[role="dialog"]');
+  assert.ok(dialog);
+  assert.doesNotMatch(dialog.textContent,/Retained villa/);
+});
+
+test('retained funds remain readable under the general-income-only rollout',async t=>{
+  financeFetch(t,{...report,general_only:true,history_status:'not_imported',orders:[{
+    ...order,status:'retained',check_in:'',check_out:'',rooms:[],receivable:0,
+    retained_credit_cents:null,retained_credit_review_required:true,
+  }]});
+  const ui=await mount(t,FinanceWorkspace,{view:'overview'},'finance?month=2026-10&property=offland');
+  assert.match(document.querySelector('section[aria-label="保留訂單款項"]').textContent,/金額待核/);
+  const link=[...document.querySelectorAll('a')].find(a=>a.textContent==='查看保留款明細');
+  assert.equal(link?.getAttribute('href'),'/finance/summary?property=offland&status=retained');
+  assert.equal(ui.button('登記收到房費'),undefined);
+});
+
+test('retained summary shows original cash records and no due or collection action',async t=>{
+  t.mock.method(globalThis,'fetch',async url=>{
+    assert.match(String(url),/^\/api\/v1\/finance-summary\?/);
+    return Response.json({property_id:'offland',properties:report.properties,
+      updated_at:report.updated_at,orders:[{id:order.id,status:'retained',platform:'direct',
+        rooms:[],check_in:'',check_out:'',ota_ids:[],owl_ids:[],row_ids:[order.id],aliases:[],
+        source_amount_cents:1000000,recorded_received_cents:250000,ota_collected_cents:0,
+        receivable_total_cents:null,outstanding_cents:null,retained_credit_cents:null,
+        retained_credit_review_required:true,can_record:false,
+        issues:['retained_stay_unassigned','retained_credit_review_required'],
+        records:[{id:'original-receipt',amount_cents:300000,method:'bank_transfer',
+          at:'2026-09-15',actor:'Synthetic operator',source:'iron_gate'},
+        {id:'original-refund',amount_cents:-50000,method:'bank_transfer',
+          at:'2026-10-01',actor:'Synthetic operator',source:'iron_gate'}]}]});
+  });
+  const ui=await mount(t,FinanceSummary,{},'finance/summary?property=offland&status=retained');
+  const article=document.querySelector('article');
+  assert.ok(article);
+  assert.match(article.textContent,/保留待安排 · 入住日期未定/);
+  assert.match(article.textContent,/金額待核/);
+  assert.match(article.textContent,/歷史金額，不是保留款或目前應收/);
+  assert.deepEqual([...article.querySelectorAll('dt')].map(el=>el.textContent),[
+    '保留可用款','本帳本淨收款','差額']);
+  assert.equal(ui.button('登記收款'),undefined);
+  assert.equal(article.querySelectorAll('li').length,2);
+  assert.match(article.querySelectorAll('li')[0].textContent,/2026\/09\/15.*3,000/);
+  assert.match(article.querySelectorAll('li')[1].textContent,/2026\/10\/01.*500/);
+  assert.equal(document.querySelector('input[type=month]').disabled,true);
+  await ui.fill(document.querySelector('select[aria-label="訂單範圍"]'),'month');
+  assert.equal(document.querySelector('article'),null);
+  assert.equal(document.querySelector('input[type=month]').disabled,false);
+});
+
+test('receipt dialog rechecks retained status even if stale numbers imply unpaid room fees',async t=>{
+  t.mock.method(globalThis,'fetch',async()=>Response.json({...report,orders:[{
+    ...order,status:'retained',receivable:8000,ssot_command_eligible:true,
+  }]}));
+  const ui=await mount(t,SummaryReceipt,{property:'offland',orderId:order.id,
+    onClose(){},onSaved(){}},'finance/summary?property=offland');
+  const dialog=document.querySelector('[role=dialog]');
+  assert.match(dialog.textContent,/保留待安排，原款項繼續保留/);
+  assert.equal(dialog.querySelector('form'),null);
+  assert.equal(ui.button('確認收款'),undefined);
 });

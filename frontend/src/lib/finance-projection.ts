@@ -1,10 +1,10 @@
 import {createHash} from 'node:crypto';
 import type {CalendarBooking} from '../components/calendar/calendar-types';
 import {ledgerKey,checkRows} from './os-payments.ts';
-import {recurrenceDue,roomCollectionForOrder,type FinanceEntry,type FinanceOrder,type PayoutRule,type RecurringExpense} from './finance-model.ts';
+import {recurrenceDue,roomCollectionForOrder,verifiedRetainedCredit,type FinanceEntry,type FinanceOrder,type PayoutRule,type RecurringExpense} from './finance-model.ts';
 export function projectOrders(rows:CalendarBooking[],entries:FinanceEntry[],rules:PayoutRule[]){
  const grouped=new Map<string,CalendarBooking[]>();
- for(const b of rows)if(b.reservation_status!=='cancelled')grouped.set(b.order_id,[...(grouped.get(b.order_id)??[]),b]);
+ for(const b of rows)if(b.reservation_status!=='cancelled'&&b.reservation_status!=='retained')grouped.set(b.order_id,[...(grouped.get(b.order_id)??[]),b]);
  let excluded=0;const orders:FinanceOrder[]=[];
  for(const [id,bookings] of grouped){
   if(bookings.some(b=>b.source_conflict||!Number.isFinite(b.room_rate)||b.room_rate<0)||new Set(bookings.map(b=>b.platform)).size!==1){excluded++;continue;}
@@ -31,7 +31,7 @@ export function validateFinanceLinks(input:Record<string,unknown>,orders:Finance
  if(allocations!==undefined){
   if(!Array.isArray(allocations)||allocations.length>100||input.kind!=='income'||input.category!=='lodging'||input.method==='ota')throw new Error('INVALID_INPUT');
   let sum=0;const seen=new Set<string>();
-  for(const a of allocations){if(!a||typeof a.order_id!=='string'||!Number.isSafeInteger(a.amount_cents)||a.amount_cents<=0||seen.has(a.order_id))throw new Error('INVALID_INPUT');seen.add(a.order_id);const order=orders.find(o=>o.id===a.order_id);if(order?.source==='iron_gate'&&!(options.ssot&&order.ssot_command_eligible))throw new Error('IRON_GATE_DIRECT_PAYMENT_REQUIRED');if(order?.receivable_review_required)throw new Error('SOURCE_MAPPING_REVIEW_REQUIRED');if(!order||order.platform!==input.platform||a.amount_cents>order.receivable)throw new Error('VERSION_CONFLICT');sum+=a.amount_cents;}
+  for(const a of allocations){if(!a||typeof a.order_id!=='string'||!Number.isSafeInteger(a.amount_cents)||a.amount_cents<=0||seen.has(a.order_id))throw new Error('INVALID_INPUT');seen.add(a.order_id);const order=orders.find(o=>o.id===a.order_id);if(order?.status==='retained')throw new Error('SOURCE_MAPPING_REVIEW_REQUIRED');if(order?.source==='iron_gate'&&!(options.ssot&&order.ssot_command_eligible))throw new Error('IRON_GATE_DIRECT_PAYMENT_REQUIRED');if(order?.receivable_review_required)throw new Error('SOURCE_MAPPING_REVIEW_REQUIRED');if(!order||order.platform!==input.platform||a.amount_cents>order.receivable)throw new Error('VERSION_CONFLICT');sum+=a.amount_cents;}
   if(allocations.length&&sum!==Math.round(Number(input.amount)*100))throw new Error('INVALID_INPUT');
  }
  if(input.kind==='income'&&input.category==='lodging'&&(!Array.isArray(allocations)||!allocations.length))throw new Error('ORDER_REQUIRED');
@@ -39,11 +39,17 @@ export function validateFinanceLinks(input:Record<string,unknown>,orders:Finance
  else if(input.occurrence!==undefined)throw new Error('INVALID_INPUT');
 }
 
-/** All canonical sources settle the same balance once; cancelled identities remain readable. */
+/** All canonical sources settle the same balance once; inactive identities keep their cash history. */
 export function projectSsotBookingBalances(orders:FinanceOrder[],entries:FinanceEntry[]){
  return orders.map(order=>{
   const received=entries.filter(e=>e.status==='active'&&['income','refund'].includes(e.kind)&&e.method!=='ota')
    .reduce((sum,entry)=>sum+(entry.kind==='refund'?-1:1)*roomCollectionForOrder(entry,order.id),0);
+  if(order.status==='retained'){
+   const credit=verifiedRetainedCredit(order);
+   return {...order,received,receivable:0,credit:0,source_paid:false,
+    eligible_date:null,ssot_command_eligible:false,
+    retained_credit_cents:credit,retained_credit_review_required:credit===null};
+  }
   return {...order,received,
    receivable:order.status==='confirmed'&&!order.receivable_review_required?Math.max(0,order.total-received):0,
    credit:order.receivable_review_required?0:Math.max(0,received-(order.status==='cancelled'?0:order.total)),

@@ -1,6 +1,6 @@
 import type {FinanceEntry,FinanceOrder} from './finance-model';
 import type {FinanceSummaryRow,SummaryRegistry} from './finance-summary';
-import {roomCollectionForOrder} from './finance-model.ts';
+import {roomCollectionForOrder,verifiedRetainedCredit} from './finance-model.ts';
 
 /** Current IG identities and accepted ledger amounts never fall back to Sheet aliases. */
 export function summarizeSsotOrders(property:string,orders:FinanceOrder[],entries:FinanceEntry[],registry:SummaryRegistry){
@@ -17,15 +17,18 @@ export function summarizeSsotOrders(property:string,orders:FinanceOrder[],entrie
   const received=records.reduce((sum,row)=>sum+row.amount_cents,0);
   if(received!==order.received||!Number.isSafeInteger(received)||received<0)
    throw Error('FINANCE_SSOT_READBACK_MISMATCH');
+  const retained=order.status==='retained';
   const review=Boolean(order.receivable_review_required||order.amount_review_required||order.status!=='confirmed');
-  return {id:order.id,platform:order.platform,rooms:order.rooms,check_in:order.check_in,check_out:order.check_out,
+  const retainedCredit=retained?verifiedRetainedCredit(order):null;
+  return {id:order.id,status:order.status,platform:order.platform,rooms:order.rooms,check_in:order.check_in,check_out:order.check_out,
+   ...(retained?{retained_credit_cents:retainedCredit,retained_credit_review_required:retainedCredit===null}:{}),
    ota_ids:[],owl_ids:[],row_ids:[order.id],aliases:[`ig:${order.booking_id}`],
    source_amount_cents:order.amount_review_required?null:order.total,
    customer_payment:received>0?'recorded_unverified':'unknown',
    claim:order.platform==='direct'?'not_applicable':'unknown',
    receipt:received>0?'recorded_unverified':'unknown',recorded_received_cents:received,ota_collected_cents:0,
    receivable_total_cents:review?null:order.total,outstanding_cents:review?null:order.receivable,
-   legacy_status:'',issues:review?['historical_payment_review_required']:[],records,
+   legacy_status:'',issues:retained?['retained_stay_unassigned',...(retainedCredit===null?['retained_credit_review_required']:[])]:review?['historical_payment_review_required']:[],records,
    can_record:!review&&order.ssot_command_eligible===true&&order.receivable>0};
  });
  return {orders:rows.sort((a,b)=>a.check_in.localeCompare(b.check_in)||a.id.localeCompare(b.id)),
