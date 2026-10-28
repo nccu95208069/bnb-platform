@@ -3,7 +3,7 @@ import test from 'node:test';
 import {entriesFromLedger,readCatalog,reviewUncertainReceivables} from
   '../src/lib/finance-ssot-context.ts';
 import {projectOrders,validateFinanceLinks} from '../src/lib/finance-projection.ts';
-import {revenueSummary,summarize} from '../src/lib/finance-model.ts';
+import {revenueSummary,roomCollectionForOrder,summarize} from '../src/lib/finance-model.ts';
 import {summarizeOrders,emptyRegistry} from '../src/lib/finance-summary.ts';
 
 const bookingId='10000000-0000-4000-8000-000000000001';
@@ -130,6 +130,43 @@ test('OTA payout is property cash while guest payment observation is not',()=>{
   const summary=summarizeOrders('sweetfun',rows,entries,emptyRegistry()).orders[0];
   assert.equal(summary.recorded_received_cents,6000);
   assert.equal(summary.ota_collected_cents,0);
+});
+
+test('booked extras remain cash income but do not settle room receivables',()=>{
+  const room={...base,current_version:1};
+  const extra={...base,id:'10000000-0000-4000-8000-000000000013',
+    document_id:'10000000-0000-4000-8000-000000000014',current_version:1,
+    amount_cents:'700',cash_effect_cents:'700',category_code:'lodging',
+    receipt_purpose:'extra',
+    booking_allocations:[{booking_id:bookingId,amount_cents:'700',
+      allocation_kind:'extra'}]};
+  const entries=entriesFromLedger([room,extra],'sweetfun',[order],catalog);
+  const rows=[{property_id:'sweetfun',order_id:order.id,id:'row-extra',
+    platform:'direct',room_number:'101',room_rate:100,
+    check_in:'2026-10-28',check_out:'2026-10-29',
+    reservation_status:'confirmed',payment_status:'unpaid'}];
+  assert.equal(summarize(entries,'2026-10').income,6700);
+  assert.equal(roomCollectionForOrder(entries[1],order.id),0);
+  const projected=projectOrders(rows,entries,[]).orders[0];
+  assert.equal(projected.received,6000);
+  assert.equal(projected.receivable,4000);
+  const revenue=revenueSummary([projected],entries,'2026-10');
+  assert.equal(revenue.received,6700);
+  assert.equal(revenue.receivable,4000);
+  assert.equal(revenue.total,10700);
+});
+
+test('split room receipt contributes its booking allocation to each direct order',()=>{
+  const secondBookingId='10000000-0000-4000-8000-000000000015';
+  const second={...order,id:'SF-SECOND',booking_id:secondBookingId};
+  const split={...base,current_version:1,amount_cents:'5000',
+    booking_allocations:[
+      {booking_id:bookingId,amount_cents:'2000',allocation_kind:'room'},
+      {booking_id:secondBookingId,amount_cents:'3000',allocation_kind:'room'}]};
+  const [entry]=entriesFromLedger([split],'sweetfun',[order,second],catalog);
+  assert.equal(entry.order_id,undefined);
+  assert.equal(roomCollectionForOrder(entry,order.id),2000);
+  assert.equal(roomCollectionForOrder(entry,second.id),3000);
 });
 
 test('canceled imported booking keeps verified historical receipt without receivable',()=>{

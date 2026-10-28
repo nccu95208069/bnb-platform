@@ -8,7 +8,7 @@ import type {Principal} from './workspace-auth/types';
 import {projectOrders,projectionVersion} from './finance-projection';
 import {recurrenceDue,taipeiDate,type FinanceEntry,type FinanceOrder,
   type PaymentAccount,type PayoutRule,type RecurringExpense,
-  EXPENSE_CATEGORIES,METHODS} from './finance-model';
+  EXPENSE_CATEGORIES,METHODS,roomCollectionForOrder} from './finance-model';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DAY=/^\d{4}-\d{2}-\d{2}$/;
@@ -131,8 +131,10 @@ export function entriesFromLedger(events:SsotEvent[],property:string,
     const allocations=event.booking_allocations.map(a=>{
       const orderId=mapping.byBooking.get(a.booking_id)??
         mapping.historical.get(`${event.source_instance_id}:${a.booking_id}`)??fail();
-      if(cents(a.amount_cents)<=0)fail();
-      return {order_id:orderId,amount_cents:cents(a.amount_cents)};
+      if(cents(a.amount_cents)<=0||
+        !['room','deposit','extra','ota_payout','expense'].includes(a.allocation_kind))fail();
+      return {order_id:orderId,amount_cents:cents(a.amount_cents),
+        allocation_kind:a.allocation_kind as 'room'|'deposit'|'extra'|'ota_payout'|'expense'};
     });
     const sourceRecord=event.source_record_id;
     const recurrence=/^os-recurring:([0-9a-f-]{36}):(\d{4}-\d{2}-\d{2})$/i.exec(sourceRecord);
@@ -260,10 +262,9 @@ export async function ssotFinanceContext(source:SheetSourceDefinition,year:numbe
   applyFinanceAmountCorrections(projected.orders,direct.amountReconciliations);
   attachLinks(projected.orders,catalog);
   projected.orders.push(...direct.orders.map(order=>{
-    const received=entries.filter(e=>e.status==='active'&&e.order_id===order.id&&
-      e.kind==='income').reduce((n,e)=>n+e.amount_cents,0)-
-      entries.filter(e=>e.status==='active'&&e.order_id===order.id&&
-        e.kind==='refund').reduce((n,e)=>n+e.amount_cents,0);
+    const received=entries.filter(e=>e.status==='active'&&
+      ['income','refund'].includes(e.kind)).reduce((n,e)=>n+
+      (e.kind==='refund'?-1:1)*roomCollectionForOrder(e,order.id),0);
     return {...order,received,receivable:Math.max(0,order.total-received),
       credit:Math.max(0,received-order.total)};
   }));

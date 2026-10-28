@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import type {CalendarBooking} from '../components/calendar/calendar-types';
 import {ledgerKey,checkRows} from './os-payments.ts';
-import {recurrenceDue,type FinanceEntry,type FinanceOrder,type PayoutRule,type RecurringExpense} from './finance-model.ts';
+import {recurrenceDue,roomCollectionForOrder,type FinanceEntry,type FinanceOrder,type PayoutRule,type RecurringExpense} from './finance-model.ts';
 export function projectOrders(rows:CalendarBooking[],entries:FinanceEntry[],rules:PayoutRule[]){
  const grouped=new Map<string,CalendarBooking[]>();
  for(const b of rows)if(b.reservation_status!=='cancelled')grouped.set(b.order_id,[...(grouped.get(b.order_id)??[]),b]);
@@ -13,7 +13,7 @@ export function projectOrders(rows:CalendarBooking[],entries:FinanceEntry[],rule
   const key=ledgerKey(bookings[0].property_id,id);
   const received=entries.filter(e=>e.status==='active'&&['income','refund'].includes(e.kind)&&e.method!=='ota').reduce((s,e)=>{
     const allocated=e.order_key===key&&e.category==='lodging'?e.amount_cents:
-      e.allocations?.filter(a=>a.order_id===id).reduce((n,a)=>n+a.amount_cents,0)??0;
+      roomCollectionForOrder(e,id);
     return s+(e.kind==='refund'?-allocated:allocated);
   },0);
   let eligible_date:string|null=null;
