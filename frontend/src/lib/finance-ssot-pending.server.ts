@@ -35,7 +35,7 @@ export async function readPendingOsFinance(property:string,actor:Principal){
 }
 
 export async function reservePendingOsFinance(input:Record<string,unknown>,
-  property:string,actor:Principal):Promise<PendingOsFinance>{
+  property:string,actor:Principal):Promise<{pending:PendingOsFinance;created:boolean}>{
   if(typeof input.request_id!=='string'||!UUID.test(input.request_id)||
     input.property_id!==property)throw Error('INVALID_INPUT');
   const originHash=osFinanceOriginHash(input,actor.id,property);
@@ -45,16 +45,16 @@ export async function reservePendingOsFinance(input:Record<string,unknown>,
       throw Error('FINANCE_PENDING_REQUEST');
     if(existing.value.origin_hash!==originHash)
       throw Error('IDEMPOTENCY_CONFLICT');
-    return existing.value;
+    return {pending:existing.value,created:false};
   }
   const value:PendingOsFinance={schema:1,property_id:property,actor_id:actor.id,
     request_id:input.request_id,origin_hash:originHash,
     created_at:new Date().toISOString(),status:'pending',input};
   const result=await redisCommand(['SET',key(property,actor.id),JSON.stringify(value),'NX']);
-  if(result==='OK')return value;
+  if(result==='OK')return {pending:value,created:true};
   const raced=await stored(property,actor.id);
   if(raced?.value.request_id===input.request_id&&raced.value.origin_hash===originHash)
-    return raced.value;
+    return {pending:raced.value,created:false};
   throw Error('FINANCE_PENDING_REQUEST');
 }
 

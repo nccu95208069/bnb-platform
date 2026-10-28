@@ -23,7 +23,7 @@ export async function submitSsotOsFinance(input:Record<string,unknown>,
     verifyFinancePreview(input,actor,property,
       osFinanceOriginHash(input,actor.id,property),
       ironGateSsotFinanceConfig().calendar.proofSecret);
-  const pending=await reservePendingOsFinance(input,property,actor);
+  const {pending,created}=await reservePendingOsFinance(input,property,actor);
   if(pending.status==='accepted'){
     if(!pending.result)throw Error('FINANCE_PENDING_UNAVAILABLE');
     return pending.result;
@@ -35,6 +35,10 @@ export async function submitSsotOsFinance(input:Record<string,unknown>,
       await acceptPendingOsFinance(property,actor,pending.request_id,resumed.result);
       return resumed.result;
     }
+    // An existing pending request may have reached Iron Gate even when its
+    // receipt is temporarily absent. Keep its slot and original key until an
+    // operator can reconcile it; never submit or repreview it automatically.
+    if(!created)throw Error('WRITE_UNCONFIRMED');
     const preview=verifyFinancePreview(input,actor,property,resumed.originHash,
       ironGateSsotFinanceConfig().calendar.proofSecret);
     const source=activeSources().find(s=>s.property.id===property);
@@ -51,7 +55,7 @@ export async function submitSsotOsFinance(input:Record<string,unknown>,
     return result;
   }catch(error){
     const code=error instanceof Error?error.message:'';
-    if(definiteRejections.has(code)){
+    if(created&&definiteRejections.has(code)){
       // An accepted write can have lost its response. Check the receipt before
       // recording a final rejection or releasing this user's pending slot.
       const resumed=await resumeSsotFinance(input,actor,property);

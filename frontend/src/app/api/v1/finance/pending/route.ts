@@ -28,6 +28,8 @@ function failure(error:unknown){
   return NextResponse.json({code,detail:code==='FINANCE_PENDING_REQUEST'?
     '上一筆財務請求尚未完成或確認。請先查詢原請求。':
     code==='FINANCE_PENDING_UNAVAILABLE'?'待確認請求暫時無法讀取，請稍後再試。':
+    code==='WRITE_UNCONFIRMED'?
+      '原請求結果仍無法確認，已保留原請求。請勿新增一筆，請聯絡管理員核對。':
     code},{status,headers:privateHeaders});
 }
 
