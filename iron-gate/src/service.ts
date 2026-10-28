@@ -86,6 +86,11 @@ function uniqueNights(cells: Night[]): Night[] {
 }
 function identityEnrichmentLabels(booking: Booking): { sourceOrderRef: string; bookedAt: string | null } | null {
   const amount = reconciledAmount(booking);
+  if (amount?.schema === 2) {
+    const snapshot = amount.sourceProperty === 'sweetfun' ? booking.sweetfunSnapshot : booking.offlandSnapshot;
+    const row = Array.isArray(snapshot?.rows) ? snapshot.rows[0] : null;
+    return {sourceOrderRef: amount.sourceOrderRef, bookedAt: typeof row?.bookedAt === 'string' ? row.bookedAt : null};
+  }
   const marker = amount ? { schema: 1, bookingVersion: booking.version, sourceOrderRef: amount.sourceOrderRef } : booking.sourceIdentityEnrichment, rows = booking.sweetfunSnapshot?.rows;
   if (!marker || marker.schema !== 1 || marker.bookingVersion !== booking.version ||
     booking.source !== "external" || booking.sourceCalendar?.platform !== "airbnb" ||
@@ -1768,6 +1773,22 @@ export class IronGateService {
     const page = events.slice(0, limit);
     return { propertyId, events: page, nextCursor: page.at(-1)?.cursor ?? after,
       hasMore: events.length > limit };
+  }
+
+  /** Price-scoped imported amount evidence only; no ledger or guest data. */
+  async sourceAmountSnapshot(principal: Principal, propertyId: string): Promise<Record<string, unknown>> {
+    uuid(propertyId);
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    authorize(principal, state, "booking:read");
+    if (principal.origin !== 'os' || !principal.fields.includes('money')) reject('FORBIDDEN', 403);
+    if (principal.authorityEpoch !== state.authorityEpoch) reject('AUTHORITY_MOVED', 409);
+    const snapshot = {schema: 1, propertyId, workspaceId: state.workspaceId,
+      authorityEpoch: state.authorityEpoch, inventoryVersion: state.version,
+      sourceAmountReconciliations: reconciledFinanceAmounts(state.bookings)};
+    const encoded = JSON.stringify(snapshot);
+    if (new TextEncoder().encode(encoded).byteLength > 2000000) reject('READ_CAPACITY_LIMIT', 409);
+    return {...snapshot, revision: createHash('sha256').update(encoded, 'utf8').digest('hex')};
   }
 
   /** One authoritative read: payments change booking versions, not inventoryVersion. */

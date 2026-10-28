@@ -7,13 +7,13 @@ import {activeSources} from '@/lib/booking-sources/config';
 import {acknowledgePendingOsFinance,readPendingOsFinance} from
   '@/lib/finance-ssot-pending.server';
 import {submitSsotOsFinance} from '@/lib/finance-ssot-submit.server';
+import {ssotFinanceEnabled} from '@/lib/booking-sources/iron-gate-ssot-finance.server';
 
 async function scope(request:NextRequest,property:unknown){
   const actor=await principalFor(request);
   if(!actor)throw Error('UNAUTHORIZED');
   if(!canUseFinance(actor))throw Error('FORBIDDEN');
-  if(typeof property!=='string'||property!=='sweetfun'||
-    process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED!=='true'||
+  if(typeof property!=='string'||!ssotFinanceEnabled(property)||
     !(actor.allProperties||actor.propertyIds.includes(property))||
     !activeSources().some(source=>source.property.id===property))throw Error('FORBIDDEN');
   return {actor,property};

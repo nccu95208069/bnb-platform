@@ -1,4 +1,5 @@
 import {assertNotCardManaged} from '@/lib/card-payment-ownership';
+import {ssotFinanceEnabled} from '@/lib/booking-sources/iron-gate-ssot-finance.server';
 import { NextRequest, NextResponse } from 'next/server';
 import { principalFor } from '@/lib/workspace-auth/session';
 import { allowedProperty } from '@/lib/workspace-auth/projection';
@@ -56,13 +57,13 @@ const failures:Record<string,[number,string]>={FINANCE_SSOT_ORDER_PAYMENT_MOVED:
 function failure(e:unknown){const code=e instanceof Error?e.message:'';const [status,detail]=failures[code]??[503,'付款服務暫時無法確認，請保留原內容重試。'];return NextResponse.json({code:failures[code]?code:'UNAVAILABLE',detail},{status,headers:privateHeaders});}
 export async function GET(request:NextRequest){try{
  const {actor,source,property,order}=await authorized(request,request.nextUrl.searchParams.get('property'),request.nextUrl.searchParams.get('order'));
- if(property==='offland'&&process.env.IRON_GATE_OFFLAND_CALENDAR_ENABLED==='true'){
+ if(property==='offland'&&process.env.IRON_GATE_OFFLAND_CALENDAR_ENABLED==='true'&&!ssotFinanceEnabled(property)){
   const previous=await readLedger(property,order);
   return NextResponse.json({recovery:{ledger:ledgerView(previous.ledger),
     can_record:false,sheet_write_enabled:false,code:'OFFLAND_FINANCE_REVIEW_REQUIRED',
     detail:failures.OFFLAND_FINANCE_REVIEW_REQUIRED[1]}},{headers:privateHeaders});
  }
- if(property==='sweetfun'&&process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED==='true'){
+ if(ssotFinanceEnabled(property)){
   const previous=await readLedger(property,order);
   return NextResponse.json({recovery:{ledger:ledgerView(previous.ledger),
     can_record:false,sheet_write_enabled:false,code:'FINANCE_SSOT_ORDER_PAYMENT_MOVED',
@@ -113,7 +114,7 @@ export async function POST(request:NextRequest){
   await new RedisWorkspaceStore().limit(`payment:${actor.id}`,60,3600);
   const source=activeSources().find(s=>s.property.id===input.property_id);
   if(!source)throw new Error('NOT_FOUND');
-  if(input.property_id==='sweetfun'&&process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED==='true')
+  if(ssotFinanceEnabled(input.property_id))
     throw new Error('FINANCE_SSOT_ORDER_PAYMENT_MOVED');
  if(input.property_id==='offland'&&process.env.IRON_GATE_OFFLAND_CALENDAR_ENABLED==='true')
    throw new Error('OFFLAND_FINANCE_REVIEW_REQUIRED');

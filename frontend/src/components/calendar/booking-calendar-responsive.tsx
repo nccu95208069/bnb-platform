@@ -1,5 +1,6 @@
 "use client";
 import { useCalendarData } from "./use-calendar-data";
+import { useCalendarPerformance } from "./use-calendar-performance";
 import { hasCalendarCoverage } from "./calendar-retention";
 import { useCalendarRevision } from "./use-calendar-revision";
 import {GuestNotificationProvider} from "./guest-notification";
@@ -283,7 +284,7 @@ const uiLocale = useIntlLocale();
       .map(month => fetchPeriod(month, "month", true))
     : [], [view, visibleMonth, monthsToShow]);
   const visiblePeriod = view === "month" ? fetchPeriod(visibleMonth, "month", true) : requestPeriod;
-  const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess(); }, [setSelectedId, initializeAccess]);
+  const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess({ force: true }); }, [setSelectedId, initializeAccess]);
   const { data, loading, refreshing, error, requestFailed, lastLoadedAt } = useCalendarData({
     start: requestPeriod.start, end: requestPeriod.end,
     scope: `${accessScope}:${propertyScope}`, reload: reloadKey,
@@ -292,6 +293,8 @@ const uiLocale = useIntlLocale();
     visibleEnd: visiblePeriod.end,
     prefetch: prefetchRanges,
   });
+  useCalendarPerformance(`${accessScope}:${propertyScope}:${view}:${visiblePeriod.start}:${visiblePeriod.end}:${reloadKey}`,
+    !loading && !refreshing && !requestFailed && hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end));
   const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
   const manualEnabled = data?.iron_gate_manual_enabled === true && !requestFailed &&
     !loading && !error && !refreshing &&
@@ -1067,6 +1070,12 @@ const uiLocale = useIntlLocale();
         paymentWorkspace={
           data?.source?.read_only && selectedBooking?.snapshot_only ? (
             <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">目前為唯讀快照。請重新載入並確認最新訂單後，再登錄付款。</p>
+          ) : data?.source?.read_only && selectedBooking?.property_id==='offland' &&
+            data.finance_ssot_properties?.includes('offland') && permissions.viewPrices ? (
+            <div role="status" className="space-y-2 rounded-lg border p-3 text-sm">
+              <p>收款與支出統一在遺忘無際財務頁登記，與 LINE 共用同一份帳。</p>
+              <Link className="inline-block font-semibold underline" href="/finance/bookkeeping?property=offland">開啟遺忘無際收支</Link>
+            </div>
           ) : data?.source?.read_only &&
             (selectedBooking?.iron_gate_source === "os" ||
               (selectedBooking?.iron_gate_card_managed && data?.finance_ssot_enabled)) &&
