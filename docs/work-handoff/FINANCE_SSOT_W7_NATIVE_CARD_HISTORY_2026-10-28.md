@@ -39,11 +39,20 @@ versions. There is no HTTP route or automatic production runner for this service
   after synthetic import proves only that those fixture records matched.
 
 Migration `016_finance_historical_actor.sql` adds nullable
-`finance_revision.source_actor_ref`. The regular `actor_ref` remains the
-authenticated import credential. Generic reviewed shadow imports may provide a
-safe opaque `source_actor_ref`; native/Card imports derive a SHA-256 opaque ref
-from the original Iron Gate actor ID. Ledger and activity reads expose this
-separate historical field. It is source evidence, not an authorization claim;
+`finance_revision.source_actor_ref` and `source_recorded_at` on revisions and
+events. The regular `actor_ref` remains the authenticated import credential;
+revision `created_at` and event `recorded_at` remain import timestamps. Generic
+reviewed shadow money imports require an original, timezone-qualified
+`source_recorded_at`; a missing timestamp blocks preview/commit for review.
+Native/Card history derives the source stamp from the locked booking JSON:
+Card result `recordedAt` for the revision, linked payment event `recordedAt`
+for a Done money event, and native payment event `recordedAt` for both rows.
+The adapter reports missing or invalid source timestamps as blocking issues.
+`occurredAt` and `chargeDate` continue to determine the business day; they
+do not replace the original audit timestamp. Generic imports may also provide
+a safe opaque `source_actor_ref`; native/Card imports derive a SHA-256 opaque
+ref from the original Iron Gate actor ID. Ledger and activity reads expose the
+separate historical fields. They are source evidence, not authorization claims;
 the imported source snapshot and actor mapping still need private review.
 
 The generic shadow import path deliberately remains limited to

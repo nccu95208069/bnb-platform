@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { cardFingerprint, cardPaymentId } from './card-sync.ts';
 import { GateError } from './errors.ts';
 import { appendFinanceChange, linkFinanceEvents } from './finance-change.mjs';
+import { sameSourceInstant, validSourceRecordedAt } from './finance-source-time.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -61,10 +62,15 @@ export function planNativeCardHistory(state, system) {
       const seenFingerprints = new Set();
       card.forEach((result, index) => {
         const ref = `${base}:v${index + 1}`;
+        if (result?.recordedAt == null) {
+          issues.push(issue(ref, 'SOURCE_TIMESTAMP_MISSING')); return;
+        }
+        if (!validSourceRecordedAt(result.recordedAt)) {
+          issues.push(issue(ref, 'SOURCE_TIMESTAMP_INVALID')); return;
+        }
         if (!result || !['done', 'fail'].includes(result.status) ||
           !HEX.test(result.fingerprint ?? '') || cardFingerprint(result) !== result.fingerprint ||
           !sourceActor(result.actorId,state.propertyId) ||
-          !Number.isFinite(Date.parse(result.recordedAt ?? '')) ||
           !positiveCents(result.amountCents) ||
           (result.status === 'done' ? !date(result.chargeDate) :
             result.chargeDate !== null || result.paymentEventId != null) ||
@@ -77,11 +83,18 @@ export function planNativeCardHistory(state, system) {
         let expectedEvent = null;
         if (result.status === 'done') {
           const matches = events.filter(event => event?.id === result.paymentEventId);
+          if (matches.length===1 && matches[0].recordedAt == null) {
+            issues.push(issue(ref, 'SOURCE_TIMESTAMP_MISSING')); return;
+          }
+          if (matches.length===1 && !validSourceRecordedAt(matches[0].recordedAt)) {
+            issues.push(issue(ref, 'SOURCE_TIMESTAMP_INVALID')); return;
+          }
           if (result.paymentEventId !== cardPaymentId(state.propertyId, booking.id) ||
             matches.length !== 1 || matches[0].kind !== 'received' ||
             matches[0].amountCents !== result.amountCents ||
             matches[0].currency !== 'TWD' || matches[0].method !== 'credit_card' ||
             matches[0].actorId !== result.actorId ||
+            Date.parse(matches[0].recordedAt) !== Date.parse(result.recordedAt) ||
             dayInTaipei(matches[0].occurredAt) !== result.chargeDate ||
             (Number.isSafeInteger(booking.totalCents) &&
               booking.totalCents !== result.amountCents)) {
@@ -90,13 +103,15 @@ export function planNativeCardHistory(state, system) {
           expectedEvent = { id:result.paymentEventId, kind:'property_receipt',
             amount_cents:result.amountCents, day:result.chargeDate, booking_id:booking.id,
             method:'credit_card', related_receipt_event_id:null,
-            evidence_ref:`card:${result.fingerprint}` };
+            evidence_ref:`card:${result.fingerprint}`,
+            source_recorded_at:matches[0].recordedAt };
           receipts.set(expectedEvent.id, expectedEvent);
         }
         records.push({ system, source_record_id:booking.id, version:index + 1,
           source_version:result.fingerprint,
           action:result.status === 'fail' ? 'card_fail' : 'create',
-          source_actor_ref:sourceActor(result.actorId,state.propertyId), event:expectedEvent });
+          source_actor_ref:sourceActor(result.actorId,state.propertyId),
+          source_recorded_at:result.recordedAt, event:expectedEvent });
       });
     }
     if (system === 'iron_gate_native') for (const payment of events) {
@@ -105,6 +120,12 @@ export function planNativeCardHistory(state, system) {
         issues.push(issue(ref, 'PAYMENT_EVENT_ID_INVALID')); continue;
       }
       allIds.add(payment.id);
+      if (payment.recordedAt == null) {
+        issues.push(issue(ref, 'SOURCE_TIMESTAMP_MISSING')); continue;
+      }
+      if (!validSourceRecordedAt(payment.recordedAt)) {
+        issues.push(issue(ref, 'SOURCE_TIMESTAMP_INVALID')); continue;
+      }
       if (payment.id === doneId) continue; // Card owns the exact original event.
       const eventDay = dayInTaipei(payment.occurredAt);
       if (!['received','refunded'].includes(payment.kind) ||
@@ -130,11 +151,13 @@ export function planNativeCardHistory(state, system) {
       records.push({ system, source_record_id:payment.id, version:1,
         source_version:'1', action:'create',
         source_actor_ref:sourceActor(payment.actorId,state.propertyId),
+        source_recorded_at:payment.recordedAt,
         event:{ id:payment.id, kind:payment.kind === 'received' ?
           'property_receipt' : 'property_refund', amount_cents:payment.amountCents,
           day:eventDay, booking_id:booking.id, method:payment.method ?? null,
           related_receipt_event_id:payment.refundOfEventId ?? null,
-          evidence_ref:`ig-payment:${payment.id}` } });
+          evidence_ref:`ig-payment:${payment.id}`,
+          source_recorded_at:payment.recordedAt } });
     }
   }
   // Native receipts and Card Done are one pool for exact refund matching. For
@@ -237,10 +260,11 @@ export class NativeCardHistoryService {
     const documents=await client.query(`SELECT id,source_instance_id,source_system,source_record_id,kind,
         current_version,status FROM iron_gate.finance_document WHERE property_id=$1`,[propertyId]),
       revisions=await client.query(`SELECT document_id,version,action,source_version,request_hash,
-        source_actor_ref FROM iron_gate.finance_revision WHERE property_id=$1`,[propertyId]),
+        source_actor_ref,source_recorded_at FROM iron_gate.finance_revision
+        WHERE property_id=$1`,[propertyId]),
       events=await client.query(`SELECT id,document_id,revision_version,event_kind,amount_cents,
         cash_effect_cents,effective_on,cash_on,receipt_purpose,payment_method_code,
-        related_receipt_document_id,related_receipt_event_id,evidence_ref
+        related_receipt_document_id,related_receipt_event_id,evidence_ref,source_recorded_at
         FROM iron_gate.finance_event WHERE property_id=$1`,[propertyId]),
       allocations=await client.query(`SELECT event_id,booking_id,amount_cents,allocation_kind
         FROM iron_gate.finance_allocation WHERE property_id=$1`,[propertyId]),
@@ -314,6 +338,7 @@ export class NativeCardHistoryService {
       if (revision.action!==record.action || revision.source_version!==record.source_version ||
         revision.request_hash!==recordHash(record) ||
         revision.source_actor_ref!==record.source_actor_ref ||
+        !sameSourceInstant(revision.source_recorded_at,record.source_recorded_at) ||
         !ledger.changes.some(item => item.source_id===doc.id &&
           item.source_version===String(record.version)))
         issues.push(issue(key,'REVISION_IDENTITY_CONFLICT'));
@@ -333,6 +358,7 @@ export class NativeCardHistoryService {
           pgDay(a.effective_on)!==event.day || pgDay(a.cash_on)!==event.day ||
           a.receipt_purpose!=='room' || a.payment_method_code!==event.method ||
           a.evidence_ref!==event.evidence_ref ||
+          !sameSourceInstant(a.source_recorded_at,event.source_recorded_at) ||
           a.related_receipt_event_id!==event.related_receipt_event_id ||
           a.related_receipt_document_id!==(original?.document_id ?? null) ||
           alloc.length!==1 || alloc[0].booking_id!==event.booking_id ||
@@ -428,10 +454,11 @@ export class NativeCardHistoryService {
         }
         await client.query(`INSERT INTO iron_gate.finance_revision
           (property_id,document_id,version,action,request_hash,source_version,
-           actor_ref,source_actor_ref)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+           actor_ref,source_actor_ref,source_recorded_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [propertyId,documentId,record.version,record.action,recordHash(record),
-            record.source_version,principal.subjectId,record.source_actor_ref]);
+            record.source_version,principal.subjectId,record.source_actor_ref,
+            record.source_recorded_at]);
         if (record.event) {
           const event=record.event;
           const original=event.related_receipt_event_id ? await client.query(`SELECT e.document_id
@@ -446,12 +473,12 @@ export class NativeCardHistoryService {
             (id,property_id,document_id,revision_version,event_kind,amount_cents,
              cash_effect_cents,effective_on,cash_on,evidence_level,evidence_ref,
              receipt_purpose,payment_method_code,related_receipt_document_id,
-             related_receipt_event_id,actor_ref)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,'operator_attested',$9,'room',$10,$11,$12,$13)`,
+             related_receipt_event_id,actor_ref,source_recorded_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$8,'operator_attested',$9,'room',$10,$11,$12,$13,$14)`,
             [event.id,propertyId,documentId,record.version,event.kind,event.amount_cents,
               event.kind==='property_refund'?-event.amount_cents:event.amount_cents,
               event.day,event.evidence_ref,event.method,original?.rows[0]?.document_id ?? null,
-              event.related_receipt_event_id,principal.subjectId]);
+              event.related_receipt_event_id,principal.subjectId,event.source_recorded_at]);
           await client.query(`INSERT INTO iron_gate.finance_allocation
             (property_id,event_id,booking_id,amount_cents,allocation_kind)
             VALUES ($1,$2,$3,$4,'room')`,

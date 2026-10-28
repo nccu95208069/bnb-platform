@@ -332,23 +332,45 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
         { ...link,preview_token:linkPreview.preview_token },link.request_key),linked);
       const imported = { ...roomCommand('legacy-receipt-1',1000),
         source_actor_ref:'line_actor:synthetic-reviewed-1',
+        source_recorded_at:'2026-10-27T11:42:13+08:00',
         booking_allocations:[{source_order_key:'SF-IMPORTED-1',
           amount_cents:1000,allocation_kind:'room'}] };
+      await assert.rejects(service.importPreview(importer,propertyId,
+        {...imported,source_recorded_at:undefined},imported.request_key),
+      e => e.code==='SOURCE_MAPPING_REVIEW_REQUIRED');
+      await assert.rejects(service.importPreview(importer,propertyId,
+        {...imported,source_recorded_at:'2026-02-30T11:42:13+08:00'},imported.request_key),
+      e => e.code==='INVALID_SOURCE_TIMESTAMP');
       const importPreview = await service.importPreview(importer,propertyId,
         imported,imported.request_key);
+      await assert.rejects(service.importCommand(importer,propertyId,
+        {...importPreview.resolved_command,source_recorded_at:undefined,
+          preview_token:importPreview.preview_token},imported.request_key),
+      e => e.code==='SOURCE_MAPPING_REVIEW_REQUIRED');
       const importReceipt = await service.importCommand(importer,propertyId,
         {...importPreview.resolved_command,preview_token:importPreview.preview_token},
         imported.request_key);
       assert.equal(importReceipt.receipt_status,'accepted');
-      const historicalActor=await admin.query(`SELECT actor_ref,source_actor_ref
+      const historicalActor=await admin.query(`SELECT actor_ref,source_actor_ref,
+        source_recorded_at,created_at
         FROM iron_gate.finance_revision WHERE property_id=$1 AND document_id=$2`,
         [propertyId,importReceipt.document_id]);
       assert.equal(historicalActor.rows[0].actor_ref,importer.subjectId);
       assert.equal(historicalActor.rows[0].source_actor_ref,imported.source_actor_ref);
+      assert.equal(historicalActor.rows[0].source_recorded_at.toISOString(),
+        '2026-10-27T03:42:13.000Z');
+      assert.notEqual(historicalActor.rows[0].created_at.toISOString(),
+        historicalActor.rows[0].source_recorded_at.toISOString());
       assert.deepEqual(await service.importReceipt(importer,propertyId,
         imported.request_key),importReceipt);
-      assert.equal((await service.importLedger(importer,propertyId,
-        {limit:100})).events.some(event => event.document_id===importReceipt.document_id),true);
+      const importedEvent=(await service.importLedger(importer,propertyId,
+        {limit:100})).events.find(event => event.document_id===importReceipt.document_id);
+      assert.equal(importedEvent.source_recorded_at.toISOString(),
+        '2026-10-27T03:42:13.000Z');
+      assert.equal(importedEvent.revision_source_recorded_at.toISOString(),
+        '2026-10-27T03:42:13.000Z');
+      assert.notEqual(importedEvent.created_at.toISOString(),
+        importedEvent.source_recorded_at.toISOString());
       const issue = { request_key:'import-issue-1',source_record_id:'legacy-ambiguous-1',
         source_version:'1',reason_code:'BOOKING_MAPPING_AMBIGUOUS',severity:'blocking' };
       const flagged = await service.importIssue(importer,propertyId,issue,issue.request_key);

@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { GateError } from './errors.ts';
 import { appendFinanceChange, financeWatermark, linkFinanceEvents } from './finance-change.mjs';
+import { validSourceRecordedAt } from './finance-source-time.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -21,7 +22,7 @@ const COMMAND_KEYS = new Set(['request_key', 'source_record_id', 'source_version
   'safe_description', 'evidence_level', 'evidence_ref',
   'booking_allocations', 'booking_guards', 'expense_attributions', 'related_receipt_document_id',
   'related_receipt_event_id', 'reason_code', 'reason_note',
-  'preview_token','provider_transaction_ref','source_actor_ref']);
+  'preview_token','provider_transaction_ref','source_actor_ref','source_recorded_at']);
 
 function fail(code, status = 400) { throw new GateError(code, status); }
 function safeText(value, max, required = false) {
@@ -94,6 +95,8 @@ function normalize(raw, requestKey) {
     fail('INVALID_INPUT');
   if (raw.origin_request_hash != null && !HEX.test(raw.origin_request_hash))
     fail('INVALID_INPUT');
+  if (raw.source_recorded_at != null && !validSourceRecordedAt(raw.source_recorded_at))
+    fail('INVALID_SOURCE_TIMESTAMP',422);
   const allocations = raw.booking_allocations ?? [];
   if (!Array.isArray(allocations) || allocations.length > 100 || allocations.some(a =>
     !a || !UUID.test(a.booking_id) || !Number.isSafeInteger(a.expected_booking_version) ||
@@ -200,6 +203,9 @@ function normalize(raw, requestKey) {
     // Absence must preserve the pre-016 command hash for old request-key retries.
     ...(raw.source_actor_ref == null ? {} :
       { source_actor_ref: safeText(raw.source_actor_ref,128,true) }),
+    // Omission preserves the original command hash for existing request-key retries.
+    ...(raw.source_recorded_at == null ? {} :
+      { source_recorded_at: raw.source_recorded_at }),
     reason_code: safeText(raw.reason_code, 64),
     reason_note: safeText(raw.reason_note, 300),
   };
@@ -391,6 +397,9 @@ export class FinanceCommandService {
         }
       }
       const command = normalize(resolved, requestKey);
+      if (shadowImport && !command.source_recorded_at)
+        fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
+      if (!shadowImport && command.source_recorded_at) fail('INVALID_INPUT');
       if (source.source_system === 'sheet_bulk' &&
         (!source.source_sheet_ref || !command.source_record_id.startsWith(
           `sheet:${source.source_sheet_ref}:`) || !UUID.test(command.source_record_id.slice(
@@ -1013,7 +1022,9 @@ export class FinanceCommandService {
         e.service_on,e.category_code,e.receipt_purpose,
         e.payment_method_code,e.payment_account_ref,e.advanced_by_ref,
         e.advanced_by_kind,e.advanced_by_label,
-        e.safe_description,e.actor_ref,r.source_actor_ref,e.evidence_ref,e.created_at,
+        e.safe_description,e.actor_ref,r.source_actor_ref,
+        e.source_recorded_at,r.source_recorded_at AS revision_source_recorded_at,
+        e.evidence_ref,e.created_at,
         first_event.actor_ref AS origin_actor_ref,
         first_event.created_at AS origin_recorded_at,
         COALESCE(snapshot_r.actor_ref,current_r.actor_ref) AS current_actor_ref,
@@ -1116,6 +1127,7 @@ export class FinanceCommandService {
       const rows = await client.query(`WITH activity AS (
         SELECT r.created_at AS at, r.document_id::text || ':' || r.version::text AS id,
           'money'::text AS source, r.action, r.actor_ref,r.source_actor_ref,
+          r.source_recorded_at,
           r.document_id::text AS target_id, r.version AS version,
           d.source_system, e.event_kind, e.amount_cents,
           e.safe_description, r.reason_note,
@@ -1147,6 +1159,7 @@ export class FinanceCommandService {
           'operation'::text AS source,a.audit_json->>'action' AS action,
           a.audit_json->>'actorRef' AS actor_ref,
           NULL::text AS source_actor_ref,
+          NULL::timestamptz AS source_recorded_at,
           COALESCE(rr.response_json->>'rule_id',rr.response_json->>'account_code',
             rr.response_json->>'category_code',rr.response_json->>'status_id',
             rr.response_json->>'platform',rr.response_json->>'settlement_id',
@@ -1374,7 +1387,8 @@ export class FinanceCommandService {
       ['expense_paid', 'processor_fee_paid'].includes(command.event_kind) ?
         'finance:record_expense' : 'finance:record_receipt';
     this.#authorize(principal, propertyId, shadowImport ? 'finance:import' : action);
-    if (!shadowImport && command.source_actor_ref) fail('INVALID_INPUT');
+    if (!shadowImport && (command.source_actor_ref || command.source_recorded_at))
+      fail('INVALID_INPUT');
     const requestHash = hash(command);
     return this.#transaction(propertyId, true, async client => {
       const { state, source } = await this.#context(client, principal, propertyId, true, shadowImport);
@@ -1397,6 +1411,8 @@ export class FinanceCommandService {
         if (priorReceipt.rows[0].request_hash !== requestHash) fail('REQUEST_KEY_REUSED', 409);
         return priorReceipt.rows[0].response_json;
       }
+      if (shadowImport && !command.source_recorded_at)
+        fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
       // A payment method is not a verified processor identity. Until a
       // connector supplies one, a caller-provided transaction reference cannot
       // safely claim the cross-source uniqueness key.
@@ -1611,10 +1627,11 @@ export class FinanceCommandService {
         [version, command.action === 'void' ? 'void' : 'active', propertyId, documentId]);
       await client.query(`INSERT INTO iron_gate.finance_revision
         (property_id,document_id,version,action,request_hash,source_version,
-         actor_ref,source_actor_ref,reason_code,reason_note)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [propertyId, documentId, version,
+         actor_ref,source_actor_ref,source_recorded_at,reason_code,reason_note)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, [propertyId, documentId, version,
         command.action, requestHash, command.source_version, principal.subjectId,
-        command.source_actor_ref ?? null,command.reason_code,command.reason_note]);
+        command.source_actor_ref ?? null,command.source_recorded_at ?? null,
+        command.reason_code,command.reason_note]);
       const eventIds = [];
       // Reversal and replacement share one revision and one serializable transaction.
       if (command.action !== 'create') {
@@ -1628,15 +1645,15 @@ export class FinanceCommandService {
              effective_on,cash_on,service_on,category_code,category_kind,receipt_purpose,
              payment_method_code,payment_account_ref,advanced_by_ref,advanced_by_kind,
              advanced_by_label,safe_description,evidence_level,evidence_ref,
-             reverses_event_id,actor_ref)
-            VALUES ($1,$2,$3,$4,'reversal',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+             reverses_event_id,actor_ref,source_recorded_at)
+            VALUES ($1,$2,$3,$4,'reversal',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
             [reversalId, propertyId, documentId, version, event.amount_cents,
               -Number(event.cash_effect_cents), event.effective_on, event.cash_on,
               event.service_on, event.category_code, event.category_kind, event.receipt_purpose,
               event.payment_method_code, event.payment_account_ref, event.advanced_by_ref,
               event.advanced_by_kind,event.advanced_by_label,event.safe_description,
               event.evidence_level, event.evidence_ref, event.id,
-              principal.subjectId]);
+              principal.subjectId,command.source_recorded_at ?? null]);
           await client.query(`INSERT INTO iron_gate.finance_allocation
             (property_id,event_id,booking_id,amount_cents,allocation_kind)
             SELECT property_id,$1,booking_id,-amount_cents,allocation_kind FROM iron_gate.finance_allocation
@@ -1659,8 +1676,8 @@ export class FinanceCommandService {
            effective_on,cash_on,service_on,category_code,category_kind,receipt_purpose,
            payment_method_code,payment_account_ref,advanced_by_ref,advanced_by_kind,
            advanced_by_label,safe_description,evidence_level,evidence_ref,
-           related_receipt_document_id,related_receipt_event_id,actor_ref)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
+           related_receipt_document_id,related_receipt_event_id,actor_ref,source_recorded_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25)`,
           [eventId, propertyId, documentId, version, kind, command.amount_cents, cashEffect,
             command.effective_on, command.cash_on, command.service_on, command.category_code,
             command.category_code ?
@@ -1669,7 +1686,8 @@ export class FinanceCommandService {
             command.advanced_by_ref,command.advanced_by_kind,command.advanced_by_label,
             command.safe_description, command.evidence_level,command.evidence_ref,
             command.related_receipt_document_id,
-            command.related_receipt_event_id, principal.subjectId]);
+            command.related_receipt_event_id, principal.subjectId,
+            command.source_recorded_at ?? null]);
         for (const a of command.booking_allocations) await client.query(`INSERT INTO iron_gate.finance_allocation
           (property_id,event_id,booking_id,amount_cents,allocation_kind) VALUES ($1,$2,$3,$4,$5)`,
           [propertyId, eventId, a.booking_id, a.amount_cents, a.allocation_kind]);

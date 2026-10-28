@@ -23,7 +23,7 @@ const sourceActor='synthetic-original-operator';
 function payment(id,kind,amount,refundOfEventId=null) {
   return {id,kind,amountCents:amount,currency:'TWD',method:'credit_card',
     evidenceRef:`synthetic:${id}`,occurredAt:'2026-10-27T10:00:00+08:00',
-    recordedAt:'2026-10-27T02:00:00Z',actorId:sourceActor,
+    recordedAt:'2026-10-27T04:00:00Z',actorId:sourceActor,
     ...(refundOfEventId?{refundOfEventId}:{})};
 }
 function cardResult(status,paymentEventId=null) {
@@ -31,7 +31,7 @@ function cardResult(status,paymentEventId=null) {
     platform:'booking',orderId:'12345678',checkIn:'2026-11-12',checkOut:'2026-11-13',
     amountCents:10000,status,chargeDate:status==='done'?'2026-10-27':null};
   return {...source,fingerprint:cardFingerprint(source),
-    recordedAt:'2026-10-27T02:00:00Z',actorId:sourceActor,paymentEventId};
+    recordedAt:'2026-10-27T04:00:00Z',actorId:sourceActor,paymentEventId};
 }
 function state() {
   const cardId=cardPaymentId(propertyId,cardBookingId);
@@ -83,16 +83,27 @@ test('W7 imports original Card Done once, Fail as zero, then native receipts/ref
       assert.equal(cardImported.imported,2);
       assert.equal(cardImported.total_difference_cents,0);
       const cardId=cardPaymentId(propertyId,cardBookingId);
-      const cardEvents=await admin.query(`SELECT id,event_kind FROM iron_gate.finance_event
+      const cardEvents=await admin.query(`SELECT id,event_kind,source_recorded_at,recorded_at
+        FROM iron_gate.finance_event
         WHERE property_id=$1 AND document_id=(SELECT id FROM iron_gate.finance_document
           WHERE property_id=$1 AND source_instance_id=$2 AND source_record_id=$3)`,
         [propertyId,cardConnector,cardBookingId]);
-      assert.deepEqual(cardEvents.rows,[{id:cardId,event_kind:'property_receipt'}]);
-      const cardRevisions=await admin.query(`SELECT version,action,actor_ref,source_actor_ref
+      assert.equal(cardEvents.rows.length,1);
+      assert.equal(cardEvents.rows[0].id,cardId);
+      assert.equal(cardEvents.rows[0].event_kind,'property_receipt');
+      assert.equal(cardEvents.rows[0].source_recorded_at.toISOString(),
+        '2026-10-27T04:00:00.000Z');
+      assert.notEqual(cardEvents.rows[0].recorded_at.toISOString(),
+        cardEvents.rows[0].source_recorded_at.toISOString());
+      const cardRevisions=await admin.query(`SELECT version,action,actor_ref,source_actor_ref,
+        source_recorded_at,created_at
         FROM iron_gate.finance_revision WHERE property_id=$1 ORDER BY version`,[propertyId]);
       assert.deepEqual(cardRevisions.rows.map(row=>row.action),['card_fail','create']);
       assert.ok(cardRevisions.rows.every(row=>row.actor_ref===importActor &&
         row.source_actor_ref.startsWith('ig_actor:') && row.source_actor_ref!==sourceActor));
+      assert.ok(cardRevisions.rows.every(row=>
+        row.source_recorded_at.toISOString()==='2026-10-27T04:00:00.000Z' &&
+        row.created_at.toISOString()!==row.source_recorded_at.toISOString()));
       const alias=await admin.query(`SELECT canonical_document_id FROM iron_gate.finance_source_alias
         WHERE property_id=$1 AND source_instance_id=$2 AND source_record_id=$3`,
         [propertyId,nativeConnector,cardId]);
@@ -114,6 +125,19 @@ test('W7 imports original Card Done once, Fail as zero, then native receipts/ref
         new Set([cardId,osReceiptId,osRefundId,cardRefundId]));
       assert.equal(original.rows.find(row=>row.id===cardRefundId).related_receipt_event_id,cardId);
       assert.equal(original.rows.find(row=>row.id===cardId).provider_code,'sweetfun_card');
+      const nativeTimes=await admin.query(`SELECT r.source_recorded_at AS revision_source_recorded_at,
+        r.created_at,e.source_recorded_at AS event_source_recorded_at,e.recorded_at
+        FROM iron_gate.finance_revision r JOIN iron_gate.finance_event e
+          ON e.property_id=r.property_id AND e.document_id=r.document_id
+            AND e.revision_version=r.version
+        JOIN iron_gate.finance_document d ON d.property_id=r.property_id AND d.id=r.document_id
+        WHERE r.property_id=$1 AND d.source_system='iron_gate_native'`,[propertyId]);
+      assert.equal(nativeTimes.rows.length,3);
+      assert.ok(nativeTimes.rows.every(row=>
+        row.revision_source_recorded_at.toISOString()==='2026-10-27T04:00:00.000Z' &&
+        row.event_source_recorded_at.toISOString()==='2026-10-27T04:00:00.000Z' &&
+        row.created_at.toISOString()!==row.revision_source_recorded_at.toISOString() &&
+        row.recorded_at.toISOString()!==row.event_source_recorded_at.toISOString()));
       const stored=await admin.query(`SELECT state_json FROM iron_gate.property_state
         WHERE property_id=$1`,[propertyId]);
       assert.deepEqual(stored.rows[0].state_json,state());
