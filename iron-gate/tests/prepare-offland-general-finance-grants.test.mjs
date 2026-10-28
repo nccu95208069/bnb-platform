@@ -55,6 +55,8 @@ test('OS and LINE packages bind distinct Offland connectors and store no plainte
   assert.notEqual(os.grant.credentialId,line.grant.credentialId);
   assert.match(plan.sql,/source\.enabled IS DISTINCT FROM true/);
   assert.match(plan.sql,/source\.cutover_at IS NULL/);
+  assert.match(plan.sql,/FROM iron_gate\.finance_document d[\s\S]*d\.source_instance_id=expected\.source_instance_id/);
+  assert.match(plan.sql,/OFFLAND_FINANCE_CONNECTOR_NOT_EMPTY/);
   assert.match(plan.sql,/OFFLAND_FINANCE_AUTHORITY_CHANGED/);
   assert.match(plan.sql,/OFFLAND_FINANCE_CREDENTIAL_ALREADY_ACTIVE/);
   assert.match(plan.sql,/OFFLAND_LINE_GROUP_NOT_VERIFIED/);

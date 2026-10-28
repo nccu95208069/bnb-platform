@@ -127,6 +127,16 @@ BEGIN
       expected.grant_json->>'financeSourceInstanceId'<>
         expected.source_instance_id::text
       THEN RAISE EXCEPTION 'OFFLAND_FINANCE_CONNECTOR_MISMATCH'; END IF;
+    IF EXISTS (SELECT 1 FROM iron_gate.finance_document d
+      WHERE d.property_id=expected.property_id AND
+        d.source_instance_id=expected.source_instance_id) AND
+      NOT EXISTS (SELECT 1 FROM iron_gate.credentials issued
+        WHERE issued.credential_id=expected.credential_id AND
+          issued.property_id=expected.property_id AND
+          issued.token_hash=expected.token_hash AND
+          issued.grant_json=expected.grant_json AND
+          issued.expires_at=expected.expires_at AND issued.active)
+      THEN RAISE EXCEPTION 'OFFLAND_FINANCE_CONNECTOR_NOT_EMPTY'; END IF;
     IF expected.expires_at<=now() OR
       expected.expires_at>now()+interval '30 days'
       THEN RAISE EXCEPTION 'OFFLAND_FINANCE_CREDENTIAL_EXPIRY_INVALID'; END IF;

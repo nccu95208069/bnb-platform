@@ -57,7 +57,15 @@ place, the backend candidate and its general-entry restriction are verified,
 and each selected connector is enabled with an effective `cutover_at`. The SQL
 checks the live property authority, connector source/account/scope, existing
 LINE group evidence when present, duplicate active subjects, credential expiry
-and full readback in one transaction. It fails closed if any value changed.
+and full readback in one transaction. Each selected connector must have **zero
+existing `finance_document` rows** when the new-entry credential is issued.
+This prevents a general-only launch grant from attaching to historical money
+already imported through the same source instance. A later historical import
+into either connector requires a fresh correction-scope review and new grant
+plan; this package must not be silently reused. Reapplying the **same** private
+package after an uncertain issuance only verifies the identical active
+credential and may succeed even if later new entries exist. It fails closed if
+any value changed.
 The runtime database role cannot issue credentials.
 
 Set `IRON_GATE_FINANCE_COMMANDS_ENABLED=true` and a private
