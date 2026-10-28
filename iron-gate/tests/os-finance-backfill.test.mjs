@@ -14,6 +14,10 @@ const ID = {
   legacySource:'77777777-7777-4777-8777-777777777777',
 };
 const digest = value => createHash('sha256').update(value).digest('hex');
+const canonical = value => JSON.stringify((function sort(item) {
+  return Array.isArray(item) ? item.map(sort) : item && typeof item === 'object' ?
+    Object.fromEntries(Object.keys(item).sort().map(key => [key,sort(item[key])])) : item;
+})(value));
 const stateKey = 'sweetfun-os:finance:v1:sweetfun:2025';
 const paymentId = 'PAY-ALIAS-1';
 const payKey = `sweetfun-os:payments:v1:sweetfun:${digest(JSON.stringify(paymentId))}`;
@@ -54,6 +58,58 @@ function fixture() {
       snapshot_hash:'b'.repeat(64),reviewed:true}],
     catalog:{categories:[{kind:'expense',code:'water',label:'水費',status:'active'},
       {kind:'income',code:'lodging',label:'住宿收入',status:'active'}],accounts:[]}};
+}
+function adjudicatedFixture(disposition='paid_status') {
+  const input=fixture(), row=input.snapshot.records[1];
+  const ledger=JSON.parse(row.value), receipt=ledger.receipts[1];
+  delete receipt.sheet_sync;
+  receipt.audit={schema_version:1,target_type:'receipt',target_id:receipt.id,
+    request_id:receipt.request_id,actor_id:receipt.actor,at:receipt.created_at,
+    action:'calendar_payment_confirmed',version_before:1,version_after:2,
+    after:{id:receipt.id,amount:receipt.amount,status_only:true,
+      order_id:paymentId}};
+  row.value=JSON.stringify(ledger);
+  const baseline=planOsFinanceBackfill(input);
+  input.status_adjudications={schema_version:1,property_id:'sweetfun',
+    snapshot_hash:baseline.snapshot_hash,reviewer_ref:'owner:synthetic',
+    reviewed_at:'2026-10-28T00:00:00Z',decisions:[{
+      source_system:'os_legacy_payment',source_instance_id:ID.legacySource,
+      source_key:row.key,source_record_id:receipt.id,
+      origin_source_version:'redis:ledger:2',
+      origin_request_hash:digest(canonical({sourceKey:row.key,
+        sourceRecordId:receipt.id,version:'redis:ledger:2',sourceValue:receipt})),
+      ledger_hash:digest(row.value),source_order_key:paymentId,
+      booking_id:ID.booking,booking_version:3,
+      source_snapshot_hash:input.links[0].snapshot_hash,
+      disposition,evidence_sha256:'e'.repeat(64)}]};
+  return {input,baseline};
+}
+function adjudicationReadback(plan) {
+  const row=plan.records.find(item=>item.adjudication);
+  const ref=row.adjudication.resolution_ref, instance=ID.legacySource;
+  return {complete:true,as_of_change_seq:17,unsequenced_event_count:0,
+    events:[],review_resolutions:{complete:true,next_cursor:null,
+      as_of_change_seq:17,source_instance_id:instance,entries:[{
+        source_record_id:row.source_record_id,source_version:row.origin_source_version,
+        reason_code:row.status==='excluded'?'OS_STATUS_OWNER_UNPAID_EXCLUDED':
+          'OS_STATUS_OWNER_PAID',severity:row.status==='excluded'?'blocking':
+          'classification_only',status:'resolved',resolution_ref:ref,
+        resolved_by_ref:'owner:synthetic'}]},
+    operational_statuses:{complete:true,next_cursor:null,
+      as_of_change_seq:17,source_instance_id:instance,entries:[]}};
+}
+function statusCatalogEntry(row) {
+  const {request_key,origin_request_hash,origin_source_version,
+    source_actor_ref,source_recorded_at,...payload}=row.command;
+  void request_key;
+  return {source_instance_id:ID.legacySource,record_kind:'operational_status',
+    source_record_id:row.source_record_id,source_version:origin_source_version,
+    target_version:1,target_ref:STATUS_TARGET_ID,
+    source_snapshot_hash:origin_request_hash,source_actor_ref,source_recorded_at,
+    imported_payload:payload,target_current:{id:STATUS_TARGET_ID,
+      source_instance_id:ID.legacySource,source_record_id:row.source_record_id,
+      version:1,status_code:'room_confirmed',settles_room:true,
+      booking_id:ID.booking,source_recorded_at}};
 }
 const DOCUMENT_ID='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const EVENT_ID='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -426,4 +482,109 @@ test('custom category keeps exact first-use operation provenance',()=>{
   assert.equal(category.status,'noncash');
   assert.equal(category.command.origin_source_version,'redis:2025:1');
   assert.equal(category.command.source_recorded_at,'2026-10-01T00:00:00Z');
+});
+
+test('owner-reviewed status without Sheet sync is only a zero-cash status candidate',()=>{
+  const {input,baseline}=adjudicatedFixture();
+  assert.equal(baseline.records.find(row=>row.source_record_id===ID.status).status,'review');
+  const plan=planOsFinanceBackfill(input);
+  const row=plan.records.find(item=>item.source_record_id===ID.status);
+  assert.equal(row.status,'noncash');
+  assert.equal(row.kind,'operational_status');
+  assert.equal(row.command.status_code,'room_confirmed');
+  assert.equal(row.command.settles_room,true);
+  assert.equal(row.command.origin_request_hash,
+    input.status_adjudications.decisions[0].origin_request_hash);
+  assert.equal(row.source_hash,input.status_adjudications.decisions[0].ledger_hash);
+  assert.equal(plan.snapshot_hash,baseline.snapshot_hash);
+  assert.equal(row.expected.cash_effect_cents,0);
+  for(const field of ['amount_cents','cash_on','payment_method_code','event_kind'])
+    assert.equal(row.command[field],undefined);
+  assert.equal(plan.records.filter(item=>item.source_record_id===ID.status &&
+    item.kind==='money').length,0);
+  // A status command cannot change a money-ledger receivable or assert cash settlement.
+  assert.equal(plan.summary.ready_money,baseline.summary.ready_money);
+  assert.equal(plan.summary.source_net_cash_cents,baseline.summary.source_net_cash_cents);
+  plan.records=[row];
+  const readback=adjudicationReadback(plan);
+  readback.catalog={complete:true,next_cursor:null,as_of_change_seq:17,
+    entries:[statusCatalogEntry(row)]};
+  assert.equal(reconcileOsFinanceBackfill(plan,readback).status,'matched');
+  delete readback.review_resolutions;
+  assert.ok(reconcileOsFinanceBackfill(plan,readback).differences.some(item=>
+    item.code==='STATUS_REVIEW_READBACK_INCOMPLETE'));
+});
+
+test('owner-reviewed unpaid status remains explicit and target absence is reconciled',()=>{
+  const {input}=adjudicatedFixture('unpaid_exclude');
+  const plan=planOsFinanceBackfill(input);
+  const row=plan.records.find(item=>item.source_record_id===ID.status);
+  assert.equal(row.status,'excluded');
+  assert.equal(row.kind,'operational_status');
+  assert.equal(row.command,undefined);
+  assert.equal(row.expected,null);
+  assert.equal(plan.summary.excluded,1);
+  plan.records=[row]; // Isolate the reviewed status from unrelated fixture records.
+  const readback=adjudicationReadback(plan);
+  assert.equal(reconcileOsFinanceBackfill(plan,readback).status,'matched');
+  readback.operational_statuses.entries.push({source_record_id:ID.status});
+  assert.ok(reconcileOsFinanceBackfill(plan,readback).differences.some(item=>
+    item.code==='EXCLUDED_STATUS_IMPORTED'));
+  readback.operational_statuses.entries=[];
+  readback.events=[{id:EVENT_ID,source_instance_id:ID.legacySource,
+    source_system:'os_legacy_payment',source_record_id:ID.status}];
+  assert.ok(reconcileOsFinanceBackfill(plan,readback).differences.some(item=>
+    item.code==='UNEXPECTED_IMPORTED_RECORD'));
+  readback.events=[];
+  readback.review_resolutions.entries[0].resolution_ref='wrong';
+  assert.ok(reconcileOsFinanceBackfill(plan,readback).differences.some(item=>
+    item.code==='STATUS_REVIEW_RESOLUTION_MISMATCH'));
+  readback.review_resolutions.entries[0].resolution_ref=row.adjudication.resolution_ref;
+  readback.review_resolutions.entries.push({source_record_id:ID.status,
+    source_version:'redis:ledger:2',reason_code:'OTHER_OPEN_REVIEW',status:'open'});
+  assert.ok(reconcileOsFinanceBackfill(plan,readback).differences.some(item=>
+    item.code==='STATUS_REVIEW_OPEN_ISSUE'));
+  delete readback.review_resolutions;
+  assert.ok(reconcileOsFinanceBackfill(plan,readback).differences.some(item=>
+    item.code==='STATUS_REVIEW_READBACK_INCOMPLETE'));
+});
+
+test('status adjudication rejects stale, duplicate, wrong and incomplete evidence',()=>{
+  const {input}=adjudicatedFixture();
+  const decision=input.status_adjudications.decisions[0];
+  const original=structuredClone(input);
+  input.status_adjudications.snapshot_hash='0'.repeat(64);
+  assert.throws(()=>planOsFinanceBackfill(input),/STATUS_ADJUDICATION_INVALID/);
+  input.status_adjudications=structuredClone(original.status_adjudications);
+  input.status_adjudications.decisions.push({...decision});
+  assert.throws(()=>planOsFinanceBackfill(input),/STATUS_ADJUDICATION_DUPLICATE/);
+  input.status_adjudications=structuredClone(original.status_adjudications);
+  input.status_adjudications.decisions[0].booking_id=ID.manual;
+  let plan=planOsFinanceBackfill(input);
+  assert.equal(plan.records.find(row=>row.source_record_id===ID.status).status,'review');
+  assert.ok(plan.issues.some(row=>row.code==='STATUS_ADJUDICATION_UNMATCHED'));
+  input.links=[];
+  plan=planOsFinanceBackfill(input);
+  assert.equal(plan.records.find(row=>row.source_record_id===ID.status).status,'review');
+  input.links=original.links;
+  input.status_adjudications=structuredClone(original.status_adjudications);
+  input.status_adjudications.decisions[0].origin_request_hash='f'.repeat(64);
+  plan=planOsFinanceBackfill(input);
+  assert.equal(plan.records.find(row=>row.source_record_id===ID.status).status,'review');
+  input.status_adjudications=structuredClone(original.status_adjudications);
+  delete input.status_adjudications.decisions[0].evidence_sha256;
+  assert.throws(()=>planOsFinanceBackfill(input),/STATUS_ADJUDICATION_INVALID/);
+  input.status_adjudications=structuredClone(original.status_adjudications);
+  const ledger=JSON.parse(input.snapshot.records[1].value);
+  ledger.receipts[1].sheet_sync={state:'pending',targets:[],paid:false};
+  input.snapshot.records[1].value=JSON.stringify(ledger);
+  input.status_adjudications.snapshot_hash=planOsFinanceBackfill({
+    ...input,status_adjudications:undefined}).snapshot_hash;
+  input.status_adjudications.decisions[0].ledger_hash=digest(input.snapshot.records[1].value);
+  input.status_adjudications.decisions[0].origin_request_hash=digest(canonical({
+    sourceKey:input.snapshot.records[1].key,sourceRecordId:ID.status,
+    version:'redis:ledger:2',sourceValue:ledger.receipts[1]}));
+  plan=planOsFinanceBackfill(input);
+  assert.equal(plan.records.find(row=>row.source_record_id===ID.status).status,'review');
+  assert.equal(plan.records.find(row=>row.source_record_id===ID.status).command,undefined);
 });

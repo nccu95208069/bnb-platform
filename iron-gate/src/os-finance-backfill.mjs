@@ -133,6 +133,71 @@ function linkFor(links, system, orderKey, property, sourceInstanceId) {
   if (link.booking_status === 'cancelled') throw Error('CANCELLED_BOOKING_REVIEW');
   return link;
 }
+const statusDecisionKey = (sourceKey,receiptId) => `${sourceKey}\0${receiptId}`;
+const statusDecisionFields = new Set(['source_system','source_instance_id',
+  'source_key','source_record_id','origin_source_version','origin_request_hash',
+  'ledger_hash','source_order_key','booking_id','booking_version',
+  'source_snapshot_hash','disposition','evidence_sha256']);
+function statusAdjudications(manifest,property,snapshotHash,sourceInstanceId) {
+  if (manifest == null) return {byKey:new Map(),used:new Set(),hash:null};
+  if (!object(manifest) || Object.keys(manifest).some(key => ![
+    'schema_version','property_id','snapshot_hash','reviewer_ref','reviewed_at',
+    'decisions'].includes(key)) || manifest.schema_version !== 1 ||
+    manifest.property_id !== property || manifest.snapshot_hash !== snapshotHash ||
+    !SOURCE_ID.test(manifest.reviewer_ref ?? '') ||
+    !validTimestamp(manifest.reviewed_at) || !UUID.test(sourceInstanceId ?? '') ||
+    !Array.isArray(manifest.decisions) || !manifest.decisions.length ||
+    manifest.decisions.length > 1000) throw Error('STATUS_ADJUDICATION_INVALID');
+  const byKey = new Map();
+  for (const decision of manifest.decisions) {
+    if (!object(decision) || Object.keys(decision).some(key =>
+      !statusDecisionFields.has(key)) ||
+      statusDecisionFields.size !== Object.keys(decision).length ||
+      decision.source_system !== 'os_legacy_payment' ||
+      decision.source_instance_id !== sourceInstanceId ||
+      !new RegExp(`^sweetfun-os:payments:v1:${property}:[a-f0-9]{64}$`).test(
+        decision.source_key ?? '') ||
+      !SOURCE_ID.test(decision.source_record_id ?? '') ||
+      !/^redis:ledger:[1-9][0-9]*$/.test(decision.origin_source_version ?? '') ||
+      !HEX.test(decision.origin_request_hash ?? '') ||
+      !HEX.test(decision.ledger_hash ?? '') ||
+      !SOURCE_ID.test(decision.source_order_key ?? '') ||
+      !UUID.test(decision.booking_id ?? '') ||
+      !int(decision.booking_version) || decision.booking_version < 1 ||
+      !HEX.test(decision.source_snapshot_hash ?? '') ||
+      !['paid_status','unpaid_exclude'].includes(decision.disposition) ||
+      !HEX.test(decision.evidence_sha256 ?? ''))
+      throw Error('STATUS_ADJUDICATION_INVALID');
+    const key = statusDecisionKey(decision.source_key,decision.source_record_id);
+    if (byKey.has(key)) throw Error('STATUS_ADJUDICATION_DUPLICATE');
+    byKey.set(key,decision);
+  }
+  return {byKey,used:new Set(),hash:hash(canonical(manifest))};
+}
+function verifyStatusDecision(decision,sourceKey,raw,receipt,originVersion,
+  order,link,adjudications) {
+  if (!decision) return null;
+  if (receipt.sheet_sync != null || !object(receipt.audit) ||
+    receipt.audit.after?.order_id !== order?.payment_order_id ||
+    decision.source_key !== sourceKey ||
+    decision.source_record_id !== receipt.id ||
+    decision.origin_source_version !== originVersion ||
+    decision.origin_request_hash !== originHash(sourceKey,receipt.id,
+      originVersion,receipt) || decision.ledger_hash !== hash(raw) ||
+    decision.source_order_key !== order.payment_order_id ||
+    decision.booking_id !== link.booking_id ||
+    decision.booking_version !== link.booking_version ||
+    decision.source_snapshot_hash !== link.snapshot_hash ||
+    receipt.status_only !== true || receipt.amount !== 0 ||
+    receipt.payment_type !== 'full' || receipt.payment_method !== 'other' ||
+    receipt.settles_room !== true)
+    throw Error('STATUS_ADJUDICATION_SOURCE_MISMATCH');
+  adjudications.used.add(statusDecisionKey(sourceKey,receipt.id));
+  return {disposition:decision.disposition,
+    evidence_sha256:decision.evidence_sha256,
+    manifest_hash:adjudications.hash,
+    resolution_ref:`osreview:${adjudications.hash}`};
+}
 function allocationsFor(entry, options, property) {
   if (entry.kind !== 'income' || entry.category !== 'lodging') {
     if (entry.allocations?.length) throw Error('UNEXPECTED_ORDER_ALLOCATION');
@@ -508,7 +573,8 @@ function manualRecords(sourceKey, raw, state, property, options, issues) {
   }
   return out;
 }
-function paymentRecords(sourceKey, raw, ledger, property, options, orderRefs, issues) {
+function paymentRecords(sourceKey, raw, ledger, property, options, orderRefs, issues,
+  adjudications) {
   if (!int(ledger.version) || ledger.version < 0 || !Array.isArray(ledger.receipts) ||
     ledger.version < ledger.receipts.length) {
     issues.push(issue('INVALID_PAYMENT_LEDGER',sourceKey)); return [];
@@ -543,7 +609,8 @@ function paymentRecords(sourceKey, raw, ledger, property, options, orderRefs, is
     if (!SOURCE_ID.test(id ?? '') || !int(receipt?.amount) &&
       (typeof receipt?.amount !== 'number' || !Number.isFinite(receipt.amount)))
       reasons.push('INVALID_PAYMENT_RECEIPT');
-    let cents = null, cashDay = null, link = null;
+    let cents = null, cashDay = null, link = null, adjudication = null;
+    const decision = adjudications.byKey.get(statusDecisionKey(sourceKey,id));
     try {
       cents = Math.round(receipt.amount * 100);
       if (!Number.isSafeInteger(cents) || Math.abs(receipt.amount*100-cents)>0.00001 ||
@@ -557,6 +624,8 @@ function paymentRecords(sourceKey, raw, ledger, property, options, orderRefs, is
       if (order.status === 'cancelled') throw Error('CANCELLED_BOOKING_REVIEW');
       link = linkFor(options.links ?? [],'os_legacy_payment',order.payment_order_id,
         property,options.source_instances?.os_legacy_payment);
+      adjudication = verifyStatusDecision(decision,sourceKey,raw,receipt,
+        originVersion,order,link,adjudications);
       if (receipt.sheet_sync?.state === 'pending' ||
         receipt.sheet_sync?.failure?.requires_review) throw Error('SHEET_SYNC_PENDING');
       if (receipt.payment_method === 'ota') throw Error('OTA_PAYER_UNVERIFIED');
@@ -565,12 +634,16 @@ function paymentRecords(sourceKey, raw, ledger, property, options, orderRefs, is
         throw Error('INVALID_PAYMENT_TYPE');
       if (receipt.status_only && (cents !== 0 || receipt.payment_type !== 'full' ||
         receipt.payment_method !== 'other' || receipt.settles_room !== true ||
-        receipt.sheet_sync?.state !== 'verified')) throw Error('INVALID_STATUS_ONLY');
+        receipt.sheet_sync?.state !== 'verified' &&
+        adjudication?.disposition !== 'paid_status' &&
+        adjudication?.disposition !== 'unpaid_exclude')) throw Error('INVALID_STATUS_ONLY');
       if (!receipt.status_only && cents <= 0) throw Error('INVALID_PAYMENT_AMOUNT');
     } catch (error) { reasons.push(error.message || 'INVALID_PAYMENT_RECEIPT'); }
     const fingerprint = hash(raw);
-    const status = reasons.length ? 'review' : receipt.status_only ? 'noncash' : 'ready';
-    const expected = status === 'review' ? null : receipt.status_only ?
+    const status = reasons.length ? 'review' :
+      adjudication?.disposition === 'unpaid_exclude' ? 'excluded' :
+      receipt.status_only ? 'noncash' : 'ready';
+    const expected = ['review','excluded'].includes(status) ? null : receipt.status_only ?
       {status_code:'room_confirmed',settles_room:true,booking_id:link.booking_id,
         cash_effect_cents:0} :
       {event_kind:'property_receipt',amount_cents:cents,cash_on:cashDay,
@@ -578,7 +651,8 @@ function paymentRecords(sourceKey, raw, ledger, property, options, orderRefs, is
           allocation_kind:receipt.payment_type==='deposit'?'deposit':
             receipt.payment_type==='other'?'extra':'room'}],cash_effect_cents:cents};
     let command = null;
-    const confirmedCommand = status !== 'review' && receipt.settles_room === true ? {
+    const confirmedCommand = !['review','excluded'].includes(status) &&
+      receipt.settles_room === true ? {
       request_key:importKey(property,'os_legacy_payment','operational_status',id,1),
       origin_request_hash:originHash(sourceKey,id,originVersion,receipt),
       origin_source_version:originVersion,
@@ -622,6 +696,7 @@ function paymentRecords(sourceKey, raw, ledger, property, options, orderRefs, is
       receipt.status_only?'operational_status':'money',reasons.length?'review':status,
       fingerprint,command,reasons,reasons.length?null:expected,
       actorRef(property,receipt?.actor));
+    if (adjudication && !reasons.length) item.adjudication = adjudication;
     item.source_request_id=SOURCE_ID.test(receipt?.request_id ?? '') ? receipt.request_id : null;
     item.source_request_hash=HEX.test(receipt?.request_hash ?? '') ? receipt.request_hash : null;
     item.origin_source_version=originVersion;
@@ -792,6 +867,10 @@ export function planOsFinanceBackfill(bundle) {
     !/^[a-z][a-z0-9_-]{0,63}$/.test(bundle.snapshot.property_id ?? '') ||
     !Array.isArray(bundle.snapshot.records)) throw Error('INVALID_SNAPSHOT_ENVELOPE');
   const snapshot = bundle.snapshot, property = snapshot.property_id;
+  const sourceHash = hash(canonical(snapshot.records.map(row => [row.key,row.value]).sort((a,b) =>
+    String(a[0]).localeCompare(String(b[0])))));
+  const adjudications = statusAdjudications(bundle.status_adjudications,property,
+    sourceHash,bundle.source_instances?.os_legacy_payment);
   const issues = [], records = [], seenKeys = new Set();
   if (snapshot.schema_version !== 1 || snapshot.scan_complete !== true ||
     !Number.isFinite(Date.parse(snapshot.captured_at ?? '')))
@@ -822,9 +901,13 @@ export function planOsFinanceBackfill(bundle) {
     try {
       const value = parseValue(row.value);
       records.push(...(manual ? manualRecords(row.key,row.value,value,property,bundle,issues) :
-        paymentRecords(row.key,row.value,value,property,bundle,orderRefs,issues)));
+        paymentRecords(row.key,row.value,value,property,bundle,orderRefs,issues,
+          adjudications)));
     } catch (error) { issues.push(issue(error.message || 'INVALID_REDIS_JSON',row.key)); }
   }
+  for (const [key,decision] of adjudications.byKey) if (!adjudications.used.has(key))
+    issues.push(issue('STATUS_ADJUDICATION_UNMATCHED',decision.source_key,
+      decision.source_record_id));
   records.push(...categoryRecords(snapshot,property,bundle.catalog,issues));
   const identities = new Map();
   for (const row of records) {
@@ -899,8 +982,6 @@ export function planOsFinanceBackfill(bundle) {
       issues.push(issue(reason,row.source_key,row.source_record_id));
     }
   }
-  const sourceHash = hash(canonical(snapshot.records.map(row => [row.key,row.value]).sort((a,b) =>
-    String(a[0]).localeCompare(String(b[0])))));
   const moneyGroups = new Map();
   for (const row of records.filter(row => row.kind === 'money')) {
     const id = keyFor(row.source_system,row.source_record_id);
@@ -915,11 +996,13 @@ export function planOsFinanceBackfill(bundle) {
   }
   return {schema_version:1,property_id:property,captured_at:snapshot.captured_at,
     snapshot_hash:sourceHash,coverage_complete:issues.length===0,
+    ...(adjudications.hash ? {status_adjudication_manifest_hash:adjudications.hash} : {}),
     source_instances:bundle.source_instances ?? {},records,issues,
     summary:{redis_keys:seenKeys.size,candidates:records.length,
       ready_money:records.filter(row => row.status==='ready').length,
       review:records.filter(row => row.status==='review').length,
       noncash:records.filter(row => row.status==='noncash').length,
+      excluded:records.filter(row => row.status==='excluded').length,
       source_net_cash_cents:sourceNetCash,
       cross_source_reference_complete:bundle.reference_complete === true}};
 }
@@ -1183,6 +1266,57 @@ export function reconcileOsFinanceBackfill(plan, readback) {
           target.last_digits !== row.expected.last_digits))
         differences.push({code:'EXISTING_CATALOG_MISMATCH',
         source_record_id:row.source_record_id});
+    }
+  }
+  const adjudicated = plan.records.filter(row => row.adjudication);
+  if (adjudicated.length) {
+    const instance = instances.os_legacy_payment;
+    const resolutions = readback.review_resolutions;
+    if (!HEX.test(plan.status_adjudication_manifest_hash ?? '') ||
+      adjudicated.some(row => row.adjudication.manifest_hash !==
+        plan.status_adjudication_manifest_hash ||
+        row.adjudication.disposition === 'paid_status' &&
+          (row.kind !== 'operational_status' || row.status !== 'noncash') ||
+        row.adjudication.disposition === 'unpaid_exclude' &&
+          (row.kind !== 'operational_status' || row.status !== 'excluded')))
+      differences.push({code:'STATUS_ADJUDICATION_PLAN_INVALID'});
+    if (!object(resolutions) || resolutions.complete !== true ||
+      resolutions.next_cursor != null ||
+      resolutions.as_of_change_seq !== readback.as_of_change_seq ||
+      resolutions.source_instance_id !== instance ||
+      !Array.isArray(resolutions.entries))
+      differences.push({code:'STATUS_REVIEW_READBACK_INCOMPLETE'});
+    else for (const row of adjudicated) {
+      const reason = row.adjudication.disposition === 'paid_status' ?
+        'OS_STATUS_OWNER_PAID' : 'OS_STATUS_OWNER_UNPAID_EXCLUDED';
+      const severity = row.adjudication.disposition === 'paid_status' ?
+        'classification_only' : 'blocking';
+      const found = resolutions.entries.filter(entry =>
+        entry.source_record_id === row.source_record_id &&
+        entry.source_version === row.origin_source_version &&
+        entry.reason_code === reason);
+      if (found.length !== 1 || found[0].status !== 'resolved' ||
+        found[0].severity !== severity ||
+        found[0].resolution_ref !== row.adjudication.resolution_ref ||
+        !SOURCE_ID.test(found[0].resolved_by_ref ?? ''))
+        differences.push({code:'STATUS_REVIEW_RESOLUTION_MISMATCH',
+          source_system:row.source_system,source_record_id:row.source_record_id});
+      if (resolutions.entries.some(entry => entry.source_record_id ===
+        row.source_record_id && entry.status === 'open'))
+        differences.push({code:'STATUS_REVIEW_OPEN_ISSUE',
+          source_system:row.source_system,source_record_id:row.source_record_id});
+    }
+    if (adjudicated.some(row => row.status === 'excluded')) {
+      const statuses = readback.operational_statuses;
+      if (!object(statuses) || statuses.complete !== true ||
+        statuses.next_cursor != null ||
+        statuses.as_of_change_seq !== readback.as_of_change_seq ||
+        statuses.source_instance_id !== instance || !Array.isArray(statuses.entries))
+        differences.push({code:'EXCLUSION_TARGET_READBACK_INCOMPLETE'});
+      else for (const row of adjudicated.filter(row => row.status === 'excluded'))
+        if (statuses.entries.some(entry => entry.source_record_id === row.source_record_id))
+          differences.push({code:'EXCLUDED_STATUS_IMPORTED',
+            source_system:row.source_system,source_record_id:row.source_record_id});
     }
   }
   if (plan.records.some(row => row.status === 'review') || plan.issues.length)
