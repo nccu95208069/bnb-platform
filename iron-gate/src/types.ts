@@ -1,4 +1,4 @@
-export type BookingStatus = "held" | "confirmed" | "cancelled";
+export type BookingStatus = "held" | "confirmed" | "cancelled" | "retained";
 export type ChannelSyncState = "not_required" | "action_required" | "awaiting_manual_sync" | "pending" | "verified" | "review_required" | "manually_confirmed";
 export type OperationState = "sync_pending" | "sync_verified" | "review_required" | "retired_source_managed";
 export type Action =
@@ -62,6 +62,39 @@ export type NightPrice = Night & { amountCents: number };
 export type DesiredCell = Night & { desired: "open" | "closed" };
 export type ObservedCell = Night & { count: number; isLock: boolean };
 
+/** A retained order has no current stay or price. This is historical evidence,
+ * never a new payment, a refund, or permission to reopen provider stock. */
+export type RetentionPeriod = {
+  id: string;
+  retainedAt: string;
+  retainedBookingVersion: number;
+  reason: string;
+  expiresOn: string | null;
+  previousStays: Stay[];
+  previousTotalCents: number | null;
+  previousRoomNightPrices?: NightPrice[];
+  rescheduledAt?: string;
+  rescheduledBookingVersion?: number;
+  rescheduledRequestKey?: string;
+  rescheduledStays?: Stay[];
+  rescheduledTotalCents?: number;
+  rescheduledRoomNightPrices?: NightPrice[];
+};
+
+export type BookingRetention = {
+  schema: 1;
+  lifecycleRevision: number;
+  activeRetentionId: string | null;
+  history: RetentionPeriod[];
+  /** Private, immutable source ownership captured when the owner takes over.
+   * It remains active after rescheduling, including for delayed cancellations. */
+  sourceAliases: { sourceSystem: string; sourceAccount: string; externalOrderId: string }[];
+  sourceOrderRef: string | null;
+  sourceReviews: { requestKey: string; receivedAt: string; sourceSystem: string;
+    sourceAccount: string; externalOrderId: string; sourceVersion: string;
+    kind: "upsert" | "cancel" }[];
+};
+
 export type Booking = {
   id: string;
   workspaceId: string;
@@ -108,6 +141,7 @@ export type Booking = {
   hold?: { schema: 1; scope: "platform_only"; startedAt: string; expiresAt: string;
     state: "active" | "converted" | "released"; convertedAt?: string; releasedAt?: string;
     latePaymentReview?: boolean };
+  retention?: BookingRetention;
   cardChargeResults?: import("./card-sync.ts").CardResult[];
   paymentEvents?: PaymentEvent[];
   /** Immutable source evidence for a read-only OS shadow import; never projected to API callers. */
@@ -312,6 +346,22 @@ export type AmendBookingInput = {
   reason?: string;
 };
 
+export type RetainBookingPreviewInput = { reason: string; expiresOn?: string | null };
+export type RetainBookingInput = RetainBookingPreviewInput & {
+  expectedBookingVersion: number;
+  expectedInventoryVersion: number;
+};
+export type RescheduleBookingPreviewInput = {
+  stays: Stay[];
+  totalCents: number;
+  roomNightPrices?: NightPrice[];
+  reason: string;
+};
+export type RescheduleBookingInput = RescheduleBookingPreviewInput & {
+  expectedBookingVersion: number;
+  expectedInventoryVersion: number;
+};
+
 export type LineBulkCancelInput = {
   expectedInventoryVersion: number;
   bookings: { bookingId: string; expectedBookingVersion: number }[];
@@ -382,14 +432,22 @@ export type BookingReceipt = {
   bookingId: string;
   bookingVersion: number;
   inventoryVersion: number;
-  operationState: OperationState | "local_only" | "not_required" | "action_required" | "awaiting_manual_sync" | "manually_confirmed";
+  operationState: OperationState | "local_only" | "not_required" | "action_required" | "awaiting_manual_sync" | "manually_confirmed" | "not_applied";
   operationKey: string | null;
   refundReviewRequired: boolean;
   sourceReviewRequired?: boolean;
+  status?: BookingStatus;
+  lifecycleRevision?: number;
+  retainedAmountCents?: number | null;
+  retainedAmountReviewRequired?: boolean;
+  externalRoomActionRequired?: boolean;
+  externalRoomStatus?: "not_integrated" | ChannelSyncState;
+  outcome?: "not_applied";
 };
 
 export type EventType =
   | "booking.created" | "booking.amended" | "booking.cancelled"
+  | "booking.retained" | "booking.rescheduled" | "booking.retention_request_abandoned" | "source.lifecycle_review_required"
   | "channel.sync_requested" | "channel.preflight_open"
   | "channel.manually_confirmed"
   | "hold.created" | "hold.extended" | "hold.converted" | "hold.released"
@@ -432,6 +490,8 @@ export type AuditRecord = {
   reason?: string;
   manualRoomHandling?: { closedNights: Night[]; handledCells: DesiredCell[] };
   acknowledgedClosedNights?: Night[];
+  retention?: { retentionId: string; lifecycleRevision: number;
+    previousStays: Stay[]; currentStays: Stay[] };
 };
 
 export type TransactionContext = {
