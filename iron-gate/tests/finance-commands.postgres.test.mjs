@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { Pool } from 'pg';
 import { FinanceCommandService } from '../src/finance-commands.mjs';
 
 const enabled = process.env.IRON_GATE_FINANCE_TEST_DATABASE === 'iron_gate_finance_test3';
-const poolConfig = { host: '/private/tmp', port: 55432, database: 'iron_gate_finance_test3' };
+const poolConfig = { host: '/private/tmp',
+  port: Number(process.env.IRON_GATE_FINANCE_TEST_PORT ?? 55432),
+  database: 'iron_gate_finance_test3' };
 const workspaceId = '10000000-0000-4000-8000-000000000001';
 const propertyId = '10000000-0000-4000-8000-000000000002';
 const otherPropertyId = '10000000-0000-4000-8000-000000000003';
@@ -75,14 +79,19 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
          verified_booking_version,source_snapshot_hash,evidence_ref)
         VALUES ($1,$2,'SF-EXACT-1',$3,1,$4,'synthetic-link')`,
         [propertyId,connectorId,bookingId,'a'.repeat(64)]);
-      const first = expense('create', '1');
+      const first = { ...expense('create', '1'), origin_request_hash:'a'.repeat(64) };
       await assert.rejects(service.command(principal, propertyId,
         { ...first, evidence_level: 'bank_reconciled' }, first.request_key),
       e => e.code === 'SOURCE_FORBIDDEN');
       const receipt = await service.command(principal, propertyId, first, first.request_key);
       assert.equal(receipt.document_version, 1);
+      assert.equal(receipt.origin_request_hash,first.origin_request_hash);
+      assert.equal(receipt.as_of_change_seq,1);
       assert.deepEqual(await service.command(principal, propertyId, first, first.request_key), receipt);
       assert.deepEqual(await service.receipt(principal, propertyId, first.request_key), receipt);
+      await assert.rejects(service.command(principal, propertyId,
+        { ...first, origin_request_hash:'b'.repeat(64) }, first.request_key),
+      e => e.code === 'REQUEST_KEY_REUSED');
       await assert.rejects(service.command(principal, propertyId,
         { ...first, amount_cents: 2000,
           expense_attributions: [{ ...first.expense_attributions[0], amount_cents: 2000 }] },
@@ -90,17 +99,24 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       const amended = expense('amend', '2', 1200);
       const second = await service.command(principal, propertyId, amended, amended.request_key);
       assert.equal(second.document_version, 2);
+      assert.equal(second.as_of_change_seq,receipt.as_of_change_seq+1);
       assert.equal(second.event_ids.length, 2);
       const voided = expense('void', '3');
       const third = await service.command(principal, propertyId, voided, voided.request_key);
       assert.equal(third.event_ids.length, 1);
+      const beforeVoid = await service.ledger(principal,propertyId,
+        { limit:100,as_of_change_seq:second.as_of_change_seq });
+      const priorExpense = beforeVoid.events.find(event => event.id===receipt.event_ids[0]);
+      assert.equal(priorExpense.document_status,'active');
+      assert.equal(priorExpense.current_version,2);
+      assert.equal(priorExpense.change_seq,receipt.as_of_change_seq);
       const balance = await admin.query(`SELECT sum(cash_effect_cents)::bigint AS cents
         FROM iron_gate.finance_event WHERE property_id=$1`, [propertyId]);
       assert.equal(Number(balance.rows[0].cents), 0);
       const room = { ...roomCommand('room-1', 6000), booking_allocations: [{
         source_order_key:'SF-EXACT-1', amount_cents:6000, allocation_kind:'room' }],
         service_on:'2026-11-10',
-        payment_method_code:'bank_transfer',provider_transaction_ref:'provider-transaction-1' };
+        payment_method_code:'bank_transfer' };
       const preview = await service.preview(principal, propertyId, room, room.request_key);
       assert.equal(preview.bookings[0].bookingId, bookingId);
       assert.equal(preview.resolved_command.booking_allocations[0].booking_id,bookingId);
@@ -111,13 +127,13 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       await assert.rejects(service.command(principal, propertyId,
         { ...duplicate, preview_token: duplicatePreview.preview_token }, duplicate.request_key),
       e => e.code === 'SOURCE_MAPPING_REVIEW_REQUIRED');
-      const transactionDuplicate = { ...roomCommand('room-provider-duplicate',2000),
+      const unverifiedTransaction = { ...roomCommand('room-provider-unverified',2000),
         payment_method_code:'bank_transfer',provider_transaction_ref:'provider-transaction-1' };
       const transactionPreview = await service.preview(principal,propertyId,
-        transactionDuplicate,transactionDuplicate.request_key);
+        unverifiedTransaction,unverifiedTransaction.request_key);
       await assert.rejects(service.command(principal,propertyId,
-        { ...transactionDuplicate,preview_token:transactionPreview.preview_token },
-        transactionDuplicate.request_key),e => e.code === 'SOURCE_MAPPING_REVIEW_REQUIRED');
+        { ...unverifiedTransaction,preview_token:transactionPreview.preview_token },
+        unverifiedTransaction.request_key),e => e.code === 'SOURCE_MAPPING_REVIEW_REQUIRED');
       const refund = { request_key: 'refund-1', source_record_id: 'refund-1', source_version: '1',
         action: 'create', event_kind: 'property_refund', amount_cents: 3000,
         currency: 'TWD', effective_on: '2026-10-28', cash_on: '2026-10-28',
@@ -144,14 +160,37 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       assert.equal(projection.summary.room_received_cents,6000);
       assert.equal(projection.summary.room_refunded_cents,2000);
       assert.equal(projection.remaining_due_cents,6000);
+      assert.equal(projection.legacy_payment_review_required,false);
+      assert.equal(projection.unmapped_legacy_payment_events,0);
       const ledger = await service.ledger(principal, propertyId,
         { from:'2026-10-28', to:'2026-10-29', limit:2 });
+      assert.equal(ledger.source_instance_id,connectorId);
+      assert.equal(ledger.source_system,'os_manual');
+      assert.equal(ledger.source_sheet_ref,null);
       assert.equal(ledger.events.length,2);
       assert.ok(ledger.next_cursor);
       const secondPage = await service.ledger(principal, propertyId,
         { from:'2026-10-28', to:'2026-10-29', limit:10, cursor:ledger.next_cursor });
       assert.ok(secondPage.events.length >= 2);
       const fullLedger = await service.ledger(principal,propertyId,{limit:100});
+      assert.equal(fullLedger.as_of_change_seq,
+        Math.max(receipt.as_of_change_seq,second.as_of_change_seq,
+          roomAccepted.as_of_change_seq,amendedRefund.as_of_change_seq));
+      assert.equal(fullLedger.unsequenced_event_count,0);
+      const backdated = {request_key:'backdated-other-1',source_record_id:'backdated-other-1',
+        source_version:'1',action:'create',event_kind:'property_receipt',amount_cents:50,
+        currency:'TWD',effective_on:'2026-10-01',cash_on:'2026-10-28',
+        receipt_purpose:'other',evidence_level:'operator_attested'};
+      const backdatedReceipt = await service.command(principal,propertyId,
+        backdated,backdated.request_key);
+      assert.equal(backdatedReceipt.as_of_change_seq,fullLedger.as_of_change_seq+1);
+      const pinned = await service.ledger(principal,propertyId,
+        {limit:100,as_of_change_seq:fullLedger.as_of_change_seq});
+      assert.deepEqual(pinned.events.map(event=>event.id),fullLedger.events.map(event=>event.id));
+      assert.equal(pinned.as_of_change_seq,fullLedger.as_of_change_seq);
+      assert.equal(pinned.current_change_seq,backdatedReceipt.as_of_change_seq);
+      assert.equal((await service.ledger(principal,propertyId,{limit:100})).events[0].id,
+        backdatedReceipt.event_ids[0]);
       assert.equal(fullLedger.events.find(event=>event.document_id===receipt.document_id &&
         event.event_kind==='expense_paid')?.advanced_by_kind,'self');
       assert.equal(fullLedger.events.find(event=>event.document_id===receipt.document_id &&
@@ -174,29 +213,40 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
         FROM iron_gate.finance_event WHERE property_id=$1`, [propertyId]);
       const statusInput = { request_key:'status-1',source_record_id:'legacy-status-1',
         version:1,status_code:'room_confirmed',settles_room:true,
-        booking_id:bookingId,expected_booking_version:1 };
+        booking_id:bookingId,expected_booking_version:1,
+        origin_request_hash:'b'.repeat(64) };
       const statusResult = await service.statusCommand(principal,propertyId,
         statusInput,statusInput.request_key);
       assert.equal(statusResult.cash_effect_cents,0);
+      assert.equal(statusResult.origin_request_hash,statusInput.origin_request_hash);
+      assert.ok(statusResult.as_of_change_seq > fullLedger.as_of_change_seq);
       assert.deepEqual(await service.statusCommand(principal,propertyId,
         statusInput,statusInput.request_key),statusResult);
       assert.equal((await service.statuses(principal,propertyId,bookingId)).statuses.length,1);
       const recurring = { request_key:'rule-1',source_record_id:'monthly-1',version:1,
         cadence:'monthly',start_on:'2026-10-01',end_on:null,next_due_on:'2026-11-01',
         status:'active',category_code:'supplies',amount_cents:2000,
-        safe_description:'Monthly supplies',payment_method_code:'bank_transfer',due_day:10 };
+        safe_description:'Monthly supplies',payment_method_code:'bank_transfer',due_day:10,
+        origin_request_hash:'c'.repeat(64) };
       const rule = await service.recurringRule(principal,propertyId,recurring,recurring.request_key);
       assert.equal(rule.cash_effect_cents,0);
+      assert.equal(rule.origin_request_hash,recurring.origin_request_hash);
+      assert.equal(rule.as_of_change_seq,statusResult.as_of_change_seq+1);
       assert.equal((await service.recurringRules(principal,propertyId)).recurring_rules.length,1);
       const payout = { request_key:'payout-rule-1',platform:'booking',version:1,
-        mode:'fixed_day',day:10,offset_months:1,status:'active' };
-      await service.payoutRule(principal,propertyId,payout,payout.request_key);
+        mode:'fixed_day',day:10,offset_months:1,status:'active',
+        origin_request_hash:'d'.repeat(64) };
+      const payoutResult = await service.payoutRule(principal,propertyId,payout,payout.request_key);
+      assert.equal(payoutResult.origin_request_hash,payout.origin_request_hash);
+      assert.equal(payoutResult.as_of_change_seq,rule.as_of_change_seq+1);
       assert.equal((await service.payoutRules(principal,propertyId)).payout_rules.length,1);
       const account = {request_key:'account-1',code:'os-account-1',
-        display_name:'Test account',kind:'bank',last_digits:'12345'};
+        display_name:'Test account',kind:'bank',last_digits:'12345',
+        origin_request_hash:'e'.repeat(64)};
       const accountResult = await service.accountCommand(principal,propertyId,
         account,account.request_key);
       assert.equal(accountResult.cash_effect_cents,0);
+      assert.equal(accountResult.origin_request_hash,account.origin_request_hash);
       assert.equal((await service.accounts(principal,propertyId)).accounts[0].last_digits,'12345');
       const category = {request_key:'category-1',code:'custom_test',
         label:'Test category',kind:'expense'};
@@ -223,6 +273,10 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       const assertionResult = await service.evidenceAssertion(principal,propertyId,
         assertion,assertion.request_key);
       assert.equal(assertionResult.cash_effect_cents,0);
+      const beforeAssertion = await service.ledger(principal,propertyId,
+        { limit:100,as_of_change_seq:assertionResult.as_of_change_seq-1 });
+      assert.equal(beforeAssertion.events.find(event =>
+        event.id===roomAccepted.event_ids[0]).evidence_level,'operator_attested');
       const verified = await service.bookingFinance(principal,propertyId,bookingId);
       assert.equal(verified.events.find(event => event.id===roomAccepted.event_ids[0]).evidence_level,
         'processor_confirmed');
@@ -371,12 +425,14 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       await assert.rejects(service.preview(sheet,propertyId,wrongSheet,
         wrongSheet.request_key),e=>e.code==='SOURCE_FORBIDDEN');
       const exact={request_key:'line-link-1',source_order_key:`${bookingId}:v1`,
-        booking_id:bookingId,expected_booking_version:1,review_confirmed:true};
+        booking_id:bookingId,expected_booking_version:1,review_confirmed:true,
+        origin_request_hash:'f'.repeat(64)};
       const exactPreview=await service.liveSourceLinkPreview(line,propertyId,
         exact,exact.request_key);
       const exactReceipt=await service.liveSourceLinkCommit(line,propertyId,
         {...exact,preview_token:exactPreview.preview_token},exact.request_key);
       assert.equal(exactReceipt.source_snapshot_hash,exactPreview.source_snapshot_hash);
+      assert.equal(exactReceipt.origin_request_hash,exact.origin_request_hash);
       assert.deepEqual(await service.liveSourceLinkCommit(line,propertyId,
         {...exact,preview_token:exactPreview.preview_token},exact.request_key),exactReceipt);
       await new Promise(resolve=>setTimeout(resolve,5));
@@ -403,6 +459,122 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       const versioned=(await service.sourceLinks(line,propertyId)).source_links
         .filter(row=>row.source_order_key.startsWith(bookingId+':v'));
       assert.deepEqual(versioned.map(row=>row.verified_booking_version).sort(),['1','2']);
+      const changes = await admin.query(`SELECT change_seq,source_kind,source_id,source_version
+        FROM iron_gate.finance_change WHERE property_id=$1 ORDER BY change_seq`,[propertyId]);
+      const outbox = await admin.query(`SELECT change_seq FROM iron_gate.finance_outbox
+        WHERE property_id=$1 ORDER BY change_seq`,[propertyId]);
+      assert.deepEqual(changes.rows.map(row=>Number(row.change_seq)),
+        changes.rows.map((_,index)=>index+1));
+      assert.deepEqual(outbox.rows.map(row=>Number(row.change_seq)),
+        changes.rows.map(row=>Number(row.change_seq)));
+      assert.equal((await service.ledger(line,propertyId,{limit:1})).as_of_change_seq,
+        changes.rows.length);
+      assert.ok(changes.rows.some(row=>row.source_kind==='operational_status'));
+      assert.ok(changes.rows.some(row=>row.source_kind==='payout_rule'));
+      const identities = await admin.query(`SELECT c.source_kind,c.source_id,
+        o.source_id AS outbox_source_id FROM iron_gate.finance_change c
+        JOIN iron_gate.finance_outbox o ON o.property_id=c.property_id
+          AND o.change_seq=c.change_seq
+        WHERE c.property_id=$1`,[propertyId]);
+      assert.ok(identities.rows.every(row=>row.source_id===row.outbox_source_id));
+
+      const oldPaymentId=randomUUID();
+      const oldBookingState=(await admin.query(`SELECT state_json
+        FROM iron_gate.property_state WHERE property_id=$1`,[propertyId]))
+        .rows[0].state_json;
+      oldBookingState.bookings[0].paymentEvents=[{id:oldPaymentId,
+        kind:'received',amountCents:100,currency:'TWD'}];
+      await admin.query(`UPDATE iron_gate.property_state SET state_json=$1::jsonb
+        WHERE property_id=$2`,[JSON.stringify(oldBookingState),propertyId]);
+      const unmapped=await service.bookingFinance(principal,propertyId,bookingId);
+      assert.equal(unmapped.legacy_payment_review_required,true);
+      assert.equal(unmapped.unmapped_legacy_payment_events,1);
+      assert.equal(unmapped.remaining_due_cents,null);
+      await admin.query(`INSERT INTO iron_gate.finance_payment_ownership
+        (id,property_id,provider_code,booking_id,existing_payment_event_id,
+         canonical_document_id) VALUES ($1,$2,'synthetic_legacy',$3,$4,$5)`,
+        [randomUUID(),propertyId,bookingId,oldPaymentId,roomAccepted.document_id]);
+      const mappedLegacy=await service.bookingFinance(principal,propertyId,bookingId);
+      assert.equal(mappedLegacy.legacy_payment_review_required,false);
+      assert.equal(mappedLegacy.unmapped_legacy_payment_events,0);
+      assert.ok(Number.isSafeInteger(mappedLegacy.remaining_due_cents));
+      const cardDoneId=randomUUID();
+      oldBookingState.bookings[0].cardChargeResults=[{
+        status:'done',paymentEventId:cardDoneId}];
+      await admin.query(`UPDATE iron_gate.property_state SET state_json=$1::jsonb
+        WHERE property_id=$2`,[JSON.stringify(oldBookingState),propertyId]);
+      const unmappedCard=await service.bookingFinance(principal,propertyId,bookingId);
+      assert.equal(unmappedCard.legacy_payment_review_required,true);
+      assert.equal(unmappedCard.card_payment_review_required,true);
+      assert.equal(unmappedCard.unmapped_card_done_results,1);
+      assert.equal(unmappedCard.unmapped_legacy_payment_events,0);
+      assert.equal(unmappedCard.remaining_due_cents,null);
+      await admin.query(`INSERT INTO iron_gate.finance_payment_ownership
+        (id,property_id,provider_code,booking_id,existing_payment_event_id,
+         canonical_document_id) VALUES ($1,$2,'sweetfun_card',$3,$4,$5)`,
+        [randomUUID(),propertyId,bookingId,cardDoneId,roomAccepted.document_id]);
+      const mappedCard=await service.bookingFinance(principal,propertyId,bookingId);
+      assert.equal(mappedCard.legacy_payment_review_required,false);
+      assert.equal(mappedCard.card_payment_review_required,false);
+      assert.equal(mappedCard.unmapped_card_done_results,0);
+      assert.ok(Number.isSafeInteger(mappedCard.remaining_due_cents));
+
+      // Simulate a pre-015 shadow event, then reapply the migration as the
+      // explicit repair path. It must not silently disappear from ledger reads.
+      const oldConnector=randomUUID();
+      const oldDocument=randomUUID();
+      const oldEvent=randomUUID();
+      await admin.query(`INSERT INTO iron_gate.finance_connector
+        (source_instance_id,property_id,source_system,enabled,cutover_at)
+        VALUES ($1,$2,'os_manual',true,now()-interval '1 day')`,
+        [oldConnector,otherPropertyId]);
+      await admin.query(`INSERT INTO iron_gate.finance_document
+        (id,property_id,source_instance_id,source_system,source_record_id,
+         kind,current_version,status)
+        VALUES ($1,$2,$3,'os_manual','pre-015','money',1,'active')`,
+        [oldDocument,otherPropertyId,oldConnector]);
+      await admin.query(`INSERT INTO iron_gate.finance_revision
+        (property_id,document_id,version,action,request_hash,source_version,actor_ref)
+        VALUES ($1,$2,1,'create',$3,'1','migration-test')`,
+        [otherPropertyId,oldDocument,'f'.repeat(64)]);
+      await admin.query(`INSERT INTO iron_gate.finance_event
+        (id,property_id,document_id,revision_version,event_kind,amount_cents,
+         cash_effect_cents,effective_on,cash_on,receipt_purpose,evidence_level,actor_ref)
+        VALUES ($1,$2,$3,1,'property_receipt',100,100,'2026-10-28',
+          '2026-10-28','other','operator_attested','migration-test')`,
+        [oldEvent,otherPropertyId,oldDocument]);
+      await admin.query(`INSERT INTO iron_gate.finance_outbox
+        (id,property_id,source_kind,source_id,destination)
+        VALUES ($1,$2,'event',$3,'sheet')`,
+        [randomUUID(),otherPropertyId,oldEvent]);
+      const otherPrincipal={...principal,propertyIds:[otherPropertyId],
+        financeSourceInstanceId:oldConnector};
+      const unsequenced=await service.ledger(otherPrincipal,otherPropertyId,{limit:10});
+      assert.equal(unsequenced.unsequenced_event_count,1);
+      assert.equal(unsequenced.events[0].change_seq,null);
+      const migration=await readFile(new URL('../sql/015_finance_change_sequence.sql',
+        import.meta.url),'utf8');
+      await admin.query(migration);
+      const recovered=await service.ledger(otherPrincipal,otherPropertyId,{limit:10});
+      assert.equal(recovered.unsequenced_event_count,0);
+      assert.equal(recovered.events[0].id,oldEvent);
+      assert.equal(recovered.events[0].change_seq,recovered.as_of_change_seq);
+      const baseline=await admin.query(`SELECT origin FROM iron_gate.finance_change
+        WHERE property_id=$1 AND change_seq=$2`,
+        [otherPropertyId,recovered.as_of_change_seq]);
+      assert.equal(baseline.rows[0].origin,'legacy_baseline');
+      const writerLink=await admin.query(`SELECT count(*)::int AS count
+        FROM iron_gate.finance_change WHERE property_id=$1
+          AND source_kind='source_link' AND source_id=$2`,
+        [propertyId,`${lineConnectorId}:${exact.source_order_key}`]);
+      assert.equal(writerLink.rows[0].count,1);
+      await admin.query(migration);
+      assert.equal((await service.ledger(otherPrincipal,otherPropertyId,{limit:10}))
+        .as_of_change_seq,recovered.as_of_change_seq);
+      const legacyOutbox=await admin.query(`SELECT count(*)::int AS count
+        FROM iron_gate.finance_outbox WHERE property_id=$1 AND change_seq IS NULL`,
+        [otherPropertyId]);
+      assert.equal(legacyOutbox.rows[0].count,1);
       await assert.rejects(service.receipt(principal, otherPropertyId, first.request_key),
         e => e.code === 'PROPERTY_FORBIDDEN');
     } finally {

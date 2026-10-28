@@ -122,6 +122,12 @@ export function scanFinanceSheet(values:unknown[][],propertyDisplay:string):Fina
   for(let index=1;index<values.length;index++){
     const raw=values[index];
     if(!Array.isArray(raw)){issues.push({sheet_row:index+1,row_id:null,code:'SHEET_ROW_INVALID'});continue;}
+    // Sheets must return formulas themselves. A calculated FORMATTED_VALUE can
+    // hide a formula in an otherwise valid amount or date cell.
+    if(raw.some(value=>typeof value==='string'&&/^[=+@]/.test(value.trim()))){
+      issues.push({sheet_row:index+1,row_id:typeof raw[0]==='string'?raw[0]:null,
+        code:'SHEET_FORMULA_FORBIDDEN'});continue;
+    }
     // Templates may prefill action, kind, method and property display down
     // blank rows; none of those defaults may create an import identity.
     const business=[4,5,6,7,8,9,12,13,14].some(column=>

@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {previewSsotFinanceCommand,submitSsotFinanceCommand,submitSsotPlan} from
+import {previewSsotFinanceCommand,readSsotLedger,readSsotReceipt,
+  submitSsotFinanceCommand,submitSsotPlan} from
   '../src/lib/booking-sources/iron-gate-ssot-finance.server.ts';
+import {bookingGuardsForVoid,osFinanceOriginHash,resumeSsotFinance} from
+  '../src/lib/finance-ssot-operations.ts';
 
 const propertyId='10000000-0000-4000-8000-000000000001';
 const bookingId='10000000-0000-4000-8000-000000000002';
@@ -48,6 +51,20 @@ test('OS bridge previews linked booking, commits once and compares the authorita
     ['finance/commands','commands/preview','finance/commands',`receipts/${key}`]);
 });
 
+test('a confirmed OS command never silently obtains a replacement preview',async()=>{
+  const paths=[];
+  const send=async(url)=>{
+    const path=new URL(url).pathname;
+    paths.push(path);
+    return reply({error:{code:'VERSION_CONFLICT'}},409);
+  };
+  await assert.rejects(submitSsotFinanceCommand(config,actor,
+    {...command,preview_token:'original-token'},key,send,
+    {repreviewOnConflict:false}),/VERSION_CONFLICT/);
+  assert.equal(paths.length,1);
+  assert.ok(paths[0].endsWith('/commands'));
+});
+
 test('unknown POST outcome recovers only through the original request receipt',async()=>{
   let called=0;
   const send=async url=>{
@@ -92,4 +109,72 @@ test('plan commands require a matching accepted readback',async()=>{
     reply({...receipt,category_code:'different'});
   await assert.rejects(submitSsotPlan(config,actor,'categories',plan,key,send),
     /FINANCE_SSOT_READBACK_MISMATCH/);
+});
+
+test('OS retry resolves the original accepted request before consulting a newer projection',async()=>{
+  const input={request_id:key,projection_version:'old-projection',
+    property_id:'sweetfun',year:2026,action:'create',kind:'income',amount:10,
+    allocations:[{order_id:'SF-SYNTHETIC',amount_cents:1000}]};
+  const hash=osFinanceOriginHash(input,actor.id,'sweetfun');
+  let reads=0;
+  const read=async()=>{reads++;return {...receipt,origin_request_hash:hash};};
+  const resumed=await resumeSsotFinance(input,actor,'sweetfun',read,config);
+  assert.equal(resumed.result.verified,true);
+  assert.equal(resumed.result.entry_id,receipt.document_id);
+  assert.equal(reads,1);
+  assert.equal(osFinanceOriginHash({...input,action:'create'},actor.id,'sweetfun'),hash);
+  await assert.rejects(resumeSsotFinance({...input,amount:11},actor,
+    'sweetfun',read,config),/IDEMPOTENCY_CONFLICT/);
+  assert.equal((await resumeSsotFinance(input,actor,'sweetfun',
+    async()=>null,config)).result,null);
+});
+
+test('OS receipt lookup distinguishes a missing request from an unavailable readback',async()=>{
+  const missing=async()=>reply({error:{code:'REQUEST_NOT_FOUND'}},404);
+  assert.equal(await readSsotReceipt(config,actor,key,missing),null);
+  const down=async()=>reply({error:{code:'UNAVAILABLE'}},503);
+  await assert.rejects(readSsotReceipt(config,actor,key,down),
+    /UNAVAILABLE/);
+});
+
+test('OS and Sheet finance reads pin every ledger page to one change sequence',async()=>{
+  const queries=[];
+  const first={id:'10000000-0000-4000-8000-000000000010',
+    document_id:'10000000-0000-4000-8000-000000000011',change_seq:3};
+  const second={id:'10000000-0000-4000-8000-000000000012',
+    document_id:'10000000-0000-4000-8000-000000000013',change_seq:2};
+  const send=async url=>{
+    const query=Object.fromEntries(new URL(url).searchParams);
+    queries.push(query);
+    return reply(queries.length===1?{events:[first],next_cursor:'next',
+      as_of_change_seq:3,current_change_seq:3,unsequenced_event_count:0}:
+      {events:[second],next_cursor:null,as_of_change_seq:3,
+        current_change_seq:4,unsequenced_event_count:0});
+  };
+  assert.deepEqual((await readSsotLedger(config,actor,send)).map(event=>event.id),
+    [first.id,second.id]);
+  assert.equal(queries[0].as_of_change_seq,undefined);
+  assert.equal(queries[1].as_of_change_seq,'3');
+  const moved=async()=>reply({events:[second],next_cursor:null,
+    as_of_change_seq:4,current_change_seq:4,unsequenced_event_count:0});
+  await assert.rejects(readSsotLedger(config,actor,async(url)=>{
+    if(!new URL(url).searchParams.has('cursor'))return reply({events:[first],
+      next_cursor:'next',as_of_change_seq:3,current_change_seq:3,
+      unsequenced_event_count:0});
+    return moved(url);
+  }),/FINANCE_SSOT_READBACK_MISMATCH/);
+  await assert.rejects(readSsotLedger(config,actor,async()=>reply({events:[first],
+    next_cursor:null,as_of_change_seq:3,current_change_seq:3,
+    unsequenced_event_count:1})),/FINANCE_SSOT_READBACK_MISMATCH/);
+});
+
+test('voiding a booking-linked OS receipt carries the exact current booking guard',()=>{
+  const entry={allocations:[{order_id:'SF-SYNTHETIC',amount_cents:1000}]};
+  const orders=[{id:'SF-SYNTHETIC',booking_id:bookingId,
+    ssot_booking_version:7}];
+  assert.deepEqual(bookingGuardsForVoid(entry,orders),[{
+    booking_id:bookingId,expected_booking_version:7}]);
+  assert.deepEqual(bookingGuardsForVoid({allocations:[]},orders),[]);
+  assert.throws(()=>bookingGuardsForVoid(entry,[{...orders[0],
+    ssot_booking_version:undefined}]),/SOURCE_MAPPING_REVIEW_REQUIRED/);
 });

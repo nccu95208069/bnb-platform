@@ -12,7 +12,25 @@ test('full Done creates exactly one canonical credit-card receipt across request
 test('Fail has no money; Fail to Done adds once; Done to Fail or changed amount/date requires review',async()=>{const {service,repository}=setup();await commit(service,{...input,status:'fail',chargeDate:null});assert.equal((await repository.read(p)).bookings[0].paymentEvents?.length??0,0);await commit(service);for(const patch of [{status:'fail',chargeDate:null},{amountCents:50000},{chargeDate:'2026-10-26'}])await assert.rejects(()=>commit(service,{...input,...patch}),e=>e.code==='CARD_RESULT_CONFLICT');assert.equal((await repository.read(p)).bookings[0].cardChargeResults.length,2);});
 test('exact identity, full total, active order and current scope are mandatory',async()=>{for(const [patch,code] of [[{amountCents:50000},'CARD_AMOUNT_MISMATCH'],[{orderId:'9999999999'},'CARD_ORDER_NOT_FOUND'],[{checkOut:'2026-11-04'},'CARD_STAY_MISMATCH'],[{tab:'20261019-20261025'},'CARD_HISTORY_REVIEW'],[{chargeDate:'2026-10-25'},'CARD_HISTORY_REVIEW']]){const {service}=setup();await assert.rejects(()=>commit(service,{...input,...patch}),e=>e.code===code);}for(const change of [(s,b)=>{s.bookings.push({...b,id:r});},(s,b)=>{b.status='cancelled';},(s,b)=>{b.paymentEvents=[{id:r,kind:'received',amountCents:1,currency:'TWD',evidenceRef:'synthetic',occurredAt:'2026-10-26T00:00:00Z',recordedAt:'2026-10-26T00:00:00Z',actorId:'test'}];},(s,b)=>{b.sweetfunSnapshot={rows:[{values:['','','Booking.com','','','','','done']}]};}]){const {service}=setup(change);await assert.rejects(()=>commit(service));}});
 test('stale preview and unauthorized caller cannot write; HTTP rejects card details',async()=>{const {service,repository}=setup();await assert.rejects(()=>service.recordCardSync(principal,p,crypto.randomUUID(),{...input,bookingId:b,expectedBookingVersion:2}),e=>e.code==='VERSION_CONFLICT');await assert.rejects(()=>service.previewCardSync({...principal,origin:'os'},p,input),e=>e.code==='FORBIDDEN');const handle=createHandler(service,async()=>principal);const response=await handle(new Request(`http://local/v1/properties/${p}/card-sync/preview`,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({...input,cardNumber:'synthetic-secret'})}));assert.equal(response.status,400);assert.equal((await repository.read(p)).bookings[0].paymentEvents,undefined);});
-test('card-managed Booking payments join finance snapshot and calendar paid status',async()=>{const {service}=setup();await commit(service);const os={...principal,origin:'os',actions:['finance:ledger','booking:read'],fields:['money','payment_status']};const snapshot=await service.directFinanceSnapshot(os,p);assert.equal(snapshot.bookings.length,1);assert.equal(snapshot.bookings[0].source,'external');assert.equal(snapshot.bookings[0].cardManaged,true);const order=await service.getBooking(os,p,b);assert.equal(order.paymentReview.status,'paid');});
+test('card-managed Booking payments join finance snapshot and calendar paid status',async()=>{const {service}=setup();await commit(service);const os={...principal,origin:'os',actions:['finance:ledger','booking:read'],fields:['money','payment_status']};const snapshot=await service.directFinanceSnapshot(os,p);assert.equal(snapshot.bookings.length,1);assert.equal(snapshot.bookings[0].source,'external');assert.equal(snapshot.bookings[0].cardManaged,true);const order=await service.getBooking(os,p,b);assert.equal(order.paymentReview.status,'paid');assert.equal(order.cardManaged,true);const blind=await service.getBooking({...os,fields:['payment_status']},p,b);assert.equal(blind.cardManaged,undefined);assert.equal(blind.cardChargeResult,undefined);const finance=await service.getBooking({...os,origin:'finance',fields:['money']},p,b);assert.equal(finance.cardManaged,undefined);});
+
+test('Card-managed external orders reject extra receipts and refunds of another source',async()=>{
+ const {service,repository}=setup();const result=await commit(service);
+ const os={...principal,origin:'os',actions:['payment:write'],fields:['money']};
+ const payment={expectedBookingVersion:2,eventId:crypto.randomUUID(),kind:'received',
+  amountCents:1000,currency:'TWD',evidenceRef:'extra-card-receipt',
+  occurredAt:'2026-10-28T10:00:00+08:00',method:'credit_card'};
+ await assert.rejects(service.recordPaymentEvent(os,p,b,crypto.randomUUID(),payment),
+  error=>error.code==='SOURCE_MAPPING_REVIEW_REQUIRED');
+ await assert.rejects(service.recordPaymentEvent(os,p,b,crypto.randomUUID(),{
+  ...payment,eventId:crypto.randomUUID(),kind:'refunded',
+  refundOfEventId:crypto.randomUUID(),evidenceRef:'wrong-card-source'}),
+  error=>error.code==='SOURCE_MAPPING_REVIEW_REQUIRED');
+ const after=await repository.read(p);
+ assert.equal(after.bookings[0].version,2);
+ assert.equal(after.bookings[0].paymentEvents.length,1);
+ assert.equal(after.bookings[0].paymentEvents[0].id,result.paymentEventId);
+});
 
 test('dedicated card credential cannot inherit source or generic payment capabilities',async()=>{
  const {validateGrantShape}=await import('../src/credential-grant.mjs');

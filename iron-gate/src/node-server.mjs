@@ -55,8 +55,12 @@ export function createPostgresIronGateHandler(runtimePool, verifyOsMember = null
   if (poolOptions?.connectionString !== databaseUrl ||
     ["host", "port", "database", "user", "password", "ssl"].some((key) =>
       Object.hasOwn(poolOptions, key))) throw Error("UNSAFE_DATABASE_TRANSPORT");
+  // Runtime capability alone cannot cut over a property. The repository also
+  // checks the property/source connector's effective cutover inside each write.
+  const financeNativeRuntimeEnabled =
+    process.env.IRON_GATE_FINANCE_NATIVE_LEDGER_ENABLED === 'true';
   const repository = new PostgresPropertyRepository(runtimePool,
-    process.env.IRON_GATE_FINANCE_NATIVE_LEDGER_ENABLED === 'true');
+    financeNativeRuntimeEnabled);
   const directory = new PostgresCredentialDirectory(runtimePool);
   const service = new IronGateService(repository, linePreviewSecret);
   const authenticate = createGrantAuthenticator(directory, repository, verifyOsMember,

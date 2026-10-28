@@ -2,7 +2,10 @@ import {claimFinanceSheetRow,projectFinanceSheetReceipt,readFinanceSheet}
   from './finance-sheet-bulk-google';
 import {financeSheetDocumentsFromLedger,scanFinanceSheet,
   type FinanceSheetIssue} from './finance-sheet-bulk-core';
-import {readFinanceSheetLedger} from './finance-sheet-bulk-ledger';
+import {readFinanceSheetLedger,readFinanceSheetLedgerHead}
+  from './finance-sheet-bulk-ledger';
+import {buildFinanceSheetAudit,financeSheetFullBookIssues,
+  persistFinanceSheetAudit} from './finance-sheet-bulk-audit';
 import {financeSheetBulkConfig} from './finance-sheet-bulk-config';
 import {withFinanceSheetLock} from './finance-sheet-bulk-lock';
 import {financeSheetProjections,financeSheetProjectionDigest}
@@ -26,15 +29,12 @@ export async function runFinanceSheetBulkScan(){
     const current=scanFinanceSheet(await readFinanceSheet(settings.binding),
       settings.binding.propertyDisplay);
     issues.push(...current.issues);
-    const events=await readFinanceSheetLedger(settings.ironGate,settings.scanToken);
+    const identity={sourceInstanceId:settings.sourceInstanceId,
+      spreadsheetId:settings.binding.spreadsheetId};
+    const ledger=await readFinanceSheetLedger(settings.ironGate,settings.scanToken,identity);
+    const events=ledger.events;
     const documents=financeSheetDocumentsFromLedger(events,settings.sourceInstanceId,
       settings.binding.spreadsheetId);
-    const listed=new Set(current.rows.map(row=>
-      `sheet:${settings.binding.spreadsheetId}:${row.row_id}`));
-    for(const source of documents.keys()){
-      if(!listed.has(source))issues.push({sheet_row:0,row_id:source.split(':').at(-1)??null,
-        code:'SHEET_MISSING_ACCEPTED_ROW'});
-    }
     for(const row of current.rows){
       const document=documents.get(`sheet:${settings.binding.spreadsheetId}:${row.row_id}`);
       if(!document)continue;
@@ -54,17 +54,36 @@ export async function runFinanceSheetBulkScan(){
       catch{issues.push({sheet_row:row.sheet_row,row_id:row.row_id,
         code:'SHEET_PROJECTION_RETRY'});}
     }
-    const final=scanFinanceSheet(await readFinanceSheet(settings.binding),
-      settings.binding.propertyDisplay);
+    const finalValues=await readFinanceSheet(settings.binding);
+    const final=scanFinanceSheet(finalValues,settings.binding.propertyDisplay);
     issues.push(...final.issues);
+    const reconciliationIssues=financeSheetFullBookIssues(final,documents,
+      settings.binding.spreadsheetId);
+    issues.push(...reconciliationIssues);
     const projections=financeSheetProjections(events,final,
-      settings.binding.propertyDisplay,settings.sourceInstanceId);
+      settings.binding.propertyDisplay,settings.sourceInstanceId,reconciliationIssues);
     const output=await publishFinanceSheetProjections(settings.binding,projections);
-    return {status:issues.length?'review':'ok',assigned,projected,
+    const projectionDigest=financeSheetProjectionDigest(projections);
+    const [readbackValues,observedChangeSeq]=await Promise.all([
+      readFinanceSheet(settings.binding),
+      readFinanceSheetLedgerHead(settings.ironGate,settings.scanToken,identity)]);
+    const audit=buildFinanceSheetAudit({spreadsheetId:settings.binding.spreadsheetId,
+      propertyId:settings.ironGate.grant.propertyId,
+      sourceInstanceId:settings.sourceInstanceId,values:finalValues,
+      readbackValues,events,asOfChangeSeq:ledger.asOfChangeSeq,
+      observedChangeSeq,projectionDigest,readbackDigest:output.readback_digest,
+      issues});
+    const persisted=await persistFinanceSheetAudit(settings.binding.spreadsheetId,audit);
+    return {status:audit.status,assigned,projected,
       unassigned:Math.max(0,current.unassigned.length-assigned),
-      issue_count:issues.length,issues:issues.slice(0,50).map(issue=>({
+      issue_count:audit.issue_count,issues:issues.slice(0,50).map(issue=>({
         sheet_row:issue.sheet_row,code:issue.code})),
       ledger_events:events.length,output_status:output.status,
-      projection_digest:financeSheetProjectionDigest(projections)};
+      as_of_change_seq:ledger.asOfChangeSeq,
+      observed_change_seq:observedChangeSeq,
+      projection_digest:projectionDigest,
+      reconciliation_issue_codes:audit.issue_codes,
+      reconciliation_evidence:{day:persisted.record.day,
+        fingerprint:persisted.record.fingerprint,stored:persisted.stored}};
   });
 }

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { GateError } from './errors.ts';
+import { appendFinanceChange, linkFinanceEvents } from './finance-change.mjs';
 
 function hash(value) { return createHash('sha256').update(JSON.stringify(value)).digest('hex'); }
 function taipeiDay(timestamp) {
@@ -8,11 +9,54 @@ function taipeiDay(timestamp) {
   const pick = name => parts.find(part => part.type === name)?.value;
   return `${pick('year')}-${pick('month')}-${pick('day')}`;
 }
+
+/** A source cuts over independently. Once its cutover is effective, never
+ * silently resume the legacy-only writer when the connector or runtime is off. */
+export async function nativeFinanceCutover(client, propertyId, intent, runtimeEnabled) {
+  const intentType = typeof intent === 'string' ? intent : intent?.type;
+  const externalCardRefund = intentType === 'payment' &&
+    intent?.bookingSource === 'external' && intent?.kind === 'refunded';
+  const sourceSystem = intentType === 'payment' ? 'iron_gate_native' :
+    intentType === 'card' ? 'sweetfun_card' : null;
+  if (!sourceSystem) throw new GateError('FINANCE_NATIVE_INTENT_INVALID', 500);
+  // Older installations can still run this writer before migration 005. Avoid
+  // an undefined-table error, which would also abort the surrounding transaction.
+  const table = await client.query(`SELECT to_regclass('iron_gate.finance_connector') AS connector`);
+  if (table.rows[0]?.connector == null) return false;
+  if (externalCardRefund) {
+    // Card and native can cut over in either order. An external Card refund
+    // must never become a booking-only write once the finance schema exists.
+    const sources = await client.query(`SELECT source_system,enabled FROM iron_gate.finance_connector
+      WHERE property_id=$1 AND source_system IN ('iron_gate_native','sweetfun_card')
+        AND cutover_at IS NOT NULL AND cutover_at<=now()`, [propertyId]);
+    if (!sources.rows.length) throw new GateError('SOURCE_MAPPING_REVIEW_REQUIRED',409);
+    if (sources.rows.some(row => row.enabled !== true) ||
+      new Set(sources.rows.map(row => row.source_system)).size !== sources.rows.length)
+      throw new GateError('FINANCE_CONNECTOR_NOT_READY',409);
+    if (!runtimeEnabled) throw new GateError('FINANCE_NATIVE_LEDGER_DISABLED',503);
+    return true;
+  }
+  const result = await client.query(`SELECT enabled FROM iron_gate.finance_connector
+    WHERE property_id=$1 AND source_system=$2 AND cutover_at IS NOT NULL
+      AND cutover_at<=now()`, [propertyId, sourceSystem]);
+  if (!result.rows.length) return false;
+  if (result.rows.length !== 1 || result.rows[0].enabled !== true)
+    throw new GateError('FINANCE_CONNECTOR_NOT_READY', 409);
+  if (!runtimeEnabled) throw new GateError('FINANCE_NATIVE_LEDGER_DISABLED', 503);
+  return true;
+}
 async function connector(client, propertyId, sourceSystem) {
   const result = await client.query(`SELECT source_instance_id FROM iron_gate.finance_connector
     WHERE property_id=$1 AND source_system=$2 AND enabled=true AND
       cutover_at IS NOT NULL AND cutover_at<=now()`, [propertyId, sourceSystem]);
   if (result.rows.length !== 1) throw new GateError('FINANCE_CONNECTOR_NOT_READY', 409);
+  return result.rows[0].source_instance_id;
+}
+async function registeredConnector(client, propertyId, sourceSystem, requireEnabled = false) {
+  const result = await client.query(`SELECT source_instance_id,enabled FROM iron_gate.finance_connector
+    WHERE property_id=$1 AND source_system=$2`, [propertyId, sourceSystem]);
+  if (result.rows.length !== 1 || requireEnabled && result.rows[0].enabled !== true)
+    throw new GateError('FINANCE_CONNECTOR_NOT_READY', 409);
   return result.rows[0].source_instance_id;
 }
 async function document(client, propertyId, sourceId, system, recordId, kind, version) {
@@ -55,11 +99,6 @@ async function allocation(client, propertyId, eventId, bookingId, amount) {
     (property_id,event_id,booking_id,amount_cents,allocation_kind)
     VALUES ($1,$2,$3,$4,'room')`, [propertyId,eventId,bookingId,amount]);
 }
-async function outbox(client, propertyId, eventId) {
-  await client.query(`INSERT INTO iron_gate.finance_outbox
-    (id,property_id,source_kind,source_id,destination)
-    VALUES ($1,$2,'event',$3,'sheet')`, [randomUUID(),propertyId,eventId]);
-}
 async function receipt(client, propertyId, sourceId, intent, response) {
   await client.query(`INSERT INTO iron_gate.finance_request_receipt
     (property_id,source_instance_id,request_key,request_hash,status,response_json)
@@ -70,10 +109,13 @@ async function receipt(client, propertyId, sourceId, intent, response) {
 /** Called inside the same property_state transaction as the legacy compatibility projection. */
 export async function appendNativeFinance(client, propertyId, intent, response) {
   if (intent.type === 'payment') {
-    const sourceId = await connector(client,propertyId,'iron_gate_native');
+    const sourceId = intent.bookingSource === 'external' ?
+      await registeredConnector(client,propertyId,'iron_gate_native',true) :
+      await connector(client,propertyId,'iron_gate_native');
     if (intent.sourceInstanceId !== sourceId)
       throw new GateError('SOURCE_FORBIDDEN',403);
-    if (intent.bookingSource !== 'os')
+    if (intent.bookingSource !== 'os' &&
+      !(intent.bookingSource === 'external' && intent.kind === 'refunded'))
       throw new GateError('SOURCE_MAPPING_REVIEW_REQUIRED',409);
     if (intent.previousEventIds?.length) {
       const mapped = await client.query(`SELECT count(*)::int AS total
@@ -85,6 +127,29 @@ export async function appendNativeFinance(client, propertyId, intent, response) 
     }
     if (intent.kind === 'refunded' && !intent.refundOfEventId)
       throw new GateError('REFUND_SOURCE_REQUIRED', 422);
+    if (intent.bookingSource === 'external') {
+      // Card Done begins with one Card receipt. Subsequent payment events may
+      // only be native refunds of that same receipt; other sources need review.
+      const prior = await client.query(`SELECT o.existing_payment_event_id,o.provider_code,
+          e.event_kind,e.related_receipt_event_id,d.source_system
+        FROM iron_gate.finance_payment_ownership o
+        JOIN iron_gate.finance_event e ON e.property_id=o.property_id AND
+          e.id=o.existing_payment_event_id AND e.document_id=o.canonical_document_id
+        JOIN iron_gate.finance_document d ON d.property_id=e.property_id AND d.id=e.document_id
+        JOIN iron_gate.finance_allocation a ON a.property_id=e.property_id AND
+          a.event_id=e.id AND a.booking_id=o.booking_id AND a.allocation_kind='room'
+        WHERE o.property_id=$1 AND o.booking_id=$2 AND
+          o.existing_payment_event_id=ANY($3::uuid[])`,
+        [propertyId,intent.bookingId,intent.previousEventIds ?? []]);
+      if (prior.rows.length !== intent.previousEventIds?.length || prior.rows.some(row =>
+        !(row.existing_payment_event_id === intent.refundOfEventId &&
+          row.provider_code === 'sweetfun_card' && row.source_system === 'sweetfun_card' &&
+          row.event_kind === 'property_receipt') &&
+        !(row.provider_code === 'iron_gate_native' && row.source_system === 'iron_gate_native' &&
+          row.event_kind === 'property_refund' &&
+          row.related_receipt_event_id === intent.refundOfEventId)))
+        throw new GateError('SOURCE_MAPPING_REVIEW_REQUIRED',409);
+    }
     if (intent.kind === 'received') {
       if (!Number.isSafeInteger(intent.bookingTotalCents) || intent.bookingTotalCents <= 0)
         throw new GateError('SOURCE_MAPPING_REVIEW_REQUIRED',409);
@@ -113,12 +178,32 @@ export async function appendNativeFinance(client, propertyId, intent, response) 
     await revision(client,propertyId,doc,'create','1',intent.actorRef,intent);
     let original = null;
     if (intent.refundOfEventId) {
-      const found = await client.query(`SELECT e.document_id,d.status FROM iron_gate.finance_event e
+      const found = await client.query(`SELECT e.document_id,e.amount_cents,d.status,d.source_system,
+        EXISTS (SELECT 1 FROM iron_gate.finance_allocation a WHERE
+          a.property_id=e.property_id AND a.event_id=e.id AND a.booking_id=$3 AND
+          a.allocation_kind IN ('room','deposit')) AS booking_allocated,
+        EXISTS (SELECT 1 FROM iron_gate.finance_payment_ownership o WHERE
+          o.property_id=e.property_id AND o.existing_payment_event_id=e.id AND
+          o.canonical_document_id=e.document_id AND o.booking_id=$3 AND
+          o.provider_code='sweetfun_card') AS card_owned
+        FROM iron_gate.finance_event e
         JOIN iron_gate.finance_document d ON d.property_id=e.property_id AND d.id=e.document_id
-        WHERE e.property_id=$1 AND e.id=$2 AND e.event_kind='property_receipt'`,
-        [propertyId,intent.refundOfEventId]);
-      if (!found.rows.length || found.rows[0].status !== 'active')
+        WHERE e.property_id=$1 AND e.id=$2 AND e.event_kind='property_receipt' AND
+          e.revision_version=d.current_version`,
+        [propertyId,intent.refundOfEventId,intent.bookingId]);
+      if (found.rows.length !== 1 || found.rows[0].status !== 'active' ||
+        !found.rows[0].booking_allocated)
         throw new GateError('REFUND_SOURCE_REQUIRED', 422);
+      if (intent.bookingSource === 'external' &&
+        (found.rows[0].source_system !== 'sweetfun_card' || !found.rows[0].card_owned))
+        throw new GateError('SOURCE_MAPPING_REVIEW_REQUIRED',409);
+      const refunded = await client.query(`SELECT COALESCE(sum(amount_cents),0)::bigint AS total
+        FROM iron_gate.finance_event WHERE property_id=$1 AND
+          event_kind='property_refund' AND related_receipt_event_id=$2`,
+        [propertyId,intent.refundOfEventId]);
+      if (Number(refunded.rows[0].total) + intent.amountCents >
+        Number(found.rows[0].amount_cents))
+        throw new GateError('REFUND_EXCEEDS_RECEIVED',409);
       original = found.rows[0].document_id;
     }
     const day = taipeiDay(intent.occurredAt);
@@ -131,7 +216,9 @@ export async function appendNativeFinance(client, propertyId, intent, response) 
       (id,property_id,provider_code,booking_id,existing_payment_event_id,canonical_document_id)
       VALUES ($1,$2,'iron_gate_native',$3,$4,$5)`,
       [randomUUID(),propertyId,intent.bookingId,intent.eventId,doc.id]);
-    await outbox(client,propertyId,intent.eventId);
+    response.as_of_change_seq = await appendFinanceChange(client,propertyId,
+      'document_revision',doc.id,String(doc.version));
+    await linkFinanceEvents(client,propertyId,response.as_of_change_seq,[intent.eventId]);
     await receipt(client,propertyId,sourceId,intent,response);
     return;
   }
@@ -139,7 +226,9 @@ export async function appendNativeFinance(client, propertyId, intent, response) 
   const sourceId = await connector(client,propertyId,'sweetfun_card');
   if (intent.sourceInstanceId !== sourceId)
     throw new GateError('SOURCE_FORBIDDEN',403);
-  const nativeSourceId = await connector(client,propertyId,'iron_gate_native');
+  // This alias protects a later native import from counting the Card event
+  // again. Registration is enough; Card and native cut over independently.
+  const nativeSourceId = await registeredConnector(client,propertyId,'iron_gate_native');
   const existing = await client.query(`SELECT current_version FROM iron_gate.finance_document
     WHERE property_id=$1 AND source_instance_id=$2 AND source_record_id=$3`,
     [propertyId,sourceId,intent.bookingId]);
@@ -167,7 +256,10 @@ export async function appendNativeFinance(client, propertyId, intent, response) 
       (id,property_id,provider_code,booking_id,existing_payment_event_id,canonical_document_id)
       VALUES ($1,$2,'sweetfun_card',$3,$4,$5)`,
       [randomUUID(),propertyId,intent.bookingId,intent.paymentEventId,doc.id]);
-    await outbox(client,propertyId,intent.paymentEventId);
   }
+  response.as_of_change_seq = await appendFinanceChange(client,propertyId,
+    'document_revision',doc.id,String(doc.version));
+  if (intent.paymentEventId) await linkFinanceEvents(client,propertyId,
+    response.as_of_change_seq,[intent.paymentEventId]);
   await receipt(client,propertyId,sourceId,intent,response);
 }

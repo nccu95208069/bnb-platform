@@ -22,3 +22,13 @@ test('provisioning template protects identity, projection and all read-only tabs
   assert.equal(requests.find(request=>request.repeatCell)
     .repeatCell.cell.userEnteredValue.stringValue,'Sweetfun');
 });
+
+test('input dates and allocation months retain exact ISO text',()=>{
+  const requests=financeSheetTemplateRequests([101,102,103,104,105,106],
+    'finance@example.test','Sweetfun');
+  const text=requests.filter(request=>request.repeatCell?.cell?.userEnteredFormat?.
+    numberFormat?.type==='TEXT').map(request=>request.repeatCell.range);
+  assert.deepEqual(text.map(range=>[range.startColumnIndex,range.endColumnIndex]),
+    [[5,8],[12,13]]);
+  assert.ok(text.every(range=>range.sheetId===101&&range.startRowIndex===1));
+});

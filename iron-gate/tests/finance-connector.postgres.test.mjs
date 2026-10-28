@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import {Pool} from 'pg';
 
 const enabled=process.env.IRON_GATE_FINANCE_TEST_DATABASE==='iron_gate_finance_test3';
-const poolConfig={host:'/private/tmp',port:55432,database:'iron_gate_finance_test3'};
+const poolConfig={host:'/private/tmp',
+  port:Number(process.env.IRON_GATE_FINANCE_TEST_PORT ?? 55432),
+  database:'iron_gate_finance_test3'};
 const workspace='20000000-0000-4000-8000-000000000001';
 const first='20000000-0000-4000-8000-000000000002';
 const second='20000000-0000-4000-8000-000000000003';

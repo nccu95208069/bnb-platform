@@ -27,6 +27,13 @@ export function financeSheetTemplateRequests(sheetIds:number[],serviceEmail:stri
   requests.push({repeatCell:{range:{sheetId:sheetIds[0],startRowIndex:1,
     endRowIndex:501,startColumnIndex:15,endColumnIndex:16},
     cell:{userEnteredValue:{stringValue:propertyDisplay}},fields:'userEnteredValue'}});
+  // Exact ISO days and months are source identifiers for accounting periods.
+  // Keep Google Sheets from reformatting a typed date by workbook locale.
+  for(const [startColumnIndex,endColumnIndex] of [[5,8],[12,13]])
+    requests.push({repeatCell:{range:{sheetId:sheetIds[0],startRowIndex:1,
+      endRowIndex:501,startColumnIndex,endColumnIndex},
+      cell:{userEnteredFormat:{numberFormat:{type:'TEXT'}}},
+      fields:'userEnteredFormat.numberFormat'}});
   const editors={users:[serviceEmail]};
   const protect=(sheetId:number,startColumnIndex:number,endColumnIndex:number,
     startRowIndex=0,endRowIndex?:number)=>requests.push({addProtectedRange:{

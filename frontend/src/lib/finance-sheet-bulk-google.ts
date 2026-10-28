@@ -66,7 +66,7 @@ export async function readFinanceSheet(binding:FinanceSheetBinding,send:typeof f
   }
   const value=await privateFetch(base+'/values/'+
     range('A1',`T${props.gridProperties!.rowCount}`)+
-    '?valueRenderOption=FORMATTED_VALUE&majorDimension=ROWS',
+    '?valueRenderOption=FORMULA&dateTimeRenderOption=FORMATTED_STRING&majorDimension=ROWS',
     token,{method:'GET'},send);
   if(value.majorDimension!=='ROWS'||!Array.isArray(value.values))
     throw Error('SHEET_INCOMPLETE_READ');

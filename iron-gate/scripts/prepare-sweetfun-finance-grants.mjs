@@ -5,29 +5,35 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { tokenHash, validateGrant } from '../src/credential-grant.mjs';
+import { tokenHash, validCredentialId, validateGrant } from '../src/credential-grant.mjs';
 
 const propertyId = '95ae9bd1-5e6d-4386-be5b-6af3c5668a16';
 const workspaceId = '4273c91e-e067-4036-8719-29dd5810daf6';
 const quote = value => `'${String(value).replaceAll("'", "''")}'`;
 
-export function financeGrantPackage(now = Date.now()) {
+export function financeGrantPackage(sourceInstanceId, now = Date.now()) {
   return grantPackage([
-    { name: 'finance', origin: 'os', subjectId: 'sweetfun-os-finance-read', actions: ['finance:ledger'] },
-    { name: 'payment', origin: 'os', subjectId: 'sweetfun-os-direct-payments', actions: ['booking:read', 'payment:write'] },
+    { name: 'finance', origin: 'os', subjectId: 'sweetfun-os-finance-read',
+      actions: ['finance:ledger'], sourceInstanceId },
+    { name: 'payment', origin: 'os', subjectId: 'sweetfun-os-direct-payments',
+      actions: ['booking:read', 'payment:write'], sourceInstanceId },
   ], now);
 }
 
-export function cardSyncGrantPackage(now = Date.now()) {
-  return grantPackage([{ name: 'card-sync', origin: 'finance', subjectId: 'sweetfun-booking-card-sync', actions: ['card:sync'] }], now);
+export function cardSyncGrantPackage(sourceInstanceId, now = Date.now()) {
+  return grantPackage([{ name: 'card-sync', origin: 'finance',
+    subjectId: 'sweetfun-booking-card-sync', actions: ['card:sync'], sourceInstanceId }], now);
 }
 
 function grantPackage(definitions, now) {
+  if (definitions.some(item => !validCredentialId(item.sourceInstanceId)))
+    throw Error('FINANCE_CONNECTOR_ID_REQUIRED');
   // 28 days stays safely within the canonical maximum 30-day policy.
   const expiresAt = new Date(now + 28 * 86_400_000).toISOString();
-  const items = definitions.map(({ name, origin, subjectId, actions }) => {
+  const items = definitions.map(({ name, origin, subjectId, actions, sourceInstanceId }) => {
     const grant = { credentialId: randomUUID(), clientId: randomUUID(), subjectId,
-      propertyId, workspaceId, authorityEpoch: 1, origin, actions, fields: ['money'] };
+      propertyId, workspaceId, authorityEpoch: 1, origin, actions, fields: ['money'],
+      financeSourceInstanceId: sourceInstanceId };
     validateGrant(grant, expiresAt);
     const token = randomBytes(32).toString('base64url');
     return { name, grant, tokenHash: tokenHash(token), expiresAt,
@@ -47,6 +53,11 @@ BEGIN
   IF authority.workspace_id <> ${quote(workspaceId)}::uuid OR
     authority.authority_epoch <> 1 OR authority.read_only IS DISTINCT FROM 'false'
     THEN RAISE EXCEPTION 'FINANCE_AUTHORITY_CHANGED'; END IF;
+  IF NOT EXISTS (SELECT 1 FROM iron_gate.finance_connector WHERE
+    property_id=${quote(propertyId)}::uuid AND
+    source_instance_id=${quote(items[0].grant.financeSourceInstanceId)}::uuid AND
+    source_system=${quote(items[0].name === 'card-sync' ? 'sweetfun_card' : 'iron_gate_native')})
+    THEN RAISE EXCEPTION 'FINANCE_CONNECTOR_SCOPE_MISMATCH'; END IF;
   FOR expected IN SELECT * FROM (VALUES ${rows.join(',\n    ')})
     AS x(token_hash, credential_id, property_id, grant_json, expires_at)
   LOOP
@@ -72,11 +83,12 @@ FROM iron_gate.credentials WHERE credential_id IN (${items.map(item => quote(ite
   return { projectRef: 'brcszrkwkgiwatrxevkf', expiresAt, items, sql };
 }
 
-export async function prepareFinanceGrantFiles(directory, cardSync = false) {
+export async function prepareFinanceGrantFiles(directory, sourceInstanceId, cardSync = false) {
   const output = resolve(directory);
+  const plan = cardSync ? cardSyncGrantPackage(sourceInstanceId) :
+    financeGrantPackage(sourceInstanceId);
   // A new private directory is mandatory; never overwrite an uncertain issuance.
   await mkdir(output, { mode: 0o700 });
-  const plan = cardSync ? cardSyncGrantPackage() : financeGrantPackage();
   for (const item of plan.items)
     await writeFile(`${output}/${item.name}.json`, JSON.stringify(item.environment), { flag: 'wx', mode: 0o600 });
   await writeFile(`${output}/issue.sql`, plan.sql, { flag: 'wx', mode: 0o600 });
@@ -87,7 +99,10 @@ export async function prepareFinanceGrantFiles(directory, cardSync = false) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  if (process.argv.length !== 3 && !(process.argv.length === 4 && process.argv[3] === '--card-sync')) throw Error('USAGE: prepare-sweetfun-finance-grants.mjs NEW_PRIVATE_DIRECTORY [--card-sync]');
-  try { process.stdout.write(JSON.stringify(await prepareFinanceGrantFiles(process.argv[2], process.argv[3] === '--card-sync')) + '\n'); }
+  if (!validCredentialId(process.argv[3]) || process.argv.length !== 4 &&
+    !(process.argv.length === 5 && process.argv[4] === '--card-sync'))
+    throw Error('USAGE: prepare-sweetfun-finance-grants.mjs NEW_PRIVATE_DIRECTORY SOURCE_INSTANCE_ID [--card-sync]');
+  try { process.stdout.write(JSON.stringify(await prepareFinanceGrantFiles(process.argv[2],
+    process.argv[3], process.argv[4] === '--card-sync')) + '\n'); }
   catch { process.stderr.write('FINANCE_GRANT_PREPARATION_FAILED: preserve any existing package for recovery.\n'); process.exitCode = 1; }
 }

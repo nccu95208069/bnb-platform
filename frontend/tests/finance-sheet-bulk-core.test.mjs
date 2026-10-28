@@ -39,7 +39,7 @@ test('Sheet scanner assigns no identity from row position and rejects duplicate 
 
 test('Sheet scanner rejects formula, personal details, wrong property and invalid dates',()=>{
   assert.equal(scan(row({safe_description:'=IMPORTXML("x")'})).issues[0].code,
-    'SHEET_CELL_INVALID');
+    'SHEET_FORMULA_FORBIDDEN');
   assert.equal(scan(row({safe_description:'4111 1111 1111 1111'})).issues[0].code,
     'SHEET_ROW_INVALID');
   assert.equal(scan(row({property_display:'Other'})).issues[0].code,

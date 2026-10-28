@@ -4,6 +4,8 @@ import {callIronGate,type Grant,type ManualConfig} from './iron-gate-manual.serv
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TOKEN=/^[A-Za-z0-9_-]{43}$/;
+const sequence=(value:unknown):value is number=>
+  typeof value==='number'&&Number.isSafeInteger(value)&&value>=0;
 const object=(value:unknown):value is Record<string,unknown>=>
   !!value&&typeof value==='object'&&!Array.isArray(value);
 const canonical=(value:unknown):string=>Array.isArray(value)?
@@ -31,6 +33,7 @@ export function ironGateSsotFinanceConfig(env:NodeJS.ProcessEnv=process.env):Man
 
 export type SsotEvent={
   id:string;document_id:string;revision_version:number;current_version:number;
+  change_seq:number;
   document_status:'active'|'void';event_kind:string;amount_cents:number;
   cash_effect_cents:number;effective_on:string;cash_on:string|null;
   category_code:string|null;receipt_purpose:string|null;payment_method_code:string|null;
@@ -55,19 +58,29 @@ async function request(config:ManualConfig,actor:Principal,method:'GET'|'POST',
 }
 export async function readSsotLedger(config:ManualConfig,actor:Principal,
   send:typeof fetch=fetch):Promise<SsotEvent[]>{
-  const events:SsotEvent[]=[];let cursor:string|null=null;
-  const seen=new Set<string>();
+  const events:SsotEvent[]=[];let cursor:string|null=null,pin:number|null=null;
+  const seen=new Set<string>(),cursors=new Set<string>();
   for(let page=0;page<200;page++){
-    const suffix=`ledger?limit=100${cursor?`&cursor=${encodeURIComponent(cursor)}`:''}`;
+    const suffix=`ledger?limit=100${cursor?`&cursor=${encodeURIComponent(cursor)}`:''}`+
+      `${pin!==null?`&as_of_change_seq=${pin}`:''}`;
     const result=await request(config,actor,'GET',suffix,null,null,['finance:read'],send);
+    const asOf=result.as_of_change_seq,current=result.current_change_seq;
     if(!Array.isArray(result.events)||result.events.length>100||
+      !sequence(asOf)||!sequence(current)||current<asOf||
+      !sequence(result.unsequenced_event_count)||
+      result.unsequenced_event_count!==0||
+      (pin!==null&&asOf!==pin)||
       result.events.some(event=>!object(event)||!UUID.test(String(event.id))||
-        !UUID.test(String(event.document_id))||seen.has(String(event.id))))
+        !UUID.test(String(event.document_id))||seen.has(String(event.id))||
+        !sequence(event.change_seq)||event.change_seq<1||event.change_seq>asOf))
       throw Error('FINANCE_SSOT_READBACK_MISMATCH');
+    pin??=asOf;
     for(const event of result.events){seen.add(String(event.id));events.push(event as SsotEvent);}
     if(result.next_cursor===null)return events;
     if(typeof result.next_cursor!=='string'||!result.next_cursor||
-      result.events.length===0)throw Error('FINANCE_SSOT_READBACK_MISMATCH');
+      result.events.length===0||cursors.has(result.next_cursor))
+      throw Error('FINANCE_SSOT_READBACK_MISMATCH');
+    cursors.add(result.next_cursor);
     cursor=result.next_cursor;
   }
   throw Error('FINANCE_SSOT_READBACK_MISMATCH');
@@ -126,6 +139,19 @@ async function recover(config:ManualConfig,actor:Principal,key:string,send:typeo
   try{return accepted(await request(config,actor,'GET',
     `receipts/${encodeURIComponent(key)}`,null,null,['finance:read'],send),key);}
   catch{throw Error('WRITE_UNCONFIRMED');}
+}
+
+/** Check a prior OS attempt before rebuilding a command from a newer projection. */
+export async function readSsotReceipt(config:ManualConfig,actor:Principal,key:string,
+  send:typeof fetch=fetch):Promise<Record<string,unknown>|null>{
+  if(!UUID.test(key))throw Error('INVALID_INPUT');
+  try{
+    return accepted(await request(config,actor,'GET',
+      `receipts/${encodeURIComponent(key)}`,null,null,['finance:read'],send),key);
+  }catch(error){
+    if(error instanceof Error&&error.message==='REQUEST_NOT_FOUND')return null;
+    throw error;
+  }
 }
 
 /** A repeated request first reaches the authoritative idempotency check. */

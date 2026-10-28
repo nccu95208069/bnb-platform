@@ -12,7 +12,7 @@ const empty=()=>({version:0,entries:[],operations:[]});
 const request={request_id:'00000000-0000-4000-8000-000000000001',expected_version:0};
 test('3000 future stay with 1000 deposit shows 1000 received + 2000 receivable; across receipt month',()=>{
  const {orders}=projectOrders([row],[entry],[]);assert.equal(orders[0].received,100000);assert.equal(orders[0].receivable,200000);
- assert.deepEqual(revenueSummary(orders,[entry],'2026-09'),{received:100000,receivable:200000,total:300000});assert.equal(revenueSummary(orders,[entry],'2026-08').total,0);
+ assert.deepEqual(revenueSummary(orders,[entry],'2026-09'),{received:100000,receivable:200000,total:300000,review_count:0});assert.equal(revenueSummary(orders,[entry],'2026-08').total,0);
 });
 test('retired stays and Sheet done do not invent bank receipts; OTA receipts remain receivable',()=>{
  const {orders}=projectOrders([{...row,platform:'agoda',check_in:'2026-01-01',check_out:'2026-01-02',payment_status:'paid'}],[{...entry,method:'ota',amount_cents:300000}],[]);

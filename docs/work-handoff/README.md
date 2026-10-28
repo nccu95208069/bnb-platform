@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-28 Sweetfun OS finance SSOT candidate: [read-only preview, explicit confirmation, exact command recovery, and local build limits](FINANCE_SSOT_OS_PREVIEW_2026-10-28.md). This work has no production finance write or release claim.
+
 2026-10-27 owner decision: [independent LINE provider room controls](LINE_INDEPENDENT_CHANNEL_2026-10-27.md) separate OwlNest commands from OS occupancy and booking synchronization. Implementation and synthetic wire acceptance are complete; not deployed. Existing uncertain provider claims remain protected.
 
 - [LINE confirmation immediately executes its room action](LINE_IMMEDIATE_CHANNEL_2026-10-25.md) — paired GCO result-reply change; 304 tests pass, nine database tests skipped; not deployed.

@@ -59,7 +59,16 @@ export function checkPaymentBooking(raw: Record<string, unknown>, config: Manual
       events.filter(item => item.refundOfEventId === original.id).reduce((sum, item) => sum + item.amountCents, 0) > original.amountCents)
       throw Error('MANUAL_READBACK_MISMATCH');
   }
+  const cardManaged=raw.source === 'external' && raw.cardManaged === true;
+  const cardReceipts=cardManaged?events.filter(event=>event.kind==='received'&&
+    event.method==='credit_card'&&event.evidenceRef.startsWith('booking-card:')):[];
+  if(cardManaged&&(cardReceipts.length!==1||
+    events.some(event=>event.kind==='received'&&event.id!==cardReceipts[0].id)||
+    events.some(event=>event.kind==='refunded'&&
+      event.refundOfEventId!==cardReceipts[0].id)))
+    throw Error('MANUAL_READBACK_MISMATCH');
   return { bookingId, version: Number(raw.version), status: String(raw.status),
+    cardManaged,cardReceiptId:cardManaged?cardReceipts[0].id:null,
     totalCents: raw.totalCents as number | null,
     receivedCents: Number(raw.paymentSummary.receivedCents),
     refundedCents: Number(raw.paymentSummary.refundedCents),
@@ -86,7 +95,7 @@ export async function readManualPayment(principal: Principal, config: ManualConf
   bookingId: string, send: typeof fetch = fetch) {
   const raw = await callIronGate(config, principal, 'GET', bookingPath(config, bookingId),
     null, null, send, READ_ACTIONS, ['money']);
-  return checkPaymentBooking(raw, config, bookingId);
+  return checkPaymentBooking(raw, config, bookingId, true);
 }
 
 export async function recordManualPayment(principal: Principal, config: ManualConfig,
@@ -104,7 +113,13 @@ export async function recordManualPayment(principal: Principal, config: ManualCo
   if (!['cash', 'bank_transfer', 'credit_card', 'other'].includes(String(input.method)) ||
     input.kind === 'refunded' && !UUID.test(String(input.refundOfEventId)) ||
     input.kind === 'received' && input.refundOfEventId !== undefined) throw Error('MANUAL_INVALID_INPUT');
-  await readManualPayment(principal, config, bookingId, send);
+  const before = await readManualPayment(principal, config, bookingId, send);
+  if (before.cardManaged && process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED !== 'true')
+    throw Error('IRON_GATE_FINANCE_UNAVAILABLE');
+  if (before.cardManaged && input.kind !== 'refunded')
+    throw Error('SOURCE_MAPPING_REVIEW_REQUIRED');
+  if (before.cardManaged && input.refundOfEventId !== before.cardReceiptId)
+    throw Error('INVALID_REFUND_REFERENCE');
   const payload = { expectedBookingVersion: input.expectedBookingVersion,
     eventId: requestKey, kind: input.kind, amountCents: input.amountCents,
     currency: 'TWD', evidenceRef: input.evidenceRef.trim(), occurredAt: input.occurredAt,

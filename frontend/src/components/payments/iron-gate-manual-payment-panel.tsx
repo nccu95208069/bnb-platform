@@ -13,6 +13,7 @@ type Event = { id: string; kind: 'received' | 'refunded'; amountCents: number;
   evidenceRef: string; occurredAt: string; recordedAt: string;
   method?: keyof typeof METHODS; refundOfEventId?: string };
 type Detail = { bookingId: string; version: number; status: string;
+  cardManaged: boolean; cardRefundEnabled?:boolean; cardReceiptId?:string|null;
   totalCents: number | null; receivedCents: number; refundedCents: number;
   netReceivedCents: number; events: Event[] };
 const labels: Record<string, string> = {
@@ -27,6 +28,8 @@ const labels: Record<string, string> = {
   MANUAL_PENDING_REQUEST: '有一筆收付款結果尚未確認，請先查詢原請求。',
   MANUAL_PENDING_REQUEST_INVALID: '瀏覽器保存的請求資料無法辨識，請先人工核對。',
   MANUAL_STORAGE_UNAVAILABLE: '瀏覽器無法安全保存請求鍵，暫時不能登記。',
+  SOURCE_MAPPING_REVIEW_REQUIRED: '刷卡來源或退款對應尚待核對，這筆款項未登記。',
+  REFUND_SOURCE_REQUIRED: '請選擇有效的原收款，這筆退款未登記。',
 };
 const money = (cents: number) => new Intl.NumberFormat('zh-TW', {
   style: 'currency', currency: 'TWD', maximumFractionDigits: 2,
@@ -78,6 +81,9 @@ export function IronGateManualPaymentPanel({ bookingId, canRecord, onChange }: {
 
   async function submit() {
     if (!detail || !canRecord || pending || storageBlocked) return;
+    if (detail.cardManaged && (!detail.cardRefundEnabled || kind !== 'refunded')) {
+      setError('刷卡訂單只能在這裡登記退款。'); return;
+    }
     const validAmount = /^\d+(?:\.\d{1,2})?$/.test(amount) ? Math.round(Number(amount) * 100) : NaN;
     const occurredAt = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(occurred) ?
       new Date(`${occurred}:00+08:00`) : new Date(NaN);
@@ -167,8 +173,9 @@ export function IronGateManualPaymentPanel({ bookingId, canRecord, onChange }: {
 
   return <section className="space-y-3 rounded-xl border p-3" aria-label="Iron Gate 收付款紀錄">
     <div className="flex items-center justify-between gap-2"><h3 className="font-semibold">收付款紀錄</h3>
-      {detail && canRecord && !pending && !storageBlocked && !open && <Button size="sm"
-        onClick={() => { setError(''); if (detail.status === 'cancelled' || detail.netReceivedCents >= (detail.totalCents ?? 0)) setKind('refunded'); setOpen(true); }}>登記收付</Button>}</div>
+      {detail?.cardManaged&&!detail.cardRefundEnabled&&<p role="status" className="text-sm text-amber-800">刷卡退款功能尚未啟用，請保留原收付憑證。</p>}
+      {detail && canRecord && (!detail.cardManaged||detail.cardRefundEnabled) && !pending && !storageBlocked && !open && <Button size="sm"
+        onClick={() => { setError(''); if (detail.cardManaged || detail.status === 'cancelled' || detail.netReceivedCents >= (detail.totalCents ?? 0)) setKind('refunded'); setOpen(true); }}>{detail.cardManaged?'登記刷卡退款':'登記收付'}</Button>}</div>
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
     {error && detail && !pending && <Button variant="outline" disabled={busy} onClick={() => setReload(value => value + 1)}>重新載入紀錄</Button>}
     {result && <p role="status" className="text-sm text-amber-800">{result}</p>}
@@ -192,7 +199,7 @@ export function IronGateManualPaymentPanel({ bookingId, canRecord, onChange }: {
         event.preventDefault(); void submit(); }}>
         <fieldset disabled={busy} className="space-y-3 disabled:opacity-60">
           <div className="grid grid-cols-2 gap-2"><label className="text-sm"><input type="radio"
-            name="iron-gate-payment-kind" checked={kind === 'received'} disabled={detail.status === 'cancelled' || detail.totalCents === null || detail.netReceivedCents >= detail.totalCents}
+            name="iron-gate-payment-kind" checked={kind === 'received'} disabled={detail.cardManaged || detail.status === 'cancelled' || detail.totalCents === null || detail.netReceivedCents >= detail.totalCents}
             onChange={() => setKind('received')} /> 登記收款</label><label className="text-sm"><input
               type="radio" name="iron-gate-payment-kind" checked={kind === 'refunded'}
               onChange={() => setKind('refunded')} /> 登記退款</label></div>
@@ -202,7 +209,8 @@ export function IronGateManualPaymentPanel({ bookingId, canRecord, onChange }: {
           {kind === 'refunded' && <label className="block text-sm">對應原收款<select required aria-label="對應原收款"
             className="mt-1 block w-full rounded-md border p-2" value={refundOfEventId}
             onChange={event => setRefundOfEventId(event.target.value)}><option value="">請選擇原收款</option>
-            {detail.events.filter(event => event.kind === 'received').map(event => <option key={event.id} value={event.id}>
+            {detail.events.filter(event => event.kind === 'received' &&
+              (!detail.cardManaged||event.id===detail.cardReceiptId)).map(event => <option key={event.id} value={event.id}>
               {event.evidenceRef} · {money(event.amountCents)}</option>)}</select></label>}
           <div className="space-y-1"><Label htmlFor="iron-gate-payment-amount">金額（台幣）</Label>
             <Input id="iron-gate-payment-amount" required type="number" min="0.01" step="0.01"

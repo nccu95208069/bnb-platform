@@ -6,8 +6,16 @@ export const EXPENSE_CATEGORIES = { laundry:'備品送洗', water:'水費', elec
 export const INCOME_CATEGORIES = { lodging:'住宿收入', breakfast:'早餐費', overtime:'超時／延退費', extra_guest:'加人／加床', partner:'合作廠商收入', other:'其他收入' };
 export const METHODS = { cash:'現金', bank_transfer:'匯款', credit_card:'信用卡', ota:'OTA 代收', other:'其他' };
 export type FinanceKind = 'income'|'expense';
-export type FinanceEntry = { audit_event?:FinanceAuditEvent; id:string; ledger_year?:number; updated_at?:string; updated_by?:string; history?:{at:string;actor:string;actor_id:string;before:Omit<FinanceEntry,'history'>}[]; property_id:string; kind:FinanceKind|'refund'; category:string;category_name?:string; amount_cents:number; date:string; description:string; method:keyof typeof METHODS; stage?:string; source:'manual'|'calendar'|'iron_gate'; iron_gate_booking_id?:string; payment_event_id?:string; refund_of_event_id?:string; actor:string; created_at:string; status:'active'|'void'; payment_account?:Pick<PaymentAccount,'id'|'name'|'method'|'last_digits'>; expense_spread?:ExpenseShare[]; advanced_by?:ExpenseAdvance; void_reason?:string; void_at?:string; void_actor?:string; order_id?:string; order_key?:string; platform?:string; allocations?:{order_id:string;amount_cents:number}[]; recurrence_id?:string; occurrence?:string; ssot_source_record_id?:string; ssot_source_system?:string; ssot_document_version?:number; ssot_event_kind?:string; ssot_evidence_level?:string; ssot_evidence_ref?:string };
-export type FinanceReport = { iron_gate_revision?:string|null; iron_gate_direct_excluded?:boolean; payment_accounts?:PaymentAccount[]; expense_categories?:Record<string,string>; advance_accounts?:{id:string;name:string}[]; properties:{id:string;name:string}[]; property_id:string; year:number; version:number; entries:FinanceEntry[]; updated_at:string; versions:Record<string,number>; projection_version:string; orders:FinanceOrder[]; recurring:RecurringExpense[]; due:DueExpense[]; payout_rules:PayoutRule[]; excluded_orders:number };
+export type FinanceEntry = { audit_event?:FinanceAuditEvent; id:string; ledger_year?:number; updated_at?:string; updated_by?:string; history?:{at:string;actor:string;actor_id:string;before:Omit<FinanceEntry,'history'>}[]; property_id:string; kind:FinanceKind|'refund'; category:string;category_name?:string; amount_cents:number; date:string; description:string; method:keyof typeof METHODS; stage?:string; source:'manual'|'calendar'|'iron_gate'; iron_gate_booking_id?:string; payment_event_id?:string; refund_of_event_id?:string; actor:string; created_at:string; status:'active'|'void'; payment_account?:Pick<PaymentAccount,'id'|'name'|'method'|'last_digits'>; expense_spread?:ExpenseShare[]; advanced_by?:ExpenseAdvance; void_reason?:string; void_at?:string; void_actor?:string; order_id?:string; order_key?:string; platform?:string; allocations?:{order_id:string;amount_cents:number;allocation_kind?:'room'|'deposit'|'extra'|'ota_payout'|'expense'}[]; recurrence_id?:string; occurrence?:string; ssot_source_record_id?:string; ssot_source_system?:string; ssot_document_version?:number; ssot_event_kind?:string; ssot_evidence_level?:string; ssot_evidence_ref?:string };
+/** Only lodging and OTA payout allocations contribute to a booking's room collections. */
+export function roomCollectionForOrder(entry:FinanceEntry,orderId:string){
+ if(entry.allocations?.length)return entry.allocations.filter(a=>a.order_id===orderId&&
+   (a.allocation_kind===undefined?entry.category==='lodging':
+     ['room','deposit','ota_payout'].includes(a.allocation_kind)))
+   .reduce((sum,a)=>sum+a.amount_cents,0);
+ return entry.order_id===orderId&&entry.category==='lodging'?entry.amount_cents:0;
+}
+export type FinanceReport = { ssot_enabled?:boolean; iron_gate_revision?:string|null; iron_gate_direct_excluded?:boolean; payment_accounts?:PaymentAccount[]; expense_categories?:Record<string,string>; advance_accounts?:{id:string;name:string}[]; properties:{id:string;name:string}[]; property_id:string; year:number; version:number; entries:FinanceEntry[]; updated_at:string; versions:Record<string,number>; projection_version:string; orders:FinanceOrder[]; recurring:RecurringExpense[]; due:DueExpense[]; payout_rules:PayoutRule[]; excluded_orders:number };
 export const categoryLabel=(entry:Pick<FinanceEntry,'kind'|'category'|'category_name'>)=>entry.kind==='refund'?'住宿退款':entry.category_name??((entry.kind==='income'?INCOME_CATEGORIES:EXPENSE_CATEGORIES) as Record<string,string>)[entry.category]??'未分類';
 export function summarize(entries:FinanceEntry[],month:string) {
   const active=entries.filter(e=>e.status==='active');
@@ -22,7 +30,7 @@ export function summarize(entries:FinanceEntry[],month:string) {
 }
 
 export const PLATFORMS:Record<string,string>={direct:'LINE／電話／直訂',agoda:'Agoda',ctrip:'Trip.com',owljourney:'奧丁丁',booking:'Booking.com',airbnb:'Airbnb',other:'其他'};
-export type FinanceOrder={amount_reconciliation?:import('./source-amount-reconciliation').SourceAmountBreakdown & {bookingId:string;version:number};source?:'iron_gate';booking_id?:string;ssot_booking_version?:number;ssot_source_snapshot_hash?:string;status?:'held'|'confirmed'|'cancelled';id:string;calendar_id:string;platform:string;rooms:string[];check_in:string;check_out:string;total:number;received:number;receivable:number;eligible_date:string|null;source_paid:boolean;credit:number;source_version:string};
+export type FinanceOrder={amount_reconciliation?:import('./source-amount-reconciliation').SourceAmountBreakdown & {bookingId:string;version:number};source?:'iron_gate';booking_id?:string;ssot_booking_version?:number;ssot_source_snapshot_hash?:string;receivable_review_required?:boolean;status?:'held'|'confirmed'|'cancelled';id:string;calendar_id:string;platform:string;rooms:string[];check_in:string;check_out:string;total:number;received:number;receivable:number;eligible_date:string|null;source_paid:boolean;credit:number;source_version:string};
 export type RecurringExpense={id:string;year:number;category:string;category_name?:string;amount_cents:number;description:string;method:FinanceEntry['method'];start:string;end:string|null;day:number;created_at:string;actor:string;stopped_at?:string;stopped_by?:string;ssot_source_record_id?:string;ssot_version?:number};
 export type DueExpense={id:string;rule_id:string;year:number;date:string;category:string;category_name?:string;amount_cents:number;description:string;method:FinanceEntry['method']};
 export type PayoutRule={platform:string;mode:'manual'|'monthly';day:number;offset:number;updated_at?:string;ssot_version?:number};
@@ -35,10 +43,19 @@ export function recurrenceDue(rules:RecurringExpense[],entries:FinanceEntry[],ye
 // Unallocated service income is counted in its actual receipt month, once only.
 export function revenueSummary(orders:FinanceOrder[],entries:FinanceEntry[],month:string){
  const selected=orders.filter(o=>o.status!=='held'&&o.status!=='cancelled'&&o.check_in.startsWith(month));
- const extra=entries.filter(e=>e.status==='active'&&e.kind==='income'&&e.method!=='ota'&&!e.allocations?.length&&(!e.order_key||e.category!=='lodging')&&e.date.startsWith(month)).reduce((s,e)=>s+e.amount_cents,0);
+ const extra=entries.filter(e=>e.status==='active'&&e.kind==='income'&&
+   e.method!=='ota'&&e.date.startsWith(month)).reduce((sum,e)=>{
+   if(!e.allocations?.length)return sum+(!e.order_key||e.category!=='lodging'?e.amount_cents:0);
+   const linked=e.allocations.reduce((amount,a)=>amount+a.amount_cents,0);
+   const service=e.allocations.filter(a=>a.allocation_kind==='extra'||
+     a.allocation_kind===undefined&&e.category!=='lodging')
+     .reduce((amount,a)=>amount+a.amount_cents,0);
+   return sum+service+Math.max(0,e.amount_cents-linked);
+ },0);
  const received=selected.reduce((s,o)=>s+Math.min(o.received,o.total),0)+extra;
  const receivable=selected.reduce((s,o)=>s+o.receivable,0);
- return {received,receivable,total:received+receivable};
+ return {received,receivable,total:received+receivable,
+   review_count:selected.filter(o=>o.receivable_review_required).length};
 }
 
 export function expenseCategories(records:{category:string;category_name?:string}[]):Record<string,string>{return {...EXPENSE_CATEGORIES,...Object.fromEntries(records.filter(e=>e.category.startsWith('custom_')&&e.category_name).map(e=>[e.category,e.category_name!]))};}

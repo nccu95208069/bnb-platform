@@ -1,7 +1,8 @@
 import {accessToken} from './sheet-monitor/google.ts';
 import {FINANCE_SHEET_TABS} from './finance-sheet-bulk-template.ts';
 import type {FinanceSheetBinding} from './finance-sheet-bulk-google';
-import type {FinanceSheetProjection} from './finance-sheet-bulk-projections';
+import {financeSheetProjectionDigest,type FinanceSheetProjection}
+  from './finance-sheet-bulk-projections.ts';
 
 const ROOT='https://sheets.googleapis.com/v4/spreadsheets/';
 const range=(title:string,rows:number)=>encodeURIComponent(
@@ -75,9 +76,11 @@ export async function publishFinanceSheetProjections(binding:FinanceSheetBinding
       '?valueRenderOption=FORMATTED_VALUE&majorDimension=ROWS',send);
     if(value.majorDimension!=='ROWS')throw Error('SHEET_INCOMPLETE_READ');
     const rows=normalized(value.values??[]);
-    return same(rows,expected[index]);
+    return {title:tab.title,rows,match:same(rows,expected[index])};
   }));
-  if((await read()).every(Boolean))return {status:'unchanged' as const};
+  const before=await read();
+  if(before.every(tab=>tab.match))return {status:'unchanged' as const,
+    readback_digest:financeSheetProjectionDigest(before)};
   const writeToken=await accessToken(binding,true,undefined,send);
   const requests=output.flatMap((tab,index)=>[
     {repeatCell:{range:{sheetId:tab.sheetId,startRowIndex:0,
@@ -90,6 +93,8 @@ export async function publishFinanceSheetProjections(binding:FinanceSheetBinding
   ]);
   await api(writeToken,base+':batchUpdate',send,{method:'POST',
     body:JSON.stringify({requests})});
-  if(!(await read()).every(Boolean))throw Error('SHEET_WRITE_UNCONFIRMED');
-  return {status:'projected' as const};
+  const after=await read();
+  if(!after.every(tab=>tab.match))throw Error('SHEET_WRITE_UNCONFIRMED');
+  return {status:'projected' as const,
+    readback_digest:financeSheetProjectionDigest(after)};
 }

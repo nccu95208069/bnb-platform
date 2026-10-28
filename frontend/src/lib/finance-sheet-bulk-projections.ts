@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {FINANCE_SHEET_TABS} from './finance-sheet-bulk-template.ts';
-import type {FinanceSheetScan} from './finance-sheet-bulk-core';
+import type {FinanceSheetIssue,FinanceSheetScan} from './finance-sheet-bulk-core';
 
 export type FinanceSheetProjection={title:string;rows:string[][]};
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -25,7 +25,8 @@ const add=(state:Record<string,number>,key:string,amount:number)=>{
 };
 
 export function financeSheetProjections(events:unknown[],scan:FinanceSheetScan,
-  propertyDisplay:string,sourceInstanceId:string):FinanceSheetProjection[]{
+  propertyDisplay:string,sourceInstanceId:string,
+  reconciliationIssues:FinanceSheetIssue[]=[]):FinanceSheetProjection[]{
   if(!Array.isArray(events)||!UUID.test(sourceInstanceId)||
     !propertyDisplay||propertyDisplay.length>80)throw Error('SHEET_LEDGER_INVALID');
   const bookings=new Map<string,Record<string,number>>();
@@ -85,15 +86,19 @@ export function financeSheetProjections(events:unknown[],scan:FinanceSheetScan,
         safeText(event.document_status,16),kind,effective,
         safeText(event.created_at,40),evidence,'']);
   }
-  const issues=scan.issues.map(issue=>[propertyDisplay,String(issue.sheet_row),
+  const allIssues=[...new Map([...scan.issues,...reconciliationIssues]
+    .map(issue=>[`${issue.sheet_row}:${issue.row_id??''}:${issue.code}`,issue])).values()];
+  const issues=allIssues.map(issue=>[propertyDisplay,String(issue.sheet_row),
     issue.row_id??'','待核對',issue.code,'']);
   for(const row of scan.unassigned)issues.push([propertyDisplay,
     String(row.sheet_row),'','待派發編號','SHEET_IDENTITY_PENDING','']);
-  const issueIds=new Set(scan.issues.map(issue=>issue.row_id));
+  const issueIds=new Set(allIssues.map(issue=>issue.row_id));
   for(const row of scan.rows)if(!issueIds.has(row.row_id)&&
-    !['accepted','void'].includes(row.sync_status))
+    (!['accepted','void'].includes(row.sync_status)||
+      (row.action==='void')!==(row.sync_status==='void')))
     issues.push([propertyDisplay,String(row.sheet_row),row.row_id,
-      '待預覽確認',row.sync_status||'pending','']);
+      '待預覽確認',(row.action==='void')!==(row.sync_status==='void')?
+        'SHEET_PENDING_ACTION':row.sync_status||'pending','']);
   const bookingRows=[...bookings].sort(([a],[b])=>a.localeCompare(b))
     .map(([bookingId,bucket])=>[propertyDisplay,bookingId,
       String(bucket.receipt??0),String(bucket.refund??0),
@@ -125,5 +130,6 @@ export function financeSheetProjections(events:unknown[],scan:FinanceSheetScan,
 }
 
 export function financeSheetProjectionDigest(projection:FinanceSheetProjection[]){
-  return hash(projection);
+  return hash(projection.map(tab=>({title:tab.title,rows:tab.rows.map(row=>
+    Array.from({length:12},(_,index)=>row[index]??''))})));
 }
