@@ -21,7 +21,7 @@ The finance snapshot includes only native OS bookings plus external bookings wit
 The companion GCO document `docs/CARD_IRONGATE_SYNC_2026-10-27.md` specifies the four-stage release and exact-source acceptance. Required new server configuration:
 
 - IronGate: dedicated credential with origin `finance`, actions `[card:sync]`, fields `[money]`, exact workspace/property/current epoch. Existing transactional JSON state persists results; no new database schema.
-- Prepare this credential with `node iron-gate/scripts/prepare-sweetfun-finance-grants.mjs NEW_PRIVATE_DIRECTORY --card-sync`; issuance SQL contains only the token hash, verifies authority and refuses duplicate active subjects. The plaintext grant is sent only to the OS production environment.
+- For the finance SSOT cutover, prepare a connector-bound replacement credential with `node iron-gate/scripts/prepare-sweetfun-finance-grants.mjs NEW_PRIVATE_DIRECTORY CARD_SOURCE_INSTANCE_ID --card-sync`; issuance SQL contains only the token hash, verifies the Sweetfun Card connector and authority, and refuses duplicate active subjects. The plaintext grant is sent only to the OS production environment.
 - OS: `IRON_GATE_CARD_SYNC_GRANT`, `CC_SYNC_OS_TOKEN` (32+ random characters), `IRON_GATE_CARD_SYNC_ENABLED=true`; existing Sweetfun finance/calendar configuration remains required.
 - cc-sync: `CC_SYNC_TARGET=irongate`, `CC_SYNC_OS_URL=https://<OS>/api/internal/card-sync`, matching `CC_SYNC_OS_TOKEN`, existing IAM and source OAuth mounts. Dashboard always sends `target=irongate`.
 

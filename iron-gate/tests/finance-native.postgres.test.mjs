@@ -16,6 +16,9 @@ const nativeConnector = '20000000-0000-4000-8000-000000000004';
 const cardConnector = '20000000-0000-4000-8000-000000000005';
 const roomId = '20000000-0000-4000-8000-000000000006';
 const cardBookingId = '20000000-0000-4000-8000-000000000007';
+const legacyPropertyId = '20000000-0000-4000-8000-000000000008';
+const legacyBookingId = '20000000-0000-4000-8000-000000000009';
+const legacyConnector = '20000000-0000-4000-8000-000000000010';
 function state() {
   return { workspaceId, propertyId, roomIds: [roomId], version: 1, authorityEpoch: 1,
     channel: { mode: 'none', ready: false, websiteSalesEnabled: false,
@@ -53,6 +56,33 @@ test('native payment commits its legacy booking projection and new ledger in one
         VALUES ($1,$3,'iron_gate_native',true,now()-interval '1 day'),
                ($2,$3,'sweetfun_card',true,now()-interval '1 day')`,
       [nativeConnector,cardConnector,propertyId]);
+      const legacyState=state();
+      legacyState.propertyId=legacyPropertyId;
+      legacyState.bookings[0].id=legacyBookingId;
+      legacyState.bookings[0].propertyId=legacyPropertyId;
+      await admin.query(`INSERT INTO iron_gate.property_state
+        (property_id,workspace_id,authority_epoch,inventory_version,state_json)
+        VALUES ($1,$2,1,1,$3::jsonb)`,
+      [legacyPropertyId,workspaceId,JSON.stringify(legacyState)]);
+      await admin.query(`INSERT INTO iron_gate.finance_connector
+        (source_instance_id,property_id,source_system,enabled,cutover_at)
+        VALUES ($1,$2,'iron_gate_native',true,now()+interval '1 day')`,
+      [legacyConnector,legacyPropertyId]);
+      const legacyEventId=crypto.randomUUID();
+      const legacyResult=await service.recordPaymentEvent({...principal,
+        propertyIds:[legacyPropertyId],financeSourceInstanceId:legacyConnector},
+      legacyPropertyId,legacyBookingId,crypto.randomUUID(),{
+        expectedBookingVersion:1,eventId:legacyEventId,kind:'received',
+        amountCents:1000,currency:'TWD',evidenceRef:'legacy-source-proof',
+        occurredAt:'2026-10-27T10:00:00+08:00',method:'cash'});
+      assert.equal(legacyResult.paymentEventId,legacyEventId);
+      assert.equal(legacyResult.as_of_change_seq,undefined);
+      const legacyLedger=await admin.query(`SELECT id FROM iron_gate.finance_event
+        WHERE property_id=$1`,[legacyPropertyId]);
+      assert.equal(legacyLedger.rows.length,0);
+      const legacyProjection=await admin.query(`SELECT state_json FROM iron_gate.property_state
+        WHERE property_id=$1`,[legacyPropertyId]);
+      assert.equal(legacyProjection.rows[0].state_json.bookings[0].paymentEvents.length,1);
       const paymentEventId = crypto.randomUUID();
       const input = { expectedBookingVersion: 1, eventId: paymentEventId,
         kind: 'received', amountCents: 3000, currency: 'TWD',
@@ -70,6 +100,14 @@ test('native payment commits its legacy booking projection and new ledger in one
         [propertyId]);
       assert.equal(stored.rows[0].state_json.bookings[0].paymentEvents.length,1);
       assert.equal(stored.rows[0].state_json.receipts[0].response.as_of_change_seq,1);
+      const runtimeOff=new IronGateService(new PostgresPropertyRepository(rolePool,false));
+      await assert.rejects(runtimeOff.recordPaymentEvent(principal,propertyId,bookingId,
+        crypto.randomUUID(),{...input,expectedBookingVersion:2,eventId:crypto.randomUUID(),
+          evidenceRef:'runtime-off-proof'}),
+      error=>error.code==='FINANCE_NATIVE_LEDGER_DISABLED');
+      stored = await admin.query(`SELECT state_json FROM iron_gate.property_state WHERE property_id=$1`,
+        [propertyId]);
+      assert.equal(stored.rows[0].state_json.bookings[0].paymentEvents.length,1);
       const noConnector = await admin.query(`UPDATE iron_gate.finance_connector SET enabled=false,
         version=version+1,updated_at=clock_timestamp()
         WHERE property_id=$1 AND source_instance_id=$2`, [propertyId,nativeConnector]);

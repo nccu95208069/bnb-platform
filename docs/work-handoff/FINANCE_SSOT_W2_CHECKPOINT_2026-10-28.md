@@ -21,6 +21,17 @@ This branch is stacked on W1 PR #106. It is a guarded implementation candidate, 
 
 ## Required before any W7 enablement
 
+The follow-up native/Card gate checks each property's `iron_gate_native` or
+`sweetfun_card` connector inside the legacy booking transaction. An enabled
+connector with an effective `cutover_at` mirrors the event only when the runtime
+capability is on. A property/source without an effective cutover keeps its
+legacy writer. Once cut over, disabling the connector or runtime rejects the
+whole write instead of silently resuming a legacy-only result. New payment
+and Card grants must include the registered `financeSourceInstanceId`; prepare
+them with `prepare-sweetfun-finance-grants.mjs NEW_PRIVATE_DIRECTORY SOURCE_INSTANCE_ID`
+and append `--card-sync` for the Card connector. The issuance SQL verifies that
+the supplied connector belongs to Sweetfun and has the expected source system.
+
 - W0 source snapshots and W3–W6 adapters, classification/account provisioning, backfill and per-source reconciliation are not done in this branch.
 - Generic refunds against a legacy native/Card receipt are explicitly blocked with a review code until a same-transaction booking JSON compatibility projection is implemented. The existing native refund path remains behind the native-ledger cutover flag.
 - Bookings with existing unmapped payment JSON, unclear OTA payee, or stale source link are blocked for review. They need exact source evidence and mapping before cutover.

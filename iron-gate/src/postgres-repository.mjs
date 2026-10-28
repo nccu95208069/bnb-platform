@@ -1,6 +1,6 @@
 import { GateError } from "./errors.ts";
 import { nightsFor } from "./service.ts";
-import { appendNativeFinance } from "./finance-native.mjs";
+import { appendNativeFinance, nativeFinanceCutover } from "./finance-native.mjs";
 
 function occupancyRows(state) {
   const rows = [];
@@ -79,11 +79,14 @@ export class PostgresPropertyRepository {
         const pendingFinance = [];
         const result = await fn(draft, { emit: (event) => pending.push(structuredClone(event)),
           audit: (record) => pendingAudits.push(structuredClone(record)),
-          ...(this.#financeNativeEnabled ? { financeNative: intent =>
-            pendingFinance.push(structuredClone(intent)) } : {}) });
+          financeNative: intent => pendingFinance.push(structuredClone(intent)) });
         // Native finance adds the change watermark to the same response object
         // held by the legacy request receipt. Do it before serializing the draft.
-        for (const intent of pendingFinance) await appendNativeFinance(client, propertyId, intent, result);
+        for (const intent of pendingFinance) {
+          if (await nativeFinanceCutover(client, propertyId, intent.type,
+            this.#financeNativeEnabled))
+            await appendNativeFinance(client, propertyId, intent, result);
+        }
         const updated = await client.query(`UPDATE iron_gate.property_state SET
           state_json = $1::jsonb, authority_epoch = $2, inventory_version = $3, updated_at = now()
           WHERE property_id = $4 AND authority_epoch = $5 AND inventory_version = $6`,

@@ -9,6 +9,22 @@ function taipeiDay(timestamp) {
   const pick = name => parts.find(part => part.type === name)?.value;
   return `${pick('year')}-${pick('month')}-${pick('day')}`;
 }
+
+/** A source cuts over independently. Once its cutover is effective, never
+ * silently resume the legacy-only writer when the connector or runtime is off. */
+export async function nativeFinanceCutover(client, propertyId, intentType, runtimeEnabled) {
+  const sourceSystem = intentType === 'payment' ? 'iron_gate_native' :
+    intentType === 'card' ? 'sweetfun_card' : null;
+  if (!sourceSystem) throw new GateError('FINANCE_NATIVE_INTENT_INVALID', 500);
+  const result = await client.query(`SELECT enabled FROM iron_gate.finance_connector
+    WHERE property_id=$1 AND source_system=$2 AND cutover_at IS NOT NULL
+      AND cutover_at<=now()`, [propertyId, sourceSystem]);
+  if (!result.rows.length) return false;
+  if (result.rows.length !== 1 || result.rows[0].enabled !== true)
+    throw new GateError('FINANCE_CONNECTOR_NOT_READY', 409);
+  if (!runtimeEnabled) throw new GateError('FINANCE_NATIVE_LEDGER_DISABLED', 503);
+  return true;
+}
 async function connector(client, propertyId, sourceSystem) {
   const result = await client.query(`SELECT source_instance_id FROM iron_gate.finance_connector
     WHERE property_id=$1 AND source_system=$2 AND enabled=true AND
