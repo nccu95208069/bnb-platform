@@ -6,6 +6,8 @@ import { prepareSweetfunFinanceClaims, verifySweetfunFinanceClaims } from
 
 const property = "sweetfun";
 const ledgerPrefix = `sweetfun-os:payments:v1:${property}:`;
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const sha256 = /^[a-f0-9]{64}$/;
 
 function digest(value) {
   return createHash("sha256").update(value).digest("hex");
@@ -47,11 +49,70 @@ function firestoreDocument(doc) {
     .map(([key, value]) => [key, firestoreValue(value)]));
 }
 
+// This evidence must come from a separate, pinned Iron Gate booking readback.
+// A receipt's own order ID proves its Redis key only, not booking ownership.
+function verifiedIgBookings(readback) {
+  if (readback == null) return null;
+  if (readback.schema !== 1 || readback.source !== "iron_gate" ||
+    readback.property_key !== property || !uuid.test(readback.property_id ?? "") ||
+    readback.read_only !== true || readback.complete !== true ||
+    !Number.isSafeInteger(readback.as_of_change_seq) ||
+    readback.as_of_change_seq < 0 || !sha256.test(readback.snapshot_hash ?? "") ||
+    typeof readback.captured_at !== "string" ||
+    !Number.isFinite(Date.parse(readback.captured_at)) ||
+    !Array.isArray(readback.bookings))
+    throw Error("OS_IG_BOOKING_EVIDENCE_INVALID");
+  const bookings = new Map();
+  for (const booking of readback.bookings) {
+    if (!uuid.test(booking?.id ?? "") ||
+      booking.property_id !== readback.property_id ||
+      !["confirmed", "cancelled", "held"].includes(booking.status) ||
+      !Number.isSafeInteger(booking.version) || booking.version < 1 ||
+      !Number.isSafeInteger(booking.total_cents) || booking.total_cents < 0 ||
+      bookings.has(booking.id))
+      throw Error("OS_IG_BOOKING_EVIDENCE_MISMATCH");
+    bookings.set(booking.id, booking);
+  }
+  return bookings;
+}
+
+function verifyIgStatusReceipt(receipt, orderId, bookings, receiptIndex) {
+  if (!bookings) throw Error("OS_IG_BOOKING_EVIDENCE_REQUIRED");
+  if (receipt.status_only !== true || receipt.amount !== 0 ||
+    receipt.payment_type !== "full" || receipt.payment_method !== "other" ||
+    receipt.settles_room !== true)
+    throw Error("OS_IG_MONEY_RECEIPT_REVIEW");
+  const bookingId = orderId.slice(3);
+  const booking = bookings.get(bookingId);
+  if (!booking || booking.status !== "confirmed")
+    throw Error("OS_IG_BOOKING_EVIDENCE_MISMATCH");
+  const sourceVersion = digest(JSON.stringify([
+    "iron_gate", bookingId, booking.version, booking.total_cents,
+  ]));
+  const audit = receipt.audit;
+  if (receipt.source_version !== sourceVersion ||
+    receipt.booking_version !== sourceVersion ||
+    audit?.source_version !== sourceVersion ||
+    audit?.after?.booking_version !== sourceVersion ||
+    audit?.after?.source_version !== sourceVersion ||
+    audit?.schema_version !== 1 || audit.property_id !== property ||
+    audit.source !== "calendar" || audit.result !== "succeeded" ||
+    audit.action !== "calendar_payment_confirmed" ||
+    audit.actor_id !== receipt.actor || audit.at !== receipt.created_at ||
+    audit.version_before !== receiptIndex ||
+    audit.version_after !== receiptIndex + 1)
+    throw Error("OS_IG_BOOKING_EVIDENCE_MISMATCH");
+  return { id: bookingId, propertyId: booking.property_id,
+    status: booking.status, version: booking.version,
+    totalCents: booking.total_cents };
+}
+
 /**
  * Audit current source claims without creating target cash events. Returned raw
  * claims and identifiers are private. Only the CLI's aggregate report may log.
  */
-export function auditSweetfunFinanceSources(osRaw, lineRaw, sheetMap, lineProjection) {
+export function auditSweetfunFinanceSources(osRaw, lineRaw, sheetMap, lineProjection,
+  igBookingReadback = null) {
   if (osRaw?.schema !== 1 || lineRaw?.schema !== 1 ||
     !Array.isArray(osRaw.records) || !Array.isArray(sheetMap?.rows) ||
     typeof sheetMap.sourceId !== "string" || !sheetMap.sourceId ||
@@ -59,6 +120,7 @@ export function auditSweetfunFinanceSources(osRaw, lineRaw, sheetMap, lineProjec
     typeof lineProjection?.entryId !== "string")
     throw Error("INVALID_LIVE_FINANCE_EVIDENCE");
   const osRecords = new Map();
+  const igBookings = verifiedIgBookings(igBookingReadback);
   for (const record of osRaw.records) {
     if (typeof record?.key !== "string" || typeof record?.raw !== "string" ||
       osRecords.has(record.key)) throw Error("INVALID_OS_RAW_RECORD");
@@ -104,19 +166,24 @@ export function auditSweetfunFinanceSources(osRaw, lineRaw, sheetMap, lineProjec
       category: entry.category,
       allocations: entry.allocations?.map((allocation) => ({
         orderId: allocation.order_id, amountCents: allocation.amount_cents })) }));
-  const receiptRows = [];
+  const receiptRows = [], verifiedIg = [];
   let sourceReceiptCount = 0;
   for (const [key, ledger] of ledgerRecords) {
     if (!Number.isSafeInteger(ledger.version) || !Array.isArray(ledger.receipts))
       throw Error("INVALID_OS_LEDGER");
-    for (const receipt of ledger.receipts) {
+    for (const [receiptIndex, receipt] of ledger.receipts.entries()) {
       sourceReceiptCount++;
       const orderId = receipt.audit?.after?.order_id;
-      if (!orderIds.has(orderId)) throw Error("OS_RECEIPT_ORDER_NOT_IN_SHEET");
+      if (typeof orderId !== "string") throw Error("OS_RECEIPT_AUDIT_MISMATCH");
       if (ledgerKey(orderId) !== key) throw Error("OS_RECEIPT_LEDGER_KEY_MISMATCH");
       if (receipt.audit?.target_id !== receipt.id ||
         receipt.audit?.request_id !== receipt.request_id)
         throw Error("OS_RECEIPT_AUDIT_MISMATCH");
+      if (/^IG-[0-9a-f-]{36}$/i.test(orderId) &&
+        uuid.test(orderId.slice(3)))
+        verifiedIg.push(verifyIgStatusReceipt(receipt, orderId, igBookings,
+          receiptIndex));
+      else if (!orderIds.has(orderId)) throw Error("OS_RECEIPT_ORDER_NOT_IN_SHEET");
       receiptRows.push({ id: receipt.id, orderId,
         amountCents: centsFromTwd(receipt.amount), date: taipeiDay(receipt.received_at),
         statusOnly: receipt.status_only === true, requestId: receipt.request_id,
@@ -138,7 +205,8 @@ export function auditSweetfunFinanceSources(osRaw, lineRaw, sheetMap, lineProjec
       throw Error("OS_MISSION_RECEIPT_COVERAGE_MISMATCH");
     missionReceiptIds.add(mission.receipt_id);
   }
-  const statusNotes = receiptRows.filter((receipt) => receipt.statusOnly)
+  const statusNotes = receiptRows.filter((receipt) => receipt.statusOnly &&
+    orderIds.has(receipt.orderId))
     .map((receipt) => ({ found: (noteByOrder.get(receipt.orderId) ?? [])
       .some((note) => note.includes(receipt.requestId)) }));
   const calendarReceipts = receiptRows.filter((receipt) => !receipt.statusOnly);
@@ -185,6 +253,12 @@ export function auditSweetfunFinanceSources(osRaw, lineRaw, sheetMap, lineProjec
       kind: line.kind, status: line.status, version: line.version,
       amountCents: line.amount * 100, date: line.paid_on }],
     lineDetailProjections: [lineProjection], sheetMarkers,
+    ...(verifiedIg.length ? { igBookingEvidence: {
+      propertyId: igBookingReadback.property_id,
+      asOfChangeSeq: igBookingReadback.as_of_change_seq,
+      snapshotHash: igBookingReadback.snapshot_hash,
+      bookings: verifiedIg,
+    } } : {}),
   };
   const candidate = prepareSweetfunFinanceClaims(normalized);
   if (!verifySweetfunFinanceClaims(normalized, candidate).matches)
@@ -206,8 +280,10 @@ export function auditSweetfunFinanceSources(osRaw, lineRaw, sheetMap, lineProjec
       n + (raw.operations?.length ?? 0), 0),
     osManualEntries: osEntries.filter((e) =>
       e.source === "manual").length, osReceipts: receiptRows.length,
-    statusOnlyReceipts: statusNotes.length,
+    statusOnlyReceipts: receiptRows.filter((receipt) => receipt.statusOnly).length,
+    statusOnlySheetReceipts: statusNotes.length,
     statusOnlyNotesMatched: statusNotes.filter((item) => item.found).length,
+    igStatusOnlyVerified: verifiedIg.length,
     nonStatusReceipts: calendarReceipts.length,
     manualAllocationOrders: allocationOrders.length,
     orphanManualAllocations,
