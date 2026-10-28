@@ -35,7 +35,7 @@ export function osFinanceOriginHash(input:Record<string,unknown>,actorId:string,
 /** An accepted receipt takes priority over a now-stale OS projection. */
 export async function resumeSsotFinance(input:Record<string,unknown>,actor:Principal,
   property:string,read:typeof readSsotReceipt=readSsotReceipt,
-  config:ReturnType<typeof ironGateSsotFinanceConfig>=ironGateSsotFinanceConfig()){
+  config:ReturnType<typeof ironGateSsotFinanceConfig>=ironGateSsotFinanceConfig(property)){
   const key=input.request_id;
   if(typeof key!=='string'||!UUID.test(key))throw Error('INVALID_INPUT');
   const originHash=osFinanceOriginHash(input,actor.id,property);
@@ -60,14 +60,16 @@ function allocations(input:Record<string,unknown>,orders:FinanceOrder[]){
     if(!object(raw)||typeof raw.order_id!=='string'||
       !Number.isSafeInteger(raw.amount_cents))throw Error('INVALID_INPUT');
     const order=orders.find(o=>o.id===raw.order_id);
-    if(!order||order.source==='iron_gate'||!UUID.test(order.booking_id??'')||
+    if(!order||!UUID.test(order.booking_id??'')||
       !Number.isSafeInteger(order.ssot_booking_version)||
-      !/^[0-9a-f]{64}$/.test(order.ssot_source_snapshot_hash??''))
+      Number(order.ssot_booking_version)<1||
+      (order.source==='iron_gate'?!order.ssot_command_eligible:
+        !/^[0-9a-f]{64}$/.test(order.ssot_source_snapshot_hash??'')))
       throw Error('SOURCE_MAPPING_REVIEW_REQUIRED');
     return {booking_id:order.booking_id!,
       expected_booking_version:order.ssot_booking_version!,
-      source_order_key:order.id,
-      source_snapshot_hash:order.ssot_source_snapshot_hash!,
+      ...(order.source==='iron_gate'?{}:{source_order_key:order.id,
+        source_snapshot_hash:order.ssot_source_snapshot_hash!}),
       amount_cents:raw.amount_cents,
       allocation_kind:input.stage==='deposit'?'deposit':'room'};
   });
@@ -85,12 +87,12 @@ export function bookingGuardsForVoid(entry:FinanceEntry,orders:FinanceOrder[]){
 }
 
 async function ensureCategory(report:Report,actor:Principal,requestId:string,
-  kind:'income'|'expense',code:string,label:string){
+  kind:'income'|'expense',code:string,label:string,
+  config:ReturnType<typeof ironGateSsotFinanceConfig>){
   const found=report.ssot_catalog.categories.find(value=>
     object(value)&&value.kind===kind&&value.code===code&&value.status==='active');
   if(found)return;
   const key=hashUuid(`finance-category:${requestId}:${kind}:${code}`);
-  const config=ironGateSsotFinanceConfig();
   const command={request_key:key,kind,code,label};
   try{await submitSsotPlan(config,actor,'categories',command,key);}
   catch(error){
@@ -175,7 +177,7 @@ function prepareMoneyAction(input:Record<string,unknown>,report:Report,
     throw Error('SOURCE_MAPPING_REVIEW_REQUIRED');
   if(action==='update_expense'&&old?.kind!=='expense')throw Error('INVALID_INPUT');
   if(action==='create')validateFinanceLinks(input,report.orders,report.entries,
-    report.recurring,year,report.asof);
+    report.recurring,year,report.asof,{ssot:true});
   const draft={...report.state,entries:report.entries.map(e=>e.id===old?.id?
     {...e,source:'manual' as const}:e)};
   const validated=applyFinance(draft,input,actor,property,year,undefined,members,
@@ -267,7 +269,7 @@ const previewLine=(value:string)=>value.replace(/[\x00-\x1f\x7f]/g,' ').trim();
 export async function previewSsotOsFinance(input:Record<string,unknown>,report:Report,
   actor:Principal,property:string,year:number,members:Member[]=[],
   preview:typeof previewSsotFinanceCommand=previewSsotFinanceCommand,
-  config:ReturnType<typeof ironGateSsotFinanceConfig>=ironGateSsotFinanceConfig()){
+  config:ReturnType<typeof ironGateSsotFinanceConfig>=ironGateSsotFinanceConfig(property)){
   const requestId=assertSsotInput(input,report,property,year);
   const action=String(input.action??'');
   const originHash=osFinanceOriginHash(input,actor.id,property);
@@ -332,7 +334,7 @@ export async function applySsotFinance(input:Record<string,unknown>,report:Repor
   actor:Principal,property:string,year:number,members:Member[]=[],
   originHash=osFinanceOriginHash(input,actor.id,property),
   confirmedPreview?:ConfirmedFinancePreview,
-  config:ReturnType<typeof ironGateSsotFinanceConfig>=ironGateSsotFinanceConfig()){
+  config:ReturnType<typeof ironGateSsotFinanceConfig>=ironGateSsotFinanceConfig(property)){
   void members;
   const requestId=String(input.request_id??'');
   if(!UUID.test(requestId)||input.property_id!==property||input.year!==year||
@@ -362,7 +364,7 @@ export async function applySsotFinance(input:Record<string,unknown>,report:Repor
       command.category_code!==category.code)
       throw Error('FINANCE_PREVIEW_REQUIRED');
     await ensureCategory(report,actor,requestId,category.kind,
-      category.code,category.label);
+      category.code,category.label,config);
     const receipt=await submitSsotFinanceCommand(config,actor,command,requestId,
       fetch,{repreviewOnConflict:false});
     return {verified:true,entry_id:receipt.document_id,version:0,receipt};
@@ -381,7 +383,7 @@ export async function applySsotFinance(input:Record<string,unknown>,report:Repor
       confirmedPreview.plan_command.category_code!==category.code)
       throw Error('FINANCE_PREVIEW_REQUIRED');
     await ensureCategory(report,actor,requestId,category.kind,
-      category.code,category.label);
+      category.code,category.label,config);
   }
   const receipt=await submitSsotPlan(config,actor,suffix,
     confirmedPreview.plan_command,requestId);

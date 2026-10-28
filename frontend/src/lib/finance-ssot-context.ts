@@ -5,7 +5,8 @@ import {ironGateFinanceConfig,readDirectFinance,
 import {ironGateSsotFinanceConfig,readSsotLedger,readSsotCatalog,
   type SsotEvent} from './booking-sources/iron-gate-ssot-finance.server.ts';
 import type {Principal} from './workspace-auth/types';
-import {projectOrders,projectionVersion} from './finance-projection';
+import {projectOrders,projectionVersion,projectSsotBookingBalances} from './finance-projection';
+import {readSsotBookings} from './booking-sources/iron-gate-ssot-bookings.server.ts';
 import {recurrenceDue,taipeiDate,type FinanceEntry,type FinanceOrder,
   type PaymentAccount,type PayoutRule,type RecurringExpense,
   EXPENSE_CATEGORIES,METHODS,roomCollectionForOrder} from './finance-model';
@@ -51,7 +52,7 @@ export function reviewUncertainReceivables(orders:FinanceOrder[],events:SsotEven
       ['ota_guest_payment_observed','ota_payout'].includes(event.event_kind))
     .flatMap(event=>event.booking_allocations.map(a=>a.booking_id)));
   return orders.map(order=>{
-    const uncertain=order.platform!=='direct'||
+    const uncertain=order.receivable_review_required||order.platform!=='direct'||
       (order.booking_id!=null&&mixedBookingIds.has(order.booking_id));
     return uncertain?{...order,receivable:0,receivable_review_required:true}:order;
   });
@@ -241,10 +242,12 @@ export function readCatalog(catalog:Catalog,property:string){
 
 export async function ssotFinanceContext(source:SheetSourceDefinition,year:number,
   actor:Principal){
-  if(source.property.id!=='sweetfun'||
+  const property=source.property.id;
+  const config=ironGateSsotFinanceConfig(property);
+  if(property==='offland')return offlandSsotContext(year,actor,config);
+  if(property!=='sweetfun'||
     process.env.IRON_GATE_SWEETFUN_FINANCE_ENABLED!=='true')
     throw Error('FINANCE_SSOT_UNAVAILABLE');
-  const config=ironGateSsotFinanceConfig();
   const [events,catalog,snapshot,direct]=await Promise.all([
     readSsotLedger(config,actor),readSsotCatalog(config,actor),
     readBookingSnapshot(source),readDirectFinance(actor,ironGateFinanceConfig(),[])]);
@@ -284,4 +287,25 @@ export async function ssotFinanceContext(source:SheetSourceDefinition,year:numbe
     projection_version:projection,
     iron_gate_revision:direct.revision,iron_gate_direct_excluded:false,
     audit:[],asof:taipeiDate(),ssot_events:events,ssot_catalog:catalog};
+}
+
+/** Offland reads the current authoritative booking set; no operational Sheet is involved. */
+async function offlandSsotContext(year:number,actor:Principal,
+ config:ReturnType<typeof ironGateSsotFinanceConfig>){
+ const [events,catalog,bookings]=await Promise.all([
+  readSsotLedger(config,actor),readSsotCatalog(config,actor),readSsotBookings(config,actor)]);
+ const lookup=readCatalog(catalog,'offland');
+ const entries=entriesFromLedger(events,'offland',bookings.orders,catalog);
+ const orders=reviewUncertainReceivables(projectSsotBookingBalances(bookings.orders,entries),events);
+ const active=entries.filter(entry=>entry.status==='active');
+ return {state:{version:0,entries,operations:[]},raw:null,entries,orders,
+  recurring:lookup.recurring,payment_accounts:lookup.accounts,payout_rules:lookup.payout,
+  expense_categories:lookup.categories,
+  excluded_orders:orders.filter(order=>order.amount_review_required).length,
+  versions:{[String(year)]:0},
+  due:[...new Set(lookup.recurring.flatMap(rule=>Array.from({length:Math.max(0,year-rule.year+1)},(_,i)=>rule.year+i)))]
+   .flatMap(dueYear=>recurrenceDue(lookup.recurring,active,dueYear)),
+  projection_version:projectionVersion([bookings.revision,events,catalog]),
+  iron_gate_revision:bookings.revision,iron_gate_direct_excluded:false,
+  audit:[],asof:taipeiDate(),ssot_events:events,ssot_catalog:catalog};
 }
