@@ -755,14 +755,18 @@ export class FinanceCommandService {
     void preview_token;
     return checked;
   }
+  #assertLiveLinkSource(principal,source) {
+    const allowed = principal.origin === 'os' && source.source_system === 'os_manual' ||
+      principal.origin === 'line' && source.source_system === 'line_finance';
+    if (!allowed || !source.cutover_at || Date.parse(source.cutover_at) > Date.now())
+      fail('SOURCE_FORBIDDEN',403);
+  }
   async liveSourceLinkPreview(principal,propertyId,raw,requestKey) {
     this.#authorize(principal,propertyId,'finance:link');
     const checked=this.#liveLinkInput(raw,requestKey);
     return this.#transaction(propertyId,false,async client => {
       const {state,source}=await this.#context(client,principal,propertyId,false);
-      if(principal.origin!=='line'||source.source_system!=='line_finance'||
-        !source.cutover_at||Date.parse(source.cutover_at)>Date.now())
-        fail('SOURCE_FORBIDDEN',403);
+      this.#assertLiveLinkSource(principal,source);
       const bookings=this.#bookings(state,{booking_allocations:[{
         booking_id:checked.booking_id,
         expected_booking_version:checked.expected_booking_version}]});
@@ -784,9 +788,7 @@ export class FinanceCommandService {
     const checked=this.#liveLinkInput(raw,requestKey);
     return this.#operation(principal,propertyId,'finance:link',raw,requestKey,
       async (client,{state,source}) => {
-        if(principal.origin!=='line'||source.source_system!=='line_finance'||
-          !source.cutover_at||Date.parse(source.cutover_at)>Date.now())
-          fail('SOURCE_FORBIDDEN',403);
+        this.#assertLiveLinkSource(principal,source);
         const bookings=this.#bookings(state,{booking_allocations:[{
           booking_id:checked.booking_id,
           expected_booking_version:checked.expected_booking_version}]});
