@@ -235,7 +235,7 @@ export function RetainedBookingDialog({ bookingId, action, storageScope, canWrit
             {segments.map((segment, index) => <section key={segment.key} className="min-w-0 space-y-3 rounded-lg border p-3" aria-label={`第 ${index + 1} 段新住宿`}>
               <div className="flex items-center justify-between gap-2"><p className="text-sm font-medium">第 {index + 1} 段 · 包棟</p>
                 {segments.length > 1 && <Button variant="ghost" size="sm" onClick={() => setSegments(current => current.filter(item => item.key !== segment.key))}>移除第 {index + 1} 段</Button>}</div>
-              <div className="grid min-w-0 grid-cols-2 gap-3">{(["checkIn", "checkOut"] as const).map(field => <div key={field} className="min-w-0 space-y-1">
+              <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2">{(["checkIn", "checkOut"] as const).map(field => <div key={field} className="min-w-0 space-y-1">
                 <Label htmlFor={`retained-${segment.key}-${field}`}>{field === "checkIn" ? "入住日期" : "退房日期"}</Label>
                 <Input id={`retained-${segment.key}-${field}`} type="date" className="min-w-0 max-w-full text-base" value={segment[field]} aria-label={`第 ${index + 1} 段${field === "checkIn" ? "入住" : "退房"}日期`}
                   min={field === "checkOut" && segment.checkIn ? segment.checkIn : undefined}
