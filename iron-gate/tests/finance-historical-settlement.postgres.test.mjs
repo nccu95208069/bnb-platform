@@ -99,6 +99,34 @@ test('migration 018 accepts four pinned zero-cash dispositions under runtime RLS
         raw.rows[0].source_link_snapshot_hash);
       assert.equal(list.legacy_settlements[0].sheet_order_source_version,
         raw.rows[0].sheet_order_source_version);
+      await admin.query(`UPDATE iron_gate.finance_connector
+        SET cutover_at='2026-10-01T00:00:00Z',version=version+1,updated_at=now()
+        WHERE property_id=$1 AND source_instance_id=$2`,[propertyId,connectorId]);
+      const liveOperator={...importer,origin:'os',actions:['finance:status']};
+      const contradicted={request_key:'contradicted-live-status',
+        source_record_id:'contradicted-live-status',version:1,
+        status_code:'room_confirmed',settles_room:true,
+        booking_id:bookings[3].id,expected_booking_version:bookings[3].version};
+      await assert.rejects(service.statusCommand(liveOperator,propertyId,
+        contradicted,contradicted.request_key),
+      error=>error.code==='HISTORICAL_SETTLEMENT_REVIEW_REQUIRED');
+      await admin.query(`UPDATE iron_gate.finance_connector
+        SET source_system='os_legacy_payment',cutover_at=NULL,
+          version=version+1,updated_at=now()
+        WHERE property_id=$1 AND source_instance_id=$2`,[propertyId,connectorId]);
+      const imported={...contradicted,request_key:'contradicted-import-status',
+        source_record_id:'contradicted-import-status',
+        source_order_key:raw.rows[3].source_order_key,
+        source_snapshot_hash:raw.rows[3].source_link_snapshot_hash,
+        origin_request_hash:sha('status-request'),origin_source_version:'1',
+        source_actor_ref:`os_actor:${sha('actor')}`,
+        source_recorded_at:'2026-10-28T00:00:00.000Z'};
+      await assert.rejects(service.statusCommand(importer,propertyId,
+        imported,imported.request_key,true),
+      error=>error.code==='HISTORICAL_SETTLEMENT_REVIEW_REQUIRED');
+      const statuses=await admin.query(`SELECT count(*)::int AS count
+        FROM iron_gate.finance_operational_status WHERE property_id=$1`,[propertyId]);
+      assert.equal(statuses.rows[0].count,0);
       const cash=await admin.query(`SELECT count(*)::int AS events FROM iron_gate.finance_event
         WHERE property_id=$1`,[propertyId]);
       assert.equal(cash.rows[0].events,0);

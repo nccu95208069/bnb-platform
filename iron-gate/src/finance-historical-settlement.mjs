@@ -98,13 +98,14 @@ export function historicalSettlementProjection(disposition, booking, baselineRem
   const conflict = changed || legacyPaymentReviewRequired ||
     (!settled && baselineRemaining === null) ||
     (settled && cashEventCount > 0);
+  const collectionHold=settled && !conflict;
   return { legacy_settlement:{ id:disposition.id,status:disposition.decision,
       booking_version:Number(disposition.booking_version),
       booking_total_cents:Number(disposition.booking_total_cents),
-      cash_effect_cents:0,collection_hold:settled,
+      cash_effect_cents:0,collection_hold:collectionHold,
       historical_cash_detail_missing:settled,review_required:conflict },
     historical_cash_detail_missing:settled,
-    collection_hold:settled,
+    collection_hold:collectionHold,
     remaining_due_cents:conflict ? null : settled ? 0 : baselineRemaining,
     review_required:conflict };
 }

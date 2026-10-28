@@ -81,6 +81,10 @@ function harness() {
       q.includes('FROM iron_gate.finance_import_issue') ||
       q.includes('FROM iron_gate.finance_operational_status')) return {rows:[]};
     if (q.includes('FROM iron_gate.finance_legacy_settlement')) {
+      if (q.includes("decision='unpaid_at_cutover'")) {
+        const disposition=data.dispositions.get(params[1]);
+        return {rows:disposition?.decision==='unpaid_at_cutover' ? [{one:1}] : []};
+      }
       if (q.includes('booking_id=ANY'))
         return {rows:[...data.dispositions.values()].some(row=>
           params[1].includes(row.booking_id) &&
@@ -237,6 +241,22 @@ test('bookingFinance keeps A cash summary zero and external D under payer review
     error=>error.code==='VERSION_CONFLICT');
 });
 
+test('changed booking releases historical collection hold into manual review',async()=>{
+  const h=harness();
+  const p=await h.preview(0);
+  await h.commit(0,p.preview_token);
+  h.data.state.bookings[0].version++;
+  const reader={...principal,origin:'os'};
+  const booking=await h.service.bookingFinance(reader,propertyId,bookings[0].id);
+  assert.equal(booking.remaining_due_cents,null);
+  assert.equal(booking.collection_hold,false);
+  assert.equal(booking.historical_cash_detail_missing,true);
+  assert.equal(booking.review_required,true);
+  const list=await h.service.historicalSettlements(reader,propertyId,1);
+  assert.equal(list.legacy_settlements[0].collection_hold,false);
+  assert.equal(list.legacy_settlements[0].review_required,true);
+});
+
 test('later finance money command cannot duplicate a historical settled booking',async()=>{
   const h=harness();
   const p=await h.preview(0);
@@ -255,4 +275,20 @@ test('later finance money command cannot duplicate a historical settled booking'
   await assert.rejects(h.service.command(operator,propertyId,
     {...preview.resolved_command,preview_token:preview.preview_token},money.request_key),
   error=>error.code==='HISTORICAL_SETTLEMENT_REVIEW_REQUIRED');
+});
+
+test('later settling status cannot contradict an owner-reviewed unpaid booking',async()=>{
+  const h=harness();
+  const p=await h.preview(3);
+  await h.commit(3,p.preview_token);
+  h.data.connector.cutover_at='2026-10-01T00:00:00Z';
+  const operator={...principal,origin:'os',actions:['finance:status']};
+  const status={request_key:'later-room-confirmation',
+    source_record_id:'later-room-confirmation',version:1,
+    status_code:'room_confirmed',settles_room:true,
+    booking_id:bookings[3].id,expected_booking_version:bookings[3].version};
+  await assert.rejects(h.service.statusCommand(operator,propertyId,status,
+    status.request_key),error=>error.code==='HISTORICAL_SETTLEMENT_REVIEW_REQUIRED');
+  assert.equal(h.data.changes.length,1);
+  assert.equal(h.data.receipts.has(status.request_key),false);
 });

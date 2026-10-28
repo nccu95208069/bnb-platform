@@ -1067,6 +1067,16 @@ export class FinanceCommandService {
           const booking = state.bookings.find(b => b.id === raw.booking_id);
           if (!booking) fail('UNKNOWN_BOOKING',422);
           if (booking.version !== raw.expected_booking_version) fail('VERSION_CONFLICT',409);
+          if (raw.settles_room) {
+            // An owner-reviewed unpaid historical receipt cannot later be
+            // imported or confirmed as settling the room without resolution.
+            const unpaid=await client.query(`SELECT 1
+              FROM iron_gate.finance_legacy_settlement
+              WHERE property_id=$1 AND booking_id=$2
+                AND decision='unpaid_at_cutover' LIMIT 1`,
+              [propertyId,raw.booking_id]);
+            if (unpaid.rows.length) fail('HISTORICAL_SETTLEMENT_REVIEW_REQUIRED',409);
+          }
           if (shadowImport) {
             const linked=await client.query(`SELECT 1 FROM iron_gate.finance_source_link
               WHERE property_id=$1 AND source_instance_id=$2 AND source_order_key=$3

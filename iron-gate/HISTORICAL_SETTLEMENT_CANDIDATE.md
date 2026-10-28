@@ -58,7 +58,9 @@ the pinned manifest and verifies the finance change sequence and source link.
 `legacy_settlement` separately from cash `summary`. A settled row sets
 `collection_hold=true`, `historical_cash_detail_missing=true`, and operational
 `remaining_due_cents=0` only while its IG booking is unchanged and no competing
-money appears. Cash received and revenue remain money-event-only. An unpaid row
+money appears. A conflict clears the collection hold, preserves the missing-cash
+detail marker, and requires manual review. Cash received and revenue remain
+money-event-only. An unpaid row
 does not override payer uncertainty: an external booking still has
 `remaining_due_cents=null` and requires review; only an independently qualified
 direct-source booking can expose a numeric due. The property list endpoint filters

@@ -76,13 +76,15 @@ test('settled projection holds collection without inventing received cash',()=>{
   assert.equal(result.legacy_settlement.cash_effect_cents,0);
   assert.equal(result.legacy_settlement.status,disposition.decision);
   assert.equal(result.review_required,false);
-  assert.equal(historicalSettlementProjection(disposition,booking,null,1,false)
-    .review_required,true);
+  const competing=historicalSettlementProjection(disposition,booking,null,1,false);
+  assert.equal(competing.review_required,true);
+  assert.equal(competing.collection_hold,false);
+  assert.equal(competing.historical_cash_detail_missing,true);
   const changed={...booking,version:booking.version+1};
   assert.equal(historicalSettlementProjection(disposition,changed,null,0,false)
     .remaining_due_cents,null);
   assert.equal(historicalSettlementProjection(disposition,changed,null,0,false)
-    .collection_hold,true);
+    .collection_hold,false);
 });
 
 test('unpaid projection preserves exact operational due and flags changed booking',()=>{
