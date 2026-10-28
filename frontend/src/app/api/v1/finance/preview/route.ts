@@ -1,3 +1,4 @@
+import {assertFinanceWritesOpen} from '@/lib/finance-history-policy';
 import {NextRequest,NextResponse} from 'next/server';
 import {principalFor} from '@/lib/workspace-auth/session';
 import {sameOrigin,inputBody,privateHeaders} from '@/lib/workspace-auth/http';
@@ -21,6 +22,7 @@ export async function POST(request:NextRequest){
     if(!canUseFinance(actor)||typeof property!=='string'||!ssotFinanceEnabled(property)||
       !(actor.allProperties||actor.propertyIds.includes(property))||!source)
       throw Error('FORBIDDEN');
+    assertFinanceWritesOpen(property);
     if(!Number.isInteger(year)||year<2020||year>2100)throw Error('INVALID_INPUT');
     await new RedisWorkspaceStore().limit(`finance-preview:${actor.id}`,90,3600);
     if(await readPendingOsFinance(property,actor))throw Error('FINANCE_PENDING_REQUEST');
@@ -35,6 +37,7 @@ export async function POST(request:NextRequest){
   }catch(error){
     const code=error instanceof Error?error.message:'UNAVAILABLE';
     const details:Record<string,string>={
+      FINANCE_WRITES_PAUSED:'此旅宿暫停新增及修改收支，原帳與待確認請求均已保留。',
       FINANCE_PENDING_REQUEST:'上一筆財務請求尚未完成或確認。請先查詢原請求。',
       VERSION_CONFLICT:'帳本已更新，請重新整理後預覽。',
       SOURCE_MAPPING_REVIEW_REQUIRED:'來源訂單或金額對應尚待核對，這筆資料未入帳。',

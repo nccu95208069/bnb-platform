@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {NextRequest} from 'next/server';
 import {GET as historyGet} from '../src/app/api/v1/finance/legacy/route.ts';
-import {GET as financeGet} from '../src/app/api/v1/finance/route.ts';
+import {GET as financeGet,POST as financePost} from '../src/app/api/v1/finance/route.ts';
 import {GET as summaryGet} from '../src/app/api/v1/finance-summary/route.ts';
 import {GET as calendarGet} from '../src/app/api/v1/bookings/calendar/route.ts';
 import {POST as legacyPost} from '../src/app/api/v1/order-payments/route.ts';
@@ -82,4 +82,9 @@ test('Offland finance, summary and calendar read the same ledger without Sheet a
  assert.equal((await historyGet(new NextRequest('https://os.example/api/v1/finance/legacy?property=offland&year=2026'))).status,401);
  assert.ok(!commands.some(command=>command[0]==='SET'));
  assert.equal((await financeGet(request('/api/v1/finance?property=sweetfun&year=2026'))).status,403);
+ process.env.OS_OFFLAND_FINANCE_WRITES_PAUSED='true';
+ const paused=await financePost(request('/api/v1/finance',{property_id:'offland',year:2026,action:'create'}));
+ assert.equal(paused.status,503);assert.equal((await paused.json()).code,'FINANCE_WRITES_PAUSED');
+ const stillReadable=await financeGet(request('/api/v1/finance?property=offland&year=2026'));assert.equal(stillReadable.status,200);assert.equal((await stillReadable.json()).writes_paused,true);
+ assert.equal((await historyGet(request('/api/v1/finance/legacy?property=offland&year=2026'))).status,200);
 });

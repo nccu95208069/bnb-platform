@@ -80,6 +80,10 @@ and settings stay unchanged. No historical receipt is inferred or imported.
 - Old LINE and OS records remain in their original stores; legacy requests must
   not be automatically replayed into the new ledger. Imported booking receipts
   remain under review until a separate authoritative balance check is completed.
+- After the first new-ledger write, never roll back to a legacy-writer release or
+  disable SSOT to recover. Set `OS_OFFLAND_FINANCE_WRITES_PAUSED=true` on the
+  SSOT-capable release to stop new commands while retaining reads, grants, history
+  and original pending request keys; then repair forward.
 - Release identity, cutover timestamp and both-client acceptance remain separate
   operational evidence; these code changes alone do not mean production is live.
 
