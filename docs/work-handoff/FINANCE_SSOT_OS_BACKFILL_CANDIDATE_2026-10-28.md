@@ -30,6 +30,14 @@
 
 `payment_orders` 必須來自同一來源範圍的已核對身分。付款 Redis key 是 `sha256(JSON.stringify(payment_order_id ?? order_id))`；不能由雜湊反推訂單，不能靠客名、房號、日期猜測。`links` 必須是已審核、同館、同 connector 的 `finance_source_link` 對照；候選命令攜帶 booking UUID、版本與來源快照 hash。取消訂單、別館或歧義連結列入 review。`account_map` 也要帶相同的 `source_instance_id`，並與已讀回的 Iron Gate `catalog` 帳戶／分類及人工確認一致；缺少或不一致的帳戶／分類不會悄悄丟棄。外部提供的 `payment_orders` 並非這個 Redis 雙讀的一部分，仍須另外證明它在同一來源水位完整，否則不能用本報告核准切換。
 
+### 無 Sheet 同步證據的零金額狀態收據
+
+可選的私有 `status_adjudications` 清單只處理原收據 `status_only=true`、金額零、`payment_type=full`、`payment_method=other`、`settles_room=true`，且 `sheet_sync` **完全缺席**的情況。清單有 `schema_version:1`、館別、整份 Redis 記錄的 `snapshot_hash`、審核者代碼、審核時間和 `decisions[]`。每個決定須有 `source_system=os_legacy_payment`、同一來源 connector、原 ledger key／hash、receipt ID、`redis:ledger:<原版本>`、原收據的 `origin_request_hash`、精確付款訂單 ID、獨立審核的 booking ID／版本／來源快照 hash、`evidence_sha256`，以及 `paid_status` 或 `unpaid_exclude`。原始 Redis 值和其雜湊不因審核而改寫；`evidence_sha256` 指向私有業主判定證據，不包含於 Git。缺資料、重複決定、改版後舊清單、Sheet 同步 pending／failure、非零收據、缺原 audit 或缺獨立 booking 連結都維持阻擋。
+
+`paid_status` **僅**產生 `room_confirmed` 零現金 operational status 候選；命令沒有金額、付款方法或收款日期。`unpaid_exclude` 在 plan 中保留明確的排除列，不產生任何匯入命令。兩者均不建立 money event，不能降低 Iron Gate `remaining_due`，也不能證明 OS 付款畫面正確；業主說明金額等於訂單總額仍不能推測實際收款日或方法。歷史金流缺口仍是 W7 切換阻擋條件。
+
+正式回讀還須在同一財務變更水位提供完整的 `review_resolutions`（來源 connector、原版本、原因碼、`resolved`、`resolved_by_ref`、以 `osreview:<manifest hash>` 為 `resolution_ref`）及完整的 `operational_statuses`。對排除列必須證明目標狀態不存在；意外的 money event 也由既有逐筆對帳抓出。現有 `finance_import_issue`／resolve 路由可儲存 `resolution_ref`，但目前 `imports/issues` 列表有 1,000 筆上限、沒有完整分頁證明；正式批次仍需同水位完整資料庫回讀或補齊受保護分頁路由。未取得這份證明時，離線對帳不能報 `matched`。
+
 含金流和原始 Redis 值的 bundle、plan、回讀與報告必須存於私有位置。CLI 只接受儲存庫外的絕對路徑、使用不覆寫模式和 `0600` 輸出權限；終端只印聚合數量：
 
 ```sh
