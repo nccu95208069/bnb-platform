@@ -56,8 +56,10 @@ test('owner reviewed unpaid booking stays collectible and is not labeled paid',(
   assert.equal(result.collection_hold,false);
   const [calendar]=overlaySsotCalendarPayments([{property_id:'sweetfun',
     iron_gate_source:'external',reservation_status:'confirmed',
-    payment_order_id:order.id,payment_status:'paid'}],[result]);
+    payment_order_id:order.id,payment_status:'paid',
+    payment_review_status:'paid'}],[result]);
   assert.equal(calendar.payment_status,'unpaid');
+  assert.equal(calendar.payment_review_status,undefined);
   assert.equal(calendar.legacy_settlement_status,undefined);
   const [ota]=applyHistoricalSettlements([{
     ...order,platform:'agoda',receivable_review_required:true,receivable:0}],[unpaid],'sweetfun');
@@ -66,20 +68,32 @@ test('owner reviewed unpaid booking stays collectible and is not labeled paid',(
   assert.equal(ota.legacy_settlement.review_required,true);
 });
 
+test('SSOT payment state clears a stale Iron Gate paid review',()=>{
+  const [calendar]=overlaySsotCalendarPayments([{property_id:'sweetfun',
+    iron_gate_source:'external',reservation_status:'confirmed',
+    payment_order_id:order.id,payment_status:'paid',
+    payment_review_status:'paid'}],[order]);
+  assert.equal(calendar.payment_status,'unknown');
+  assert.equal(calendar.payment_review_status,undefined);
+});
+
 test('changed booking or new cash requires review and cannot be collected automatically',()=>{
   const [versionChanged]=applyHistoricalSettlements([{
     ...order,ssot_booking_version:3}],[settled],'sweetfun');
   assert.equal(versionChanged.receivable,0);
+  assert.equal(versionChanged.collection_hold,false);
   assert.equal(versionChanged.receivable_review_required,true);
   assert.equal(versionChanged.legacy_settlement.review_required,true);
   const [sourceChanged]=applyHistoricalSettlements([order],[{
     ...settled,source_link_snapshot_hash:'c'.repeat(64)}],'sweetfun');
   assert.equal(sourceChanged.legacy_settlement.review_required,true);
   const [newCash]=applyHistoricalSettlements([{...order,received:5000}],
-    [{...settled,review_required:true,remaining_due_cents:null,room_received_cents:5000}],
+    [{...settled,collection_hold:false,review_required:true,
+      remaining_due_cents:null,room_received_cents:5000}],
     'sweetfun');
   assert.equal(newCash.received,5000);
   assert.equal(newCash.receivable,0);
+  assert.equal(newCash.collection_hold,false);
   const [calendar]=overlaySsotCalendarPayments([{property_id:'sweetfun',
     iron_gate_source:'external',reservation_status:'confirmed',
     payment_order_id:order.id,payment_status:'paid'}],[newCash]);

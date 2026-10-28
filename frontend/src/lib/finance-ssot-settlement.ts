@@ -25,7 +25,8 @@ export function applyHistoricalSettlements(orders:FinanceOrder[],
       !['settled_before_cutover_cash_details_unknown','unpaid_at_cutover'].includes(row.status)||
       row.cash_effect_cents!==0)fail();
     const settled=row.status==='settled_before_cutover_cash_details_unknown';
-    if(row.collection_hold!==settled||row.historical_cash_detail_missing!==settled||
+    if(row.collection_hold!==(settled&&!row.review_required)||
+      row.historical_cash_detail_missing!==settled||
       !row.review_required && (row.remaining_due_cents===null||
         settled&&row.remaining_due_cents!==0))fail();
     const localMismatch=order.ssot_source_snapshot_hash!==row.source_link_snapshot_hash||
@@ -37,11 +38,12 @@ export function applyHistoricalSettlements(orders:FinanceOrder[],
     // booking. Preserve the separate payer-responsibility review.
     const review=row.review_required||localMismatch||
       !settled&&order.receivable_review_required===true;
+    const collectionHold=settled&&!review;
     const legacy:LegacySettlementDisplay={status:row.status,
-      collection_hold:settled,historical_cash_detail_missing:settled,
+      collection_hold:collectionHold,historical_cash_detail_missing:settled,
       review_required:review};
     updates.set(order.id,{...order,legacy_settlement:legacy,
-      collection_hold:settled,historical_cash_detail_missing:settled,
+      collection_hold:collectionHold,historical_cash_detail_missing:settled,
       // An inconsistent source never becomes an actionable receivable.
       receivable:review?0:row.remaining_due_cents!,
       receivable_review_required:review,
