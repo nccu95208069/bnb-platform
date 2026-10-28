@@ -26,7 +26,9 @@ test('each non-money import route forwards the original body and key as a shadow
   const handle = createHandler({}, async () => principal, undefined, finance);
   for (const [path, method] of routes) {
     const key = `import-${path}`;
-    const body = { request_key: key, source_actor_ref: `os_actor:${'a'.repeat(64)}`,
+    const body = { request_key: key, origin_request_hash: 'b'.repeat(64),
+      origin_source_version:'redis:2026:42',
+      source_actor_ref: `os_actor:${'a'.repeat(64)}`,
       source_recorded_at: '2026-10-28T00:00:00Z', marker: path };
     const response = await handle(new Request(`${baseUrl}/${path}`, {
       method: 'POST', headers: { 'content-type': 'application/json',

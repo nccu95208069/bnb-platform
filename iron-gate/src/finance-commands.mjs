@@ -49,6 +49,14 @@ function canonical(value) {
   return JSON.stringify(value);
 }
 function hash(value) { return createHash('sha256').update(canonical(value)).digest('hex'); }
+function assertImportCatalogProvenance(raw) {
+  if (!HEX.test(raw?.origin_request_hash ?? '') ||
+    typeof raw?.origin_source_version !== 'string' ||
+    !/^[A-Za-z0-9._:-]{1,128}$/.test(raw?.origin_source_version ?? '') ||
+    typeof raw?.source_actor_ref !== 'string' ||
+    !/^os_actor:[0-9a-f]{64}$/.test(raw?.source_actor_ref ?? '') ||
+    !validSourceRecordedAt(raw?.source_recorded_at)) fail('INVALID_INPUT');
+}
 function operationChange(raw, response, requestKey, sourceInstanceId) {
   if (response.status_id) return ['operational_status', response.status_id, raw.version];
   if (response.rule_id) return ['recurring_rule', response.rule_id, raw.version];
@@ -664,7 +672,8 @@ export class FinanceCommandService {
     if (raw.origin_request_hash != null && !HEX.test(raw.origin_request_hash))
       fail('INVALID_INPUT');
     if (!shadowImport &&
-      (raw.source_actor_ref != null || raw.source_recorded_at != null))
+      (raw.source_actor_ref != null || raw.source_recorded_at != null ||
+        raw.origin_source_version != null))
       fail('INVALID_INPUT');
     const requestHash = hash(action === 'finance:link' ?
       Object.fromEntries(Object.entries(raw).filter(([key]) => key !== 'preview_token')) : raw);
@@ -708,25 +717,18 @@ export class FinanceCommandService {
     });
   }
   async #recordImportCatalog(client,principal,propertyId,recordKind,
-    sourceRecordId,sourceVersion,targetRef,raw) {
-    if (!HEX.test(raw.origin_request_hash ?? '') ||
-      typeof raw.source_actor_ref !== 'string' ||
-      !/^os_actor:[0-9a-f]{64}$/.test(raw.source_actor_ref) ||
-      typeof raw.source_recorded_at !== 'string' ||
-      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(raw.source_recorded_at) ||
-      Number.isNaN(Date.parse(raw.source_recorded_at)) ||
-      new Date(raw.source_recorded_at).toISOString().slice(0,19) !==
-        raw.source_recorded_at.slice(0,19)) fail('INVALID_INPUT');
-    const {request_key,origin_request_hash,source_actor_ref,source_recorded_at,
-      ...payload}=raw;
+    sourceRecordId,targetVersion,targetRef,raw) {
+    assertImportCatalogProvenance(raw);
+    const {request_key,origin_request_hash,origin_source_version,
+      source_actor_ref,source_recorded_at,...payload}=raw;
     void request_key;
     await client.query(`INSERT INTO iron_gate.finance_import_catalog
       (id,property_id,source_instance_id,record_kind,source_record_id,
-       source_version,target_ref,source_snapshot_hash,source_actor_ref,
-       source_recorded_at,imported_payload)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
+       source_version,target_version,target_ref,source_snapshot_hash,
+       source_actor_ref,source_recorded_at,imported_payload)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`,
       [randomUUID(),propertyId,principal.financeSourceInstanceId,recordKind,
-        sourceRecordId,sourceVersion,targetRef,origin_request_hash,
+        sourceRecordId,origin_source_version,targetVersion,targetRef,origin_request_hash,
         source_actor_ref,source_recorded_at,JSON.stringify(payload)]);
   }
   async importCatalog(principal,propertyId,{limit=50,cursor=null,
@@ -742,7 +744,7 @@ export class FinanceCommandService {
       if (as_of_change_seq != null && watermark !== as_of_change_seq)
         fail('VERSION_CONFLICT',409);
       const result=await client.query(`SELECT id,source_instance_id,record_kind,
-        source_record_id,source_version,target_ref,source_snapshot_hash,
+        source_record_id,source_version,target_version,target_ref,source_snapshot_hash,
         source_actor_ref,source_recorded_at,imported_payload,imported_at
         FROM iron_gate.finance_import_catalog
         WHERE property_id=$1 AND source_instance_id=$2
@@ -753,7 +755,8 @@ export class FinanceCommandService {
         let current;
         if (row.record_kind==='operational_status') {
           current=await client.query(`SELECT id,source_instance_id,source_record_id,
-            version,booking_id,status_code,settles_room,recorded_at
+            version,booking_id,status_code,settles_room,recorded_at,
+            source_recorded_at
             FROM iron_gate.finance_operational_status
             WHERE property_id=$1 AND source_instance_id=$2 AND id=$3::uuid`,
             [propertyId,principal.financeSourceInstanceId,row.target_ref]);
@@ -790,7 +793,8 @@ export class FinanceCommandService {
   async statusCommand(principal, propertyId, raw, requestKey, shadowImport = false) {
     const keys = new Set(['request_key','source_record_id','version','status_code',
       'settles_room','booking_id','expected_booking_version','origin_request_hash',
-      'source_actor_ref','source_recorded_at']);
+      'source_actor_ref','source_recorded_at','source_order_key',
+      'source_snapshot_hash','origin_source_version']);
     if (Object.keys(raw ?? {}).some(key => !keys.has(key)) ||
       !/^[A-Za-z0-9._:-]{1,256}$/.test(raw?.source_record_id ?? '') ||
       !Number.isSafeInteger(raw.version) || raw.version < 1 ||
@@ -798,6 +802,16 @@ export class FinanceCommandService {
       typeof raw.settles_room !== 'boolean' ||
       (raw.settles_room && !UUID.test(raw.booking_id ?? '')) ||
       (raw.booking_id != null && !UUID.test(raw.booking_id))) fail('INVALID_INPUT');
+    if (!shadowImport &&
+      (raw.source_order_key != null || raw.source_snapshot_hash != null))
+      fail('INVALID_INPUT');
+    if (shadowImport && raw.booking_id &&
+      (!/^[A-Za-z0-9._:-]{1,256}$/.test(raw.source_order_key ?? '') ||
+        !HEX.test(raw.source_snapshot_hash ?? '')) ||
+      shadowImport && !raw.booking_id &&
+        (raw.source_order_key != null || raw.source_snapshot_hash != null))
+      fail('INVALID_INPUT');
+    if (shadowImport) assertImportCatalogProvenance(raw);
     return this.#operation(principal,propertyId,
       shadowImport ? 'finance:import' : 'finance:status',raw,requestKey,
       async (client,{state,source}) => {
@@ -807,6 +821,15 @@ export class FinanceCommandService {
           const booking = state.bookings.find(b => b.id === raw.booking_id);
           if (!booking) fail('UNKNOWN_BOOKING',422);
           if (booking.version !== raw.expected_booking_version) fail('VERSION_CONFLICT',409);
+          if (shadowImport) {
+            const linked=await client.query(`SELECT 1 FROM iron_gate.finance_source_link
+              WHERE property_id=$1 AND source_instance_id=$2 AND source_order_key=$3
+                AND booking_id=$4 AND source_snapshot_hash=$5
+                AND verified_booking_version=$6`,
+              [propertyId,principal.financeSourceInstanceId,raw.source_order_key,
+                raw.booking_id,raw.source_snapshot_hash,raw.expected_booking_version]);
+            if (linked.rows.length !== 1) fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
+          }
         }
         const prior = await client.query(`SELECT max(version)::int AS version
           FROM iron_gate.finance_operational_status
@@ -816,10 +839,11 @@ export class FinanceCommandService {
         const statusId = randomUUID();
         await client.query(`INSERT INTO iron_gate.finance_operational_status
           (id,property_id,booking_id,source_instance_id,source_record_id,
-           version,status_code,settles_room)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+           version,status_code,settles_room,source_recorded_at)
+          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
           [statusId,propertyId,raw.booking_id ?? null,principal.financeSourceInstanceId,
-            raw.source_record_id,raw.version,raw.status_code,raw.settles_room]);
+            raw.source_record_id,raw.version,raw.status_code,raw.settles_room,
+            shadowImport ? raw.source_recorded_at : null]);
         if (shadowImport) await this.#recordImportCatalog(client,principal,propertyId,
           'operational_status',raw.source_record_id,raw.version,statusId,raw);
         return { receipt_status:'accepted',request_key:requestKey,status_id:statusId,
@@ -832,9 +856,11 @@ export class FinanceCommandService {
     return this.#transaction(propertyId,false,async client => {
       await this.#context(client,principal,propertyId,false);
       const result = await client.query(`SELECT id,booking_id,source_record_id,version,
-        status_code,settles_room,recorded_at FROM iron_gate.finance_operational_status
+        status_code,settles_room,recorded_at,source_recorded_at
+        FROM iron_gate.finance_operational_status
         WHERE property_id=$1 AND ($2::uuid IS NULL OR booking_id=$2::uuid)
-        ORDER BY recorded_at DESC,id DESC LIMIT 100`, [propertyId,bookingId]);
+        ORDER BY COALESCE(source_recorded_at,recorded_at) DESC,id DESC LIMIT 100`,
+        [propertyId,bookingId]);
       return { statuses:result.rows, cash_effect_cents:0,
         as_of_change_seq:await financeWatermark(client,propertyId) };
     });
@@ -843,7 +869,7 @@ export class FinanceCommandService {
     const keys = new Set(['request_key','source_record_id','version','cadence','start_on',
       'end_on','next_due_on','status','category_code','amount_cents',
       'safe_description','payment_method_code','due_day','origin_request_hash',
-      'source_actor_ref','source_recorded_at']);
+      'source_actor_ref','source_recorded_at','origin_source_version']);
     if (Object.keys(raw ?? {}).some(key => !keys.has(key)) ||
       !/^[A-Za-z0-9._:-]{1,256}$/.test(raw?.source_record_id ?? '') ||
       !Number.isSafeInteger(raw.version) || raw.version < 1 ||
@@ -859,6 +885,7 @@ export class FinanceCommandService {
       fail('INVALID_INPUT');
     const start = day(raw.start_on,true), end = day(raw.end_on), next = day(raw.next_due_on);
     if (end && end < start || next && (next < start || end && next > end)) fail('INVALID_DATE');
+    if (shadowImport) assertImportCatalogProvenance(raw);
     return this.#operation(principal,propertyId,
       shadowImport ? 'finance:import' : 'finance:plan',raw,requestKey,
       async (client,{source}) => {
@@ -912,7 +939,7 @@ export class FinanceCommandService {
   async payoutRule(principal, propertyId, raw, requestKey, shadowImport = false) {
     const keys = new Set(['request_key','platform','version','mode','day','offset_days',
       'offset_months','status','origin_request_hash',
-      'source_actor_ref','source_recorded_at']);
+      'source_actor_ref','source_recorded_at','origin_source_version']);
     if (Object.keys(raw ?? {}).some(key => !keys.has(key)) ||
       !/^[a-z][a-z0-9_]{0,63}$/.test(raw?.platform ?? '') ||
       !Number.isSafeInteger(raw.version) || raw.version < 1 ||
@@ -926,6 +953,7 @@ export class FinanceCommandService {
         raw.offset_days > 90 || raw.day != null || raw.offset_months != null :
         raw.day != null || raw.offset_days != null || raw.offset_months != null))
       fail('INVALID_INPUT');
+    if (shadowImport) assertImportCatalogProvenance(raw);
     return this.#operation(principal,propertyId,
       shadowImport ? 'finance:import' : 'finance:plan',raw,requestKey,
       async (client,{source}) => {
@@ -935,13 +963,13 @@ export class FinanceCommandService {
           WHERE property_id=$1 AND platform=$2`, [propertyId,raw.platform]);
         if (shadowImport && prior.rows.length) {
           const owner=await client.query(`SELECT source_instance_id,source_record_id,
-            source_version FROM iron_gate.finance_import_catalog
+            target_version FROM iron_gate.finance_import_catalog
             WHERE property_id=$1 AND record_kind='payout_rule' AND target_ref=$2
-            ORDER BY source_version DESC LIMIT 1`,[propertyId,raw.platform]);
+            ORDER BY target_version DESC LIMIT 1`,[propertyId,raw.platform]);
           if (!owner.rows.length ||
             owner.rows[0].source_instance_id!==principal.financeSourceInstanceId ||
             owner.rows[0].source_record_id!==raw.platform ||
-            owner.rows[0].source_version!==prior.rows[0].version)
+            owner.rows[0].target_version!==prior.rows[0].version)
             fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
         }
         if (raw.version !== (prior.rows[0]?.version ?? 0)+1) fail('VERSION_CONFLICT',409);
@@ -1449,7 +1477,8 @@ export class FinanceCommandService {
   }
   async accountCommand(principal, propertyId, raw, requestKey, shadowImport = false) {
     const keys = new Set(['request_key','code','display_name','kind','last_digits',
-      'origin_request_hash','source_actor_ref','source_recorded_at']);
+      'origin_request_hash','source_actor_ref','source_recorded_at',
+      'origin_source_version']);
     if (!raw || typeof raw !== 'object' || Array.isArray(raw) ||
       Object.keys(raw).some(key => !keys.has(key)) ||
       !/^[A-Za-z0-9._:-]{1,64}$/.test(raw.code ?? '') ||
@@ -1458,6 +1487,10 @@ export class FinanceCommandService {
       !['card','bank'].includes(raw.kind) ||
       !(raw.kind === 'card' ? /^[0-9]{4}$/ : /^[0-9]{5}$/).test(raw.last_digits ?? ''))
       fail('INVALID_INPUT');
+    if (shadowImport) {
+      assertImportCatalogProvenance(raw);
+      if (raw.display_name !== raw.display_name.trim()) fail('INVALID_INPUT');
+    }
     return this.#operation(principal,propertyId,
       shadowImport ? 'finance:import' : 'finance:plan',raw,requestKey,
       async (client,{source}) => {
@@ -1479,13 +1512,17 @@ export class FinanceCommandService {
   }
   async categoryCommand(principal, propertyId, raw, requestKey, shadowImport = false) {
     const keys = new Set(['request_key','code','label','kind','origin_request_hash',
-      'source_actor_ref','source_recorded_at']);
+      'source_actor_ref','source_recorded_at','origin_source_version']);
     if (!raw || typeof raw !== 'object' || Array.isArray(raw) ||
       Object.keys(raw).some(key => !keys.has(key)) ||
       !/^[a-z][a-z0-9_]{0,63}$/.test(raw.code ?? '') ||
       typeof raw.label !== 'string' || !raw.label.trim() ||
       raw.label.length > 128 || /[\u0000-\u001f\u007f]/.test(raw.label) ||
       !['income','expense'].includes(raw.kind)) fail('INVALID_INPUT');
+    if (shadowImport) {
+      assertImportCatalogProvenance(raw);
+      if (raw.label !== raw.label.trim()) fail('INVALID_INPUT');
+    }
     return this.#operation(principal,propertyId,
       shadowImport ? 'finance:import' : 'finance:plan',raw,requestKey,
       async (client,{source}) => {

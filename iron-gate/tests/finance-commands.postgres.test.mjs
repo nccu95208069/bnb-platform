@@ -375,10 +375,13 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       const nonmoneyBefore = await admin.query(`SELECT count(*)::int AS count
         FROM iron_gate.finance_event WHERE property_id=$1`,[propertyId]);
       const historicalOrigin={source_actor_ref:`os_actor:${'a'.repeat(64)}`,
-        source_recorded_at:'2026-09-01T03:04:05.000Z'};
+        source_recorded_at:'2026-09-01T03:04:05.000Z',
+        origin_source_version:'redis:2026:42'};
       const historicalStatus={request_key:'import-status-1',source_record_id:'legacy-status-1',
         version:1,status_code:'room_confirmed',settles_room:true,booking_id:bookingId,
         expected_booking_version:1,origin_request_hash:'1'.repeat(64),
+        source_order_key:link.source_order_key,
+        source_snapshot_hash:link.source_snapshot_hash,
         ...historicalOrigin};
       await assert.rejects(service.statusCommand(importer,propertyId,
         {...historicalStatus,request_key:'import-status-missing-hash',
@@ -392,9 +395,23 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
         {...historicalStatus,request_key:'import-status-invalid-actor',
           source_actor_ref:'1234567890123456'},'import-status-invalid-actor',true),
       e => e.code==='INVALID_INPUT');
+      await assert.rejects(service.statusCommand(importer,propertyId,
+        {...historicalStatus,request_key:'import-status-missing-source-version',
+          origin_source_version:undefined},'import-status-missing-source-version',true),
+      e => e.code==='INVALID_INPUT');
+      await assert.rejects(service.statusCommand(importer,propertyId,
+        {...historicalStatus,request_key:'import-status-unlinked',
+          source_order_key:'SF-UNLINKED'},'import-status-unlinked',true),
+      e => e.code==='SOURCE_MAPPING_REVIEW_REQUIRED');
       const importedStatus=await service.statusCommand(importer,propertyId,
         historicalStatus,historicalStatus.request_key,true);
       assert.equal(importedStatus.cash_effect_cents,0);
+      const statusTarget=(await service.importCatalog(importer,propertyId)).entries
+        .find(row=>row.record_kind==='operational_status').target_current;
+      assert.equal(statusTarget.source_recorded_at.toISOString(),
+        historicalOrigin.source_recorded_at);
+      assert.notEqual(statusTarget.recorded_at.toISOString(),
+        historicalOrigin.source_recorded_at);
       assert.deepEqual(await service.statusCommand(importer,propertyId,
         historicalStatus,historicalStatus.request_key,true),importedStatus);
       await assert.rejects(service.statusCommand(principal,propertyId,
@@ -407,6 +424,10 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       const historicalCategory={request_key:'import-category-1',kind:'expense',
         code:'historical_supplies',label:'Historical supplies',
         origin_request_hash:'2'.repeat(64),...historicalOrigin};
+      await assert.rejects(service.categoryCommand(manualImporter,propertyId,
+        {...historicalCategory,request_key:'import-category-unnormalized',
+          label:' Historical supplies '},'import-category-unnormalized',true),
+      e => e.code==='INVALID_INPUT');
       await service.categoryCommand(manualImporter,propertyId,historicalCategory,
         historicalCategory.request_key,true);
       const historicalAccount={request_key:'import-account-1',code:'historical_bank',
@@ -456,9 +477,17 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       assert.equal(catalog.find(row=>row.record_kind==='account')
         .source_snapshot_hash,'3'.repeat(64));
       assert.equal(catalog.find(row=>row.record_kind==='account')
+        .source_version,historicalOrigin.origin_source_version);
+      assert.equal(catalog.find(row=>row.record_kind==='account')
+        .target_version,1);
+      assert.equal(catalog.find(row=>row.record_kind==='account')
         .source_actor_ref,historicalOrigin.source_actor_ref);
       assert.equal(catalog.find(row=>row.record_kind==='account')
         .source_recorded_at.toISOString(),historicalOrigin.source_recorded_at);
+      await assert.rejects(admin.query(`UPDATE iron_gate.finance_import_catalog
+        SET source_snapshot_hash=$1 WHERE property_id=$2 AND source_instance_id=$3`,
+        ['f'.repeat(64),propertyId,importManualConnectorId]),
+      e => e.code==='23514');
       assert.equal((await service.importCatalog(importer,propertyId)).entries.length,1);
       const nonmoneyAfter = await admin.query(`SELECT count(*)::int AS count
         FROM iron_gate.finance_event WHERE property_id=$1`,[propertyId]);
