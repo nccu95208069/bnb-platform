@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { tokenHash } from '../src/credential-grant.mjs';
 import { offlandGeneralFinanceGrantPackage,
   prepareOfflandGeneralFinanceGrantFiles } from
@@ -94,8 +96,8 @@ test('rejects wrong property, stale authority, reused connector, and unverified 
 });
 
 test('private package uses exclusive 0600 files and never overwrites an uncertain issuance', async () => {
-  const inputDir=await mkdtemp('/private/tmp/offland-grant-input-');
-  const outputDir=`/private/tmp/offland-grant-output-${randomUUID()}`;
+  const inputDir=await mkdtemp(join(tmpdir(),'offland-grant-input-'));
+  const outputDir=join(tmpdir(),`offland-grant-output-${randomUUID()}`);
   try {
     const candidatePath=`${inputDir}/candidate.json`;
     const authorityPath=`${inputDir}/authority.json`;
