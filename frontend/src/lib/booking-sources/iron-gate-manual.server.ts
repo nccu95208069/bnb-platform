@@ -96,9 +96,10 @@ export function ironGateManualConfig(env: NodeJS.ProcessEnv = process.env): Manu
   } catch { throw Error('MANUAL_CONFIG_UNAVAILABLE'); }
 }
 
-function member(principal: Principal): void {
+function member(principal: Principal, property: string): void {
   if (!principal.id || !['owner', 'admin', 'god'].includes(principal.role) ||
-    !(principal.allProperties || principal.propertyIds.includes('sweetfun')) ||
+    !['sweetfun', 'offland'].includes(property) ||
+    !(principal.allProperties || principal.propertyIds.includes(property)) ||
     !principal.viewPrices) throw Error('MANUAL_FORBIDDEN');
 }
 
@@ -109,7 +110,7 @@ export async function callIronGate(config: ManualConfig, principal: Principal,
   fields: string[] = ['guest_name', 'contact', 'notes', 'money', 'payment_status'],
   maxResponseBytes = 512 * 1024
 ): Promise<Record<string, unknown>> {
-  member(principal);
+  member(principal, config.calendar.propertyKey ?? 'sweetfun');
   const url = `${config.calendar.baseUrl}${path}`;
   const payload = body === null ? '' : JSON.stringify(body);
   if (Buffer.byteLength(payload, 'utf8') > MAX_BODY) throw Error('MANUAL_INVALID_INPUT');

@@ -1,5 +1,5 @@
 import type {Principal} from '../workspace-auth/types';
-import {ironGateCalendarConfig} from './iron-gate-calendar.server.ts';
+import {ironGateCalendarConfig,offlandIronGateCalendarConfig} from './iron-gate-calendar.server.ts';
 import {callIronGate,type Grant,type ManualConfig} from './iron-gate-manual.server.ts';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -13,14 +13,21 @@ const canonical=(value:unknown):string=>Array.isArray(value)?
     `{${Object.keys(value).sort().map(key=>`${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`:
     (JSON.stringify(value)??'null');
 
-/** The OS writer is separate from the existing calendar and payment grants. */
-export function ironGateSsotFinanceConfig(env:NodeJS.ProcessEnv=process.env):ManualConfig{
+export function ssotFinanceEnabled(property:string,env:NodeJS.ProcessEnv=process.env):boolean{
+  return (property==='sweetfun'||property==='offland')&&
+    env[`OS_${property.toUpperCase()}_FINANCE_SSOT_ENABLED`]==='true';
+}
+
+/** Each property's OS writer has a separate calendar scope and finance grant. */
+export function ironGateSsotFinanceConfig(property:string='sweetfun',
+  env:NodeJS.ProcessEnv=process.env):ManualConfig{
   try{
-    if(env.OS_SWEETFUN_FINANCE_SSOT_ENABLED!=='true'||
+    if(!ssotFinanceEnabled(property,env)||
       env.CALENDAR_SOURCE!=='sheet_snapshot')throw Error();
-    const calendar=ironGateCalendarConfig(env);
+    const calendar=property==='offland'?offlandIronGateCalendarConfig(env):
+      ironGateCalendarConfig(env);
     if(calendar.expectedAuthorityEpoch<1)throw Error();
-    const grant=JSON.parse(env.IRON_GATE_SWEETFUN_SSOT_FINANCE_GRANT??'null');
+    const grant=JSON.parse(env[`IRON_GATE_${property.toUpperCase()}_SSOT_FINANCE_GRANT`]??'null');
     if(!object(grant)||Object.keys(grant).sort().join(',')!==
       'clientId,credentialId,propertyId,token,workspaceId'||
       !UUID.test(String(grant.credentialId))||!UUID.test(String(grant.clientId))||

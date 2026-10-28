@@ -22,7 +22,7 @@ export async function submitSsotOsFinance(input:Record<string,unknown>,
   if(!await readPendingOsFinance(property,actor))
     verifyFinancePreview(input,actor,property,
       osFinanceOriginHash(input,actor.id,property),
-      ironGateSsotFinanceConfig().calendar.proofSecret);
+      ironGateSsotFinanceConfig(property).calendar.proofSecret);
   const {pending,created}=await reservePendingOsFinance(input,property,actor);
   if(pending.status==='accepted'){
     if(!pending.result)throw Error('FINANCE_PENDING_UNAVAILABLE');
@@ -40,7 +40,7 @@ export async function submitSsotOsFinance(input:Record<string,unknown>,
     // operator can reconcile it; never submit or repreview it automatically.
     if(!created)throw Error('WRITE_UNCONFIRMED');
     const preview=verifyFinancePreview(input,actor,property,resumed.originHash,
-      ironGateSsotFinanceConfig().calendar.proofSecret);
+      ironGateSsotFinanceConfig(property).calendar.proofSecret);
     const source=activeSources().find(s=>s.property.id===property);
     if(!source)throw Error('FORBIDDEN');
     const report=await ssotFinanceContext(source,year,actor);

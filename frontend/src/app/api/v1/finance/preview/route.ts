@@ -8,6 +8,7 @@ import {assertNotCardManaged} from '@/lib/card-payment-ownership';
 import {ssotFinanceContext} from '@/lib/finance-ssot-context';
 import {readPendingOsFinance} from '@/lib/finance-ssot-pending.server';
 import {previewSsotOsFinance} from '@/lib/finance-ssot-operations';
+import {ssotFinanceEnabled} from '@/lib/booking-sources/iron-gate-ssot-finance.server';
 
 export async function POST(request:NextRequest){
   try{
@@ -17,8 +18,7 @@ export async function POST(request:NextRequest){
     if(!actor)throw Error('UNAUTHORIZED');
     const property=input.property_id,year=Number(input.year);
     const source=activeSources().find(s=>s.property.id===property);
-    if(!canUseFinance(actor)||property!=='sweetfun'||
-      process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED!=='true'||
+    if(!canUseFinance(actor)||typeof property!=='string'||!ssotFinanceEnabled(property)||
       !(actor.allProperties||actor.propertyIds.includes(property))||!source)
       throw Error('FORBIDDEN');
     if(!Number.isInteger(year)||year<2020||year>2100)throw Error('INVALID_INPUT');
