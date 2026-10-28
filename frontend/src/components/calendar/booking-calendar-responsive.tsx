@@ -13,6 +13,7 @@ import { CalendarPrivacy } from "./calendar-privacy";
 import { CalendarToolbar } from "./calendar-toolbar";
 import { ManualBookingDialog } from "./manual-booking-dialog";
 import { ManualBookingFab } from "./manual-booking-fab";
+import { RetainedOrdersControl, type RetainedOrderTarget } from "./retained-orders-control";
 import {
   useCallback,
   useEffect,
@@ -265,6 +266,8 @@ const uiLocale = useIntlLocale();
   const retryCalendar = useCallback(() => setReloadKey((value) => value + 1), []);
   const [manualMode, setManualMode] = useState<"create" | "amend" | "cancel" | "sync" | "manual-confirm" | null>(null);
   const [manualSyncTarget, setManualSyncTarget] = useState<{ bookingId: string; inventoryVersion: number } | null>(null);
+  const [retainedTarget, setRetainedTarget] = useState<RetainedOrderTarget | null>(null);
+  const retainedTargetHandled = useCallback(() => setRetainedTarget(null), []);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
   const [editsHydrated, setEditsHydrated] = useState(false);
   const previousView = useRef<CalendarView>(view);
@@ -302,6 +305,11 @@ const uiLocale = useIntlLocale();
   const canCreateManual = manualEnabled &&
     data?.properties.some(property => property.id === "sweetfun") &&
     (!selectedPropertyIds.length || selectedPropertyIds.includes("sweetfun"));
+  const retainedEnabled = Boolean(membership?.id) && data?.retained_orders_enabled === true &&
+    data.properties.some(property => property.id === "offland") &&
+    (!selectedPropertyIds.length || selectedPropertyIds.includes("offland"));
+  const retainedCanWrite = data?.retained_orders_can_write === true &&
+    ["owner", "admin", "god"].includes(effectiveRole) && permissions.viewPrices;
   const displayPeriod = useMemo(() => {
     if (view === "month") {
       return {
@@ -918,6 +926,9 @@ const uiLocale = useIntlLocale();
       </section>
 
       {requestFailed && data && !loading && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">目前顯示上次載入的資料，僅供查看。最新房況與付款尚未確認，恢復連線後會自動重試。</div>}
+      {retainedEnabled && <RetainedOrdersControl key={accessScope} canWrite={retainedCanWrite}
+        viewPrices={permissions.viewPrices} storageScope={membership!.id}
+        reload={reloadKey} target={retainedTarget} onTargetHandled={retainedTargetHandled} onChanged={retryCalendar} />}
       {!loading && data?.source_warnings?.filter(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id))).map(item => (
         <div key={`${item.property_id}:${item.phase}`} role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
           {item.label} · {({ private_snapshot: "目前顯示伺服器保存的私人快照，房況、姓名、備註與付款均為當時資料。", snapshot: "目前顯示上次確認的房況，最新變更尚未確認。", guest_details: "姓名與備註暫時無法確認，仍可查看房況。", payments: "付款資料暫時無法確認，請勿視為未付款。" })[item.phase]} {item.captured_at && `保存時間：${new Date(item.captured_at).toLocaleString(uiLocale, { timeZone: "Asia/Taipei" })}。`}僅供查看，恢復確認後才能操作。
@@ -1102,6 +1113,13 @@ const uiLocale = useIntlLocale();
         onRecordPayment={recordPayment}
         onUpdateBooking={updateBooking}
         onCancelBooking={cancelBooking}
+        onRetainBooking={retainedEnabled && retainedCanWrite && !requestFailed && !loading && !refreshing && !error &&
+          selectedBooking?.property_id === "offland" && selectedBooking.reservation_status === "confirmed" &&
+          selectedBooking.iron_gate_booking_id && !selectedBooking.snapshot_only && !selectedBooking.source_conflict &&
+          !selectedBooking.iron_gate_source_review ? () => {
+            setRetainedTarget({ bookingId: selectedBooking.iron_gate_booking_id!, action: "retain" });
+            setSelectedId(null);
+          } : undefined}
         onManualEdit={manualEnabled && selectedBooking &&
           ["full", "guest_name"].includes(selectedBooking.iron_gate_edit_mode ?? "") &&
           ["verified", "not_required", "awaiting_manual_sync", "action_required", "manually_confirmed"].includes(
