@@ -23,7 +23,7 @@ const authority = () => ({ project_ref:'brcszrkwkgiwatrxevkf',
   property_id:propertyId,workspace_id:workspaceId,authority_epoch:1,read_only:false });
 const lineAuthority = () => ({
   existing_credential_id:'66666666-6666-4666-8666-666666666666',
-  existing_property_id:'77777777-7777-4777-8777-777777777777',
+  existing_property_id:'95ae9bd1-5e6d-4386-be5b-6af3c5668a16',
   existing_grant_id:'88888888-8888-4888-8888-888888888888',
   group_id:'verified-group',actor_ids:['approved-actor-a','approved-actor-b'],
 });
@@ -58,6 +58,7 @@ test('OS and LINE packages bind distinct Offland connectors and store no plainte
   assert.match(plan.sql,/OFFLAND_FINANCE_AUTHORITY_CHANGED/);
   assert.match(plan.sql,/OFFLAND_FINANCE_CREDENTIAL_ALREADY_ACTIVE/);
   assert.match(plan.sql,/OFFLAND_LINE_GROUP_NOT_VERIFIED/);
+  assert.match(plan.sql,/line-staff-manage-all/);
   assert.match(plan.sql,/actual\.grant_json<>expected\.grant_json/);
 });
 
@@ -85,6 +86,9 @@ test('rejects wrong property, stale authority, reused connector, and unverified 
     /OFFLAND_FINANCE_GRANT_INPUT_INVALID/);
   assert.throws(() => offlandGeneralFinanceGrantPackage(candidate(),authority(),
     {...lineAuthority(),actor_ids:[]}),/OFFLAND_FINANCE_GRANT_INPUT_INVALID/);
+  assert.throws(() => offlandGeneralFinanceGrantPackage(candidate(),authority(),
+    {...lineAuthority(),existing_property_id:propertyId}),
+  /OFFLAND_FINANCE_GRANT_INPUT_INVALID/);
 });
 
 test('private package uses exclusive 0600 files and never overwrites an uncertain issuance', async () => {

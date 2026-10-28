@@ -9,6 +9,8 @@ import { pathToFileURL } from 'node:url';
 import { tokenHash, validCredentialId, validateGrant } from '../src/credential-grant.mjs';
 
 const PROJECT_REF = 'brcszrkwkgiwatrxevkf';
+// This is the existing verified OA group grant, not an Offland authority grant.
+const SWEETFUN_PROPERTY_ID = '95ae9bd1-5e6d-4386-be5b-6af3c5668a16';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SAFE_LINE_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const quote = value => `'${String(value).replaceAll("'", "''")}'`;
@@ -41,7 +43,7 @@ export function offlandGeneralFinanceGrantPackage(candidate, authority,
   if (new Set(candidate.connectors.map(row => row.source_instance_id)).size !== 3)
     fail();
   if (lineAuthority !== null && (!UUID.test(lineAuthority.existing_credential_id ?? '') ||
-    !UUID.test(lineAuthority.existing_property_id ?? '') ||
+    lineAuthority.existing_property_id !== SWEETFUN_PROPERTY_ID ||
     !UUID.test(lineAuthority.existing_grant_id ?? '') ||
     !SAFE_LINE_ID.test(lineAuthority.group_id ?? '') ||
     !Array.isArray(lineAuthority.actor_ids) ||
@@ -89,6 +91,8 @@ export function offlandGeneralFinanceGrantPackage(candidate, authority,
       AND existing.property_id=${quote(lineAuthority.existing_property_id)}::uuid
       AND existing.active AND existing.expires_at>now()
       AND existing.grant_json->>'origin'='line'
+      AND existing.grant_json->>'subjectId'='line-staff-manage-all'
+      AND existing.grant_json->>'lineManageAllEnabled'='true'
       AND existing.grant_json->>'grantId'=${quote(lineAuthority.existing_grant_id)}
       AND existing.grant_json->>'lineGroupId'=${quote(lineAuthority.group_id)}
       AND existing.grant_json->'lineActorIds'=

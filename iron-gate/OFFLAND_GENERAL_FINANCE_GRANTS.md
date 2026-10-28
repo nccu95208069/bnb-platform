@@ -32,11 +32,16 @@ the package:
 When LINE group and operator authority is independently verified, the optional
 LINE input must contain `existing_credential_id`, `existing_property_id`,
 `existing_grant_id`, `group_id`, and `actor_ids` from one **active existing**
-Iron Gate LINE grant for the same OA group. The issuance SQL rechecks that
-credential, group and exact actor list. Do not invent actor IDs, reuse an
-unverified group, or copy a plaintext token from the existing grant. Omit this
-input until the LINE team has verified it; the script then prepares only the OS
-grant.
+Sweetfun Iron Gate `line-staff-manage-all` grant for the same OA group. The
+issuance SQL rechecks that exact source property, credential, group and actor
+list. The source grant may belong to a different workspace; it proves only the
+established OA group and approved actor list. The **new** grant is bound to the
+current Offland workspace and property, and Iron Gate still requires a current
+Offland operator proof with that workspace, property, group and allowed action
+on every request. The Sweetfun proof cannot authorize an Offland write. Do not
+invent actor IDs, reuse an unverified group, or copy a plaintext token from the
+existing grant. Omit this input until the LINE team has verified it; the script
+then prepares only the OS grant.
 
 The generated `os.json` and optional `line.json` contain new plaintext tokens;
 `issue.sql` contains only their SHA-256 hashes and full scoped grant metadata.
