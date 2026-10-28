@@ -18,3 +18,17 @@ Synthetic coverage exercises allocation rounding; unknown fields, receipt eviden
 Deploy both compatible readers before applying a private manifest. Coordinate with the active LINE release, re-read current production source/deployments and property version, and regenerate the manifest on a new version. After apply, verify all five booking/link versions and net totals, retained gross/fee evidence, zero new receipts, identical other-booking and channel state, and authenticated calendar/finance readback. The PR carries the final release/readback evidence; this document alone does not assert production completion.
 
 The calendar snapshot explicitly forwards the validated money-only breakdown so its reservation drawer displays the group gross/fee/net figures. Both the backend calendar and workspace price-hiding boundary are covered by regression checks.
+
+
+## Broader imported-order audit
+
+The version-2 correction format extends the original five-room repair to verified Sweetfun and OFFLAND single-row imports across rooms and nights. The public repository contains generic validation and synthetic tests only. A private manifest must include complete booking/link before-images and hashes of the platform and mail evidence; current platform transactions override older confirmation emails when the price has changed.
+
+- Preserve the whole-TWD source convention. Reconcile whole-order discrepancies of at least one TWD, including accumulated per-night allocation differences. Sub-TWD differences remain documented as source rounding, not missed updates.
+- Preserve original source rows, legacy finance IDs, actual payment events and receipts. The correction changes expected net, not collected income. Unknown guest-paid totals stay unknown rather than being inferred from payout exports.
+- Historical, explicitly cancelled zero-income reservations may be marked cancelled and zeroed after current platform and cancellation-notice verification. This maintenance creates no refund and sends no provider room operation.
+- Multi-property SQL is serializable, version-bound and all-or-nothing; replay, changed before-images, incomplete known-identity groups and foreign properties fail. Source links advance with the corrected booking versions, with an audit/outbox record per correction.
+- OFFLAND reads price-scoped correction evidence using its existing property-scoped booking credential. Its calendar payment-write restriction remains in force. Finance overlays use the original OFFLAND IDs and preserve previous receipts.
+- Validate backend and frontend grouping by unique room-night, not unique room, and reconcile group gross minus host fees to net. Deploy compatible readers before applying a private manifest. Verify unchanged non-target bookings, payment hashes, channel state, source snapshots and live authenticated calendar/finance totals afterwards.
+
+Synthetic tests cover both properties, signed reads, hidden-price denial, old five-room compatibility, multi-night groups, complete-group validation, existing receipts, cancelled zero receivables, stale data, atomic rollback and replay. Release and private readback evidence must be recorded before claiming production completion.

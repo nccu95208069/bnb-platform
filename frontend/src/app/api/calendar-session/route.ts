@@ -1,5 +1,6 @@
 import { recordDevice } from "@/lib/workspace-auth/devices";
-import { principalFor, sessionMember, validMemberSession, memberPrincipal, MEMBER_COOKIE, createMemberSession } from "@/lib/workspace-auth/session";
+import { principalFor, sessionMember, validMemberSession, memberPrincipal, MEMBER_COOKIE, createMemberSession, calendarSessionFor } from "@/lib/workspace-auth/session";
+import { calendarServerTiming } from "@/lib/calendar-server-timing";
 import { ADMIN_EMAIL, normalizedEmail, normalizedPhone, nextWorkspace } from "@/lib/workspace-auth/types";
 import { RedisWorkspaceStore } from "@/lib/workspace-auth/store";
 import { NextRequest, NextResponse } from "next/server";
@@ -45,21 +46,14 @@ function failure(error: unknown) {
   return NextResponse.json({ detail }, { status, headers });
 }
 export async function GET(request: NextRequest) {
-  if (previewOwnerConfigured() || offlandPreviewOwnerConfigured()) {
-    const principal = await principalFor(request);
-    return NextResponse.json({ available: true, authenticated: Boolean(principal), has_custom_password: true,
-      membership: principal ? { ...principal, tenantId: "sweetfun-workspace", tenantName: "Sweetfun OS",
-        phone: null, status: "active" } : null }, { headers });
-  }
-  if (!ownerAccessConfigured()) return NextResponse.json({ available: false, authenticated: false }, { headers });
+  const timing = calendarServerTiming();
+  let response: NextResponse;
   try {
-    const limited = await sessionMember(request);
-    if(limited?.mustResetPassword) return NextResponse.json({available:true,authenticated:true,requires_password_reset:true,membership:null},{headers});
-    const principal = await principalFor(request);
-    const hasCustomPassword = principal?.role === "owner" ? (await new RedisOwnerCredentialStore().read()).value.kind === "password" : Boolean(principal);
-    return NextResponse.json({ available: true, authenticated: Boolean(principal), has_custom_password: hasCustomPassword,
-      membership: principal ? { ...principal, tenantId: "sweetfun-workspace", tenantName: "Sweetfun OS", phone: null, status: "active" } : null }, { headers });
-  } catch (error) { return failure(error); }
+    const session = await timing.measure('auth', () => calendarSessionFor(request));
+    response = NextResponse.json(session, { headers });
+  } catch (error) { response = failure(error); }
+  timing.apply(response.headers);
+  return response;
 }
 export async function POST(request: NextRequest) {
   if (!sameOrigin(request)) return NextResponse.json({ detail: "請從本站登入。" }, { status: 403, headers });
