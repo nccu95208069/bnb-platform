@@ -13,7 +13,8 @@ type Preview={status:'preview';preview_token:string;expires_at:number;
   workbook_url:string;
   rows:Row[];issues:Issue[];unassigned:{sheet_row:number;content_hash:string}[]};
 type Commit={status:'completed';results:{row_id:string;status:string;
-  projection?:string;code?:string;version?:number}[];issues:Issue[]};
+  projection?:string;code?:string;version?:number;source_version?:number}[];
+  issues:Issue[]};
 
 const endpoint='/api/v1/finance-sheet-bulk';
 const labels:Record<string,string>={create:'新增',amend:'修正',void:'作廢登錄',
@@ -65,6 +66,13 @@ export function FinanceSheetBulkWorkspace(){
         row_ids:selected}) as Commit;
       setResult(committed);setPreview(null);setSelected([]);
     }catch(cause){setError(label(cause instanceof Error?cause.message:'UNAVAILABLE'));}
+    finally{setBusy(false);}
+  }
+  async function recover(rows:{row_id:string;source_version:number}[]){
+    if(!rows.length)return;
+    setBusy(true);setError('');
+    try{setResult(await call({action:'recover',rows}) as Commit);}
+    catch(cause){setError(label(cause instanceof Error?cause.message:'UNAVAILABLE'));}
     finally{setBusy(false);}
   }
   return <main className="mx-auto max-w-6xl space-y-5 p-5">
@@ -120,16 +128,30 @@ export function FinanceSheetBulkWorkspace(){
           onClick={commit} className="rounded bg-primary px-4 py-2 text-primary-foreground disabled:opacity-50">
           確認提交已選 {selected.length} 列
         </button>
+        {selected.length>0&&<button type="button" disabled={busy}
+          onClick={()=>recover(preview.rows.filter(row=>selected.includes(row.row_id)))}
+          className="ml-2 rounded border px-4 py-2 disabled:opacity-50">
+          查詢已選列的原請求
+        </button>}
       </section>
     </>}
     {result&&<section className="rounded border p-4">
       <h2 className="font-semibold">提交結果</h2>
       <ul className="mt-2 space-y-1 text-sm">{result.results.map(item=><li key={item.row_id}>
         {item.row_id}：{item.status==='accepted'?'帳本已接受':
-          item.status==='unknown'?'結果待核對':'未入帳'}
+          item.status==='unknown'?'結果待核對':
+          item.status==='not_found'?'帳本尚無該請求':'未入帳'}
         {item.projection==='pending'?'（工作簿狀態稍後更新）':''}
         {item.code?` · ${label(item.code)}`:''}
       </li>)}</ul>
+      {result.results.some(item=>item.status==='unknown'&&item.source_version)&&
+        <button type="button" disabled={busy}
+          onClick={()=>recover(result.results.filter(item=>item.status==='unknown'&&
+            item.source_version).map(item=>({row_id:item.row_id,
+              source_version:item.source_version!})))}
+          className="mt-3 mr-2 rounded border px-3 py-1 disabled:opacity-50">
+          再查詢待核對請求
+        </button>}
       <button type="button" disabled={busy} onClick={refresh}
         className="mt-3 rounded border px-3 py-1">重新讀取</button>
     </section>}

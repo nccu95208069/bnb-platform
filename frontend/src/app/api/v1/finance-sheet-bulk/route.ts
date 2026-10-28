@@ -8,8 +8,9 @@ import {claimFinanceSheetRow,projectFinanceSheetReceipt,
   readFinanceSheet} from '@/lib/finance-sheet-bulk-google';
 import {financeSheetDocumentsFromLedger,previewFinanceSheetBatch,verifyFinanceSheetIgPreview,
   scanFinanceSheet,verifyFinanceSheetBatch} from '@/lib/finance-sheet-bulk-core';
+import {recoverFinanceSheetBatch} from '@/lib/finance-sheet-bulk-recovery';
 import {readSweetfunIronGatePaymentOrder} from '@/lib/booking-sources/iron-gate-calendar.server';
-import {readSsotLedger,previewSsotFinanceCommand,
+import {readSsotLedger,readSsotReceipt,previewSsotFinanceCommand,
   submitSsotFinanceCommand} from '@/lib/booking-sources/iron-gate-ssot-finance.server';
 import type {Principal} from '@/lib/workspace-auth/types';
 
@@ -73,6 +74,12 @@ export async function POST(request:NextRequest){
     const actor=await actorFor(request);
     const input=await inputBody(request);
     const action=input.action;
+    if(action==='recover'){
+      const settings=financeSheetBulkConfig();
+      const results=await recoverFinanceSheetBatch(settings.binding.spreadsheetId,
+        input.rows,key=>readSsotReceipt(settings.ironGate,actor,key));
+      return response({status:'completed',results,issues:[]});
+    }
     if(action==='assign'){
       const settings=financeSheetBulkConfig();
       if(!Number.isSafeInteger(input.sheet_row)||
@@ -143,14 +150,16 @@ export async function POST(request:NextRequest){
           projection='verified';
         }catch{/* Canonical money receipt is already accepted. Scanner repairs projection. */}
         results.push({row_id:candidate.row.row_id,status:'accepted',projection,
-          request_key:candidate.request_key,document_id:receipt.document_id,
+          request_key:candidate.request_key,source_version:candidate.source_version,
+          document_id:receipt.document_id,
           version:receipt.document_version,event_ids:receipt.event_ids,
           as_of_event_id:receipt.as_of_event_id});
       }catch(error){
         const code=error instanceof Error?error.message:'UNAVAILABLE';
-        results.push({row_id:candidate.row.row_id,status:code==='WRITE_UNCONFIRMED'?
+        results.push({row_id:candidate.row.row_id,status:
+          ['WRITE_UNCONFIRMED','FINANCE_SSOT_READBACK_MISMATCH'].includes(code)?
           'unknown':'rejected',code:/^[A-Z_]+$/.test(code)?code:'UNAVAILABLE',
-          request_key:candidate.request_key});
+          request_key:candidate.request_key,source_version:candidate.source_version});
       }
     }
     return response({status:'completed',results,
