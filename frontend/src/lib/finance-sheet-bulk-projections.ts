@@ -125,5 +125,6 @@ export function financeSheetProjections(events:unknown[],scan:FinanceSheetScan,
 }
 
 export function financeSheetProjectionDigest(projection:FinanceSheetProjection[]){
-  return hash(projection);
+  return hash(projection.map(tab=>({title:tab.title,rows:tab.rows.map(row=>
+    Array.from({length:12},(_,index)=>row[index]??''))})));
 }
