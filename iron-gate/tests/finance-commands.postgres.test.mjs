@@ -118,6 +118,7 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
         service_on:'2026-11-10',
         payment_method_code:'bank_transfer' };
       const preview = await service.preview(principal, propertyId, room, room.request_key);
+      assert.equal(Object.hasOwn(preview.resolved_command,'source_actor_ref'),false);
       assert.equal(preview.bookings[0].bookingId, bookingId);
       assert.equal(preview.resolved_command.booking_allocations[0].booking_id,bookingId);
       const roomAccepted = await service.command(principal, propertyId,
@@ -330,6 +331,7 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       assert.deepEqual(await service.sourceLinkCommit(importer,propertyId,
         { ...link,preview_token:linkPreview.preview_token },link.request_key),linked);
       const imported = { ...roomCommand('legacy-receipt-1',1000),
+        source_actor_ref:'line_actor:synthetic-reviewed-1',
         booking_allocations:[{source_order_key:'SF-IMPORTED-1',
           amount_cents:1000,allocation_kind:'room'}] };
       const importPreview = await service.importPreview(importer,propertyId,
@@ -338,6 +340,11 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
         {...importPreview.resolved_command,preview_token:importPreview.preview_token},
         imported.request_key);
       assert.equal(importReceipt.receipt_status,'accepted');
+      const historicalActor=await admin.query(`SELECT actor_ref,source_actor_ref
+        FROM iron_gate.finance_revision WHERE property_id=$1 AND document_id=$2`,
+        [propertyId,importReceipt.document_id]);
+      assert.equal(historicalActor.rows[0].actor_ref,importer.subjectId);
+      assert.equal(historicalActor.rows[0].source_actor_ref,imported.source_actor_ref);
       assert.deepEqual(await service.importReceipt(importer,propertyId,
         imported.request_key),importReceipt);
       assert.equal((await service.importLedger(importer,propertyId,

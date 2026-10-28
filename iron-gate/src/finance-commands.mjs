@@ -21,7 +21,7 @@ const COMMAND_KEYS = new Set(['request_key', 'source_record_id', 'source_version
   'safe_description', 'evidence_level', 'evidence_ref',
   'booking_allocations', 'booking_guards', 'expense_attributions', 'related_receipt_document_id',
   'related_receipt_event_id', 'reason_code', 'reason_note',
-  'preview_token','provider_transaction_ref']);
+  'preview_token','provider_transaction_ref','source_actor_ref']);
 
 function fail(code, status = 400) { throw new GateError(code, status); }
 function safeText(value, max, required = false) {
@@ -197,6 +197,9 @@ function normalize(raw, requestKey) {
     related_receipt_document_id: raw.related_receipt_document_id ?? null,
     related_receipt_event_id: raw.related_receipt_event_id ?? null,
     provider_transaction_ref: safeText(raw.provider_transaction_ref,128),
+    // Absence must preserve the pre-016 command hash for old request-key retries.
+    ...(raw.source_actor_ref == null ? {} :
+      { source_actor_ref: safeText(raw.source_actor_ref,128,true) }),
     reason_code: safeText(raw.reason_code, 64),
     reason_note: safeText(raw.reason_note, 300),
   };
@@ -211,7 +214,7 @@ function normalize(raw, requestKey) {
   if (!/^[A-Za-z0-9._:-]{1,256}$/.test(command.source_record_id) ||
     !/^[A-Za-z0-9._:-]{1,256}$/.test(command.request_key)) fail('INVALID_INPUT');
   for (const opaque of [command.evidence_ref, command.advanced_by_ref,
-    command.provider_transaction_ref])
+    command.provider_transaction_ref,command.source_actor_ref])
     if (opaque != null && (!/^[A-Za-z0-9._:-]{1,256}$/.test(opaque) ||
       /\d{13,19}/.test(opaque))) fail('INVALID_INPUT');
   return command;
@@ -1010,7 +1013,7 @@ export class FinanceCommandService {
         e.service_on,e.category_code,e.receipt_purpose,
         e.payment_method_code,e.payment_account_ref,e.advanced_by_ref,
         e.advanced_by_kind,e.advanced_by_label,
-        e.safe_description,e.actor_ref,e.evidence_ref,e.created_at,
+        e.safe_description,e.actor_ref,r.source_actor_ref,e.evidence_ref,e.created_at,
         first_event.actor_ref AS origin_actor_ref,
         first_event.created_at AS origin_recorded_at,
         COALESCE(snapshot_r.actor_ref,current_r.actor_ref) AS current_actor_ref,
@@ -1112,7 +1115,7 @@ export class FinanceCommandService {
       await this.#context(client,principal,propertyId,false);
       const rows = await client.query(`WITH activity AS (
         SELECT r.created_at AS at, r.document_id::text || ':' || r.version::text AS id,
-          'money'::text AS source, r.action, r.actor_ref,
+          'money'::text AS source, r.action, r.actor_ref,r.source_actor_ref,
           r.document_id::text AS target_id, r.version AS version,
           d.source_system, e.event_kind, e.amount_cents,
           e.safe_description, r.reason_note,
@@ -1143,6 +1146,7 @@ export class FinanceCommandService {
         SELECT a.created_at AS at,a.audit_id::text AS id,
           'operation'::text AS source,a.audit_json->>'action' AS action,
           a.audit_json->>'actorRef' AS actor_ref,
+          NULL::text AS source_actor_ref,
           COALESCE(rr.response_json->>'rule_id',rr.response_json->>'account_code',
             rr.response_json->>'category_code',rr.response_json->>'status_id',
             rr.response_json->>'platform',rr.response_json->>'settlement_id',
@@ -1370,6 +1374,7 @@ export class FinanceCommandService {
       ['expense_paid', 'processor_fee_paid'].includes(command.event_kind) ?
         'finance:record_expense' : 'finance:record_receipt';
     this.#authorize(principal, propertyId, shadowImport ? 'finance:import' : action);
+    if (!shadowImport && command.source_actor_ref) fail('INVALID_INPUT');
     const requestHash = hash(command);
     return this.#transaction(propertyId, true, async client => {
       const { state, source } = await this.#context(client, principal, propertyId, true, shadowImport);
@@ -1606,10 +1611,10 @@ export class FinanceCommandService {
         [version, command.action === 'void' ? 'void' : 'active', propertyId, documentId]);
       await client.query(`INSERT INTO iron_gate.finance_revision
         (property_id,document_id,version,action,request_hash,source_version,
-         actor_ref,reason_code,reason_note)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, [propertyId, documentId, version,
+         actor_ref,source_actor_ref,reason_code,reason_note)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [propertyId, documentId, version,
         command.action, requestHash, command.source_version, principal.subjectId,
-        command.reason_code,command.reason_note]);
+        command.source_actor_ref ?? null,command.reason_code,command.reason_note]);
       const eventIds = [];
       // Reversal and replacement share one revision and one serializable transaction.
       if (command.action !== 'create') {
