@@ -1,11 +1,27 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {summarizeOrders,captureIdentities,emptyRegistry} from '../src/lib/finance-summary.ts';
+import {summarizeOrders,captureIdentities,emptyRegistry,
+  attachHistoricalSummaryReadback} from '../src/lib/finance-summary.ts';
 import {ledgerKey} from '../src/lib/os-payments.ts';
 const row={id:'r1',sheet_row_id:'r1',order_id:'o1',property_id:'sweetfun',platform:'direct',room_number:'101',room_rate:3000,check_in:'2026-09-01',check_out:'2026-09-02',payment_status:'paid',reservation_status:'confirmed',external_order_no:'ota1'};
 const entry={id:'e1',property_id:'sweetfun',kind:'income',category:'lodging',amount_cents:100000,date:'2026-09-01',method:'bank_transfer',status:'active',actor:'a',source:'calendar',order_key:ledgerKey('sweetfun','o1')};
 const project=(rows=[row],entries=[])=>summarizeOrders('sweetfun',rows,entries,emptyRegistry()).orders;
 test('legacy paid never creates cash or confirms totals',()=>{const r=project()[0];assert.equal(r.recorded_received_cents,0);assert.equal(r.receipt,'unknown');assert.equal(r.customer_payment,'unknown');assert.equal(r.outstanding_cents,null);});
+test('historical label requires the same exact Sheet source version',()=>{
+ const original=project()[0],settlement={status:'settled_before_cutover_cash_details_unknown',
+  collection_hold:true,historical_cash_detail_missing:true,review_required:false};
+ const authoritative={id:original.id,source_version:original.source_version,
+  total:original.source_amount_cents,platform:original.platform,
+  check_in:original.check_in,check_out:original.check_out,rooms:original.rooms,
+  legacy_settlement:settlement};
+ const [matching]=attachHistoricalSummaryReadback([original],[authoritative]);
+ assert.equal(matching.legacy_settlement.review_required,false);
+ const changed=project([{...row,payment_status:'unpaid'}])[0];
+ assert.equal(changed.source_amount_cents,original.source_amount_cents);
+ const [review]=attachHistoricalSummaryReadback([changed],[authoritative]);
+ assert.equal(review.legacy_settlement.review_required,true);
+ assert.ok(review.issues.includes('legacy_settlement_review_required'));
+});
 test('deposit counted once across nights; amount basis stays unknown',()=>{const r=project([row,{...row,id:'r2',sheet_row_id:'r2',check_in:'2026-09-02'}],[entry,entry])[0];assert.equal(r.recorded_received_cents,100000);assert.equal(r.records.length,1);assert.equal(r.customer_payment,'recorded_unverified');assert.equal(r.receivable_total_cents,null);});
 test('Agoda claim independent of guest collection and bank receipt',()=>{const r=project([{...row,platform:'agoda'}],[{...entry,method:'ota'}])[0];assert.equal(r.claim,'legacy_claimed');assert.equal(r.recorded_received_cents,0);assert.equal(r.ota_collected_cents,100000);});
 test('payout allocation excludes other property, void and service',()=>{const r=project([row],[{...entry,order_key:undefined,allocations:[{order_id:'o1',amount_cents:40000},{order_id:'o2',amount_cents:60000}]},{...entry,id:'void',status:'void'},{...entry,id:'other',property_id:'offland'},{...entry,id:'service',category:'breakfast'}])[0];assert.equal(r.recorded_received_cents,40000);});

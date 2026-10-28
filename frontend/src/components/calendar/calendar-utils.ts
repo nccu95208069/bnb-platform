@@ -54,7 +54,16 @@ export const PAYMENT_DOT_STYLES: Record<PaymentStatus, string> = {
 
 export function paymentStateForReview(booking: CalendarBooking): PaymentStatus | undefined {
   if (booking.source_conflict) return undefined;
+  if (booking.legacy_settlement_status) return undefined;
   return booking.payment_review_status ?? (booking.price_hidden ? undefined : booking.payment_status);
+}
+
+export function paymentDisplayLabel(booking: CalendarBooking): string {
+  if(booking.legacy_settlement_status==='review_required')
+    return '歷史付款狀態需重新核對';
+  if(booking.legacy_settlement_status==='settled_before_cutover_cash_details_unknown')
+    return '切換前已結清（收款明細未核實）';
+  return PAYMENT_LABELS[booking.payment_status];
 }
 
 export const PROPERTY_DOT_STYLES: Record<CalendarProperty["color"], string> = {
@@ -341,6 +350,8 @@ export function coalesceContiguousBookings(bookings: CalendarBooking[]) {
         payment_status: current.payment_status === booking.payment_status ? current.payment_status : "unknown",
         payment_review_status: current.payment_review_status === booking.payment_review_status
           ? current.payment_review_status : undefined,
+        legacy_settlement_status: current.legacy_settlement_status === booking.legacy_settlement_status
+          ? current.legacy_settlement_status : "review_required",
         guest_name_sources: [...new Set([...(current.guest_name_sources ?? (current.guest_name_kind === "real" ? [current.guest_name] : [])), ...(booking.guest_name_sources ?? (booking.guest_name_kind === "real" ? [booking.guest_name] : []))])],
         guest_remarks: mergeGuestRemarks([...(current.guest_remarks ?? (current.guest_name_kind === "real" ? parseGuestRemarks(current.guest_name) : [])), ...(booking.guest_remarks ?? (booking.guest_name_kind === "real" ? parseGuestRemarks(booking.guest_name) : []))]),
         guest_name: current.guest_name_kind === "real" && booking.guest_name_kind === "real" && comparableGuestName(current.guest_name) !== comparableGuestName(booking.guest_name) ? "連住姓名待核對" : current.guest_name,

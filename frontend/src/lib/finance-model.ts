@@ -30,7 +30,10 @@ export function summarize(entries:FinanceEntry[],month:string) {
 }
 
 export const PLATFORMS:Record<string,string>={direct:'LINE／電話／直訂',agoda:'Agoda',ctrip:'Trip.com',owljourney:'奧丁丁',booking:'Booking.com',airbnb:'Airbnb',other:'其他'};
-export type FinanceOrder={amount_reconciliation?:import('./source-amount-reconciliation').SourceAmountBreakdown & {bookingId:string;version:number};source?:'iron_gate';booking_id?:string;ssot_booking_version?:number;ssot_source_snapshot_hash?:string;receivable_review_required?:boolean;status?:'held'|'confirmed'|'cancelled';id:string;calendar_id:string;platform:string;rooms:string[];check_in:string;check_out:string;total:number;received:number;receivable:number;eligible_date:string|null;source_paid:boolean;credit:number;source_version:string};
+export type LegacySettlementStatus='settled_before_cutover_cash_details_unknown'|'unpaid_at_cutover';
+export type LegacySettlementDisplay={status:LegacySettlementStatus;collection_hold:boolean;
+ historical_cash_detail_missing:boolean;review_required:boolean};
+export type FinanceOrder={amount_reconciliation?:import('./source-amount-reconciliation').SourceAmountBreakdown & {bookingId:string;version:number};source?:'iron_gate';booking_id?:string;ssot_booking_version?:number;ssot_source_snapshot_hash?:string;receivable_review_required?:boolean;legacy_settlement?:LegacySettlementDisplay;historical_cash_detail_missing?:boolean;collection_hold?:boolean;status?:'held'|'confirmed'|'cancelled';id:string;calendar_id:string;platform:string;rooms:string[];check_in:string;check_out:string;total:number;received:number;receivable:number;eligible_date:string|null;source_paid:boolean;credit:number;source_version:string};
 export type RecurringExpense={id:string;year:number;category:string;category_name?:string;amount_cents:number;description:string;method:FinanceEntry['method'];start:string;end:string|null;day:number;created_at:string;actor:string;stopped_at?:string;stopped_by?:string;ssot_source_record_id?:string;ssot_version?:number};
 export type DueExpense={id:string;rule_id:string;year:number;date:string;category:string;category_name?:string;amount_cents:number;description:string;method:FinanceEntry['method']};
 export type PayoutRule={platform:string;mode:'manual'|'monthly';day:number;offset:number;updated_at?:string;ssot_version?:number};
@@ -55,7 +58,7 @@ export function revenueSummary(orders:FinanceOrder[],entries:FinanceEntry[],mont
  const received=selected.reduce((s,o)=>s+Math.min(o.received,o.total),0)+extra;
  const receivable=selected.reduce((s,o)=>s+o.receivable,0);
  return {received,receivable,total:received+receivable,
-   review_count:selected.filter(o=>o.receivable_review_required).length};
+   review_count:selected.filter(o=>o.receivable_review_required||o.historical_cash_detail_missing).length};
 }
 
 export function expenseCategories(records:{category:string;category_name?:string}[]):Record<string,string>{return {...EXPENSE_CATEGORIES,...Object.fromEntries(records.filter(e=>e.category.startsWith('custom_')&&e.category_name).map(e=>[e.category,e.category_name!]))};}

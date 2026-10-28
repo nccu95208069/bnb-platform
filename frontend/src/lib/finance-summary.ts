@@ -1,7 +1,7 @@
 import {createHash} from 'node:crypto';
 import type {CalendarBooking} from '../components/calendar/calendar-types';
-import type {FinanceEntry} from './finance-model';
-import {ledgerKey} from './os-payments.ts';
+import type {FinanceEntry,FinanceOrder,LegacySettlementDisplay} from './finance-model';
+import {checkRows,ledgerKey} from './os-payments.ts';
 
 export type SettlementStatus = 'unknown' | 'recorded_unverified' | 'partial' | 'complete' | 'unpaid';
 export type OrderIdentity = {id:string; aliases:string[]; row_ids:string[]; first_seen:string; last_seen:string};
@@ -14,7 +14,8 @@ export type FinanceSummaryRow = {
  claim:'unknown'|'not_applicable'|'legacy_claimed'|'legacy_unclaimed';
  receipt:SettlementStatus; recorded_received_cents:number; ota_collected_cents:number;
  receivable_total_cents:number|null; outstanding_cents:number|null;
- legacy_status:string; issues:string[]; records:{id:string; amount_cents:number; method:string; at:string; actor:string; source:string}[];
+ legacy_status:string; source_version:string|null; issues:string[]; records:{id:string; amount_cents:number; method:string; at:string; actor:string; source:string}[];
+ legacy_settlement?:LegacySettlementDisplay;
 };
 const unique=(items:string[])=>[...new Set(items.filter(Boolean))].sort();
 export const summaryVersion=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -57,13 +58,36 @@ export function summarizeOrders(property:string,rows:CalendarBooking[],entries:F
    customer_payment:platform==='direct'&&received>0||ota>0?'recorded_unverified':'unknown',
    claim:platform==='direct'?'not_applicable':property==='sweetfun'&&platform==='agoda'&&statuses.length===1?(statuses[0]==='paid'?'legacy_claimed':statuses[0]==='unpaid'?'legacy_unclaimed':'unknown'):'unknown',
    receipt:received>0?'recorded_unverified':'unknown',recorded_received_cents:received,ota_collected_cents:ota,
-   receivable_total_cents:null,outstanding_cents:null,legacy_status:statuses.join('/'),issues:[...issues,'amount_basis_unconfirmed'],records});
+   receivable_total_cents:null,outstanding_cents:null,legacy_status:statuses.join('/'),
+   source_version:issues.includes('source_conflict')?null:
+     checkRows(bookings,property,id).source_version,
+   issues:[...issues,'amount_basis_unconfirmed'],records});
  }
  // Duplicate aliases within the same incoming batch cannot auto-merge separate ledgers.
  for(const row of result)if(result.some(other=>other.id!==row.id&&(other.aliases.some(a=>row.aliases.includes(a))||other.row_ids.some(r=>row.row_ids.includes(r))))&&!row.issues.includes('identity_conflict'))row.issues.push('identity_conflict');
  const active=new Set(result.map(r=>r.id));
  const retained=registry.orders.filter(o=>!active.has(o.id));
  return {orders:result.sort((a,b)=>a.check_in.localeCompare(b.check_in)||a.id.localeCompare(b.id)),retained};
+}
+/** The second live Sheet read may differ from the finance snapshot. Keep the
+ * reviewed state visible, but block collection unless its exact row version agrees. */
+export function attachHistoricalSummaryReadback(rows:FinanceSummaryRow[],
+  orders:FinanceOrder[]):FinanceSummaryRow[]{
+ const byId=new Map(orders.map(order=>[order.id,order]));
+ return rows.map(row=>{
+  const order=byId.get(row.id);
+  if(!order?.legacy_settlement)return row;
+  const same=!!row.source_version&&row.source_version===order.source_version&&
+    row.source_amount_cents===order.total&&row.platform===order.platform&&
+    row.check_in===order.check_in&&row.check_out===order.check_out&&
+    row.rooms.length===order.rooms.length&&
+    row.rooms.every(room=>order.rooms.includes(room));
+  const review=order.legacy_settlement.review_required||!same;
+  return {...row,legacy_settlement:{...order.legacy_settlement,
+    review_required:review},issues:review&&
+    !row.issues.includes('legacy_settlement_review_required')?
+    [...row.issues,'legacy_settlement_review_required']:row.issues};
+ });
 }
 export function captureIdentities(registry:SummaryRegistry,rows:FinanceSummaryRow[],expected:number,actor:string,sourceVersion:string,at:string):SummaryRegistry{
  if(registry.version!==expected)throw new Error('VERSION_CONFLICT');

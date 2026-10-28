@@ -76,6 +76,8 @@ export type CalendarBooking = {
   source_order_total_cents?: number;
   source_amount_reconciliation?: import("../../lib/source-amount-reconciliation").SourceAmountBreakdown;
   payment_status: PaymentStatus;
+  /** Separate from a cash-backed paid badge; supplied only by the SSOT readback. */
+  legacy_settlement_status?: "settled_before_cutover_cash_details_unknown" | "review_required";
   /** Verified server projection for payment review while room prices remain hidden. */
   payment_review_status?: "paid" | "deposit";
   reservation_status: ReservationStatus;

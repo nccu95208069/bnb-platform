@@ -2,10 +2,12 @@ import {readBookingSnapshot} from './booking-sources/snapshot';
 import type {SheetSourceDefinition} from './booking-sources/config';
 import {ironGateFinanceConfig,readDirectFinance,
   applyFinanceAmountCorrections} from './booking-sources/iron-gate-finance.server.ts';
-import {ironGateSsotFinanceConfig,readSsotLedger,readSsotCatalog,
+import {ironGateSsotFinanceConfig,readSsotLedgerSnapshot,readSsotCatalog,
+  readSsotHistoricalSettlements,
   type SsotEvent} from './booking-sources/iron-gate-ssot-finance.server.ts';
 import type {Principal} from './workspace-auth/types';
 import {projectOrders,projectionVersion} from './finance-projection';
+import {applyHistoricalSettlements} from './finance-ssot-settlement';
 import {recurrenceDue,taipeiDate,type FinanceEntry,type FinanceOrder,
   type PaymentAccount,type PayoutRule,type RecurringExpense,
   EXPENSE_CATEGORIES,METHODS,roomCollectionForOrder} from './finance-model';
@@ -245,9 +247,11 @@ export async function ssotFinanceContext(source:SheetSourceDefinition,year:numbe
     process.env.IRON_GATE_SWEETFUN_FINANCE_ENABLED!=='true')
     throw Error('FINANCE_SSOT_UNAVAILABLE');
   const config=ironGateSsotFinanceConfig();
-  const [events,catalog,snapshot,direct]=await Promise.all([
-    readSsotLedger(config,actor),readSsotCatalog(config,actor),
+  const [ledger,catalog,snapshot,direct]=await Promise.all([
+    readSsotLedgerSnapshot(config,actor),readSsotCatalog(config,actor),
     readBookingSnapshot(source),readDirectFinance(actor,ironGateFinanceConfig(),[])]);
+  const events=ledger.events;
+  const settlements=await readSsotHistoricalSettlements(config,actor,ledger.asOfChangeSeq);
   if(!snapshot)throw Error('FINANCE_SSOT_UNAVAILABLE');
   const lookup=readCatalog(catalog,source.property.id);
   const {orders,excluded}=projectOrders(snapshot.bookings.filter(b=>
@@ -268,12 +272,13 @@ export async function ssotFinanceContext(source:SheetSourceDefinition,year:numbe
     return {...order,received,receivable:Math.max(0,order.total-received),
       credit:Math.max(0,received-order.total)};
   }));
-  const financeOrders=reviewUncertainReceivables(projected.orders,events);
+  const financeOrders=applyHistoricalSettlements(
+    reviewUncertainReceivables(projected.orders,events),settlements,source.property.id);
   const active=entries.filter(e=>e.status==='active');
   const projection=projectionVersion([snapshot.bookings.map(b=>[
     b.id,b.order_id,b.room_rate,b.check_in,b.check_out,b.platform,b.source_conflict,
     b.reservation_status]),events.map(e=>[e.id,e.document_id,e.revision_version,
-    e.current_version,e.document_status]),catalog,direct.revision]);
+    e.current_version,e.document_status]),catalog,direct.revision,settlements]);
   return {state:{version:0,entries,operations:[]},raw:null,
     entries,orders:financeOrders,recurring:lookup.recurring,
     payment_accounts:lookup.accounts,payout_rules:lookup.payout,

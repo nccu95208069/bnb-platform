@@ -70,6 +70,7 @@ import {
   PLATFORM_STYLES,
   formatDate,
   formatMoney,
+  paymentDisplayLabel,
   stayNightCount,
 } from "./calendar-utils";
 
@@ -93,13 +94,6 @@ export type UpdateBookingInput = {
   babySupplies: BabySupplyKey[];
   serviceNote: string;
 };
-
-const PAYMENT_LABELS = {
-  unknown: "付款待確認",
-  paid: "已付清",
-  deposit: "已付訂金",
-  unpaid: "未付款",
-} as const;
 
 function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   const uiText = useT();
@@ -929,7 +923,7 @@ const uiLocale = useIntlLocale();
               >
                 {booking.reservation_status === "cancelled"
                   ? uiText("已取消")
-                  : uiText("{0} · {1}{2}", [PLATFORM_LABELS[booking.platform] ?? booking.platform,PAYMENT_LABELS[booking.payment_status],stayNightCount(booking) > 1 ? ` · 連住 ${stayNightCount(booking)} 晚` : ""])}
+                  : uiText("{0} · {1}{2}", [PLATFORM_LABELS[booking.platform] ?? booking.platform,paymentDisplayLabel(booking),stayNightCount(booking) > 1 ? ` · 連住 ${stayNightCount(booking)} 晚` : ""])}
               </div>
 
               {booking.iron_gate_channel_sync && (
