@@ -6,7 +6,7 @@ import type {FinanceEntry,FinanceOrder} from './finance-model';
 import {EXPENSE_CATEGORIES,INCOME_CATEGORIES,taipeiDate} from './finance-model';
 import type {ssotFinanceContext} from './finance-ssot-context';
 import {ironGateSsotFinanceConfig,submitSsotFinanceCommand,
-  submitSsotPlan,readSsotCatalog} from './booking-sources/iron-gate-ssot-finance.server.ts';
+  submitSsotPlan,readSsotCatalog,readSsotReceipt} from './booking-sources/iron-gate-ssot-finance.server.ts';
 
 type Report=Awaited<ReturnType<typeof ssotFinanceContext>>;
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -17,6 +17,32 @@ const hashUuid=(value:string)=>{
   return `${hex.slice(0,8)}-${hex.slice(8,12)}-4${hex.slice(13,16)}-8${hex.slice(17,20)}-${hex.slice(20,32)}`;
 };
 const sourceId=(requestId:string)=>`os-${requestId}`;
+
+const canonical=(value:unknown):string=>Array.isArray(value)?
+  `[${value.map(canonical).join(',')}]`:object(value)?
+    `{${Object.keys(value).sort().map(key=>`${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`:
+    (JSON.stringify(value)??'null');
+
+export function osFinanceOriginHash(input:Record<string,unknown>,actorId:string,
+  property:string):string{
+  return createHash('sha256').update(canonical({actorId,property,input})).digest('hex');
+}
+
+/** An accepted receipt takes priority over a now-stale OS projection. */
+export async function resumeSsotFinance(input:Record<string,unknown>,actor:Principal,
+  property:string,read:typeof readSsotReceipt=readSsotReceipt,
+  config:ReturnType<typeof ironGateSsotFinanceConfig>=ironGateSsotFinanceConfig()){
+  const key=input.request_id;
+  if(typeof key!=='string'||!UUID.test(key))throw Error('INVALID_INPUT');
+  const originHash=osFinanceOriginHash(input,actor.id,property);
+  const receipt=await read(config,actor,key);
+  if(!receipt)return {originHash,result:null};
+  if(receipt.origin_request_hash!==originHash)throw Error('IDEMPOTENCY_CONFLICT');
+  const entryId=receipt.document_id??receipt.account_code??receipt.rule_id??
+    receipt.platform;
+  if(typeof entryId!=='string'||!entryId)throw Error('FINANCE_SSOT_READBACK_MISMATCH');
+  return {originHash,result:{verified:true,entry_id:entryId,version:0,receipt}};
+}
 
 function expenseAttributions(entry:FinanceEntry){
   return (entry.expense_spread??[{month:entry.date.slice(0,7),
@@ -72,7 +98,7 @@ function expenseAdvance(entry:FinanceEntry){
 }
 
 function moneyCommand(entry:FinanceEntry,input:Record<string,unknown>,
-  report:Report,requestId:string,action:'create'|'amend'){
+  report:Report,requestId:string,originHash:string,action:'create'|'amend'){
   const expense=entry.kind==='expense';
   if(entry.method==='ota')throw Error('SOURCE_MAPPING_REVIEW_REQUIRED');
   const eventKind=expense?'expense_paid':'property_receipt';
@@ -84,6 +110,7 @@ function moneyCommand(entry:FinanceEntry,input:Record<string,unknown>,
   const version=action==='create'?1:(entry.ssot_document_version??0)+1;
   if(!sourceRecord||version<1)throw Error('VERSION_CONFLICT');
   const command:Record<string,unknown>={request_key:requestId,
+    origin_request_hash:originHash,
     source_record_id:sourceRecord,source_version:String(version),action,
     ...(action==='amend'?{expected_version:version-1}:{}),
     event_kind:eventKind,amount_cents:entry.amount_cents,currency:'TWD',
@@ -113,7 +140,8 @@ function dueDate(start:string,day:number){
 }
 
 export async function applySsotFinance(input:Record<string,unknown>,report:Report,
-  actor:Principal,property:string,year:number,members:Member[]=[]){
+  actor:Principal,property:string,year:number,members:Member[]=[],
+  originHash=osFinanceOriginHash(input,actor.id,property)){
   const requestId=String(input.request_id??'');
   if(!UUID.test(requestId)||input.property_id!==property||input.year!==year||
     input.projection_version!==report.projection_version||
@@ -137,7 +165,7 @@ export async function applySsotFinance(input:Record<string,unknown>,report:Repor
     if(!entry)throw Error('INVALID_INPUT');
     if(action==='void'){
       const reason=String(input.reason??'').trim();
-      const command={request_key:requestId,
+      const command={request_key:requestId,origin_request_hash:originHash,
         source_record_id:old!.ssot_source_record_id!,
         source_version:String(old!.ssot_document_version!+1),
         expected_version:old!.ssot_document_version,action:'void',
@@ -153,6 +181,7 @@ export async function applySsotFinance(input:Record<string,unknown>,report:Repor
     const command=moneyCommand({...entry,
       ssot_source_record_id:old?.ssot_source_record_id,
       ssot_document_version:old?.ssot_document_version},input,report,requestId,
+      originHash,
       action==='create'?'create':'amend');
     const receipt=await submitSsotFinanceCommand(config,actor,command,requestId);
     return {verified:true,entry_id:receipt.document_id,version:0,receipt};
@@ -164,7 +193,8 @@ export async function applySsotFinance(input:Record<string,unknown>,report:Repor
     const kind=input.method==='credit_card'?'card':'bank';
     const name=String(input.name??'').trim()||
       `${kind==='card'?'信用卡':'銀行帳戶'} · ${String(input.last_digits)}`;
-    const command={request_key:requestId,code:sourceId(requestId),
+    const command={request_key:requestId,origin_request_hash:originHash,
+      code:sourceId(requestId),
       display_name:name,kind,
       last_digits:String(input.last_digits)};
     const receipt=await submitSsotPlan(config,actor,'accounts',command,requestId);
@@ -182,7 +212,7 @@ export async function applySsotFinance(input:Record<string,unknown>,report:Repor
     if(stop&&(!rule.ssot_source_record_id||!rule.ssot_version))
       throw Error('SOURCE_MAPPING_REVIEW_REQUIRED');
     const end=stop?(taipeiDate()>rule.start?taipeiDate():rule.start):rule.end;
-    const command={request_key:requestId,
+    const command={request_key:requestId,origin_request_hash:originHash,
       source_record_id:stop?rule.ssot_source_record_id:sourceId(requestId),
       version:stop?rule.ssot_version!+1:1,cadence:'monthly',
       start_on:rule.start,end_on:end,next_due_on:stop?null:dueDate(rule.start,rule.day),
@@ -196,7 +226,8 @@ export async function applySsotFinance(input:Record<string,unknown>,report:Repor
     const rule=validated.state.payout_rules?.find(r=>r.platform===input.platform);
     if(!rule)throw Error('INVALID_INPUT');
     const prior=report.payout_rules.find(r=>r.platform===rule.platform);
-    const command={request_key:requestId,platform:rule.platform,
+    const command={request_key:requestId,origin_request_hash:originHash,
+      platform:rule.platform,
       version:(prior?.ssot_version??0)+1,
       mode:rule.mode==='monthly'?'fixed_day':'manual',
       ...(rule.mode==='monthly'?{day:rule.day,offset_months:rule.offset}:{}),

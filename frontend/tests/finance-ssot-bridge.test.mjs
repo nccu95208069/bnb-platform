@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {previewSsotFinanceCommand,submitSsotFinanceCommand,submitSsotPlan} from
+import {previewSsotFinanceCommand,readSsotReceipt,
+  submitSsotFinanceCommand,submitSsotPlan} from
   '../src/lib/booking-sources/iron-gate-ssot-finance.server.ts';
+import {osFinanceOriginHash,resumeSsotFinance} from
+  '../src/lib/finance-ssot-operations.ts';
 
 const propertyId='10000000-0000-4000-8000-000000000001';
 const bookingId='10000000-0000-4000-8000-000000000002';
@@ -92,4 +95,30 @@ test('plan commands require a matching accepted readback',async()=>{
     reply({...receipt,category_code:'different'});
   await assert.rejects(submitSsotPlan(config,actor,'categories',plan,key,send),
     /FINANCE_SSOT_READBACK_MISMATCH/);
+});
+
+test('OS retry resolves the original accepted request before consulting a newer projection',async()=>{
+  const input={request_id:key,projection_version:'old-projection',
+    property_id:'sweetfun',year:2026,action:'create',kind:'income',amount:10,
+    allocations:[{order_id:'SF-SYNTHETIC',amount_cents:1000}]};
+  const hash=osFinanceOriginHash(input,actor.id,'sweetfun');
+  let reads=0;
+  const read=async()=>{reads++;return {...receipt,origin_request_hash:hash};};
+  const resumed=await resumeSsotFinance(input,actor,'sweetfun',read,config);
+  assert.equal(resumed.result.verified,true);
+  assert.equal(resumed.result.entry_id,receipt.document_id);
+  assert.equal(reads,1);
+  assert.equal(osFinanceOriginHash({...input,action:'create'},actor.id,'sweetfun'),hash);
+  await assert.rejects(resumeSsotFinance({...input,amount:11},actor,
+    'sweetfun',read,config),/IDEMPOTENCY_CONFLICT/);
+  assert.equal((await resumeSsotFinance(input,actor,'sweetfun',
+    async()=>null,config)).result,null);
+});
+
+test('OS receipt lookup distinguishes a missing request from an unavailable readback',async()=>{
+  const missing=async()=>reply({error:{code:'REQUEST_NOT_FOUND'}},404);
+  assert.equal(await readSsotReceipt(config,actor,key,missing),null);
+  const down=async()=>reply({error:{code:'UNAVAILABLE'}},503);
+  await assert.rejects(readSsotReceipt(config,actor,key,down),
+    /UNAVAILABLE/);
 });

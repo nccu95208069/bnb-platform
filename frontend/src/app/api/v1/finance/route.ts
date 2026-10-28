@@ -15,7 +15,7 @@ import {financeContext} from '@/lib/finance-context';
 import {ssotFinanceContext} from '@/lib/finance-ssot-context';
 import {ironGateSsotFinanceConfig,readSsotActivity} from '@/lib/booking-sources/iron-gate-ssot-finance.server';
 import {mapSsotActivity} from '@/lib/finance-ssot-audit';
-import {applySsotFinance} from '@/lib/finance-ssot-operations';
+import {applySsotFinance,resumeSsotFinance} from '@/lib/finance-ssot-operations';
 import {validateFinanceLinks} from '@/lib/finance-projection';
 import {RedisWorkspaceStore,redisCommand} from '@/lib/workspace-auth/store';
 import {advanceAccounts,canUseFinance,applyFinance,writeFinance} from '@/lib/finance-store';
@@ -26,11 +26,14 @@ const ssotEnabled=(property:string)=>property==='sweetfun'&&
 export async function GET(request:NextRequest){try{const ctx=await scope(request,request.nextUrl.searchParams.get('property'),request.nextUrl.searchParams.get('year'));const source=activeSources().find(s=>s.property.id===ctx.property)!;if(request.nextUrl.searchParams.get('audit')==='1'&&ssotEnabled(ctx.property)){const page=Number(request.nextUrl.searchParams.get('page')??1),action=request.nextUrl.searchParams.get('action')??'',q=(request.nextUrl.searchParams.get('q')??'').trim().toLowerCase();if(!Number.isInteger(page)||page<1||page>10000||q.length>200||(action&&!Object.hasOwn(AUDIT_ACTIONS,action)))throw new Error('INVALID_INPUT');const result=await readSsotActivity(ironGateSsotFinanceConfig(),ctx.actor,page,action,q);const events=mapSsotActivity(result.activities,ctx.property);return NextResponse.json({properties:ctx.properties,property_id:ctx.property,total:result.total,page,page_size:30,events},{headers:privateHeaders});}const report=ssotEnabled(ctx.property)?await ssotFinanceContext(source,ctx.year,ctx.actor):await financeContext(source,ctx.year,request.nextUrl.searchParams.get('audit')==='1',ctx.actor);if(request.nextUrl.searchParams.get('audit')==='1'){const page=Number(request.nextUrl.searchParams.get('page')??1),action=request.nextUrl.searchParams.get('action')??'',q=(request.nextUrl.searchParams.get('q')??'').trim().toLowerCase();if(!Number.isInteger(page)||page<1||q.length>200||(action&&!Object.hasOwn(AUDIT_ACTIONS,action)))throw new Error('INVALID_INPUT');const events=report.audit.filter(e=>(!action||e.action===action)&&(!q||JSON.stringify(e).toLowerCase().includes(q))).sort((a,b)=>b.at.localeCompare(a.at)||b.id.localeCompare(a.id));return NextResponse.json({properties:ctx.properties,property_id:ctx.property,total:events.length,page,page_size:30,events:events.slice((page-1)*30,page*30)},{headers:privateHeaders});}const members=(await new RedisWorkspaceStore().read()).value.members;return NextResponse.json({payment_accounts:report.payment_accounts,expense_categories:'expense_categories' in report?report.expense_categories:expenseCategories([...report.entries,...report.recurring]),advance_accounts:advanceAccounts(members,ctx.property),properties:ctx.properties,property_id:ctx.property,year:ctx.year,version:report.state.version,versions:report.versions,entries:report.entries.sort((a,b)=>b.date.localeCompare(a.date)||b.created_at.localeCompare(a.created_at)),orders:report.orders,recurring:report.recurring,due:report.due,payout_rules:report.payout_rules,excluded_orders:report.excluded_orders,projection_version:report.projection_version,iron_gate_direct_excluded:report.iron_gate_direct_excluded,iron_gate_revision:report.iron_gate_revision,updated_at:new Date().toISOString()},{headers:privateHeaders});}catch(e){return failure(e);}}
 export async function POST(request:NextRequest){let lock:{key:string;token:string}|null=null;try{sameOrigin(request);const input=await inputBody(request);const ctx=await scope(request,input.property_id,input.year);await new RedisWorkspaceStore().limit(`finance:${ctx.actor.id}`,90,3600);
  if(ssotEnabled(ctx.property)){
+  const resumed=await resumeSsotFinance(input,ctx.actor,ctx.property);
+  if(resumed.result)return NextResponse.json(resumed.result,{headers:privateHeaders});
   const source=activeSources().find(s=>s.property.id===ctx.property)!;
   const report=await ssotFinanceContext(source,ctx.year,ctx.actor);
   await assertNotCardManaged(ctx.property,[...(typeof input.order_id==='string'?[input.order_id]:[]),...(Array.isArray(input.allocations)?input.allocations.map((a:{order_id?:unknown})=>String(a?.order_id??'')):[])]);
   const members=(await new RedisWorkspaceStore().read()).value.members;
-  const result=await applySsotFinance(input,report,ctx.actor,ctx.property,ctx.year,members);
+  const result=await applySsotFinance(input,report,ctx.actor,ctx.property,ctx.year,
+    members,resumed.originHash);
   return NextResponse.json(result,{headers:privateHeaders});
  }
  const key=`sweetfun-os:payments:v1:${ctx.property}:lock`,token=randomUUID();if(await redisCommand(['SET',key,token,'NX','EX',60])!=='OK')throw new Error('VERSION_CONFLICT');lock={key,token};

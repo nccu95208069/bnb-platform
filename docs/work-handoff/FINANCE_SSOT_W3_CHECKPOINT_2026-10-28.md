@@ -25,4 +25,8 @@ This branch is stacked on W2 PR #107. The OS cutover flag remains off in every e
 - The candidate has not yet passed an end-to-end test against a deployed Iron Gate service or a real direct edit in Google Sheets.
 - The frontend production build is currently blocked in this isolated workspace by the environment's inability to resolve `fonts.googleapis.com`; TypeScript and changed-file ESLint pass.
 
+## Same-request recovery review
+
+The OS adapter now queries the scoped Iron Gate request receipt before loading a potentially newer finance projection. Money and plan commands carry a server-generated SHA-256 fingerprint of the original OS request. A retry returns an already accepted result only when that fingerprint matches; a changed payload with the same request key is rejected. This closes the gap where a committed command followed by a failed HTTP readback could be stranded by the next request's stale `projection_version`. The Iron Gate API must support `origin_request_hash` and echo it in accepted money and plan receipts before this candidate can be enabled. Focused bridge/projection tests (9), frontend TypeScript, and changed-file ESLint pass. No production flag or writer was changed.
+
 Rollback while the flag remains off: no action needed. If tested with the flag on in an isolated environment, turn `OS_SWEETFUN_FINANCE_SSOT_ENABLED` off and retain Iron Gate receipts for comparison; do not replay accepted commands into Redis.

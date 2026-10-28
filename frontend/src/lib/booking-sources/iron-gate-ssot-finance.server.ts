@@ -128,6 +128,19 @@ async function recover(config:ManualConfig,actor:Principal,key:string,send:typeo
   catch{throw Error('WRITE_UNCONFIRMED');}
 }
 
+/** Check a prior OS attempt before rebuilding a command from a newer projection. */
+export async function readSsotReceipt(config:ManualConfig,actor:Principal,key:string,
+  send:typeof fetch=fetch):Promise<Record<string,unknown>|null>{
+  if(!UUID.test(key))throw Error('INVALID_INPUT');
+  try{
+    return accepted(await request(config,actor,'GET',
+      `receipts/${encodeURIComponent(key)}`,null,null,['finance:read'],send),key);
+  }catch(error){
+    if(error instanceof Error&&error.message==='REQUEST_NOT_FOUND')return null;
+    throw error;
+  }
+}
+
 /** A repeated request first reaches the authoritative idempotency check. */
 export async function submitSsotFinanceCommand(config:ManualConfig,actor:Principal,
   command:Record<string,unknown>,key:string,send:typeof fetch=fetch,
