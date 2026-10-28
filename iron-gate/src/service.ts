@@ -481,6 +481,8 @@ function publicBooking(booking: Booking, principal: Principal,
     result.paymentReview = calendarPaymentStatus(booking);
   if (principal.origin === "os" && principal.fields.includes("money") && booking.cardChargeResults?.length)
     result.cardChargeResult = structuredClone(booking.cardChargeResults.at(-1));
+  if (principal.origin === "os" && principal.fields.includes("money") && hasCardReceipt(booking))
+    result.cardManaged = true;
   if ((principal.origin === "os" || principal.origin === "finance") &&
     principal.fields.includes("money")) {
     const amount = reconciledAmount(booking);
@@ -1614,6 +1616,10 @@ export class IronGateService {
       const booking = state.bookings.find((item) => item.id === bookingId);
       if (!booking) reject("BOOKING_NOT_FOUND", 404);
       if (booking.version !== input.expectedBookingVersion) reject("VERSION_CONFLICT", 409);
+      if (booking.source === "external" && hasCardReceipt(booking) &&
+        (input.kind !== "refunded" || !booking.cardChargeResults?.some(result =>
+          result.status === "done" && result.paymentEventId === input.refundOfEventId)))
+        reject("SOURCE_MAPPING_REVIEW_REQUIRED", 409);
       if (state.bookings.some((item) => (item.paymentEvents ?? []).some((event) => event.id === input.eventId)))
         reject("PAYMENT_EVENT_EXISTS", 409);
       if ((booking.paymentEvents ?? []).some((event) => event.kind === input.kind &&

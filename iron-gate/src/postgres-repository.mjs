@@ -83,7 +83,7 @@ export class PostgresPropertyRepository {
         // Native finance adds the change watermark to the same response object
         // held by the legacy request receipt. Do it before serializing the draft.
         for (const intent of pendingFinance) {
-          if (await nativeFinanceCutover(client, propertyId, intent.type,
+          if (await nativeFinanceCutover(client, propertyId, intent,
             this.#financeNativeEnabled))
             await appendNativeFinance(client, propertyId, intent, result);
         }
