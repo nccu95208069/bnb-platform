@@ -168,10 +168,15 @@ SELECT credential_id,property_id,grant_json,active,expires_at
   return { projectRef: PROJECT_REF, items, expiresAt, sql };
 }
 
+async function privateRoots() {
+  const roots = await Promise.all(['/private/tmp', tmpdir()].map(root =>
+    realpath(root).catch(() => null)));
+  return [...new Set(roots.filter(Boolean))];
+}
+
 async function privateJson(path) {
   const resolved = await realpath(path);
-  const roots = await Promise.all(['/private/tmp', tmpdir()].map(root =>
-    realpath(root)));
+  const roots = await privateRoots();
   if (!roots.some(root => resolved.startsWith(`${root}/`))) fail();
   const metadata = await stat(resolved);
   if (!metadata.isFile() || (metadata.mode & 0o077) !== 0) fail();
@@ -181,8 +186,7 @@ async function privateJson(path) {
 export async function prepareOfflandGeneralFinanceGrantFiles(candidatePath,
   authorityPath, outputPath, lineAuthorityPath = null) {
   const output = resolve(outputPath);
-  const allowedParents = await Promise.all(['/private/tmp', tmpdir()].map(root =>
-    realpath(root)));
+  const allowedParents = await privateRoots();
   if (!allowedParents.includes(await realpath(dirname(output)))) fail();
   const candidate = await privateJson(candidatePath);
   const authority = await privateJson(authorityPath);
