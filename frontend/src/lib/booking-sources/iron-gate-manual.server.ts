@@ -96,11 +96,11 @@ export function ironGateManualConfig(env: NodeJS.ProcessEnv = process.env): Manu
   } catch { throw Error('MANUAL_CONFIG_UNAVAILABLE'); }
 }
 
-function member(principal: Principal, property: string): void {
-  if (!principal.id || !['owner', 'admin', 'god'].includes(principal.role) ||
+function member(principal: Principal, property: string, readOnly = false): void {
+  if (!principal.id || !readOnly && !['owner', 'admin', 'god'].includes(principal.role) ||
     !['sweetfun', 'offland'].includes(property) ||
     !(principal.allProperties || principal.propertyIds.includes(property)) ||
-    !principal.viewPrices) throw Error('MANUAL_FORBIDDEN');
+    !readOnly && !principal.viewPrices) throw Error('MANUAL_FORBIDDEN');
 }
 
 export async function callIronGate(config: ManualConfig, principal: Principal,
@@ -108,9 +108,13 @@ export async function callIronGate(config: ManualConfig, principal: Principal,
   requestKey: string | null, send: typeof fetch,
   actions: string[] = ['booking:read', 'booking:create', 'booking:amend', 'booking:cancel'],
   fields: string[] = ['guest_name', 'contact', 'notes', 'money', 'payment_status'],
-  maxResponseBytes = 512 * 1024
+  maxResponseBytes = 512 * 1024,
+  access: 'write' | 'read' = 'write'
 ): Promise<Record<string, unknown>> {
-  member(principal, config.calendar.propertyKey ?? 'sweetfun');
+  member(principal, config.calendar.propertyKey ?? 'sweetfun', access === 'read');
+  if (access === 'read' && (method !== 'GET' || actions.some(action => action !== 'booking:read')) ||
+    !principal.viewPrices && fields.some(field => field !== 'guest_name'))
+    throw Error('MANUAL_FORBIDDEN');
   const url = `${config.calendar.baseUrl}${path}`;
   const payload = body === null ? '' : JSON.stringify(body);
   if (Buffer.byteLength(payload, 'utf8') > MAX_BODY) throw Error('MANUAL_INVALID_INPUT');

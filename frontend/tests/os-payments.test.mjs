@@ -6,6 +6,9 @@ const rows=[{id:'r1',property_id:'sweetfun',order_id:'SF-test',room_id:'101',roo
 const check=checkRows(rows,'sweetfun','SF-test');
 const now='2026-09-08T00:00:00.000Z';
 const input={amount:500,payment_type:'deposit',payment_method:'cash',received_at:now,note:'',request_id:'00000000-0000-4000-8000-000000000001',settles_room:false,expected_version:0,source_version:check.source_version};
+test('retained historical rows cannot reopen the legacy receipt writer',()=>{
+ assert.throws(()=>checkRows([{...rows[0],reservation_status:'retained'}],'sweetfun','SF-test'),/SOURCE_CONFLICT/);
+});
 test('scope and role enforcement includes no-price and offland',()=>{for(const a of [{...actor,role:'viewer'},{...actor,viewPrices:false},{...actor,propertyIds:['offland']}]){assert.equal(canRecord(a,'sweetfun'),false);assert.throws(()=>prepareReceipt(input,check,a,now),/FORBIDDEN/);}});
 test('amount, method, time and explicit settlement validation',()=>{for(const patch of [{amount:0},{amount:-1},{amount:0.001},{amount:NaN},{payment_method:'invalid'},{received_at:'2026-09-09T00:00:00Z'},{payment_type:'balance'},{payment_type:'other',settles_room:true}])assert.throws(()=>prepareReceipt({...input,...patch},check,actor,now),/INVALID_INPUT/);});
 test('deposit, balance, other and source paid remain distinct',()=>{const receipt=prepareReceipt(input,check,actor,now);assert.equal(paymentStatus({...check,ledger:{version:1,receipts:[receipt]}}),'deposit');assert.equal(paymentStatus({...check,ledger:{version:1,receipts:[{...receipt,payment_type:'other'}]}}),'unknown');assert.equal(paymentStatus({...check,ledger:{version:1,receipts:[{...receipt,payment_type:'balance',settles_room:true}]}}),'paid');assert.equal(paymentStatus({...check,source_paid:true}),'paid');});

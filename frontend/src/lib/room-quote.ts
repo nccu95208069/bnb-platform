@@ -42,7 +42,7 @@ export function buildRoomQuote(query:QuoteQuery,bookings:BookingSourceSnapshot,p
       const cell=map.get(`${date}|${room}`);
       const observed=cell?.observed_at??prices.observed_at;
       const age=now.getTime()-Date.parse(observed);
-      const occupied=bookings.bookings.filter(b=>b.room_number===room&&b.reservation_status!=='cancelled'&&b.check_in<=date&&b.check_out>date);
+      const occupied=bookings.bookings.filter(b=>b.room_number===room&&b.reservation_status!=='cancelled'&&b.reservation_status!=='retained'&&b.check_in<=date&&b.check_out>date);
       let state:'unsold'|'sold'|'blocked'|'unknown'='unknown';
       if(occupied.some(b=>b.source_conflict)||occupied.length>1)state='unknown';
       else if(occupied.length)state='sold';
