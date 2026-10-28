@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {NextRequest} from 'next/server';
+import {POST as previewPost} from '../src/app/api/v1/finance/preview/route.ts';
 import {GET as historyGet} from '../src/app/api/v1/finance/legacy/route.ts';
 import {GET as financeGet,POST as financePost} from '../src/app/api/v1/finance/route.ts';
 import {GET as summaryGet} from '../src/app/api/v1/finance-summary/route.ts';
@@ -87,4 +88,9 @@ test('Offland finance, summary and calendar read the same ledger without Sheet a
  assert.equal(paused.status,503);assert.equal((await paused.json()).code,'FINANCE_WRITES_PAUSED');
  const stillReadable=await financeGet(request('/api/v1/finance?property=offland&year=2026'));assert.equal(stillReadable.status,200);assert.equal((await stillReadable.json()).writes_paused,true);
  assert.equal((await historyGet(request('/api/v1/finance/legacy?property=offland&year=2026'))).status,200);
+ process.env.OS_OFFLAND_FINANCE_WRITES_PAUSED='false';process.env.OS_OFFLAND_FINANCE_GENERAL_ONLY='true';
+ for(const input of [{action:'create',kind:'income',category:'lodging'},{action:'payout_rule'},{action:'create',kind:'expense',allocations:[{order_id:'IG-'+id(7),amount_cents:100}]}]){
+  for(const handler of [financePost,previewPost]){const blocked=await handler(request('/api/v1/finance',{property_id:'offland',year:2026,...input}));assert.equal(blocked.status,403);assert.equal((await blocked.json()).code,'FINANCE_GENERAL_ONLY');}
+ }
+ const limited=await (await financeGet(request('/api/v1/finance?property=offland&year=2026'))).json();assert.equal(limited.general_only,true);assert.ok(limited.orders.every(order=>order.ssot_command_eligible===false));
 });

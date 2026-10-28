@@ -1,4 +1,4 @@
-import {assertFinanceWritesOpen} from '@/lib/finance-history-policy';
+import {assertFinanceWritesOpen,assertFinanceCommandScope} from '@/lib/finance-history-policy';
 import {NextRequest,NextResponse} from 'next/server';
 import {principalFor} from '@/lib/workspace-auth/session';
 import {sameOrigin,inputBody,privateHeaders} from '@/lib/workspace-auth/http';
@@ -22,7 +22,7 @@ export async function POST(request:NextRequest){
     if(!canUseFinance(actor)||typeof property!=='string'||!ssotFinanceEnabled(property)||
       !(actor.allProperties||actor.propertyIds.includes(property))||!source)
       throw Error('FORBIDDEN');
-    assertFinanceWritesOpen(property);
+    assertFinanceWritesOpen(property);assertFinanceCommandScope(property,input);
     if(!Number.isInteger(year)||year<2020||year>2100)throw Error('INVALID_INPUT');
     await new RedisWorkspaceStore().limit(`finance-preview:${actor.id}`,90,3600);
     if(await readPendingOsFinance(property,actor))throw Error('FINANCE_PENDING_REQUEST');
@@ -37,6 +37,7 @@ export async function POST(request:NextRequest){
   }catch(error){
     const code=error instanceof Error?error.message:'UNAVAILABLE';
     const details:Record<string,string>={
+      FINANCE_GENERAL_ONLY:'目前只開放一般收入與支出，訂單收款及進階設定尚未開放。',
       FINANCE_WRITES_PAUSED:'此旅宿暫停新增及修改收支，原帳與待確認請求均已保留。',
       FINANCE_PENDING_REQUEST:'上一筆財務請求尚未完成或確認。請先查詢原請求。',
       VERSION_CONFLICT:'帳本已更新，請重新整理後預覽。',
@@ -45,7 +46,7 @@ export async function POST(request:NextRequest){
       ORDER_REQUIRED:'住宿收入請選擇對應訂單，才能同步扣抵應收。',
       INVALID_INPUT:'請確認日期、金額與分類。',
       FUTURE_DATE:'這裡記錄已發生收支，日期不能晚於今天。'};
-    const status=code==='UNAUTHORIZED'?401:code==='FORBIDDEN'?403:
+    const status=code==='UNAUTHORIZED'?401:['FORBIDDEN','FINANCE_GENERAL_ONLY'].includes(code)?403:
       ['FINANCE_PENDING_REQUEST','VERSION_CONFLICT','SOURCE_MAPPING_REVIEW_REQUIRED',
         'CARD_PAYMENT_REVIEW_REQUIRED','FINANCE_PREVIEW_EXPIRED'].includes(code)?409:
         ['INVALID_INPUT','ORDER_REQUIRED','FUTURE_DATE'].includes(code)?400:503;

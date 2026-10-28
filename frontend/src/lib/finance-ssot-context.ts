@@ -1,3 +1,4 @@
+import {financeGeneralOnly} from './finance-history-policy.ts';
 import {readBookingSnapshot} from './booking-sources/snapshot';
 import type {SheetSourceDefinition} from './booking-sources/config';
 import {ironGateFinanceConfig,readDirectFinance,
@@ -296,7 +297,8 @@ async function offlandSsotContext(year:number,actor:Principal,
   readSsotLedger(config,actor),readSsotCatalog(config,actor),readSsotBookings(config,actor)]);
  const lookup=readCatalog(catalog,'offland');
  const entries=entriesFromLedger(events,'offland',bookings.orders,catalog);
- const orders=reviewUncertainReceivables(projectSsotBookingBalances(bookings.orders,entries),events);
+ const orders=reviewUncertainReceivables(projectSsotBookingBalances(bookings.orders,entries),events)
+  .map(order=>financeGeneralOnly('offland')?{...order,ssot_command_eligible:false}:order);
  const active=entries.filter(entry=>entry.status==='active');
  return {state:{version:0,entries,operations:[]},raw:null,entries,orders,
   recurring:lookup.recurring,payment_accounts:lookup.accounts,payout_rules:lookup.payout,

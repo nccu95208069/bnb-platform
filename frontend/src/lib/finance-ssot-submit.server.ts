@@ -1,4 +1,4 @@
-import {assertFinanceWritesOpen} from './finance-history-policy.ts';
+import {assertFinanceWritesOpen,assertFinanceCommandScope} from './finance-history-policy.ts';
 import type {Principal} from './workspace-auth/types.ts';
 import {RedisWorkspaceStore} from './workspace-auth/store.ts';
 import {activeSources} from './booking-sources/config.ts';
@@ -19,7 +19,7 @@ const definiteRejections=new Set(['INVALID_INPUT','VERSION_CONFLICT',
 
 export async function submitSsotOsFinance(input:Record<string,unknown>,
   actor:Principal,property:string,year:number){
-  assertFinanceWritesOpen(property);
+  assertFinanceWritesOpen(property);assertFinanceCommandScope(property,input);
   // A cancelled or forged preview never creates a pending finance request.
   if(!await readPendingOsFinance(property,actor))
     verifyFinancePreview(input,actor,property,

@@ -110,10 +110,14 @@ test('Sweetfun existing native SSOT receipts keep their dedicated payment panel'
 
 
 test('New Offland ledger explicitly separates preserved history from empty new cash',async t=>{
- financeFetch(t,{...report,history_status:'not_imported',orders:[]});
+ financeFetch(t,{...report,history_status:'not_imported',general_only:true,orders:[order]});
  const ui=await mount(t,FinanceWorkspace,{view:'bookkeeping'},'finance/bookkeeping?month=2026-10&property=offland');
  assert.match(document.body.textContent,/目前只顯示新帳本的收支/);
  const link=[...document.querySelectorAll('a')].find(a=>a.textContent==='查看 OS 舊帳（唯讀）');
  assert.equal(link?.getAttribute('href'),'/finance/history?property=offland');
- assert.ok(ui.button('新增支出'));await ui.click(ui.button('收入'));assert.ok(ui.button('新增收入'));
+ assert.equal(ui.button('登記入帳'),undefined);
+ assert.ok(ui.button('新增支出'));await ui.click(ui.button('收入'));await ui.click(ui.button('新增收入'));
+ const dialog=document.querySelector('[role=dialog]');assert.ok(dialog);
+ assert.equal(dialog.querySelector('option[value=lodging]'),null);assert.ok(dialog.querySelector('option[value=other]'));
+ assert.match(dialog.textContent,/請勿改用其他分類登記房費/);
 });
