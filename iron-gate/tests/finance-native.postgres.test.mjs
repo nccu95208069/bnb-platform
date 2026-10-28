@@ -51,6 +51,8 @@ test('native payment commits its legacy booking projection and new ledger in one
       await admin.query(`INSERT INTO iron_gate.property_state
         (property_id,workspace_id,authority_epoch,inventory_version,state_json)
         VALUES ($1,$2,1,1,$3::jsonb)`, [propertyId,workspaceId,JSON.stringify(state())]);
+      await admin.query(`INSERT INTO iron_gate.finance_write_scope(property_id,mode)
+        VALUES ($1,'general_only')`,[propertyId]);
       await admin.query(`INSERT INTO iron_gate.finance_connector
         (source_instance_id,property_id,source_system,enabled,cutover_at)
         VALUES ($1,$3,'iron_gate_native',true,now()-interval '1 day'),
@@ -227,6 +229,8 @@ test('Card cutover writes its native-source alias before the native source cuts 
         (property_id,workspace_id,authority_epoch,inventory_version,state_json)
         VALUES ($1,$2,1,1,$3::jsonb)`,
       [cardFirstProperty,workspaceId,JSON.stringify(cardState)]);
+      await admin.query(`INSERT INTO iron_gate.finance_write_scope(property_id,mode)
+        VALUES ($1,'general_only')`,[cardFirstProperty]);
       await admin.query(`INSERT INTO iron_gate.finance_connector
         (source_instance_id,property_id,source_system,enabled,cutover_at)
         VALUES ($1,$3,'iron_gate_native',false,now()+interval '1 day'),

@@ -56,6 +56,8 @@ test('migration 018 accepts four pinned zero-cash dispositions under runtime RLS
       await admin.query(`INSERT INTO iron_gate.property_state
         (property_id,workspace_id,authority_epoch,inventory_version,state_json)
         VALUES ($1,$2,1,1,$3::jsonb)`,[propertyId,workspaceId,JSON.stringify(state)]);
+      await admin.query(`INSERT INTO iron_gate.finance_write_scope(property_id,mode)
+        VALUES ($1,'general_only')`,[propertyId]);
       await admin.query(`INSERT INTO iron_gate.finance_connector
         (source_instance_id,property_id,source_system,enabled)
         VALUES ($1,$2,'os_manual',true)`,[connectorId,propertyId]);
