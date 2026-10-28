@@ -31,7 +31,7 @@ export function validateFinanceLinks(input:Record<string,unknown>,orders:Finance
  if(allocations!==undefined){
   if(!Array.isArray(allocations)||allocations.length>100||input.kind!=='income'||input.category!=='lodging'||input.method==='ota')throw new Error('INVALID_INPUT');
   let sum=0;const seen=new Set<string>();
-  for(const a of allocations){if(!a||typeof a.order_id!=='string'||!Number.isSafeInteger(a.amount_cents)||a.amount_cents<=0||seen.has(a.order_id))throw new Error('INVALID_INPUT');seen.add(a.order_id);const order=orders.find(o=>o.id===a.order_id);if(order?.source==='iron_gate')throw new Error('IRON_GATE_DIRECT_PAYMENT_REQUIRED');if(!order||order.platform!==input.platform||a.amount_cents>order.receivable)throw new Error('VERSION_CONFLICT');sum+=a.amount_cents;}
+  for(const a of allocations){if(!a||typeof a.order_id!=='string'||!Number.isSafeInteger(a.amount_cents)||a.amount_cents<=0||seen.has(a.order_id))throw new Error('INVALID_INPUT');seen.add(a.order_id);const order=orders.find(o=>o.id===a.order_id);if(order?.source==='iron_gate')throw new Error('IRON_GATE_DIRECT_PAYMENT_REQUIRED');if(order?.receivable_review_required)throw new Error('SOURCE_MAPPING_REVIEW_REQUIRED');if(!order||order.platform!==input.platform||a.amount_cents>order.receivable)throw new Error('VERSION_CONFLICT');sum+=a.amount_cents;}
   if(allocations.length&&sum!==Math.round(Number(input.amount)*100))throw new Error('INVALID_INPUT');
  }
  if(input.kind==='income'&&input.category==='lodging'&&(!Array.isArray(allocations)||!allocations.length))throw new Error('ORDER_REQUIRED');

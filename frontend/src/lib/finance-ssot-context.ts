@@ -24,7 +24,7 @@ const cents=(v:unknown):number=>{
 type Catalog={accounts:unknown[];categories:unknown[];recurring:unknown[];
   payout:unknown[];links:unknown[]};
 
-function currentEvents(events:SsotEvent[]){
+export function currentEvents(events:SsotEvent[]){
   const selected=new Map<string,SsotEvent>();
   for(const event of events){
     if(!UUID.test(event.document_id)||!UUID.test(event.id)||
@@ -44,8 +44,23 @@ function currentEvents(events:SsotEvent[]){
   return [...selected.values()];
 }
 
+/** A gross room price is not an outstanding balance when the payer is unclear. */
+export function reviewUncertainReceivables(orders:FinanceOrder[],events:SsotEvent[]){
+  const mixedBookingIds=new Set(currentEvents(events)
+    .filter(event=>event.document_status==='active'&&
+      ['ota_guest_payment_observed','ota_payout'].includes(event.event_kind))
+    .flatMap(event=>event.booking_allocations.map(a=>a.booking_id)));
+  return orders.map(order=>{
+    const uncertain=order.platform!=='direct'||
+      (order.booking_id!=null&&mixedBookingIds.has(order.booking_id));
+    return uncertain?{...order,receivable:0,receivable_review_required:true}:order;
+  });
+}
+
 function orderMap(orders:FinanceOrder[],catalog:Catalog){
   const byBooking=new Map<string,string>();
+  const historical=new Map<string,string>();
+  const byOrder=new Map(orders.map(order=>[order.id,order]));
   for(const order of orders){
     const id=order.booking_id??order.amount_reconciliation?.bookingId;
     if(id){
@@ -57,14 +72,28 @@ function orderMap(orders:FinanceOrder[],catalog:Catalog){
   for(const value of catalog.links){
     const row=object(value)?value:fail();
     if(!UUID.test(String(row.booking_id))||
-      typeof row.source_order_key!=='string')fail();
-    const order=orders.find(o=>o.id===row.source_order_key);
-    if(!order)continue;
+      !UUID.test(String(row.source_instance_id))||
+      typeof row.source_order_key!=='string'||
+      !/^[A-Za-z0-9._:-]{1,256}$/.test(row.source_order_key)||
+      !Number.isSafeInteger(Number(row.verified_booking_version))||
+      Number(row.verified_booking_version)<1||
+      !/^[0-9a-f]{64}$/.test(String(row.source_snapshot_hash)))fail();
+    const sourceOrderKey=String(row.source_order_key);
+    const order=byOrder.get(sourceOrderKey);
+    if(!order){
+      // A canceled imported booking is absent from current orders, but its
+      // verified source link still identifies historical cash allocations.
+      const key=`${row.source_instance_id}:${row.booking_id}`;
+      const old=historical.get(key);
+      if(old&&old!==sourceOrderKey)fail();
+      historical.set(key,sourceOrderKey);
+      continue;
+    }
     const id=String(row.booking_id),old=byBooking.get(id);
     if(old&&old!==order.id)fail();
     byBooking.set(id,order.id);
   }
-  return byBooking;
+  return {byBooking,historical};
 }
 function attachLinks(orders:FinanceOrder[],catalog:Catalog){
   for(const value of catalog.links){
@@ -93,16 +122,19 @@ export function entriesFromLedger(events:SsotEvent[],property:string,
     if(amount<=0||!Array.isArray(event.booking_allocations)||
       !Array.isArray(event.expense_attributions))fail();
     const allocations=event.booking_allocations.map(a=>{
-      const orderId=mapping.get(a.booking_id)??fail();
+      const orderId=mapping.byBooking.get(a.booking_id)??
+        mapping.historical.get(`${event.source_instance_id}:${a.booking_id}`)??fail();
       if(cents(a.amount_cents)<=0)fail();
       return {order_id:orderId,amount_cents:cents(a.amount_cents)};
     });
     const sourceRecord=event.source_record_id;
     const recurrence=/^os-recurring:([0-9a-f-]{36}):(\d{4}-\d{2}-\d{2})$/i.exec(sourceRecord);
-    const method=(event.event_kind==='ota_payout'?'ota':
-      event.payment_method_code??'other') as FinanceEntry['method'];
+    // A platform payout is cash received by the property. Only a guest-paid
+    // observation is non-cash, and those events are omitted above.
+    const method=(event.payment_method_code??'other') as FinanceEntry['method'];
     if(!(method in METHODS))fail();
     const category=event.category_code??(kind==='expense'?'other':
+      event.event_kind==='ota_payout'?'lodging':
       event.receipt_purpose==='room'||event.receipt_purpose==='deposit'?'lodging':'other');
     const spread=event.expense_attributions.map(a=>({month:date(a.month).slice(0,7),
       amount_cents:cents(a.amount_cents)}));
@@ -228,13 +260,14 @@ export async function ssotFinanceContext(source:SheetSourceDefinition,year:numbe
     return {...order,received,receivable:Math.max(0,order.total-received),
       credit:Math.max(0,received-order.total)};
   }));
+  const financeOrders=reviewUncertainReceivables(projected.orders,events);
   const active=entries.filter(e=>e.status==='active');
   const projection=projectionVersion([snapshot.bookings.map(b=>[
     b.id,b.order_id,b.room_rate,b.check_in,b.check_out,b.platform,b.source_conflict,
     b.reservation_status]),events.map(e=>[e.id,e.document_id,e.revision_version,
     e.current_version,e.document_status]),catalog,direct.revision]);
   return {state:{version:0,entries,operations:[]},raw:null,
-    entries,orders:projected.orders,recurring:lookup.recurring,
+    entries,orders:financeOrders,recurring:lookup.recurring,
     payment_accounts:lookup.accounts,payout_rules:lookup.payout,
     expense_categories:lookup.categories,excluded_orders:Math.max(excluded,projected.excluded),
     versions:{[String(year)]:0},due:[...new Set(lookup.recurring.flatMap(rule=>
