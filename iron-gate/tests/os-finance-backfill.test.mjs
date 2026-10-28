@@ -59,7 +59,7 @@ const DOCUMENT_ID='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const EVENT_ID='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 function accepted(command,documentId=DOCUMENT_ID) {
   return {receipt_status:'accepted',request_key:command.request_key,
-    document_id:documentId,document_version:Number(command.source_version),
+    document_id:documentId,document_version:1,
     origin_request_hash:command.origin_request_hash};
 }
 function readbackEvent(command,system,instance,id,extra={}) {
@@ -69,7 +69,8 @@ function readbackEvent(command,system,instance,id,extra={}) {
     'source_recorded_at'];
   return {id:EVENT_ID,document_id:DOCUMENT_ID,source_instance_id:instance,
     source_system:system,source_record_id:id,revision_version:1,
-    event_kind:command.event_kind,source_version:'1',revision_action:'create',
+    event_kind:command.event_kind,source_version:command.source_version,
+    revision_action:'create',
     evidence_level:command.evidence_level,document_status:'active',current_version:1,
     amount_cents:command.amount_cents,
     cash_effect_cents:command.event_kind==='expense_paid'?-command.amount_cents:
@@ -86,7 +87,8 @@ test('manual version chain, cross-year key, odd spread and status-only stay dist
   assert.equal(plan.summary.source_net_cash_cents,-1);
   const manual=plan.records.filter(row=>row.source_record_id===ID.manual);
   assert.deepEqual(manual.map(row=>row.command.action),['create','amend','void']);
-  assert.deepEqual(manual.map(row=>row.command.source_version),['1','2','3']);
+  assert.deepEqual(manual.map(row=>row.command.source_version),
+    ['redis:2025:1','redis:2025:2','redis:2025:3']);
   assert.equal(manual[1].command.cash_on,'2026-01-15');
   assert.equal(manual[1].source_key,stateKey);
   const spread=plan.records.find(row=>row.source_record_id===ID.spread);

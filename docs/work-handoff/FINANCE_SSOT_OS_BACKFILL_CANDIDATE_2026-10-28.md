@@ -39,7 +39,7 @@ node iron-gate/scripts/os-finance-backfill-offline.mjs reconcile /private/plan.j
 
 ## 轉換邊界
 
-- 手動 entry 保留原始 `id` 和所在的**原年度 Redis key**。`history[].before`、目前版本及 void 依原 operations 鏈建立 `create → amend → void`，修改有前版反向事件，作廢淨效果為零。原始 operation ID/hash、`redis:<年度>:<原 state 版本>`、原 actor 的館別雜湊及來源時間保存在私有 plan；money 候選也攜帶原版本快照 hash、actor 與時間。跨年度改付款日不會把 entry 移到另一年度 key。命令中的 `source_version` 是目標逐筆修訂序號，與原 Redis 版本分開。
+- 手動 entry 保留原始 `id` 和所在的**原年度 Redis key**。`history[].before`、目前版本及 void 依原 operations 鏈建立 `create → amend → void`，修改有前版反向事件，作廢淨效果為零。原始 operation ID/hash、`redis:<年度>:<原 state 版本>`、原 actor 的館別雜湊及來源時間保存在私有 plan；money 命令的 `source_version` 使用這個原 Redis 版本，並攜帶原版本快照 hash、actor 與時間。目標逐筆修訂序號另由 `expected_version` 和回讀的 `revision_version` 核對。跨年度改付款日不會把 entry 移到另一年度 key。
 - 支出付款日只建一筆現金事件；`expense_spread` 原整數分、原月份、連續順序均逐筆保留為 `os_source_exact` attribution。來源零分月份無法由現行 IG 正分 attribution 表達，列入 review，不自行改攤。
 - 週期規則、預計 OTA payout 規則、帳戶和成本分類是非現金候選。已實付 occurrence 是另外一筆手動支出；現行 IG 金流命令無法同時保留原 entry ID 與 `(recurrence_id,occurrence)`，此筆明確列入 `RECURRENCE_LINK_UNREPRESENTABLE` review，原 due date 保存在私有 plan。不能把規則當支出，或把作廢的 occurrence 當已付。
 - 舊收款使用原 receipt ID，收款時間轉台北現金日。`status_only` 只建立 `room_confirmed`、`settles_room=true` 的零現金候選；非零收款若另有 `settles_room=true`，會分為一筆現金和一筆零現金狀態。`origin_source_version=redis:ledger:<原 append 版本>` 由 receipt audit 證明；無 audit 時，只有 `ledger.version===receipts.length` 的純追加帳本才可由位置推定。`receipt.source_version` 是訂單來源指紋，不是帳本版本。Sheet pending／失敗的狀態不得當已核實。

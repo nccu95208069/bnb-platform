@@ -195,7 +195,8 @@ function advancedBy(entry) {
   return {advanced_by_ref:ref,advanced_by_kind:advance.type,
     advanced_by_label:advance.name};
 }
-function baseMoney(entry, options, property, action, version, sourceKey, fingerprint) {
+function baseMoney(entry, options, property, action, version, originVersion,
+  sourceKey, fingerprint) {
   validEntry(entry, property);
   if (entry.method === 'ota') throw Error('OTA_PAYER_UNVERIFIED');
   if (!METHODS.has(entry.method)) throw Error('INVALID_PAYMENT_METHOD');
@@ -206,7 +207,7 @@ function baseMoney(entry, options, property, action, version, sourceKey, fingerp
   const eventKind = expense ? 'expense_paid' : 'property_receipt';
   const allocation = allocationsFor(entry, options, property);
   const result = {request_key:`osimp:${hash(`${property}:os_manual:${entry.id}:${version}`).slice(0,48)}`,
-    source_record_id:entry.id,source_version:String(version),action,
+    source_record_id:entry.id,source_version:originVersion,action,
     ...(action === 'amend' ? {expected_version:version-1} : {}),
     event_kind:eventKind,amount_cents:entry.amount_cents,currency:'TWD',
     effective_on:entry.date,cash_on:entry.date,service_on:entry.date,
@@ -301,7 +302,8 @@ function manualRecords(sourceKey, raw, state, property, options, issues) {
       for (let i = 0; i < snapshots.length; i++) {
         const action = i ? 'amend' : 'create';
         const originVersion = operationSourceVersion(state,operations[i],sourceKey);
-        const command = baseMoney(snapshots[i],options,property,action,i+1,sourceKey,fingerprint);
+        const command = baseMoney(snapshots[i],options,property,action,i+1,
+          originVersion,sourceKey,fingerprint);
         command.origin_request_hash=originHash(sourceKey,entry.id,originVersion,snapshots[i]);
         command.source_actor_ref=actorRef(property,operations[i].actor);
         command.source_recorded_at=operations[i].at;
@@ -325,7 +327,7 @@ function manualRecords(sourceKey, raw, state, property, options, issues) {
         const last = out.at(-1).command;
         const item = record('os_manual',sourceKey,entry.id,version,'money','ready',fingerprint,
           {request_key:`osimp:${hash(`${property}:os_manual:${entry.id}:${version}`).slice(0,48)}`,
-            source_record_id:entry.id,source_version:String(version),expected_version:version-1,
+            source_record_id:entry.id,source_version:originVersion,expected_version:version-1,
             action:'void',reason_code:'os_operator_void',
             origin_request_hash:originHash(sourceKey,entry.id,originVersion,entry),
             source_actor_ref:actorRef(property,operations[version-1].actor),
@@ -596,7 +598,7 @@ function paymentRecords(sourceKey, raw, ledger, property, options, orderRefs, is
       const purpose = receipt.payment_type === 'deposit' ? 'deposit' :
         receipt.payment_type === 'other' ? 'extra' : 'room';
       command = {request_key:`osimp:${hash(`${property}:os_legacy_payment:${id}:1`).slice(0,48)}`,
-        source_record_id:id,source_version:'1',action:'create',
+        source_record_id:id,source_version:originVersion,action:'create',
         origin_request_hash:originHash(sourceKey,id,originVersion,receipt),
         source_actor_ref:actorRef(property,receipt.actor),
         source_recorded_at:receipt.created_at,
@@ -961,13 +963,15 @@ export function reconcileOsFinanceBackfill(plan, readback) {
   }
   for (const [key, rows] of expectedGroups) {
     const actual = actualGroups.get(key) ?? [];
-    const commands = rows.map(row => row.command).sort((a,b) => Number(a.source_version)-Number(b.source_version));
+    const revisions = [...rows].sort((a,b) =>
+      Number(a.source_version)-Number(b.source_version));
     const want = [];
     let previous = null;
-    for (const command of commands) {
-      const version = Number(command.source_version);
+    for (const revision of revisions) {
+      const command = revision.command;
+      const version = Number(revision.source_version);
       if (previous) want.push({revision_version:version,event_kind:'reversal',
-        source_version:String(version),revision_action:command.action,
+        source_version:command.source_version,revision_action:command.action,
         evidence_level:previous.evidence_level,
         evidence_ref:previous.evidence_ref,
         amount_cents:previous.amount_cents,
@@ -986,7 +990,7 @@ export function reconcileOsFinanceBackfill(plan, readback) {
           amount_cents:-a.amount_cents,allocation_policy:a.allocation_policy}))});
       if (command.action !== 'void') {
         want.push({revision_version:version,event_kind:command.event_kind,
-          source_version:String(version),revision_action:command.action,
+          source_version:command.source_version,revision_action:command.action,
           evidence_level:command.evidence_level,
           evidence_ref:command.evidence_ref,
           amount_cents:command.amount_cents,
@@ -1035,13 +1039,14 @@ export function reconcileOsFinanceBackfill(plan, readback) {
       expected_count:expected.length,actual_count:observed.length,
       expected_cash_cents:want.reduce((n,row) => n+row.cash_effect_cents,0),
       actual_cash_cents:actual.reduce((n,row) => n+Number(row.cash_effect_cents),0)});
-    const last = commands.at(-1);
-    for (const command of commands) {
+    const last = revisions.at(-1);
+    for (const revision of revisions) {
+      const command = revision.command;
       const receipt = readback.receipts?.[command.request_key];
       if (!object(receipt) || receipt.receipt_status !== 'accepted' ||
         receipt.request_key !== command.request_key ||
         receipt.document_id !== actual[0]?.document_id ||
-        Number(receipt.document_version) !== Number(command.source_version) ||
+        Number(receipt.document_version) !== Number(revision.source_version) ||
         receipt.origin_request_hash !== command.origin_request_hash)
         differences.push({code:'IMPORT_RECEIPT_MISMATCH',source_system:rows[0].source_system,
           source_record_id:rows[0].source_record_id,
@@ -1052,7 +1057,7 @@ export function reconcileOsFinanceBackfill(plan, readback) {
       differences.push({code:'DOCUMENT_ID_MISMATCH',source_system:rows[0].source_system,
         source_record_id:rows[0].source_record_id});
     if (actual.length && actual.some(event => event.document_status !==
-        (last.action === 'void'?'void':'active') ||
+        (last.command.action === 'void'?'void':'active') ||
         Number(event.current_version) !== Number(last.source_version)))
       differences.push({code:'DOCUMENT_STATE_MISMATCH',source_system:rows[0].source_system,
         source_record_id:rows[0].source_record_id});
