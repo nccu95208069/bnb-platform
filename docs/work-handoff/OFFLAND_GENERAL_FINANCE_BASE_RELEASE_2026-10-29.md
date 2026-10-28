@@ -1,6 +1,12 @@
 # Offland new general finance release candidate — 2026-10-29
 
-**Current state: prepared locally; no production finance migration, connector, credential, flag, deployment or new-ledger write.** This release slice lets Offland record *new* general income and expenses through its OS and the existing LINE OA into one Iron Gate ledger. Old Offland entries remain in their current source and old booking balances remain under review. Sweetfun's historical settlement and source cutover stay disabled.
+**Current state: production migrations 005–007 applied; no production connector, new finance credential, flag, deployment or new-ledger write.** This release slice lets Offland record *new* general income and expenses through its OS and the existing LINE OA into one Iron Gate ledger. Old Offland entries remain in their current source and old booking balances remain under review. Sweetfun's historical settlement and source cutover stay disabled.
+
+## Production execution checkpoint
+
+On 2026-10-29, the owner explicitly approved the Offland-only general-finance release. The existing healthy Iron Gate Supabase project was read back with migrations 001–003, zero `finance_%` tables, zero SSOT finance credentials and zero nonlegacy finance actions before any change. Source-controlled migrations 005, 006 and 007 were applied in order and each migration record was read back. The current readback is 20 `finance_%` tables, zero finance connectors, zero finance documents and zero SSOT finance credentials. No finance writer has been opened.
+
+Automatic approval review rejected migration 008 twice because its shared runtime role would gain finance table writes for any property context, broader than the approved Offland-only release. No alternate route was used. The owner chose to narrow the database write scope to Offland. Migrations 008–018 remain unapplied while that source-controlled policy and its cross-property PostgreSQL tests are prepared.
 
 ## Server-side scope
 
