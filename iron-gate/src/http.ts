@@ -15,6 +15,10 @@ export type FinanceRoutes = {
   importPreview(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   importCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   importReceipt(principal: Principal, propertyId: string, requestKey: string): Promise<unknown>;
+  historicalSettlementPreview(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  historicalSettlementCommit(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  historicalSettlementReceipt(principal: Principal, propertyId: string, requestKey: string): Promise<unknown>;
+  historicalSettlements(principal: Principal, propertyId: string, asOfChangeSeq: number | null): Promise<unknown>;
   importLedger(principal: Principal, propertyId: string, query: { from: string | null; to: string | null;
     cursor: string | null; limit: number; as_of_change_seq: string | null }): Promise<unknown>;
   importCatalog(principal: Principal, propertyId: string, query: { cursor: string | null;
@@ -104,6 +108,23 @@ export function createHandler(service: IronGateService, authenticate: Authentica
       const principal = await authenticate(request);
       if (!principal) return json({ error: { code: "UNAUTHORIZED" } }, 401);
       if (parts[1] === "properties" && parts[2] && parts[3] === "finance" && finance) {
+        if (parts[4] === 'historical-settlements' && parts[5] === 'preview' &&
+          parts.length === 6 && request.method === 'POST')
+          return json(await finance.historicalSettlementPreview(principal,parts[2],
+            await body(request),requestKey(request)));
+        if (parts[4] === 'historical-settlements' && parts[5] === 'receipts' &&
+          parts[6] && parts.length === 7 && request.method === 'GET')
+          return json(await finance.historicalSettlementReceipt(principal,parts[2],
+            decodeURIComponent(parts[6])));
+        if (parts[4] === 'historical-settlements' && parts.length === 5 &&
+          request.method === 'POST')
+          return json(await finance.historicalSettlementCommit(principal,parts[2],
+            await body(request),requestKey(request)),201);
+        if (parts[4] === 'historical-settlements' && parts.length === 5 &&
+          request.method === 'GET')
+          return json(await finance.historicalSettlements(principal,parts[2],
+            url.searchParams.has('as_of_change_seq') ?
+              Number(url.searchParams.get('as_of_change_seq')) : null));
         if (parts[4] === 'source-links' && parts[5] === 'live' &&
           parts[6] === 'preview' && parts.length === 7 && request.method === 'POST')
           return json(await finance.liveSourceLinkPreview(principal,parts[2],

@@ -4,6 +4,7 @@ import { IronGateService } from "./service.ts";
 import { createHandler } from "./http.ts";
 import { PostgresPropertyRepository } from "./postgres-repository.mjs";
 import { FinanceCommandService } from "./finance-commands.mjs";
+import { loadHistoricalManifestFromEnvironment } from "./finance-historical-settlement.mjs";
 import { PostgresCredentialDirectory } from "./postgres-auth.mjs";
 import { createGrantAuthenticator } from "./authenticator.mjs";
 import { assertRuntimeDatabase, validateDatabaseTransport } from "./runtime-safety.mjs";
@@ -67,7 +68,8 @@ export function createPostgresIronGateHandler(runtimePool, verifyOsMember = null
     verifyLineOperator);
   const finance = new FinanceCommandService(runtimePool,
     process.env.IRON_GATE_FINANCE_PREVIEW_SECRET,
-    process.env.IRON_GATE_FINANCE_COMMANDS_ENABLED === 'true');
+    process.env.IRON_GATE_FINANCE_COMMANDS_ENABLED === 'true',
+    loadHistoricalManifestFromEnvironment());
   const handle = createHandler(service, authenticate, onLineChannelQueued ?? undefined, finance);
   // Every deployment adapter, including a serverless one, must pass the same
   // database role and RLS check before it can authenticate or serve a request.
