@@ -6,7 +6,9 @@ import { PostgresPropertyRepository } from '../src/postgres-repository.mjs';
 import { CARD_SHEET_ID } from '../src/card-sync.ts';
 
 const enabled = process.env.IRON_GATE_FINANCE_TEST_DATABASE === 'iron_gate_finance_test3';
-const config = { host: '/private/tmp', port: 55432, database: 'iron_gate_finance_test3' };
+const config = { host: '/private/tmp',
+  port: Number(process.env.IRON_GATE_FINANCE_TEST_PORT ?? 55432),
+  database: 'iron_gate_finance_test3' };
 const workspaceId = '20000000-0000-4000-8000-000000000001';
 const propertyId = '20000000-0000-4000-8000-000000000002';
 const bookingId = '20000000-0000-4000-8000-000000000003';
@@ -59,6 +61,7 @@ test('native payment commits its legacy booking projection and new ledger in one
       const result = await service.recordPaymentEvent(principal,propertyId,bookingId,
         crypto.randomUUID(),input);
       assert.equal(result.paymentEventId,paymentEventId);
+      assert.equal(result.as_of_change_seq,1);
       let rows = await admin.query(`SELECT event_kind,amount_cents FROM iron_gate.finance_event
         WHERE property_id=$1 AND id=$2`, [propertyId,paymentEventId]);
       assert.equal(rows.rows[0].event_kind,'property_receipt');
@@ -66,6 +69,7 @@ test('native payment commits its legacy booking projection and new ledger in one
       let stored = await admin.query(`SELECT state_json FROM iron_gate.property_state WHERE property_id=$1`,
         [propertyId]);
       assert.equal(stored.rows[0].state_json.bookings[0].paymentEvents.length,1);
+      assert.equal(stored.rows[0].state_json.receipts[0].response.as_of_change_seq,1);
       const noConnector = await admin.query(`UPDATE iron_gate.finance_connector SET enabled=false,
         version=version+1,updated_at=clock_timestamp()
         WHERE property_id=$1 AND source_instance_id=$2`, [propertyId,nativeConnector]);
@@ -95,6 +99,7 @@ test('native payment commits its legacy booking projection and new ledger in one
       const cardResult = await service.recordCardSync(cardPrincipal,propertyId,
         crypto.randomUUID(),cardInput);
       assert.equal(cardResult.bookingId,cardBookingId);
+      assert.equal(cardResult.as_of_change_seq,2);
       rows = await admin.query(`SELECT e.event_kind,a.booking_id FROM iron_gate.finance_event e
         JOIN iron_gate.finance_allocation a ON a.property_id=e.property_id AND a.event_id=e.id
         WHERE e.property_id=$1 AND e.id=$2`, [propertyId,cardResult.paymentEventId]);
@@ -104,6 +109,10 @@ test('native payment commits its legacy booking projection and new ledger in one
         WHERE property_id=$1 AND source_instance_id=$2 AND source_record_id=$3`,
         [propertyId,nativeConnector,cardResult.paymentEventId]);
       assert.equal(alias.rows.length,1);
+      const changes = await admin.query(`SELECT change_seq,source_kind FROM iron_gate.finance_change
+        WHERE property_id=$1 ORDER BY change_seq`,[propertyId]);
+      assert.deepEqual(changes.rows.map(row=>Number(row.change_seq)),[1,2]);
+      assert.ok(changes.rows.every(row=>row.source_kind==='document_revision'));
     } finally {
       await admin.query('TRUNCATE iron_gate.property_state CASCADE');
       await runtime.end(); await admin.end();

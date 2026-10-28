@@ -16,7 +16,7 @@ export type FinanceRoutes = {
   importCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   importReceipt(principal: Principal, propertyId: string, requestKey: string): Promise<unknown>;
   importLedger(principal: Principal, propertyId: string, query: { from: string | null; to: string | null;
-    cursor: string | null; limit: number }): Promise<unknown>;
+    cursor: string | null; limit: number; as_of_change_seq: string | null }): Promise<unknown>;
   importIssue(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   importIssues(principal: Principal, propertyId: string, status: string): Promise<unknown>;
   resolveImportIssue(principal: Principal, propertyId: string, issueId: string,
@@ -25,7 +25,7 @@ export type FinanceRoutes = {
   command(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   receipt(principal: Principal, propertyId: string, requestKey: string): Promise<unknown>;
   ledger(principal: Principal, propertyId: string, query: { from: string | null; to: string | null;
-    cursor: string | null; limit: number }): Promise<unknown>;
+    cursor: string | null; limit: number; as_of_change_seq: string | null }): Promise<unknown>;
   activity(principal: Principal, propertyId: string, page: number,
     action: string, query: string): Promise<unknown>;
   bookingFinance(principal: Principal, propertyId: string, bookingId: string): Promise<unknown>;
@@ -136,7 +136,8 @@ export function createHandler(service: IronGateService, authenticate: Authentica
           return json(await finance.importLedger(principal,parts[2],{
             from:url.searchParams.get('from'),to:url.searchParams.get('to'),
             cursor:url.searchParams.get('cursor'),
-            limit:Number(url.searchParams.get('limit') ?? '50') }));
+            limit:Number(url.searchParams.get('limit') ?? '50'),
+            as_of_change_seq:url.searchParams.get('as_of_change_seq') }));
         if (parts[4] === 'imports' && parts[5] === 'issues' &&
           parts.length === 6 && request.method === 'POST')
           return json(await finance.importIssue(principal,parts[2],
@@ -171,7 +172,8 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         if (parts[4] === "ledger" && parts.length === 5 && request.method === "GET" && finance.enabled)
           return json(await finance.ledger(principal, parts[2], {
             from: url.searchParams.get('from'), to: url.searchParams.get('to'),
-            cursor: url.searchParams.get('cursor'), limit: Number(url.searchParams.get('limit') ?? '50') }));
+            cursor: url.searchParams.get('cursor'), limit: Number(url.searchParams.get('limit') ?? '50'),
+            as_of_change_seq: url.searchParams.get('as_of_change_seq') }));
         if (parts[4] === 'activity' && parts.length === 5 && request.method === 'GET')
           return json(await finance.activity(principal,parts[2],
             Number(url.searchParams.get('page') ?? '1'),

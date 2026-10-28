@@ -81,6 +81,9 @@ export class PostgresPropertyRepository {
           audit: (record) => pendingAudits.push(structuredClone(record)),
           ...(this.#financeNativeEnabled ? { financeNative: intent =>
             pendingFinance.push(structuredClone(intent)) } : {}) });
+        // Native finance adds the change watermark to the same response object
+        // held by the legacy request receipt. Do it before serializing the draft.
+        for (const intent of pendingFinance) await appendNativeFinance(client, propertyId, intent, result);
         const updated = await client.query(`UPDATE iron_gate.property_state SET
           state_json = $1::jsonb, authority_epoch = $2, inventory_version = $3, updated_at = now()
           WHERE property_id = $4 AND authority_epoch = $5 AND inventory_version = $6`,
@@ -94,7 +97,6 @@ export class PostgresPropertyRepository {
         for (const record of pendingAudits) await client.query(`INSERT INTO iron_gate.audit_log
           (audit_id, property_id, audit_json) VALUES ($1, $2, $3::jsonb)`,
           [record.auditId, propertyId, JSON.stringify(record)]);
-        for (const intent of pendingFinance) await appendNativeFinance(client, propertyId, intent, result);
         await client.query("COMMIT");
         return result;
       } catch (error) {

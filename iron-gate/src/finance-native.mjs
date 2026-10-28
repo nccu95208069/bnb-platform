@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { GateError } from './errors.ts';
+import { appendFinanceChange, linkFinanceEvents } from './finance-change.mjs';
 
 function hash(value) { return createHash('sha256').update(JSON.stringify(value)).digest('hex'); }
 function taipeiDay(timestamp) {
@@ -54,11 +55,6 @@ async function allocation(client, propertyId, eventId, bookingId, amount) {
   await client.query(`INSERT INTO iron_gate.finance_allocation
     (property_id,event_id,booking_id,amount_cents,allocation_kind)
     VALUES ($1,$2,$3,$4,'room')`, [propertyId,eventId,bookingId,amount]);
-}
-async function outbox(client, propertyId, eventId) {
-  await client.query(`INSERT INTO iron_gate.finance_outbox
-    (id,property_id,source_kind,source_id,destination)
-    VALUES ($1,$2,'event',$3,'sheet')`, [randomUUID(),propertyId,eventId]);
 }
 async function receipt(client, propertyId, sourceId, intent, response) {
   await client.query(`INSERT INTO iron_gate.finance_request_receipt
@@ -131,7 +127,9 @@ export async function appendNativeFinance(client, propertyId, intent, response) 
       (id,property_id,provider_code,booking_id,existing_payment_event_id,canonical_document_id)
       VALUES ($1,$2,'iron_gate_native',$3,$4,$5)`,
       [randomUUID(),propertyId,intent.bookingId,intent.eventId,doc.id]);
-    await outbox(client,propertyId,intent.eventId);
+    response.as_of_change_seq = await appendFinanceChange(client,propertyId,
+      'document_revision',doc.id,String(doc.version));
+    await linkFinanceEvents(client,propertyId,response.as_of_change_seq,[intent.eventId]);
     await receipt(client,propertyId,sourceId,intent,response);
     return;
   }
@@ -167,7 +165,10 @@ export async function appendNativeFinance(client, propertyId, intent, response) 
       (id,property_id,provider_code,booking_id,existing_payment_event_id,canonical_document_id)
       VALUES ($1,$2,'sweetfun_card',$3,$4,$5)`,
       [randomUUID(),propertyId,intent.bookingId,intent.paymentEventId,doc.id]);
-    await outbox(client,propertyId,intent.paymentEventId);
   }
+  response.as_of_change_seq = await appendFinanceChange(client,propertyId,
+    'document_revision',doc.id,String(doc.version));
+  if (intent.paymentEventId) await linkFinanceEvents(client,propertyId,
+    response.as_of_change_seq,[intent.paymentEventId]);
   await receipt(client,propertyId,sourceId,intent,response);
 }
