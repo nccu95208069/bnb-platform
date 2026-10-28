@@ -46,7 +46,7 @@ export function projectSsotBookingBalances(orders:FinanceOrder[],entries:Finance
    .reduce((sum,entry)=>sum+(entry.kind==='refund'?-1:1)*roomCollectionForOrder(entry,order.id),0);
   return {...order,received,
    receivable:order.status==='confirmed'&&!order.receivable_review_required?Math.max(0,order.total-received):0,
-   credit:order.receivable_review_required?0:Math.max(0,received-order.total),
-   source_paid:!order.receivable_review_required&&order.total>0&&received>=order.total};
+   credit:order.receivable_review_required?0:Math.max(0,received-(order.status==='cancelled'?0:order.total)),
+   source_paid:order.status==='confirmed'&&!order.receivable_review_required&&order.total>0&&received>=order.total};
  });
 }

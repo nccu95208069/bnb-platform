@@ -203,7 +203,9 @@ function prepareMoneyAction(input:Record<string,unknown>,report:Report,
 function preparePlanAction(input:Record<string,unknown>,report:Report,
   actor:Principal,property:string,year:number,members:Member[],
   requestId:string,originHash:string){
-  const validated=applyFinance(report.state,input,actor,property,year,undefined,
+  const state={...report.state,entries:report.entries,recurring:report.recurring,
+    payment_accounts:report.payment_accounts,payout_rules:report.payout_rules};
+  const validated=applyFinance(state,input,actor,property,year,undefined,
     members,report.payment_accounts,report.payout_rules);
   const action=String(input.action??'');
   if(action==='payment_account_create'){

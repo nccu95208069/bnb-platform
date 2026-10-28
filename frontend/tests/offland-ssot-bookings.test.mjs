@@ -116,6 +116,8 @@ test('LINE and OS receipts share one current balance, and cancelled receipt iden
   const cancelledOrders=projectSsotBookingBalances([cancelled],history);
   assert.equal(cancelledOrders[0].received,5000);
   assert.equal(cancelledOrders[0].receivable,0);
+  assert.equal(cancelledOrders[0].credit,5000);
+  assert.equal(cancelledOrders[0].source_paid,false);
   assert.equal(revenueSummary(cancelledOrders,history,'2026-10').receivable,0);
   assert.deepEqual(bookingGuardsForVoid(history[1],cancelledOrders),[
     {booking_id:booking.id,expected_booking_version:3}]);
@@ -192,4 +194,25 @@ test('Offland general expense and income need no booking, and category creation 
   assert.equal(recovered.result.entry_id,uuid(62));
   await assert.rejects(()=>resumeSsotFinance(input,actor,'sweetfun',
     async()=>receipts.get(input.request_id),config),/IDEMPOTENCY_CONFLICT/);
+});
+
+test('reloaded canonical recurring rule can stop without a legacy local plan copy',async()=>{
+  const rule={id:uuid(70),year:2026,category:'supplies',amount_cents:2500,
+    description:'Synthetic monthly supplies',method:'cash',start:'2026-10-01',
+    end:null,day:10,actor:'Synthetic owner',created_at:'2026-10-01T01:00:00Z',
+    ssot_source_record_id:'os-synthetic-rule',ssot_version:2};
+  const report={projection_version:'synthetic',asof:'2026-10-28',
+    state:{version:0,entries:[],operations:[]},entries:[],recurring:[rule],
+    orders:[],payment_accounts:[],payout_rules:[],ssot_catalog:catalog};
+  const input={request_id:uuid(71),property_id:'offland',year:2026,
+    projection_version:'synthetic',expected_version:0,action:'recurring_stop',rule_id:rule.id};
+  const preview=await previewSsotOsFinance(input,report,actor,'offland',2026,[],
+    async()=>{throw Error('plan preview does not read a booking');},config);
+  const proof=verifyFinancePreview({...input,ssot_preview_proof:preview.preview_proof},
+    actor,'offland',osFinanceOriginHash(input,actor.id,'offland'),config.calendar.proofSecret);
+  assert.equal(proof.plan_suffix,'recurring-rules');
+  assert.equal(proof.plan_command.source_record_id,rule.ssot_source_record_id);
+  assert.equal(proof.plan_command.version,3);
+  assert.equal(proof.plan_command.status,'ended');
+  assert.equal(proof.plan_command.next_due_on,null);
 });
