@@ -56,12 +56,14 @@ ALTER TABLE iron_gate.finance_event
 DROP POLICY IF EXISTS finance_account_insert_scope ON iron_gate.finance_account;
 CREATE POLICY finance_account_insert_scope ON iron_gate.finance_account
   FOR INSERT TO iron_gate_runtime
-  WITH CHECK (property_id::text = current_setting('iron_gate.property_id', true));
+  WITH CHECK (property_id::text = current_setting('iron_gate.property_id', true)
+    AND iron_gate.finance_write_scope_allowed(property_id));
 GRANT INSERT ON iron_gate.finance_account TO iron_gate_runtime;
 DROP POLICY IF EXISTS finance_category_insert_scope ON iron_gate.finance_category;
 CREATE POLICY finance_category_insert_scope ON iron_gate.finance_category
   FOR INSERT TO iron_gate_runtime
-  WITH CHECK (property_id::text = current_setting('iron_gate.property_id', true));
+  WITH CHECK (property_id::text = current_setting('iron_gate.property_id', true)
+    AND iron_gate.finance_write_scope_allowed(property_id));
 GRANT INSERT ON iron_gate.finance_category TO iron_gate_runtime;
 GRANT UPDATE (amount_cents,safe_description,payment_method_code,due_day)
   ON iron_gate.finance_recurring_rule TO iron_gate_runtime;

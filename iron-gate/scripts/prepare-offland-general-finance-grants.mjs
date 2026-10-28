@@ -110,7 +110,13 @@ BEGIN
   IF authority.workspace_id<>${quote(authority.workspace_id)}::uuid OR
     authority.authority_epoch<>${authority.authority_epoch} OR
     authority.read_only IS DISTINCT FROM 'false'
-    THEN RAISE EXCEPTION 'OFFLAND_FINANCE_AUTHORITY_CHANGED'; END IF;${lineCheck}
+    THEN RAISE EXCEPTION 'OFFLAND_FINANCE_AUTHORITY_CHANGED'; END IF;
+  LOCK TABLE iron_gate.finance_write_scope IN SHARE ROW EXCLUSIVE MODE;
+  IF (SELECT count(*) FROM iron_gate.finance_write_scope)<>1 OR
+    NOT EXISTS (SELECT 1 FROM iron_gate.finance_write_scope
+      WHERE property_id=${quote(candidate.property_id)}::uuid AND
+        mode='general_only' AND actor_ref='release:offland-general-finance')
+    THEN RAISE EXCEPTION 'OFFLAND_FINANCE_WRITE_SCOPE_MISMATCH'; END IF;${lineCheck}
   FOR expected IN SELECT * FROM (VALUES ${expected}) AS x
     (token_hash,credential_id,property_id,source_instance_id,source_system,
      source_account_ref,grant_json,expires_at)

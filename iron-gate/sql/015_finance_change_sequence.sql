@@ -26,7 +26,32 @@ CREATE POLICY finance_property_scope ON iron_gate.finance_change FOR SELECT
   TO iron_gate_runtime USING (property_id::text = current_setting('iron_gate.property_id', true));
 DROP POLICY IF EXISTS finance_insert_scope ON iron_gate.finance_change;
 CREATE POLICY finance_insert_scope ON iron_gate.finance_change FOR INSERT
-  TO iron_gate_runtime WITH CHECK (property_id::text = current_setting('iron_gate.property_id', true));
+  TO iron_gate_runtime WITH CHECK (property_id::text = current_setting('iron_gate.property_id', true)
+    AND iron_gate.finance_write_scope_allowed(property_id));
+DROP POLICY IF EXISTS finance_write_scope_insert ON iron_gate.finance_change;
+CREATE POLICY finance_write_scope_insert ON iron_gate.finance_change
+  AS RESTRICTIVE FOR INSERT TO iron_gate_runtime
+  WITH CHECK (iron_gate.finance_write_scope_allowed(property_id));
+DROP POLICY IF EXISTS finance_write_scope_update ON iron_gate.finance_change;
+CREATE POLICY finance_write_scope_update ON iron_gate.finance_change
+  AS RESTRICTIVE FOR UPDATE TO iron_gate_runtime
+  USING (iron_gate.finance_write_scope_allowed(property_id))
+  WITH CHECK (iron_gate.finance_write_scope_allowed(property_id));
+DROP POLICY IF EXISTS finance_general_mode_insert ON iron_gate.finance_change;
+CREATE POLICY finance_general_mode_insert ON iron_gate.finance_change
+  AS RESTRICTIVE FOR INSERT TO iron_gate_runtime
+  WITH CHECK (iron_gate.finance_write_scope_mode(property_id)='full' OR
+    (iron_gate.finance_write_scope_mode(property_id)='general_only' AND
+      source_kind IN ('document_revision','category')));
+DROP POLICY IF EXISTS finance_general_mode_update ON iron_gate.finance_change;
+CREATE POLICY finance_general_mode_update ON iron_gate.finance_change
+  AS RESTRICTIVE FOR UPDATE TO iron_gate_runtime
+  USING (iron_gate.finance_write_scope_mode(property_id)='full' OR
+    (iron_gate.finance_write_scope_mode(property_id)='general_only' AND
+      source_kind IN ('document_revision','category')))
+  WITH CHECK (iron_gate.finance_write_scope_mode(property_id)='full' OR
+    (iron_gate.finance_write_scope_mode(property_id)='general_only' AND
+      source_kind IN ('document_revision','category')));
 REVOKE ALL ON iron_gate.finance_change FROM PUBLIC, anon, authenticated, iron_gate_runtime;
 GRANT SELECT, INSERT ON iron_gate.finance_change TO iron_gate_runtime;
 DROP TRIGGER IF EXISTS finance_immutable ON iron_gate.finance_change;
@@ -52,7 +77,26 @@ CREATE POLICY finance_property_scope ON iron_gate.finance_change_event FOR SELEC
   TO iron_gate_runtime USING (property_id::text = current_setting('iron_gate.property_id', true));
 DROP POLICY IF EXISTS finance_insert_scope ON iron_gate.finance_change_event;
 CREATE POLICY finance_insert_scope ON iron_gate.finance_change_event FOR INSERT
-  TO iron_gate_runtime WITH CHECK (property_id::text = current_setting('iron_gate.property_id', true));
+  TO iron_gate_runtime WITH CHECK (property_id::text = current_setting('iron_gate.property_id', true)
+    AND iron_gate.finance_write_scope_allowed(property_id));
+DROP POLICY IF EXISTS finance_write_scope_insert ON iron_gate.finance_change_event;
+CREATE POLICY finance_write_scope_insert ON iron_gate.finance_change_event
+  AS RESTRICTIVE FOR INSERT TO iron_gate_runtime
+  WITH CHECK (iron_gate.finance_write_scope_allowed(property_id));
+DROP POLICY IF EXISTS finance_write_scope_update ON iron_gate.finance_change_event;
+CREATE POLICY finance_write_scope_update ON iron_gate.finance_change_event
+  AS RESTRICTIVE FOR UPDATE TO iron_gate_runtime
+  USING (iron_gate.finance_write_scope_allowed(property_id))
+  WITH CHECK (iron_gate.finance_write_scope_allowed(property_id));
+DROP POLICY IF EXISTS finance_general_mode_insert ON iron_gate.finance_change_event;
+CREATE POLICY finance_general_mode_insert ON iron_gate.finance_change_event
+  AS RESTRICTIVE FOR INSERT TO iron_gate_runtime
+  WITH CHECK (iron_gate.finance_write_scope_mode(property_id) IN ('general_only','full'));
+DROP POLICY IF EXISTS finance_general_mode_update ON iron_gate.finance_change_event;
+CREATE POLICY finance_general_mode_update ON iron_gate.finance_change_event
+  AS RESTRICTIVE FOR UPDATE TO iron_gate_runtime
+  USING (iron_gate.finance_write_scope_mode(property_id) IN ('general_only','full'))
+  WITH CHECK (iron_gate.finance_write_scope_mode(property_id) IN ('general_only','full'));
 REVOKE ALL ON iron_gate.finance_change_event FROM PUBLIC, anon, authenticated, iron_gate_runtime;
 GRANT SELECT, INSERT ON iron_gate.finance_change_event TO iron_gate_runtime;
 DROP TRIGGER IF EXISTS finance_immutable ON iron_gate.finance_change_event;

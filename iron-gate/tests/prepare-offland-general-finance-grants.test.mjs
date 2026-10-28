@@ -61,6 +61,9 @@ test('OS and LINE packages bind distinct Offland connectors and store no plainte
   assert.match(plan.sql,/OFFLAND_FINANCE_CONNECTOR_NOT_EMPTY/);
   assert.match(plan.sql,/OFFLAND_FINANCE_AUTHORITY_CHANGED/);
   assert.match(plan.sql,/OFFLAND_FINANCE_CREDENTIAL_ALREADY_ACTIVE/);
+  assert.match(plan.sql,/OFFLAND_FINANCE_WRITE_SCOPE_MISMATCH/);
+  assert.match(plan.sql,/count\(\*\) FROM iron_gate\.finance_write_scope\)<>1/);
+  assert.match(plan.sql,/mode='general_only' AND actor_ref='release:offland-general-finance'/);
   assert.match(plan.sql,/OFFLAND_LINE_GROUP_NOT_VERIFIED/);
   assert.match(plan.sql,/line-staff-manage-all/);
   assert.match(plan.sql,/actual\.grant_json<>expected\.grant_json/);
@@ -114,6 +117,7 @@ test('private package uses exclusive 0600 files and never overwrites an uncertai
     const manifest=await readFile(`${outputDir}/manifest.json`,'utf8');
     assert.ok(!sql.includes(grant.token));
     assert.ok(!manifest.includes(grant.token));
+    assert.match(sql,/OFFLAND_FINANCE_WRITE_SCOPE_MISMATCH/);
     await assert.rejects(prepareOfflandGeneralFinanceGrantFiles(
       candidatePath,authorityPath,outputDir));
   } finally {

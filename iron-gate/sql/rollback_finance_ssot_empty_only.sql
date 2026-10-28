@@ -21,7 +21,8 @@ DECLARE
     'finance_account','finance_category','finance_recurring_rule',
     'finance_payout_rule','finance_operational_status','finance_evidence_assertion',
     'finance_settlement','finance_settlement_link',
-    'finance_connector_config_history','finance_legacy_settlement'];
+    'finance_connector_config_history','finance_legacy_settlement',
+    'finance_write_scope'];
 BEGIN
   IF EXISTS (SELECT 1 FROM iron_gate.credentials c
     WHERE c.grant_json ? 'financeSourceInstanceId'
@@ -72,6 +73,13 @@ DROP TABLE IF EXISTS iron_gate.finance_category;
 DROP TABLE IF EXISTS iron_gate.finance_revision;
 DROP TABLE IF EXISTS iron_gate.finance_document;
 DROP TABLE IF EXISTS iron_gate.finance_connector;
+DROP FUNCTION IF EXISTS iron_gate.finance_general_attribution_allowed(uuid,uuid);
+DROP FUNCTION IF EXISTS iron_gate.finance_general_event_allowed(uuid,uuid,text,text,uuid,text,text);
+DROP FUNCTION IF EXISTS iron_gate.finance_general_document_allowed(uuid,uuid);
+DROP FUNCTION IF EXISTS iron_gate.finance_general_connector_allowed(uuid,uuid);
+DROP FUNCTION IF EXISTS iron_gate.finance_write_scope_allowed(uuid);
+DROP FUNCTION IF EXISTS iron_gate.finance_write_scope_mode(uuid);
+DROP TABLE IF EXISTS iron_gate.finance_write_scope;
 DROP FUNCTION IF EXISTS iron_gate.finance_validate_event_reference();
 DROP FUNCTION IF EXISTS iron_gate.finance_immutable_row();
 DROP FUNCTION IF EXISTS iron_gate.finance_assert_event_balances();

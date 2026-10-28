@@ -39,6 +39,11 @@ test('SQL provisions only two general sources at one UTC cutover and rechecks em
   assert.match(plan.sql,/OFFLAND_FINANCE_CREDENTIAL_ALREADY_PRESENT/);
   assert.match(plan.sql,/OFFLAND_FINANCE_CONNECTOR_CONFLICT/);
   assert.match(plan.sql,/OFFLAND_FINANCE_CONNECTOR_AUDIT_MISMATCH/);
+  assert.match(plan.sql,/OFFLAND_FINANCE_WRITE_SCOPE_CONFLICT/);
+  assert.match(plan.sql,/OFFLAND_FINANCE_WRITE_SCOPE_MISMATCH/);
+  assert.match(plan.sql,/INSERT INTO iron_gate\.finance_write_scope\(property_id,mode\)/);
+  assert.match(plan.sql,/mode='general_only'/);
+  assert.ok(!plan.sql.includes("mode='full'"));
   assert.match(plan.sql,/LOCK TABLE iron_gate\.credentials/);
   assert.match(plan.sql,/LOCK TABLE iron_gate\.%I IN SHARE ROW EXCLUSIVE MODE/);
   assert.match(plan.sql,/finance_connector_config_history/);
@@ -97,10 +102,13 @@ test('private package uses exclusive 0600 files and refuses uncertain overwrite'
     const manifest=JSON.parse(await readFile(`${outputDir}/manifest.json`,'utf8'));
     assert.equal(manifest.sqlSha256,result.sqlSha256);
     assert.equal(manifest.cutoverAt,result.cutoverAt);
+    assert.equal(manifest.writeScopeMode,'general_only');
+    assert.equal(manifest.writeScopeActorRef,'release:offland-general-finance');
     assert.equal((await stat(outputDir)).mode & 0o077,0);
     for (const name of ['provision.sql','manifest.json'])
       assert.equal((await stat(`${outputDir}/${name}`)).mode & 0o077,0);
     assert.ok(planSql.includes(sourceIds.os_manual));
+    assert.match(planSql,/SELECT property_id,mode,actor_ref FROM iron_gate\.finance_write_scope/);
     await assert.rejects(prepareOfflandGeneralFinanceConnectorFiles(
       candidatePath,authorityPath,cutover,outputDir));
   } finally {

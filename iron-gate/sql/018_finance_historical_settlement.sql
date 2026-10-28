@@ -44,10 +44,32 @@ ALTER TABLE iron_gate.finance_legacy_settlement ENABLE ROW LEVEL SECURITY;
 ALTER TABLE iron_gate.finance_legacy_settlement FORCE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS finance_legacy_settlement_scope ON iron_gate.finance_legacy_settlement;
 CREATE POLICY finance_legacy_settlement_scope ON iron_gate.finance_legacy_settlement
-  TO iron_gate_runtime USING
-    (property_id::text = current_setting('iron_gate.property_id', true))
-  WITH CHECK
+  FOR SELECT TO iron_gate_runtime USING
     (property_id::text = current_setting('iron_gate.property_id', true));
+DROP POLICY IF EXISTS finance_legacy_settlement_insert_scope ON iron_gate.finance_legacy_settlement;
+CREATE POLICY finance_legacy_settlement_insert_scope
+  ON iron_gate.finance_legacy_settlement
+  FOR INSERT TO iron_gate_runtime WITH CHECK
+    (property_id::text = current_setting('iron_gate.property_id', true)
+      AND iron_gate.finance_write_scope_allowed(property_id));
+DROP POLICY IF EXISTS finance_write_scope_insert ON iron_gate.finance_legacy_settlement;
+CREATE POLICY finance_write_scope_insert ON iron_gate.finance_legacy_settlement
+  AS RESTRICTIVE FOR INSERT TO iron_gate_runtime
+  WITH CHECK (iron_gate.finance_write_scope_allowed(property_id));
+DROP POLICY IF EXISTS finance_write_scope_update ON iron_gate.finance_legacy_settlement;
+CREATE POLICY finance_write_scope_update ON iron_gate.finance_legacy_settlement
+  AS RESTRICTIVE FOR UPDATE TO iron_gate_runtime
+  USING (iron_gate.finance_write_scope_allowed(property_id))
+  WITH CHECK (iron_gate.finance_write_scope_allowed(property_id));
+DROP POLICY IF EXISTS finance_general_mode_insert ON iron_gate.finance_legacy_settlement;
+CREATE POLICY finance_general_mode_insert ON iron_gate.finance_legacy_settlement
+  AS RESTRICTIVE FOR INSERT TO iron_gate_runtime
+  WITH CHECK (iron_gate.finance_write_scope_mode(property_id)='full');
+DROP POLICY IF EXISTS finance_general_mode_update ON iron_gate.finance_legacy_settlement;
+CREATE POLICY finance_general_mode_update ON iron_gate.finance_legacy_settlement
+  AS RESTRICTIVE FOR UPDATE TO iron_gate_runtime
+  USING (iron_gate.finance_write_scope_mode(property_id)='full')
+  WITH CHECK (iron_gate.finance_write_scope_mode(property_id)='full');
 REVOKE ALL ON iron_gate.finance_legacy_settlement
   FROM PUBLIC, anon, authenticated, iron_gate_runtime;
 GRANT SELECT, INSERT ON iron_gate.finance_legacy_settlement TO iron_gate_runtime;

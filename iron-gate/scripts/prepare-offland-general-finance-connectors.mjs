@@ -20,6 +20,7 @@ const FINANCE_TABLES = [
   'finance_payment_ownership','finance_payout_rule','finance_recurring_rule',
   'finance_request_receipt','finance_revision','finance_settlement',
   'finance_settlement_link','finance_source_alias','finance_source_link',
+  'finance_write_scope',
 ];
 const quote = value => `'${String(value).replaceAll("'", "''")}'`;
 const fail = () => { throw Error('OFFLAND_FINANCE_CONNECTOR_INPUT_INVALID'); };
@@ -107,7 +108,8 @@ BEGIN
     THEN RAISE EXCEPTION 'OFFLAND_FINANCE_CREDENTIAL_ALREADY_PRESENT'; END IF;
   FOR finance_table_name IN SELECT tablename FROM pg_tables
     WHERE schemaname='iron_gate' AND left(tablename::text,8)='finance_'
-      AND tablename NOT IN ('finance_connector','finance_connector_config_history')
+      AND tablename NOT IN ('finance_connector','finance_connector_config_history',
+        'finance_write_scope')
     ORDER BY tablename LOOP
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns
       WHERE table_schema='iron_gate' AND table_name=finance_table_name
@@ -124,6 +126,18 @@ BEGIN
   IF EXISTS (SELECT 1 FROM iron_gate.finance_connector
     WHERE source_instance_id IN (${sourceIds}) AND property_id<>${propertyId}::uuid)
     THEN RAISE EXCEPTION 'OFFLAND_FINANCE_CONNECTOR_CONFLICT'; END IF;
+  IF EXISTS (SELECT 1 FROM iron_gate.finance_write_scope
+    WHERE property_id<>${propertyId}::uuid OR mode<>'general_only' OR
+      actor_ref<>'release:offland-general-finance')
+    THEN RAISE EXCEPTION 'OFFLAND_FINANCE_WRITE_SCOPE_CONFLICT'; END IF;
+  INSERT INTO iron_gate.finance_write_scope(property_id,mode)
+    VALUES (${propertyId}::uuid,'general_only')
+    ON CONFLICT (property_id) DO NOTHING;
+  IF (SELECT count(*) FROM iron_gate.finance_write_scope)<>1 OR
+    NOT EXISTS (SELECT 1 FROM iron_gate.finance_write_scope
+      WHERE property_id=${propertyId}::uuid AND mode='general_only' AND
+        actor_ref='release:offland-general-finance')
+    THEN RAISE EXCEPTION 'OFFLAND_FINANCE_WRITE_SCOPE_MISMATCH'; END IF;
   FOR expected IN SELECT * FROM (VALUES ${expected}) AS x
     (source_instance_id,source_system,source_account_ref) LOOP
     INSERT INTO iron_gate.finance_connector
@@ -168,6 +182,7 @@ SELECT source_instance_id,property_id,source_system,source_account_ref,
 SELECT source_instance_id,version,actor_ref,config_json
   FROM iron_gate.finance_connector_config_history
   WHERE property_id=${propertyId}::uuid ORDER BY source_instance_id,version;
+SELECT property_id,mode,actor_ref FROM iron_gate.finance_write_scope;
 `;
   return { projectRef: PROJECT_REF, propertyId: candidate.property_id,
     cutoverAt: cutover, connectorCount: 2, sql,
@@ -202,6 +217,8 @@ export async function prepareOfflandGeneralFinanceConnectorFiles(candidatePath,
   await writeFile(`${output}/manifest.json`, JSON.stringify({
     projectRef: plan.projectRef, propertyId: plan.propertyId,
     cutoverAt: plan.cutoverAt, connectorCount: plan.connectorCount,
+    writeScopeMode: 'general_only',
+    writeScopeActorRef: 'release:offland-general-finance',
     sqlSha256: plan.sqlSha256 }, null, 2), { flag: 'wx', mode: 0o600 });
   return { output, connectorCount: plan.connectorCount,
     cutoverAt: plan.cutoverAt, sqlSha256: plan.sqlSha256 };
