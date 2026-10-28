@@ -52,6 +52,8 @@ node iron-gate/scripts/os-finance-backfill-offline.mjs reconcile /private/plan.j
 
 `readback` 需含 `complete:true`、同一個 `as_of_change_seq`、`unsequenced_event_count:0` 及**完整** `events[]`，其中每筆保留 `id/document_id/source_instance_id/source_system/source_record_id/revision_version/source_version/revision_action`、現金效果、分類、付款方式／帳戶、來源 actor／時間、evidence ref、bookings allocation、expense attribution、evidence level 與 document status/version。另須含 `receipts` 物件，以每個 money `request_key` 為鍵，值為固定原 key 回讀的 IG accepted receipt，保留 document ID/version 與 `origin_request_hash`。非現金資料另附 `catalog:{complete:true,next_cursor:null,as_of_change_seq,entries:[...]}`，其 `entries` 為 IG `imports/catalog` 固定水位的全部分頁合併結果，帶 `source_version`（原 Redis 版本）、`target_version`（IG 修訂版）、來源 provenance、`imported_payload` 及 `target_current`。既有而非本次匯入的分類／帳戶另附相同水位的 `existing_catalog`。分頁缺頁、水位不一致、任何一筆來源缺失或多出、金額／版本／分攤／證據級別不一致，都會產生具 source ID 的差異，不會只比較總額。
 
+`operational_status` 是逐版新增獨立目標列，對帳會檢查每版的 `target_ref`、目標 ID、來源 connector、版本、狀態、booking 及原始時間；舊版目標缺失或被改動也會報差異。週期與 payout 規則是更新同一目標列，只用最後一版核對目前狀態，歷次輸入仍逐版核對 catalog provenance。
+
 仍需完成 W0 真實來源快照、既有 IG/Card/LINE/Sheet 的精確 alias 和 ownership、來源 high-water mark、正式館別私有備份、已審核來源連結、非現金匯入 API 的實際回讀、所有 review 人工處理、W7 最後 delta 和營運入口排空。尤其歷史 occurrence 身分模型尚未解決。合成測試通過不代表正式來源差異為零。
 
 本地驗證：`node --test iron-gate/tests/os-finance-backfill.test.mjs`，涵蓋跨年度修改、修正／作廢、奇數分攤、台北跨日、零現金狀態、精確付款別名、未知來源、重複 ID、卡片疑似重複與變動快照拒絕。

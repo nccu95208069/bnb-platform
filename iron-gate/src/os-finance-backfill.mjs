@@ -1117,9 +1117,26 @@ export function reconcileOsFinanceBackfill(plan, readback) {
               canonical(item.imported_payload[field] ?? null) !== canonical(value ?? null)))
             differences.push({code:'NONCASH_SOURCE_MISMATCH',source_system:row.source_system,
               source_record_id:row.source_record_id,source_version:row.source_version});
-          const older = latest.get(identity);
-          if (!older || Number(row.source_version)>Number(older.candidate.source_version))
-            latest.set(identity,{candidate:row,actual:item});
+          if (row.kind === 'operational_status') {
+            // Every status version has its own immutable target row. A later
+            // version cannot stand in for a missing or changed earlier row.
+            const target = item.target_current;
+            const command = row.command;
+            if (!object(target) || !UUID.test(item.target_ref ?? '') ||
+              target.id !== item.target_ref || target.source_instance_id !== instance ||
+              Number(target.version) !== Number(row.source_version) ||
+              ['source_record_id','status_code','settles_room','booking_id'].some(field =>
+                canonical(target[field] ?? null) !== canonical(command[field] ?? null)) ||
+              Date.parse(target.source_recorded_at) !==
+                Date.parse(command.source_recorded_at))
+              differences.push({code:'NONCASH_TARGET_MISMATCH',
+                source_system:row.source_system,source_record_id:row.source_record_id,
+                source_version:row.source_version});
+          } else {
+            const older = latest.get(identity);
+            if (!older || Number(row.source_version)>Number(older.candidate.source_version))
+              latest.set(identity,{candidate:row,actual:item});
+          }
         }
         actual.delete(key);
       }
@@ -1129,9 +1146,7 @@ export function reconcileOsFinanceBackfill(plan, readback) {
         const target = item.target_current;
         const command = candidate.command;
         let fields;
-        if (candidate.kind === 'operational_status')
-          fields = ['source_record_id','version','status_code','settles_room','booking_id'];
-        else if (candidate.kind === 'recurring_rule')
+        if (candidate.kind === 'recurring_rule')
           fields = ['source_record_id','version','cadence','start_on','end_on','next_due_on',
             'status','category_code','amount_cents','safe_description',
             'payment_method_code','due_day'];
@@ -1141,7 +1156,7 @@ export function reconcileOsFinanceBackfill(plan, readback) {
           fields = ['code','display_name','kind','last_digits'];
         else fields = ['kind','code','label'];
         if (!object(target) ||
-          ['operational_status','recurring_rule','payout_rule'].includes(candidate.kind) &&
+          ['recurring_rule','payout_rule'].includes(candidate.kind) &&
             Number(target.version) !== Number(candidate.source_version) ||
           fields.some(field =>
           canonical(target[field] ?? null) !== canonical(command[field] ?? null)) ||

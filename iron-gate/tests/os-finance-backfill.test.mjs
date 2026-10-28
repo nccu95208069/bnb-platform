@@ -57,6 +57,7 @@ function fixture() {
 }
 const DOCUMENT_ID='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const EVENT_ID='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const STATUS_TARGET_ID='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 function accepted(command,documentId=DOCUMENT_ID) {
   return {receipt_status:'accepted',request_key:command.request_key,
     document_id:documentId,document_version:1,
@@ -161,14 +162,17 @@ test('pinned readback compares cash and zero-cash status by original source ID',
   const provenance={source_instance_id:ID.legacySource,
     record_kind:'operational_status',source_record_id:ID.status,
     source_version:status.command.origin_source_version,target_version:1,
+    target_ref:STATUS_TARGET_ID,
     source_snapshot_hash:status.command.origin_request_hash,
     source_actor_ref:status.command.source_actor_ref,
     source_recorded_at:status.command.source_recorded_at,
     imported_payload:Object.fromEntries(Object.entries(status.command).filter(([key])=>
       !['request_key','origin_request_hash','origin_source_version','source_actor_ref',
         'source_recorded_at'].includes(key))),
-    target_current:{source_record_id:ID.status,version:1,
-      status_code:'room_confirmed',settles_room:true,booking_id:ID.booking}};
+    target_current:{id:STATUS_TARGET_ID,source_instance_id:ID.legacySource,
+      source_record_id:ID.status,version:1,
+      status_code:'room_confirmed',settles_room:true,booking_id:ID.booking,
+      source_recorded_at:status.command.source_recorded_at}};
   const readback={complete:true,as_of_change_seq:17,unsequenced_event_count:0,
     events:[event],receipts:{[money.command.request_key]:accepted(money.command)},
     catalog:{complete:true,next_cursor:null,as_of_change_seq:17,
@@ -190,6 +194,45 @@ test('pinned readback compares cash and zero-cash status by original source ID',
   readback.catalog.entries[0].source_snapshot_hash='0'.repeat(64);
   assert.ok(reconcileOsFinanceBackfill(plan,readback).differences.some(row=>
     row.code==='NONCASH_SOURCE_MISMATCH'));
+});
+
+test('each append-only status target version must remain present and exact',()=>{
+  const plan=planOsFinanceBackfill(fixture());
+  const first=plan.records.find(row=>row.kind==='operational_status');
+  const second=structuredClone(first);
+  second.source_version='2';
+  second.origin_source_version='redis:ledger:3';
+  second.command={...second.command,version:2,
+    request_key:'osimp:status-v2',origin_source_version:second.origin_source_version,
+    origin_request_hash:'d'.repeat(64),source_recorded_at:'2026-10-16T16:31:00Z'};
+  plan.records=[first,second];
+  function entry(row,targetId) {
+    const {request_key,origin_request_hash,origin_source_version,
+      source_actor_ref,source_recorded_at,...payload}=row.command;
+    void request_key;
+    return {source_instance_id:ID.legacySource,record_kind:'operational_status',
+      source_record_id:row.source_record_id,source_version:origin_source_version,
+      target_version:Number(row.source_version),target_ref:targetId,
+      source_snapshot_hash:origin_request_hash,source_actor_ref,source_recorded_at,
+      imported_payload:payload,target_current:{id:targetId,
+        source_instance_id:ID.legacySource,source_record_id:row.source_record_id,
+        version:Number(row.source_version),status_code:row.command.status_code,
+        settles_room:row.command.settles_room,booking_id:row.command.booking_id,
+        source_recorded_at}};
+  }
+  const catalog=[entry(first,STATUS_TARGET_ID),
+    entry(second,'dddddddd-dddd-4ddd-8ddd-dddddddddddd')];
+  const readback={complete:true,as_of_change_seq:17,unsequenced_event_count:0,
+    events:[],catalog:{complete:true,next_cursor:null,as_of_change_seq:17,
+      entries:catalog}};
+  assert.equal(reconcileOsFinanceBackfill(plan,readback).status,'matched');
+  catalog[0].target_current=null;
+  assert.ok(reconcileOsFinanceBackfill(plan,readback).differences.some(row=>
+    row.code==='NONCASH_TARGET_MISMATCH' && row.source_version==='1'));
+  catalog[0]=entry(first,STATUS_TARGET_ID);
+  catalog[0].target_current.status_code='unconfirmed';
+  assert.ok(reconcileOsFinanceBackfill(plan,readback).differences.some(row=>
+    row.code==='NONCASH_TARGET_MISMATCH' && row.source_version==='1'));
 });
 
 test('expense attribution is reconciled by exact month and cents',()=>{
