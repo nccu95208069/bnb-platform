@@ -162,7 +162,7 @@ test('real finance and payment routes count receipts and refunds once, including
   const report = await body(await f.finance());
   assert.equal(report.entries.length, 2); assert.equal(new Set(report.entries.map(entry => entry.id)).size, 2);
   assert.equal(report.orders[0].received, 30000); assert.equal(report.orders[0].receivable, 70000);
-  assert.deepEqual(revenueSummary(report.orders, report.entries, '2026-10'), { received: 30000, receivable: 70000, total: 100000 });
+  assert.deepEqual(revenueSummary(report.orders, report.entries, '2026-10'), { received: 30000, receivable: 70000, total: 100000, review_count: 0 });
   assert.equal(summarize(report.entries, '2026-09').net, 40000);
   assert.equal(summarize(report.entries, '2026-10').refund, 10000);
   assert.equal(summarize(report.entries, '2026-10').expense, 0);
@@ -227,7 +227,7 @@ test('refund references, overpayment, stale versions and cancellations preserve 
   await f.repository.transact(propertyId, state => { state.bookings[0].status = 'cancelled'; state.bookings[0].version++; });
   const report = await body(await f.finance());
   assert.equal(report.entries.length, 2); assert.equal(report.orders[0].receivable, 0);
-  assert.deepEqual(revenueSummary(report.orders, report.entries, '2026-10'), { received: 0, receivable: 0, total: 0 });
+  assert.deepEqual(revenueSummary(report.orders, report.entries, '2026-10'), { received: 0, receivable: 0, total: 0, review_count: 0 });
   assert.equal((await body(await f.payment(receipt({ expectedBookingVersion: 4, evidenceRef: 'cancelled receipt' })), 409)).code, 'RECEIPT_EXCEEDS_DUE');
 });
 
