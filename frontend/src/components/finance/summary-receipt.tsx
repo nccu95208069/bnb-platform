@@ -8,8 +8,8 @@ export function SummaryReceipt({property,orderId,onClose,onSaved}:{property:stri
  const t=useT();const [report,setReport]=useState<FinanceReport|null>(null),[error,setError]=useState('');
  useEffect(()=>{const abort=new AbortController();fetch(`/api/v1/finance?property=${encodeURIComponent(property)}&year=${taipeiDate().slice(0,4)}`,{cache:'no-store',signal:abort.signal}).then(async r=>{if(!r.ok)throw Error();return r.json();}).then(r=>{if(!abort.signal.aborted)setReport(r);}).catch(()=>{if(!abort.signal.aborted)setError('暫時無法讀取訂單，請關閉後重試。');});return()=>abort.abort();},[property]);
  const order=report?.orders.find(o=>o.id===orderId);
- if(report&&order&&order.receivable>0&&!(report.property_id==='offland'&&report.ssot_enabled&&!order.ssot_command_eligible))return <ReceiptForm report={report} order={order} onClose={onClose} onSaved={onSaved}/>;
- return <Dialog open onOpenChange={open=>!open&&onClose()}><DialogContent><DialogTitle>{t('登記收款')}</DialogTitle><DialogDescription>{t(error||(!report?'正在核對訂單…':order?.receivable_review_required?'這筆訂單的付款責任與未結款待核對，請先到訂單詳情確認。':'這筆訂單目前無法登記更多房費，請到訂單詳情核對。'))}</DialogDescription></DialogContent></Dialog>;
+ if(report&&order&&order.status!=='retained'&&order.receivable>0&&!(report.property_id==='offland'&&report.ssot_enabled&&!order.ssot_command_eligible))return <ReceiptForm report={report} order={order} onClose={onClose} onSaved={onSaved}/>;
+ return <Dialog open onOpenChange={open=>!open&&onClose()}><DialogContent><DialogTitle>{t('登記收款')}</DialogTitle><DialogDescription>{t(error||(!report?'正在核對訂單…':order?.status==='retained'?'這筆訂單保留待安排，原款項繼續保留；重新安排入住後再核對差額。':order?.receivable_review_required?'這筆訂單的付款責任與未結款待核對，請先到訂單詳情確認。':'這筆訂單目前無法登記更多房費，請到訂單詳情核對。'))}</DialogDescription></DialogContent></Dialog>;
 }
 function ReceiptForm({report,order,onClose,onSaved}:{report:FinanceReport;order:FinanceOrder;onClose:()=>void;onSaved:()=>void}){
  const locale=useIntlLocale();

@@ -1,6 +1,6 @@
 export type CalendarView = "month" | "week" | "day";
 export type PaymentStatus = "paid" | "deposit" | "unpaid" | "unknown";
-export type ReservationStatus = "confirmed" | "cancelled";
+export type ReservationStatus = "confirmed" | "cancelled" | "retained";
 export type PaymentMethod = "cash" | "bank_transfer" | "credit_card" | "ota" | "other";
 export type PaymentType = "deposit" | "balance" | "other" | "full";
 export type BabySupplyKey =
@@ -143,6 +143,8 @@ export type CalendarResponse = {
   price_hidden?: boolean;
   iron_gate_manual_enabled?: boolean;
   iron_gate_manual_payment_enabled?: boolean;
+  retained_orders_enabled?: boolean;
+  retained_orders_can_write?: boolean;
   finance_ssot_enabled?: boolean;
   finance_ssot_properties?: string[];
 };

@@ -23,12 +23,13 @@ export function ssotBookingOrder(value:unknown,config:ManualConfig):FinanceOrder
   const row=value;
   if(!UUID.test(String(row.id))||row.workspaceId!==config.grant.workspaceId||
     row.propertyId!==config.grant.propertyId||
-    !['held','confirmed','cancelled'].includes(String(row.status))||
+    !['held','confirmed','cancelled','retained'].includes(String(row.status))||
     !['os','line','website','external'].includes(String(row.source))||
     typeof row.sourceReviewRequired!=='boolean'||row.currency!=='TWD'||
     typeof row.createdAt!=='string'||!/(?:Z|[+-]\d{2}:\d{2})$/.test(row.createdAt)||
     !Number.isFinite(Date.parse(row.createdAt))||
-    !Array.isArray(row.stays)||!row.stays.length||row.stays.length>4096)fail();
+    !Array.isArray(row.stays)||row.stays.length>4096||
+    (row.status==='retained'?row.stays.length!==0:!row.stays.length))fail();
   const version=integer(row.version,1);
   const roomNames=new Map(Object.entries(config.calendar.roomIds).map(([name,id])=>[id,name]));
   const cells=new Set<string>(),rooms=new Set<string>();
@@ -48,8 +49,16 @@ export function ssotBookingOrder(value:unknown,config:ManualConfig):FinanceOrder
     }
     return {checkIn,checkOut};
   });
-  const amountUnknown=row.totalCents===null;
-  const total=amountUnknown?0:integer(row.totalCents);
+  const retained=row.status==='retained';
+  const retention=object(row.retention)?row.retention:null;
+  const history=retention&&Array.isArray(retention.history)?retention.history:[];
+  const last=object(history.at(-1))?history.at(-1) as Record<string,unknown>:null;
+  if(retained&&(!retention||retention.schema!==1||!last||
+    retention.activeRetentionId!==last.id||!Array.isArray(last.previousStays)||
+    !last.previousStays.length||last.rescheduledAt||row.totalCents!==null))fail();
+  const historicalTotal=retained?last?.previousTotalCents:row.totalCents;
+  const amountUnknown=historicalTotal==null;
+  const total=amountUnknown?0:integer(historicalTotal);
   const summary=object(row.paymentSummary)?row.paymentSummary:fail();
   const received=integer(summary.receivedCents),refunded=integer(summary.refundedCents);
   if(refunded>received||integer(summary.netReceivedCents)!==received-refunded)fail();
@@ -59,7 +68,7 @@ export function ssotBookingOrder(value:unknown,config:ManualConfig):FinanceOrder
   const paymentReview=object(row.paymentReview)?row.paymentReview:null;
   // Zero canonical receipts cannot prove an imported legacy book had no money.
   // Keep historical/native payment coverage in review until separately reconciled.
-  const review=amountUnknown||row.sourceReviewRequired||row.source==='external'||
+  const review=retained||amountUnknown||row.sourceReviewRequired||row.source==='external'||
     !!calendar?.sourceOrderRef||received!==0||refunded!==0||
     paymentReview?.source==='sheet_flag'||row.cardManaged===true||
     object(row.cardChargeResult)&&row.cardChargeResult.status==='done';
@@ -71,13 +80,18 @@ export function ssotBookingOrder(value:unknown,config:ManualConfig):FinanceOrder
     ...(amountUnknown?{amount_review_required:true}:{}),
     ...(review?{receivable_review_required:true}:{}),
     platform,rooms:[...rooms].sort(),
-    check_in:stays.map(s=>s.checkIn).sort()[0],
-    check_out:stays.map(s=>s.checkOut).sort().at(-1)!,total,
+    check_in:retained?'':stays.map(s=>s.checkIn).sort()[0],
+    check_out:retained?'':stays.map(s=>s.checkOut).sort().at(-1)!,total,
+    ...(retention?{retained_credit_cents:row.retainedAmountReviewRequired===false?
+      amountOrNull(row.retainedAmountCents):null,
+      retained_credit_review_required:row.retainedAmountReviewRequired!==false}:{}),
     received:0,receivable:!review&&status==='confirmed'?total:0,
     credit:0,eligible_date:null,source_paid:false,
     source_version:projectionVersion([row.id,version,row.status,total,row.source,
-      row.sourceReviewRequired,calendar,summary,paymentReview,stays])};
+      row.sourceReviewRequired,calendar,summary,paymentReview,stays,retention])};
 }
+
+function amountOrNull(value:unknown):number|null{return value==null?null:integer(value);}
 
 /** Full, bounded two-pass read. Booking versions can move without inventoryVersion. */
 export async function readSsotBookings(config:ManualConfig,actor:Principal,

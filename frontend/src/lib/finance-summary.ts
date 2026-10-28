@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import type {CalendarBooking} from '../components/calendar/calendar-types';
-import type {FinanceEntry} from './finance-model';
+import type {FinanceEntry,FinanceOrder} from './finance-model';
 import {ledgerKey} from './os-payments.ts';
 
 export type SettlementStatus = 'unknown' | 'recorded_unverified' | 'partial' | 'complete' | 'unpaid';
@@ -9,6 +9,8 @@ export type SummaryRegistry = {schema:1; version:number; orders:OrderIdentity[];
 export const emptyRegistry = ():SummaryRegistry => ({schema:1,version:0,orders:[],audits:[]});
 export type FinanceSummaryRow = {
  can_record?:boolean;
+ status?:FinanceOrder['status'];
+ retained_credit_cents?:number|null; retained_credit_review_required?:boolean;
  id:string; platform:string; rooms:string[]; check_in:string; check_out:string;
  ota_ids:string[]; owl_ids:string[]; row_ids:string[]; aliases:string[];
  source_amount_cents:number|null; customer_payment:SettlementStatus;
@@ -22,7 +24,7 @@ export const summaryVersion=(value:unknown)=>createHash('sha256').update(JSON.st
 // M1 is a conservative projection. Legacy H never creates a receipt or confirms a total.
 export function summarizeOrders(property:string,rows:CalendarBooking[],entries:FinanceEntry[],registry:SummaryRegistry){
  const groups=new Map<string,CalendarBooking[]>();
- for(const row of rows){if(row.property_id!==property)throw new Error('SOURCE_SCOPE_MISMATCH');if(row.reservation_status==='cancelled')continue;groups.set(row.order_id,[...(groups.get(row.order_id)??[]),row]);}
+ for(const row of rows){if(row.property_id!==property)throw new Error('SOURCE_SCOPE_MISMATCH');if(row.reservation_status==='cancelled'||row.reservation_status==='retained')continue;groups.set(row.order_id,[...(groups.get(row.order_id)??[]),row]);}
  const result:FinanceSummaryRow[]=[];
  for(const [id,bookings] of groups){
   const platform=bookings[0].platform;

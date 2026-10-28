@@ -13,6 +13,13 @@ const invalid = (): never => { throw new GateError('SOURCE_AMOUNT_RECONCILIATION
 export function reconciledAmount(booking: Booking): SourceAmountReconciliation | null {
   const m = booking.sourceAmountReconciliation;
   if (!m) return null;
+  if (booking.retention) {
+    // The immutable correction still describes the former contract, not the
+    // retained order or its later price. Validate that evidence independently
+    // before withholding it from all current-stay projections.
+    reconciledAmount(beforeOwnerLifecycle(booking));
+    return null;
+  }
   if (m.schema === 2) return reconciledImportedAmount(booking, m);
   const rows = booking.sweetfunSnapshot?.rows, stay = booking.stays[0];
   if (Object.keys(m).sort().join(',') !== ['schema','groupId','bookingVersion','sourceOrderRef',
@@ -43,9 +50,23 @@ export function reconciledAmount(booking: Booking): SourceAmountReconciliation |
   return structuredClone(m);
 }
 
+function beforeOwnerLifecycle(booking: Booking): Booking {
+  const lifecycle = booking.retention, period = lifecycle?.history?.[0];
+  if (!lifecycle || lifecycle.schema !== 1 || !period ||
+    !Number.isSafeInteger(period.retainedBookingVersion) || period.retainedBookingVersion < 2 ||
+    period.retainedBookingVersion > booking.version || !Array.isArray(period.previousStays) ||
+    !period.previousStays.length || lifecycle.sourceOrderRef !== booking.sourceAmountReconciliation?.sourceOrderRef)
+    return invalid();
+  return { ...booking, retention: undefined, version: period.retainedBookingVersion - 1,
+    status: 'confirmed', stays: structuredClone(period.previousStays),
+    totalCents: period.previousTotalCents, roomNightPrices: period.previousRoomNightPrices };
+}
+
 export function reconciledFinanceAmounts(bookings: Booking[]) {
   const rows = bookings.filter(b => b.sourceAmountReconciliation).map(b => ({
-    bookingId: b.id, status: b.status, ...reconciledAmount(b)!,
+    bookingId: b.id, status: b.status,
+    ...reconciledAmount(b.retention ? beforeOwnerLifecycle(b) : b)!,
+    ...(b.retention ? { historicalOnly: true as const } : {}),
     // Expose the CURRENT version; the marker version is provenance only.
     version: b.version,
   }));

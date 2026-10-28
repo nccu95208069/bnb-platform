@@ -9,7 +9,7 @@ export function roomQuoteLibrary(bookings: BookingSourceSnapshot, prices: Pricin
   const checked = Date.parse(bookings.source.sync?.last_checked_at ?? '');
   const healthy = bookings.source.sync?.status === 'healthy' && now.getTime()-checked >= -30_000 && now.getTime()-checked <= 300_000;
   const cells = prices.cells.filter(c => c.date >= today && Date.parse(c.date)-Date.parse(today) <= 365*86400000 && PRICING_ROOMS.includes(c.room)).map(c => {
-    const occupied = bookings.bookings.filter(b => b.room_number===c.room && b.reservation_status!=='cancelled' && b.check_in<=c.date && b.check_out>c.date);
+    const occupied = bookings.bookings.filter(b => b.room_number===c.room && b.reservation_status!=='cancelled'&&b.reservation_status!=='retained' && b.check_in<=c.date && b.check_out>c.date);
     const price = c.channels.direct;
     const age = now.getTime()-Date.parse(c.observed_at ?? prices.observed_at);
     let state: 'unsold'|'sold'|'blocked'|'unknown' = 'unknown';

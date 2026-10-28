@@ -89,3 +89,40 @@ test('cancelled imported order remains auditable with zero due and no fabricated
  assert.equal(report.entries.length,0);assert.equal(f.status.mutations,0);
  const cal=await readSweetfunIronGateCalendarSnapshot('2026-01-01','2026-01-02',f.owner,f.config);assert.equal(cal.bookings.length,0);
 });
+
+test('Offland corrected Airbnb order retains historical cohort evidence while legacy reports follow current lifecycle',async t=>{
+ const f=await fixture(t,'offland'),initial=await f.read(),booking=f.corrected.bookings[0];
+ const original=initial.orders.find(o=>o.amount_reconciliation.bookingId===booking.id);
+ const entry={id:randomUUID(),property_id:'offland',kind:'income',category:'lodging',amount_cents:10000,
+  date:'2026-01-01',description:'Synthetic original deposit',method:'cash',source:'manual',actor:'synthetic',
+  created_at:'2026-01-01T00:00:00Z',status:'active',order_id:original.id,order_key:ledgerKey('offland',original.id),platform:'airbnb'};
+ f.db.set(financeKey('offland',2026),JSON.stringify({version:1,entries:[entry],operations:[]}));
+ Object.assign(process.env,{IRON_GATE_OFFLAND_RETAINED_ENABLED:'true',
+  IRON_GATE_OFFLAND_RETAINED_GRANT:JSON.stringify(f.config.grant)});
+ const principal={clientId:f.config.grant.clientId,subjectId:f.owner.id,origin:'os',workspaceId:f.state.workspaceId,
+  propertyIds:[f.state.propertyId],authorityEpoch:1,actions:['booking:read','booking:amend'],
+  fields:['guest_name','contact','notes','money','payment_status']};
+ const preview=await f.service.previewRetainBooking(principal,f.state.propertyId,booking.id,{reason:'Synthetic postponed stay'});
+ await f.service.retainBooking(principal,f.state.propertyId,booking.id,randomUUID(),{
+  reason:'Synthetic postponed stay',expectedBookingVersion:preview.bookingVersion,expectedInventoryVersion:preview.inventoryVersion});
+ const snapshot=await readSourceAmountSnapshot(f.owner,f.config);
+ const historical=snapshot.sourceAmountReconciliations.find(row=>row.bookingId===booking.id);
+ assert.equal(historical.historicalOnly,true);assert.equal(historical.status,'retained');
+ assert.equal(checkedFinanceCorrections(snapshot.sourceAmountReconciliations,{calendar:f.config,grant:f.config.grant}).length,
+  f.corrected.bookings.length);
+ const retained=await f.read(),saved=retained.orders.find(o=>o.id===original.id);
+ assert.equal(saved.status,'retained');assert.equal(saved.check_in,'');assert.equal(saved.receivable,0);
+ assert.equal(saved.received,10000);assert.equal(saved.retained_credit_cents,null);
+ assert.equal(retained.entries[0].id,entry.id);assert.equal(retained.entries[0].date,entry.date);
+ const proposal={reason:'Synthetic replacement dates',stays:[{checkIn:'2027-03-20',checkOut:'2027-03-21',roomIds:[historical.roomId]}],
+  totalCents:400000,roomNightPrices:[{roomId:historical.roomId,date:'2027-03-20',amountCents:400000}]};
+ const next=await f.service.previewRescheduleBooking(principal,f.state.propertyId,booking.id,proposal);
+ await f.service.rescheduleBooking(principal,f.state.propertyId,booking.id,randomUUID(),{...proposal,
+  expectedBookingVersion:next.bookingVersion,expectedInventoryVersion:next.inventoryVersion});
+ const after=await f.read(),current=after.orders.find(o=>o.id===original.id);
+ assert.equal(current.status,'confirmed');assert.equal(current.check_in,'2027-03-20');assert.equal(current.total,400000);
+ assert.equal(current.received,10000);assert.equal(current.source_paid,false);assert.equal(current.receivable_review_required,true);
+ assert.equal(after.entries.length,1);assert.equal(after.entries[0].id,entry.id);assert.equal(f.status.mutations,0);
+ const detail=await f.service.getBooking(principal,f.state.propertyId,booking.id);
+ assert.equal(detail.sourceAmountReconciliation,undefined);
+});

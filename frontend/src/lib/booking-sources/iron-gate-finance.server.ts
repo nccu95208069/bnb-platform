@@ -115,12 +115,14 @@ export async function readDirectFinance(principal: Principal, config: ManualConf
 }
 
 
-type FinanceCorrection = SourceAmountBreakdown & {bookingId:string;version:number;status:string;orderId:string;room:string};
+type FinanceCorrection = SourceAmountBreakdown & {bookingId:string;version:number;status:string;orderId:string;room:string;historicalOnly?:boolean};
 export function checkedFinanceCorrections(raw: unknown, config: ManualConfig): FinanceCorrection[] {
   if (!Array.isArray(raw) || raw.length > 5000) return invalid();
   const rows = raw.map(value => {
     if (!object(value) || !UUID.test(String(value.bookingId)) ||
-      !['confirmed','cancelled'].includes(String(value.status))) return invalid();
+      !['confirmed','cancelled','retained'].includes(String(value.status)) ||
+      value.historicalOnly !== undefined && value.historicalOnly !== true ||
+      value.status === 'retained' && value.historicalOnly !== true) return invalid();
     const amount = checkedAmountBreakdown(value, Number(value.netCents), Number(value.version));
     const property = config.calendar.propertyKey ?? 'sweetfun';
     if ((amount.schema === 1 ? 'sweetfun' : amount.sourceProperty) !== property) return invalid();
@@ -128,7 +130,8 @@ export function checkedFinanceCorrections(raw: unknown, config: ManualConfig): F
     if (!room) return invalid();
     const orderId = `SF-${createHash('sha256').update(
       `${property}-operations-sheet-v1:order:ungrouped:${amount.sourceOrderRef.slice(2)}`).digest('hex').slice(0,20)}`;
-    return {...amount,bookingId:String(value.bookingId),version:Number(value.version),status:String(value.status),orderId,room};
+    return {...amount,bookingId:String(value.bookingId),version:Number(value.version),status:String(value.status),orderId,room,
+      ...(value.historicalOnly === true ? {historicalOnly:true} : {})};
   });
   if (new Set(rows.map(r => r.bookingId)).size !== rows.length ||
     new Set(rows.map(r => r.orderId)).size !== rows.length) return invalid();
@@ -153,6 +156,9 @@ export function checkedFinanceCorrections(raw: unknown, config: ManualConfig): F
 
 export function applyFinanceAmountCorrections(orders: FinanceOrder[], corrections: FinanceCorrection[]) {
   for (const correction of corrections) {
+    // An owner-managed booking has its own current stay/price. Keep every
+    // historical member in cohort validation, but never reapply its old price.
+    if (correction.historicalOnly) continue;
     const matches=orders.filter(o => o.id===correction.orderId);
     const order=matches[0];
     if (matches.length!==1 || order.source || order.platform!=='airbnb' ||

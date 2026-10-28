@@ -7,6 +7,7 @@ import {activeSources} from '@/lib/booking-sources/config';
 import {financeContext} from '@/lib/finance-context';
 import {ssotFinanceEnabled} from '@/lib/booking-sources/iron-gate-ssot-finance.server';
 import {summarizeSsotOrders} from '@/lib/finance-ssot-summary';
+import {overlayOfflandLegacySummary} from '@/lib/finance-retained-legacy';
 import {readOperationalSheet} from '@/lib/sheet-monitor/google';
 import {normalizeRows,HEADERS} from '@/lib/sheet-monitor/reconcile';
 import {adaptSheetBookings} from '@/lib/booking-sources/sweetfun-sheet';
@@ -32,7 +33,11 @@ async function context(request:NextRequest){
  const normalized=normalizeRows(values,source);
  const snapshot=adaptSheetBookings([HEADERS,...normalized.map(r=>r.cells)],source.sourceId,new Date().toISOString(),[],normalized.map(r=>r.sourceRow),source.property);
  const rows=attachPrivateGuestNames(snapshot.bookings,values,source);
- const summary=summarizeOrders(source.property.id,rows,report.entries,registry.state);
+ const legacySummary=summarizeOrders(source.property.id,rows,report.entries,registry.state);
+ const summary=source.property.id==='offland'&&'offland_lifecycle' in report&&report.offland_lifecycle?
+  overlayOfflandLegacySummary(legacySummary,report.orders,report.entries,report.offland_lifecycle,source.sourceId):legacySummary;
+ if(source.property.id==='offland'&&'offland_lifecycle' in report&&report.offland_lifecycle)
+  summary.retained=registry.state.orders.filter(identity=>!summary.orders.some(order=>order.id===identity.id));
  return {actor,source,registry,summary,source_version:summaryVersion([summary.orders,report.projection_version]),properties:sources.map(s=>({id:s.property.id,name:s.property.name})),issues:snapshot.issues.length};
 }
 function failure(e:unknown){const code=e instanceof Error?e.message:'';const status=({UNAUTHORIZED:401,FORBIDDEN:403,VERSION_CONFLICT:409,INVALID_INPUT:400,RATE_LIMITED:429} as Record<string,number>)[code]??503;return NextResponse.json({code:status===503?'UNAVAILABLE':code},{status,headers:privateHeaders});}

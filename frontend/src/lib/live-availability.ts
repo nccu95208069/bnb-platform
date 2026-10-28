@@ -16,7 +16,7 @@ export function liveAvailability(query: AvailabilityQuery, bookings: BookingSour
   const cells: RoomNight[] = [];
   const healthy = bookings.source.sync?.status === 'healthy';
   for (let date = query.start; date < query.end; date = nextDay(date)) for (const room of rooms) {
-    const occupied = bookings.bookings.filter(b => b.room_number === room && b.reservation_status !== 'cancelled' && b.check_in <= date && b.check_out > date);
+    const occupied = bookings.bookings.filter(b => b.room_number === room && b.reservation_status !== 'cancelled' && b.reservation_status !== 'retained' && b.check_in <= date && b.check_out > date);
     const p = priceMap.get(`${date}|${room}`);
     const observed = p?.observed_at ?? prices?.observed_at ?? '';
     const overlay = stockMap.get(`${date}|${room}`);
