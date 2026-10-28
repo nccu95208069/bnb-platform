@@ -17,6 +17,8 @@ export type FinanceRoutes = {
   importReceipt(principal: Principal, propertyId: string, requestKey: string): Promise<unknown>;
   importLedger(principal: Principal, propertyId: string, query: { from: string | null; to: string | null;
     cursor: string | null; limit: number; as_of_change_seq: string | null }): Promise<unknown>;
+  importCatalog(principal: Principal, propertyId: string, query: { cursor: string | null;
+    limit: number; as_of_change_seq: number | null }): Promise<unknown>;
   importIssue(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   importIssues(principal: Principal, propertyId: string, status: string): Promise<unknown>;
   resolveImportIssue(principal: Principal, propertyId: string, issueId: string,
@@ -32,14 +34,14 @@ export type FinanceRoutes = {
   expenses(principal: Principal, propertyId: string, month: string | null, limit: number,
     cursor: string | null): Promise<unknown>;
   accounts(principal: Principal, propertyId: string): Promise<unknown>;
-  accountCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  accountCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string, shadowImport?: boolean): Promise<unknown>;
   categories(principal: Principal, propertyId: string): Promise<unknown>;
-  categoryCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
-  statusCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  categoryCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string, shadowImport?: boolean): Promise<unknown>;
+  statusCommand(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string, shadowImport?: boolean): Promise<unknown>;
   statuses(principal: Principal, propertyId: string, bookingId: string | null): Promise<unknown>;
-  recurringRule(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  recurringRule(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string, shadowImport?: boolean): Promise<unknown>;
   recurringRules(principal: Principal, propertyId: string): Promise<unknown>;
-  payoutRule(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
+  payoutRule(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string, shadowImport?: boolean): Promise<unknown>;
   payoutRules(principal: Principal, propertyId: string): Promise<unknown>;
   evidenceAssertion(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
   settlement(principal: Principal, propertyId: string, input: Record<string, unknown>, requestKey: string): Promise<unknown>;
@@ -138,6 +140,28 @@ export function createHandler(service: IronGateService, authenticate: Authentica
             cursor:url.searchParams.get('cursor'),
             limit:Number(url.searchParams.get('limit') ?? '50'),
             as_of_change_seq:url.searchParams.get('as_of_change_seq') }));
+        if (parts[4] === 'imports' && parts[5] === 'catalog' &&
+          parts.length === 6 && request.method === 'GET')
+          return json(await finance.importCatalog(principal,parts[2],{
+            cursor:url.searchParams.get('cursor'),
+            limit:Number(url.searchParams.get('limit') ?? '50'),
+            as_of_change_seq:url.searchParams.has('as_of_change_seq') ?
+              Number(url.searchParams.get('as_of_change_seq')) : null }));
+        if (parts[4] === 'imports' && parts.length === 6 &&
+          request.method === 'POST') {
+          const value=await body(request);
+          const key=requestKey(request);
+          if (parts[5] === 'status-commands')
+            return json(await finance.statusCommand(principal,parts[2],value,key,true),201);
+          if (parts[5] === 'recurring-rules')
+            return json(await finance.recurringRule(principal,parts[2],value,key,true),201);
+          if (parts[5] === 'payout-rules')
+            return json(await finance.payoutRule(principal,parts[2],value,key,true),201);
+          if (parts[5] === 'accounts')
+            return json(await finance.accountCommand(principal,parts[2],value,key,true),201);
+          if (parts[5] === 'categories')
+            return json(await finance.categoryCommand(principal,parts[2],value,key,true),201);
+        }
         if (parts[4] === 'imports' && parts[5] === 'issues' &&
           parts.length === 6 && request.method === 'POST')
           return json(await finance.importIssue(principal,parts[2],

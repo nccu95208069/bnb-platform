@@ -663,6 +663,9 @@ export class FinanceCommandService {
       fail('INVALID_INPUT');
     if (raw.origin_request_hash != null && !HEX.test(raw.origin_request_hash))
       fail('INVALID_INPUT');
+    if (!shadowImport &&
+      (raw.source_actor_ref != null || raw.source_recorded_at != null))
+      fail('INVALID_INPUT');
     const requestHash = hash(action === 'finance:link' ?
       Object.fromEntries(Object.entries(raw).filter(([key]) => key !== 'preview_token')) : raw);
     return this.#transaction(propertyId, true, async client => {
@@ -704,9 +707,90 @@ export class FinanceCommandService {
       return response;
     });
   }
-  async statusCommand(principal, propertyId, raw, requestKey) {
+  async #recordImportCatalog(client,principal,propertyId,recordKind,
+    sourceRecordId,sourceVersion,targetRef,raw) {
+    if (!HEX.test(raw.origin_request_hash ?? '') ||
+      typeof raw.source_actor_ref !== 'string' ||
+      !/^os_actor:[0-9a-f]{64}$/.test(raw.source_actor_ref) ||
+      typeof raw.source_recorded_at !== 'string' ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(raw.source_recorded_at) ||
+      Number.isNaN(Date.parse(raw.source_recorded_at)) ||
+      new Date(raw.source_recorded_at).toISOString().slice(0,19) !==
+        raw.source_recorded_at.slice(0,19)) fail('INVALID_INPUT');
+    const {request_key,origin_request_hash,source_actor_ref,source_recorded_at,
+      ...payload}=raw;
+    void request_key;
+    await client.query(`INSERT INTO iron_gate.finance_import_catalog
+      (id,property_id,source_instance_id,record_kind,source_record_id,
+       source_version,target_ref,source_snapshot_hash,source_actor_ref,
+       source_recorded_at,imported_payload)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)`,
+      [randomUUID(),propertyId,principal.financeSourceInstanceId,recordKind,
+        sourceRecordId,sourceVersion,targetRef,origin_request_hash,
+        source_actor_ref,source_recorded_at,JSON.stringify(payload)]);
+  }
+  async importCatalog(principal,propertyId,{limit=50,cursor=null,
+    as_of_change_seq=null}={}) {
+    this.#authorize(principal,propertyId,'finance:import');
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 ||
+      cursor != null && !UUID.test(cursor) ||
+      as_of_change_seq != null && (!Number.isSafeInteger(as_of_change_seq) ||
+        as_of_change_seq < 0)) fail('INVALID_INPUT');
+    return this.#transaction(propertyId,false,async client => {
+      await this.#context(client,principal,propertyId,false,true);
+      const watermark=await financeWatermark(client,propertyId);
+      if (as_of_change_seq != null && watermark !== as_of_change_seq)
+        fail('VERSION_CONFLICT',409);
+      const result=await client.query(`SELECT id,source_instance_id,record_kind,
+        source_record_id,source_version,target_ref,source_snapshot_hash,
+        source_actor_ref,source_recorded_at,imported_payload,imported_at
+        FROM iron_gate.finance_import_catalog
+        WHERE property_id=$1 AND source_instance_id=$2
+          AND ($3::uuid IS NULL OR id>$3::uuid)
+        ORDER BY id LIMIT $4`,[propertyId,principal.financeSourceInstanceId,cursor,limit+1]);
+      const entries=[];
+      for (const row of result.rows.slice(0,limit)) {
+        let current;
+        if (row.record_kind==='operational_status') {
+          current=await client.query(`SELECT id,source_instance_id,source_record_id,
+            version,booking_id,status_code,settles_room,recorded_at
+            FROM iron_gate.finance_operational_status
+            WHERE property_id=$1 AND source_instance_id=$2 AND id=$3::uuid`,
+            [propertyId,principal.financeSourceInstanceId,row.target_ref]);
+        } else if (row.record_kind==='recurring_rule') {
+          current=await client.query(`SELECT id,source_instance_id,source_record_id,
+            version,cadence,start_on,end_on,next_due_on,status,category_code,
+            amount_cents,safe_description,payment_method_code,due_day
+            FROM iron_gate.finance_recurring_rule
+            WHERE property_id=$1 AND source_instance_id=$2 AND id=$3::uuid`,
+            [propertyId,principal.financeSourceInstanceId,row.target_ref]);
+        } else if (row.record_kind==='payout_rule') {
+          current=await client.query(`SELECT platform,version,mode,day,offset_days,
+            offset_months,status FROM iron_gate.finance_payout_rule
+            WHERE property_id=$1 AND platform=$2`,[propertyId,row.target_ref]);
+        } else if (row.record_kind==='account') {
+          current=await client.query(`SELECT code,display_name,kind,last_digits,
+            status,version FROM iron_gate.finance_account
+            WHERE property_id=$1 AND code=$2`,[propertyId,row.target_ref]);
+        } else if (row.record_kind==='category') {
+          const [kind,code]=row.target_ref.split(':');
+          current=await client.query(`SELECT kind,code,label,status,version
+            FROM iron_gate.finance_category
+            WHERE property_id=$1 AND kind=$2 AND code=$3`,[propertyId,kind,code]);
+        }
+        const value=current?.rows[0] ?? null;
+        entries.push({...row,target_current:value && {
+          ...value,...Object.fromEntries(['start_on','end_on','next_due_on']
+            .filter(key => key in value).map(key => [key,pgDay(value[key])])) }});
+      }
+      return {entries,next_cursor:result.rows.length>limit?entries.at(-1)?.id:null,
+        as_of_change_seq:watermark};
+    });
+  }
+  async statusCommand(principal, propertyId, raw, requestKey, shadowImport = false) {
     const keys = new Set(['request_key','source_record_id','version','status_code',
-      'settles_room','booking_id','expected_booking_version','origin_request_hash']);
+      'settles_room','booking_id','expected_booking_version','origin_request_hash',
+      'source_actor_ref','source_recorded_at']);
     if (Object.keys(raw ?? {}).some(key => !keys.has(key)) ||
       !/^[A-Za-z0-9._:-]{1,256}$/.test(raw?.source_record_id ?? '') ||
       !Number.isSafeInteger(raw.version) || raw.version < 1 ||
@@ -714,8 +798,11 @@ export class FinanceCommandService {
       typeof raw.settles_room !== 'boolean' ||
       (raw.settles_room && !UUID.test(raw.booking_id ?? '')) ||
       (raw.booking_id != null && !UUID.test(raw.booking_id))) fail('INVALID_INPUT');
-    return this.#operation(principal,propertyId,'finance:status',raw,requestKey,
-      async (client,{state}) => {
+    return this.#operation(principal,propertyId,
+      shadowImport ? 'finance:import' : 'finance:status',raw,requestKey,
+      async (client,{state,source}) => {
+        if (shadowImport && source.source_system !== 'os_legacy_payment')
+          fail('SOURCE_FORBIDDEN',403);
         if (raw.booking_id) {
           const booking = state.bookings.find(b => b.id === raw.booking_id);
           if (!booking) fail('UNKNOWN_BOOKING',422);
@@ -733,9 +820,11 @@ export class FinanceCommandService {
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
           [statusId,propertyId,raw.booking_id ?? null,principal.financeSourceInstanceId,
             raw.source_record_id,raw.version,raw.status_code,raw.settles_room]);
+        if (shadowImport) await this.#recordImportCatalog(client,principal,propertyId,
+          'operational_status',raw.source_record_id,raw.version,statusId,raw);
         return { receipt_status:'accepted',request_key:requestKey,status_id:statusId,
           version:raw.version,cash_effect_cents:0 };
-      });
+      },shadowImport);
   }
   async statuses(principal, propertyId, bookingId = null) {
     this.#authorize(principal,propertyId,'finance:read');
@@ -750,10 +839,11 @@ export class FinanceCommandService {
         as_of_change_seq:await financeWatermark(client,propertyId) };
     });
   }
-  async recurringRule(principal, propertyId, raw, requestKey) {
+  async recurringRule(principal, propertyId, raw, requestKey, shadowImport = false) {
     const keys = new Set(['request_key','source_record_id','version','cadence','start_on',
       'end_on','next_due_on','status','category_code','amount_cents',
-      'safe_description','payment_method_code','due_day','origin_request_hash']);
+      'safe_description','payment_method_code','due_day','origin_request_hash',
+      'source_actor_ref','source_recorded_at']);
     if (Object.keys(raw ?? {}).some(key => !keys.has(key)) ||
       !/^[A-Za-z0-9._:-]{1,256}$/.test(raw?.source_record_id ?? '') ||
       !Number.isSafeInteger(raw.version) || raw.version < 1 ||
@@ -769,8 +859,11 @@ export class FinanceCommandService {
       fail('INVALID_INPUT');
     const start = day(raw.start_on,true), end = day(raw.end_on), next = day(raw.next_due_on);
     if (end && end < start || next && (next < start || end && next > end)) fail('INVALID_DATE');
-    return this.#operation(principal,propertyId,'finance:plan',raw,requestKey,
-      async client => {
+    return this.#operation(principal,propertyId,
+      shadowImport ? 'finance:import' : 'finance:plan',raw,requestKey,
+      async (client,{source}) => {
+        if (shadowImport && source.source_system !== 'os_manual')
+          fail('SOURCE_FORBIDDEN',403);
         const category = await client.query(`SELECT 1 FROM iron_gate.finance_category
           WHERE property_id=$1 AND kind='expense' AND code=$2 AND status='active'`,
           [propertyId,raw.category_code]);
@@ -795,9 +888,11 @@ export class FinanceCommandService {
           [id,propertyId,principal.financeSourceInstanceId,raw.source_record_id,
             raw.version,raw.cadence,start,end,next,raw.status,raw.category_code,
             raw.amount_cents,raw.safe_description,raw.payment_method_code,raw.due_day]);
+        if (shadowImport) await this.#recordImportCatalog(client,principal,propertyId,
+          'recurring_rule',raw.source_record_id,raw.version,id,raw);
         return { receipt_status:'accepted',request_key:requestKey,rule_id:id,
           version:raw.version,cash_effect_cents:0 };
-      });
+      },shadowImport);
   }
   async recurringRules(principal, propertyId) {
     this.#authorize(principal,propertyId,'finance:read');
@@ -814,9 +909,10 @@ export class FinanceCommandService {
         as_of_change_seq:await financeWatermark(client,propertyId) };
     });
   }
-  async payoutRule(principal, propertyId, raw, requestKey) {
+  async payoutRule(principal, propertyId, raw, requestKey, shadowImport = false) {
     const keys = new Set(['request_key','platform','version','mode','day','offset_days',
-      'offset_months','status','origin_request_hash']);
+      'offset_months','status','origin_request_hash',
+      'source_actor_ref','source_recorded_at']);
     if (Object.keys(raw ?? {}).some(key => !keys.has(key)) ||
       !/^[a-z][a-z0-9_]{0,63}$/.test(raw?.platform ?? '') ||
       !Number.isSafeInteger(raw.version) || raw.version < 1 ||
@@ -830,10 +926,24 @@ export class FinanceCommandService {
         raw.offset_days > 90 || raw.day != null || raw.offset_months != null :
         raw.day != null || raw.offset_days != null || raw.offset_months != null))
       fail('INVALID_INPUT');
-    return this.#operation(principal,propertyId,'finance:plan',raw,requestKey,
-      async client => {
+    return this.#operation(principal,propertyId,
+      shadowImport ? 'finance:import' : 'finance:plan',raw,requestKey,
+      async (client,{source}) => {
+        if (shadowImport && source.source_system !== 'os_manual')
+          fail('SOURCE_FORBIDDEN',403);
         const prior = await client.query(`SELECT version FROM iron_gate.finance_payout_rule
           WHERE property_id=$1 AND platform=$2`, [propertyId,raw.platform]);
+        if (shadowImport && prior.rows.length) {
+          const owner=await client.query(`SELECT source_instance_id,source_record_id,
+            source_version FROM iron_gate.finance_import_catalog
+            WHERE property_id=$1 AND record_kind='payout_rule' AND target_ref=$2
+            ORDER BY source_version DESC LIMIT 1`,[propertyId,raw.platform]);
+          if (!owner.rows.length ||
+            owner.rows[0].source_instance_id!==principal.financeSourceInstanceId ||
+            owner.rows[0].source_record_id!==raw.platform ||
+            owner.rows[0].source_version!==prior.rows[0].version)
+            fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
+        }
         if (raw.version !== (prior.rows[0]?.version ?? 0)+1) fail('VERSION_CONFLICT',409);
         if (prior.rows.length) await client.query(`UPDATE iron_gate.finance_payout_rule
           SET version=$1,mode=$2,day=$3,offset_days=$4,offset_months=$5,status=$6
@@ -845,9 +955,11 @@ export class FinanceCommandService {
           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
           [propertyId,raw.platform,raw.mode,raw.day ?? null,
             raw.offset_days ?? null,raw.offset_months ?? null,raw.version,raw.status]);
+        if (shadowImport) await this.#recordImportCatalog(client,principal,propertyId,
+          'payout_rule',raw.platform,raw.version,raw.platform,raw);
         return { receipt_status:'accepted',request_key:requestKey,
           platform:raw.platform,version:raw.version,cash_effect_cents:0 };
-      });
+      },shadowImport);
   }
   async payoutRules(principal, propertyId) {
     this.#authorize(principal,propertyId,'finance:read');
@@ -1335,9 +1447,9 @@ export class FinanceCommandService {
         as_of_change_seq:await financeWatermark(client,propertyId) };
     });
   }
-  async accountCommand(principal, propertyId, raw, requestKey) {
+  async accountCommand(principal, propertyId, raw, requestKey, shadowImport = false) {
     const keys = new Set(['request_key','code','display_name','kind','last_digits',
-      'origin_request_hash']);
+      'origin_request_hash','source_actor_ref','source_recorded_at']);
     if (!raw || typeof raw !== 'object' || Array.isArray(raw) ||
       Object.keys(raw).some(key => !keys.has(key)) ||
       !/^[A-Za-z0-9._:-]{1,64}$/.test(raw.code ?? '') ||
@@ -1346,8 +1458,11 @@ export class FinanceCommandService {
       !['card','bank'].includes(raw.kind) ||
       !(raw.kind === 'card' ? /^[0-9]{4}$/ : /^[0-9]{5}$/).test(raw.last_digits ?? ''))
       fail('INVALID_INPUT');
-    return this.#operation(principal,propertyId,'finance:plan',raw,requestKey,
-      async client => {
+    return this.#operation(principal,propertyId,
+      shadowImport ? 'finance:import' : 'finance:plan',raw,requestKey,
+      async (client,{source}) => {
+        if (shadowImport && source.source_system !== 'os_manual')
+          fail('SOURCE_FORBIDDEN',403);
         const existing = await client.query(`SELECT 1 FROM iron_gate.finance_account
           WHERE property_id=$1 AND code=$2`,[propertyId,raw.code]);
         if (existing.rows.length) fail('ACCOUNT_EXISTS',409);
@@ -1356,29 +1471,37 @@ export class FinanceCommandService {
           (id,property_id,code,display_name,kind,last_digits)
           VALUES ($1,$2,$3,$4,$5,$6)`,[id,propertyId,raw.code,
             raw.display_name.trim(),raw.kind,raw.last_digits]);
+        if (shadowImport) await this.#recordImportCatalog(client,principal,propertyId,
+          'account',raw.code,1,raw.code,raw);
         return {receipt_status:'accepted',request_key:requestKey,account_id:id,
           account_code:raw.code,cash_effect_cents:0};
-      });
+      },shadowImport);
   }
-  async categoryCommand(principal, propertyId, raw, requestKey) {
-    const keys = new Set(['request_key','code','label','kind','origin_request_hash']);
+  async categoryCommand(principal, propertyId, raw, requestKey, shadowImport = false) {
+    const keys = new Set(['request_key','code','label','kind','origin_request_hash',
+      'source_actor_ref','source_recorded_at']);
     if (!raw || typeof raw !== 'object' || Array.isArray(raw) ||
       Object.keys(raw).some(key => !keys.has(key)) ||
       !/^[a-z][a-z0-9_]{0,63}$/.test(raw.code ?? '') ||
       typeof raw.label !== 'string' || !raw.label.trim() ||
       raw.label.length > 128 || /[\u0000-\u001f\u007f]/.test(raw.label) ||
       !['income','expense'].includes(raw.kind)) fail('INVALID_INPUT');
-    return this.#operation(principal,propertyId,'finance:plan',raw,requestKey,
-      async client => {
+    return this.#operation(principal,propertyId,
+      shadowImport ? 'finance:import' : 'finance:plan',raw,requestKey,
+      async (client,{source}) => {
+        if (shadowImport && source.source_system !== 'os_manual')
+          fail('SOURCE_FORBIDDEN',403);
         const existing = await client.query(`SELECT 1 FROM iron_gate.finance_category
           WHERE property_id=$1 AND kind=$2 AND code=$3`,[propertyId,raw.kind,raw.code]);
         if (existing.rows.length) fail('CATEGORY_EXISTS',409);
         await client.query(`INSERT INTO iron_gate.finance_category
           (property_id,kind,code,label) VALUES ($1,$2,$3,$4)`,
           [propertyId,raw.kind,raw.code,raw.label.trim()]);
+        if (shadowImport) await this.#recordImportCatalog(client,principal,propertyId,
+          'category',`${raw.kind}:${raw.code}`,1,`${raw.kind}:${raw.code}`,raw);
         return {receipt_status:'accepted',request_key:requestKey,
           category_code:raw.code,cash_effect_cents:0};
-      });
+      },shadowImport);
   }
   async command(principal, propertyId, raw, requestKey, shadowImport = false) {
     const command = normalize(raw, requestKey);

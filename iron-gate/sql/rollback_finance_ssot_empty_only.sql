@@ -9,7 +9,7 @@ BEGIN
     'finance_allocation','finance_expense_attribution','finance_request_receipt',
     'finance_outbox','finance_change_event','finance_change',
     'finance_source_link','finance_source_alias',
-    'finance_payment_ownership','finance_import_issue','finance_account',
+    'finance_payment_ownership','finance_import_issue','finance_import_catalog','finance_account',
     'finance_category','finance_recurring_rule','finance_payout_rule',
     'finance_operational_status','finance_evidence_assertion',
     'finance_settlement','finance_settlement_link'] LOOP
@@ -26,6 +26,7 @@ DROP TABLE iron_gate.finance_payout_rule;
 DROP TABLE iron_gate.finance_recurring_rule;
 DROP TABLE iron_gate.finance_account;
 DROP TABLE iron_gate.finance_import_issue;
+DROP TABLE IF EXISTS iron_gate.finance_import_catalog;
 DROP TABLE iron_gate.finance_payment_ownership;
 DROP TABLE iron_gate.finance_source_alias;
 DROP TABLE iron_gate.finance_source_link;
