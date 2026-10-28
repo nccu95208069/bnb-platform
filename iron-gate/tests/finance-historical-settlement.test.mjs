@@ -24,6 +24,7 @@ function manifest() {
       os_receipt_id:`receipt-${index}`,os_receipt_version:'1',
       os_receipt_snapshot_hash:hex(`receipt-${index}`),
       sheet_row_snapshot_hash:hex(`sheet-row-${index}`),
+      sheet_order_source_version:hex(`sheet-order-version-${index}`),
       money_aliases_hash:hex(`aliases-${index}`),
       os_receipt_amount_cents:0,os_settles_room:true,
       decision:index===3?'unpaid_at_cutover':
@@ -55,6 +56,12 @@ test('private manifest is exactly four zero-cash receipt decisions with a pinned
   const unknownField=manifest();
   unknownField.rows[0].cash_on='2026-10-28';
   assert.throws(()=>pinned(unknownField),/HISTORICAL_MANIFEST_INVALID/);
+  const missingSheetVersion=manifest();
+  delete missingSheetVersion.rows[0].sheet_order_source_version;
+  assert.throws(()=>pinned(missingSheetVersion),/HISTORICAL_MANIFEST_INVALID/);
+  const malformedSheetVersion=manifest();
+  malformedSheetVersion.rows[0].sheet_order_source_version='booking:3';
+  assert.throws(()=>pinned(malformedSheetVersion),/HISTORICAL_MANIFEST_INVALID/);
 });
 
 test('settled projection holds collection without inventing received cash',()=>{

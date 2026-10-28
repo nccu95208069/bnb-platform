@@ -9,7 +9,7 @@ const DECISIONS = new Set(['settled_before_cutover_cash_details_unknown',
 const ROW_KEYS = ['booking_id','booking_version','booking_snapshot_hash',
   'booking_total_cents','source_order_key','source_link_snapshot_hash',
   'os_receipt_id','os_receipt_version','os_receipt_snapshot_hash',
-  'sheet_row_snapshot_hash','money_aliases_hash','os_receipt_amount_cents',
+  'sheet_row_snapshot_hash','sheet_order_source_version','money_aliases_hash','os_receipt_amount_cents',
   'os_settles_room','decision'];
 const MANIFEST_KEYS = ['property_id','source_instance_id','full_os_snapshot_hash',
   'owner_decision_hash','sheet_snapshot_hash','rows'];
@@ -61,7 +61,8 @@ export function parseHistoricalManifest(bytes, expectedSha256) {
       !TEXT.test(row.source_order_key) || !TEXT.test(row.os_receipt_id) ||
       !/^[A-Za-z0-9._:-]{1,128}$/.test(row.os_receipt_version) ||
       !['booking_snapshot_hash','source_link_snapshot_hash','os_receipt_snapshot_hash',
-        'sheet_row_snapshot_hash','money_aliases_hash'].every(key => HEX.test(row[key])) ||
+        'sheet_row_snapshot_hash','sheet_order_source_version',
+        'money_aliases_hash'].every(key => HEX.test(row[key])) ||
       row.os_receipt_amount_cents !== 0 || row.os_settles_room !== true ||
       !DECISIONS.has(row.decision) || seenBookings.has(row.booking_id) ||
       seenOrders.has(row.source_order_key) || seenReceipts.has(row.os_receipt_id))

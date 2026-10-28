@@ -570,16 +570,18 @@ export class FinanceCommandService {
          source_link_snapshot_hash,os_receipt_id,os_receipt_version,
          os_receipt_snapshot_hash,os_receipt_amount_cents,os_settles_room,
          full_os_snapshot_hash,owner_decision_hash,
-         sheet_snapshot_hash,sheet_row_snapshot_hash,money_aliases_hash,
+         sheet_snapshot_hash,sheet_row_snapshot_hash,sheet_order_source_version,
+         money_aliases_hash,
          manifest_sha256,decision,request_key,reviewed_by_ref)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)`,
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
         [id,propertyId,principal.financeSourceInstanceId,row.booking_id,row.booking_version,
           row.booking_snapshot_hash,row.booking_total_cents,row.source_order_key,
           row.source_link_snapshot_hash,row.os_receipt_id,row.os_receipt_version,
           row.os_receipt_snapshot_hash,row.os_receipt_amount_cents,row.os_settles_room,
           this.#historicalManifest.full_os_snapshot_hash,
           this.#historicalManifest.owner_decision_hash,this.#historicalManifest.sheet_snapshot_hash,
-          row.sheet_row_snapshot_hash,row.money_aliases_hash,command.manifest_sha256,
+          row.sheet_row_snapshot_hash,row.sheet_order_source_version,
+          row.money_aliases_hash,command.manifest_sha256,
           row.decision,requestKey,principal.subjectId]);
       // This disposition is deliberately absent from the Sheet money outbox.
       // The Sheet consumer does not support this non-cash source kind.
@@ -592,6 +594,7 @@ export class FinanceCommandService {
       const response={receipt_status:'accepted',request_key:requestKey,
         disposition_id:id,booking_id:row.booking_id,decision:row.decision,
         booking_version:row.booking_version,booking_total_cents:row.booking_total_cents,
+        sheet_order_source_version:row.sheet_order_source_version,
         cash_effect_cents:0,historical_cash_detail_missing:
           row.decision==='settled_before_cutover_cash_details_unknown',
         manifest_sha256:command.manifest_sha256,as_of_change_seq:changeSeq};
@@ -621,7 +624,8 @@ export class FinanceCommandService {
         d.source_link_snapshot_hash,d.os_receipt_id,d.os_receipt_version,
         d.os_receipt_snapshot_hash,d.os_receipt_amount_cents,d.os_settles_room,
         d.full_os_snapshot_hash,d.owner_decision_hash,
-        d.sheet_snapshot_hash,d.sheet_row_snapshot_hash,d.money_aliases_hash,
+        d.sheet_snapshot_hash,d.sheet_row_snapshot_hash,d.sheet_order_source_version,
+        d.money_aliases_hash,
         d.manifest_sha256,d.decision,d.cash_effect_cents,c.change_seq
         FROM iron_gate.finance_request_receipt rr
         JOIN iron_gate.finance_legacy_settlement d ON d.property_id=rr.property_id
@@ -639,6 +643,7 @@ export class FinanceCommandService {
         response_json.decision!==disposition.decision ||
         response_json.booking_version!==Number(disposition.booking_version) ||
         response_json.booking_total_cents!==Number(disposition.booking_total_cents) ||
+        response_json.sheet_order_source_version!==disposition.sheet_order_source_version ||
         response_json.manifest_sha256!==disposition.manifest_sha256 ||
         response_json.cash_effect_cents!==0 || Number(disposition.cash_effect_cents)!==0)
         fail('READBACK_MISMATCH',409);
@@ -660,6 +665,7 @@ export class FinanceCommandService {
         pinned.os_receipt_amount_cents!==Number(disposition.os_receipt_amount_cents) ||
         pinned.os_settles_room!==disposition.os_settles_room ||
         pinned.sheet_row_snapshot_hash!==disposition.sheet_row_snapshot_hash ||
+        pinned.sheet_order_source_version!==disposition.sheet_order_source_version ||
         pinned.money_aliases_hash!==disposition.money_aliases_hash)
         fail('READBACK_MISMATCH',409);
       const overlap=await client.query(`SELECT 1 FROM iron_gate.finance_allocation
@@ -1606,7 +1612,7 @@ export class FinanceCommandService {
       if (pinned > current) fail('VERSION_CONFLICT',409);
       const rows=await client.query(`SELECT d.id,d.property_id,d.booking_id,d.decision,
         d.booking_version,d.booking_total_cents,d.booking_snapshot_hash,
-        d.source_link_snapshot_hash,
+        d.source_link_snapshot_hash,d.sheet_order_source_version,
         d.cash_effect_cents,c.change_seq
         FROM iron_gate.finance_legacy_settlement d
         JOIN iron_gate.finance_change c ON c.property_id=d.property_id
@@ -1659,6 +1665,7 @@ export class FinanceCommandService {
           booking_total_cents:Number(row.booking_total_cents),
           booking_snapshot_hash:row.booking_snapshot_hash,
           source_link_snapshot_hash:row.source_link_snapshot_hash,cash_effect_cents:0,
+          sheet_order_source_version:row.sheet_order_source_version,
           collection_hold:projection.collection_hold,
           historical_cash_detail_missing:projection.historical_cash_detail_missing,
           review_required:projection.review_required,

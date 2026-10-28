@@ -33,6 +33,7 @@ test('migration 018 accepts four pinned zero-cash dispositions under runtime RLS
         os_receipt_id:`synthetic-receipt-${index}`,os_receipt_version:'1',
         os_receipt_snapshot_hash:sha(`os-receipt-${index}`),
         sheet_row_snapshot_hash:sha(`sheet-row-${index}`),
+        sheet_order_source_version:sha(`sheet-order-version-${index}`),
         money_aliases_hash:sha(`money-aliases-${index}`),
         os_receipt_amount_cents:0,os_settles_room:true,
         decision:index===3?'unpaid_at_cutover':
@@ -81,6 +82,8 @@ test('migration 018 accepts four pinned zero-cash dispositions under runtime RLS
         const read=await service.historicalSettlementReceipt(importer,propertyId,requestKey);
         assert.equal(read.readback_verified,true);
         assert.equal(read.disposition.os_receipt_snapshot_hash,row.os_receipt_snapshot_hash);
+        assert.equal(read.disposition.sheet_order_source_version,
+          row.sheet_order_source_version);
       }
       const settled=await service.bookingFinance(reader,propertyId,bookings[0].id);
       assert.equal(settled.summary.room_received_cents,0);
@@ -94,6 +97,8 @@ test('migration 018 accepts four pinned zero-cash dispositions under runtime RLS
       assert.equal(list.current_change_seq,4);
       assert.equal(list.legacy_settlements[0].source_link_snapshot_hash,
         raw.rows[0].source_link_snapshot_hash);
+      assert.equal(list.legacy_settlements[0].sheet_order_source_version,
+        raw.rows[0].sheet_order_source_version);
       const cash=await admin.query(`SELECT count(*)::int AS events FROM iron_gate.finance_event
         WHERE property_id=$1`,[propertyId]);
       assert.equal(cash.rows[0].events,0);

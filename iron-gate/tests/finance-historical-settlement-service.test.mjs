@@ -26,6 +26,7 @@ const rawManifest={property_id:propertyId,source_instance_id:connectorId,
     os_receipt_id:`receipt-${index}`,os_receipt_version:'1',
     os_receipt_snapshot_hash:digest(`receipt-${index}`),
     sheet_row_snapshot_hash:digest(`sheet-row-${index}`),
+    sheet_order_source_version:digest(`sheet-order-version-${index}`),
     money_aliases_hash:digest(`aliases-${index}`),
     os_receipt_amount_cents:0,os_settles_room:true,
     decision:index===3?'unpaid_at_cutover':
@@ -59,7 +60,8 @@ function harness() {
       const disposition=data.dispositions.get(saved?.response_json?.booking_id);
       if (!saved || !disposition) return {rows:[]};
       return {rows:[{response_json:data.tamperReadback ?
-        {...saved.response_json,booking_total_cents:1} : saved.response_json,
+        {...saved.response_json,sheet_order_source_version:digest('changed-sheet-order')} :
+        saved.response_json,
         ...disposition,change_seq:disposition.change_seq}]};
     }
     if (q.includes('FROM iron_gate.finance_request_receipt')) {
@@ -107,8 +109,9 @@ function harness() {
         os_receipt_amount_cents:params[12],os_settles_room:params[13],
         full_os_snapshot_hash:params[14],owner_decision_hash:params[15],
         sheet_snapshot_hash:params[16],sheet_row_snapshot_hash:params[17],
-        money_aliases_hash:params[18],manifest_sha256:params[19],
-        decision:params[20],request_key:params[21],reviewed_by_ref:params[22],
+        sheet_order_source_version:params[18],money_aliases_hash:params[19],
+        manifest_sha256:params[20],decision:params[21],
+        request_key:params[22],reviewed_by_ref:params[23],
         cash_effect_cents:0,change_seq:data.changes.length+1};
       data.dispositions.set(row.booking_id,row);
       return {rows:[]};
@@ -149,6 +152,8 @@ test('external booking historical commit is zero-cash, idempotent and exactly re
   const read=await h.service.historicalSettlementReceipt(principal,propertyId,'hist-0');
   assert.equal(read.readback_verified,true);
   assert.equal(read.disposition.booking_snapshot_hash,rawManifest.rows[0].booking_snapshot_hash);
+  assert.equal(read.disposition.sheet_order_source_version,
+    rawManifest.rows[0].sheet_order_source_version);
   h.data.tamperReadback=true;
   await assert.rejects(h.service.historicalSettlementReceipt(principal,propertyId,'hist-0'),
     error=>error.code==='READBACK_MISMATCH');
@@ -222,6 +227,8 @@ test('bookingFinance keeps A cash summary zero and external D under payer review
   assert.equal(pinned.legacy_settlements.length,1);
   assert.equal(pinned.legacy_settlements[0].source_link_snapshot_hash,
     rawManifest.rows[0].source_link_snapshot_hash);
+  assert.equal(pinned.legacy_settlements[0].sheet_order_source_version,
+    rawManifest.rows[0].sheet_order_source_version);
   const current=await h.service.historicalSettlements(reader,propertyId,2);
   assert.equal(current.legacy_settlements.length,2);
   assert.equal(current.legacy_settlements[1].remaining_due_cents,null);

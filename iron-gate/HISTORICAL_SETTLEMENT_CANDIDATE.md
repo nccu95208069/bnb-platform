@@ -16,8 +16,13 @@ and preview secret must also be enabled. The manifest file stays outside Git and
 must be mounted privately into that runtime. Startup rejects a missing, changed,
 malformed, or non-four-row manifest. Each row pins an IG booking UUID, version,
 snapshot hash and total; an OS source-link key and hash; a zero-amount OS receipt
-ID, version and hash; Sheet row and money-alias hashes; and the owner's exact
-decision. The manifest pins full OS, Sheet and owner-decision hashes as well.
+ID, version and hash; Sheet row and money-alias hashes; the exact 64-hex
+`checkRows` / `FinanceOrder.source_version` for that Sheet order at owner review;
+and the owner's exact decision. The manifest pins full OS, Sheet and
+owner-decision hashes as well. This order version changes when the reviewed
+Sheet row identity, room, stay dates, room rate or payment status changes. The
+private manifest must be regenerated from the reviewed Sheet evidence before
+this new field can be used; the backend does not derive or invent its value.
 
 The backend can verify its live IG booking, connector, source link, finance rows
 and outbox. It cannot read the external OS, Redis, Sheet or owner evidence during
@@ -58,7 +63,9 @@ does not override payer uncertainty: an external booking still has
 `remaining_due_cents=null` and requires review; only an independently qualified
 direct-source booking can expose a numeric due. The property list endpoint filters
 immutable dispositions by a requested finance change pin and includes the source
-link hash for exact OS catalog matching.
+link hash and Sheet order source version for exact OS catalog and live Sheet
+projection matching. A Sheet change after review keeps the order in manual
+review instead of silently applying the collection hold.
 
 There is no automatic amend or resolution path for an immutable disposition.
 A changed booking, new cash source, or changed source proof remains in manual

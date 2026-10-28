@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS iron_gate.finance_legacy_settlement (
   owner_decision_hash text NOT NULL CHECK (owner_decision_hash ~ '^[0-9a-f]{64}$'),
   sheet_snapshot_hash text NOT NULL CHECK (sheet_snapshot_hash ~ '^[0-9a-f]{64}$'),
   sheet_row_snapshot_hash text NOT NULL CHECK (sheet_row_snapshot_hash ~ '^[0-9a-f]{64}$'),
+  sheet_order_source_version text NOT NULL CHECK (sheet_order_source_version ~ '^[0-9a-f]{64}$'),
   money_aliases_hash text NOT NULL CHECK (money_aliases_hash ~ '^[0-9a-f]{64}$'),
   manifest_sha256 text NOT NULL CHECK (manifest_sha256 ~ '^[0-9a-f]{64}$'),
   decision text NOT NULL CHECK (decision IN
