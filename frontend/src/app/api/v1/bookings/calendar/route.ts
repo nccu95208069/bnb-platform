@@ -17,6 +17,7 @@ import { ironGateManualConfig } from "@/lib/booking-sources/iron-gate-manual.ser
 import { ironGateFinanceConfig } from "@/lib/booking-sources/iron-gate-finance.server";
 import { ironGateManualPaymentConfig } from "@/lib/booking-sources/iron-gate-manual-payment.server";
 import { type NextRequest, NextResponse } from "next/server";
+import { calendarServerTiming, type CalendarServerTiming } from "@/lib/calendar-server-timing";
 
 type PaymentStatus = "paid" | "deposit" | "unpaid";
 type PlatformCode = "a" | "b" | "c" | "d" | "i" | "o" | "x";
@@ -194,6 +195,13 @@ const OFFLAND_BOOKINGS = RAW_OFFLAND_BOOKINGS.map(
 const DEMO_BOOKINGS = [...SWEETFUN_BOOKINGS, ...OFFLAND_BOOKINGS];
 
 export async function GET(request: NextRequest) {
+  const timing = calendarServerTiming();
+  const response = await readCalendarRequest(request, timing);
+  timing.apply(response.headers);
+  return response;
+}
+
+async function readCalendarRequest(request: NextRequest, timing: CalendarServerTiming) {
   const requestId = randomUUID();
   const startedAt = Date.now();
   const events: CalendarReadEvent[] = [];
@@ -202,8 +210,13 @@ export async function GET(request: NextRequest) {
   // Authenticate before reading snapshots or returning any calendar metadata.
   if (process.env.NODE_ENV === "production" || process.env.CALENDAR_SOURCE === "sheet_snapshot") {
     try {
-      if ((await sessionMember(request))?.mustResetPassword) return NextResponse.json({detail:"請先重設密碼。",requires_password_reset:true},{status:403,headers:{"Cache-Control":"private, no-store"}});
-      authenticatedPrincipal = await principalFor(request);
+      const auth = await timing.measure('auth', async () => {
+        const member = await sessionMember(request);
+        return { requiresPasswordReset: member?.mustResetPassword === true,
+          principal: member?.mustResetPassword ? null : await principalFor(request) };
+      });
+      if (auth.requiresPasswordReset) return NextResponse.json({detail:"請先重設密碼。",requires_password_reset:true},{status:403,headers:{"Cache-Control":"private, no-store"}});
+      authenticatedPrincipal = auth.principal;
       if (!authenticatedPrincipal) return NextResponse.json({detail:"請先登入。"},{status:401,headers:{"Cache-Control":"private, no-store",Vary:"Cookie"}});
     } catch {
       return NextResponse.json({detail:"暫時無法確認登入，請稍後再試。"},{status:503,headers:{"Cache-Control":"private, no-store"}});
@@ -257,24 +270,24 @@ export async function GET(request: NextRequest) {
         const sheetSources = definitions.filter(d =>
           !(sweetfunIgRequested && d.key === 'sweetfun') &&
           !(offlandIgRequested && d.key === 'offland'));
-        const [ig, other, offlandIg] = await Promise.all([
+        const [ig, other, offlandIg] = await timing.measure('source', () => Promise.all([
           sweetfunIgRequested ? readConfiguredIronGate(
             start, end, principal, ironGateCalendarConfig()) : Promise.resolve(null),
           sheetSources.length ? readCalendarSources(sheetSources, start, end, principal.viewPrices, {
             cache: configuredPrivateCalendarCache(), startedAt,
             snapshot: readBookingSnapshot, details: readOperationalSheet,
             payments: overlayPayments,
-            report: event => { events.push(event); },
+            report: event => { timing.recordReadEvent(event); events.push(event); },
           }) : Promise.resolve(null),
           offlandIgRequested ? readConfiguredIronGate(start, end, principal,
             offlandIronGateCalendarConfig()) : Promise.resolve(null),
-        ]);
+        ]));
         let igPayments = ig?.bookings ?? [];
         let paymentWarning: CalendarResponse['source_warnings'] = [];
         const imported = igPayments.filter(booking => booking.iron_gate_source !== 'os');
         if (principal.viewPrices && imported.length) {
           try {
-            const overlaid = await overlayPayments(imported);
+            const overlaid = await timing.measure('payment', () => overlayPayments(imported));
             const byId = new Map(overlaid.map(booking => [booking.id, booking]));
             igPayments = igPayments.map(booking => byId.get(booking.id) ?? booking);
           }
@@ -358,11 +371,12 @@ export async function GET(request: NextRequest) {
           iron_gate_manual_payment_enabled: manualPaymentEnabled,
         }, { headers });
       }
-      const result = await readCalendarSources(definitions, start, end, principal.viewPrices, {
+      const result = await timing.measure('source', () => readCalendarSources(definitions, start, end, principal.viewPrices, {
         cache: configuredPrivateCalendarCache(), startedAt,
-        snapshot: readBookingSnapshot, details: readOperationalSheet, payments: overlayPayments,
-        report: event => { events.push(event); console.info(JSON.stringify({ event: "calendar_read", request_id: requestId, release: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) ?? "local", ...event })); },
-      });
+        snapshot: readBookingSnapshot, details: readOperationalSheet,
+        payments: overlayPayments,
+        report: event => { timing.recordReadEvent(event); events.push(event); console.info(JSON.stringify({ event: "calendar_read", request_id: requestId, release: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 12) ?? "local", ...event })); },
+      }));
       const { snapshots, errors, warnings } = result;
       let bookings = result.bookings;
       const loadedProperties = new Set(snapshots.map(s => s.definition.property.id));

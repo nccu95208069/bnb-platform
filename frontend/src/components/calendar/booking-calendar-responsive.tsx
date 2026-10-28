@@ -1,5 +1,6 @@
 "use client";
 import { useCalendarData } from "./use-calendar-data";
+import { useCalendarPerformance } from "./use-calendar-performance";
 import { hasCalendarCoverage } from "./calendar-retention";
 import { useCalendarRevision } from "./use-calendar-revision";
 import {GuestNotificationProvider} from "./guest-notification";
@@ -283,7 +284,7 @@ const uiLocale = useIntlLocale();
       .map(month => fetchPeriod(month, "month", true))
     : [], [view, visibleMonth, monthsToShow]);
   const visiblePeriod = view === "month" ? fetchPeriod(visibleMonth, "month", true) : requestPeriod;
-  const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess(); }, [setSelectedId, initializeAccess]);
+  const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess({ force: true }); }, [setSelectedId, initializeAccess]);
   const { data, loading, refreshing, error, requestFailed, lastLoadedAt } = useCalendarData({
     start: requestPeriod.start, end: requestPeriod.end,
     scope: `${accessScope}:${propertyScope}`, reload: reloadKey,
@@ -292,6 +293,8 @@ const uiLocale = useIntlLocale();
     visibleEnd: visiblePeriod.end,
     prefetch: prefetchRanges,
   });
+  useCalendarPerformance(`${accessScope}:${propertyScope}:${view}:${visiblePeriod.start}:${visiblePeriod.end}:${reloadKey}`,
+    !loading && !refreshing && !requestFailed && hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end));
   const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
   const manualEnabled = data?.iron_gate_manual_enabled === true && !requestFailed &&
     !loading && !error && !refreshing &&

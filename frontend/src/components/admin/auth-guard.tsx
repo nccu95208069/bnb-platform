@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { useAccessControl } from "@/lib/access-control";
 import { signOut } from "@/lib/supabase/auth";
 import { supabase } from "@/lib/supabase/client";
+import type { CalendarSessionData } from "@/lib/workspace-auth/session";
+import { recordCalendarMeasure } from "@/components/calendar/use-calendar-performance";
 
 const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 
@@ -99,27 +101,35 @@ function SupabaseAuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function LiveCalendarAccess({ children }: { children: React.ReactNode }) {
+function LiveCalendarAccess({ children, initialSession, initialAuthMs }: { children: React.ReactNode; initialSession?: CalendarSessionData; initialAuthMs?: number }) {
   const initialize = useAccessControl(state => state.initialize);
+  const bootstrap = useAccessControl(state => state.bootstrap);
+  const appliedBootstrap = useAccessControl(state => state.bootstrapSession);
+  const bootstrapped = !initialSession || appliedBootstrap === initialSession;
   const requiresReset = useAccessControl(state => state.requiresPasswordReset);
   const membership = useAccessControl(state => state.membership);
   const initialized = useAccessControl(state => state.initialized);
   const router = useRouter();
   useEffect(() => {
+    if (!bootstrapped) return;
     if(requiresReset) router.replace("/reset-password");
     else if(initialized && !membership) router.replace("/calendar-access");
-  }, [requiresReset,initialized,membership,router]);
+  }, [requiresReset,initialized,membership,router,bootstrapped]);
   useEffect(() => {
-    void initialize();
-    const refresh = () => { void initialize(); };
+    if (initialSession) {
+      bootstrap(initialSession);
+      if (initialAuthMs !== undefined) recordCalendarMeasure("calendar.auth", 0, initialAuthMs);
+    }
+    else void initialize();
+    const refresh = () => { void initialize({ force: true }); };
     window.addEventListener("focus", refresh);
     return () => window.removeEventListener("focus", refresh);
-  }, [initialize]);
-  if(requiresReset || !initialized || !membership) return <LoadingScreen />;
+  }, [initialize, bootstrap, initialSession, initialAuthMs]);
+  if(!bootstrapped || requiresReset || !initialized || !membership) return <LoadingScreen />;
   return <>{children}</>;
 }
-export function AuthGuard({ children }: { children: React.ReactNode }) {
-  if (process.env.NEXT_PUBLIC_CALENDAR_SOURCE === "sheet_snapshot") return <LiveCalendarAccess>{children}</LiveCalendarAccess>;
+export function AuthGuard({ children, initialSession, initialAuthMs }: { children: React.ReactNode; initialSession?: CalendarSessionData; initialAuthMs?: number }) {
+  if (process.env.NEXT_PUBLIC_CALENDAR_SOURCE === "sheet_snapshot") return <LiveCalendarAccess initialSession={initialSession} initialAuthMs={initialAuthMs}>{children}</LiveCalendarAccess>;
   if (DEMO_MODE) {
     return <>{children}</>;
   }

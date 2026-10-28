@@ -40,13 +40,16 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
   let inventoryMatches = true;
   let sheetCalls = 0;
   let igCalls = 0;
+  let memberReads = 0;
   t.mock.method(console, 'error', () => {});
   t.mock.method(globalThis, 'fetch', async (url, options) => {
     const target = String(url);
     if (target === 'https://fixture.invalid') {
       const command = JSON.parse(options.body);
-      if (command[1]?.endsWith(':members'))
+      if (command[1]?.endsWith(':members')) {
+        memberReads++;
         return Response.json({ result: JSON.stringify({ version: 1, members: [member, noPriceMember] }) });
+      }
       if (command[0] === 'MGET')
         return Response.json({ result: command.slice(1).map(() => null) });
       if (command[0] === 'SCAN')
@@ -81,6 +84,8 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
   const first = await GET(request);
   const data = await first.json();
   assert.equal(first.status, 200);
+  assert.equal(memberReads, 1);
+  assert.match(first.headers.get('Server-Timing'), /^auth;dur=\d+\.\d, source;dur=\d+\.\d, payment;dur=\d+\.\d, total;dur=\d+\.\d$/);
   assert.equal(data.data_mode, 'iron_gate_booking_only');
   assert.equal(data.bookings.length, 1);
   assert.equal(data.bookings[0].guest_name, 'Sample Guest');
@@ -106,6 +111,7 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
   const noPriceResponse = await GET(noPriceRequest);
   const noPriceData = await noPriceResponse.json();
   assert.equal(noPriceResponse.status, 200);
+  assert.equal(memberReads, 2);
   assert.equal(noPriceData.price_hidden, true);
   assert.equal(noPriceData.bookings[0].price_hidden, true);
   assert.equal(noPriceData.bookings[0].room_rate, 0);
@@ -113,6 +119,7 @@ test('authenticated OS calendar uses Iron Gate and refuses a stale inventory wit
   inventoryMatches = false;
   const failed = await GET(request);
   assert.equal(failed.status, 503);
+  assert.match(failed.headers.get('Server-Timing'), /source;dur=\d+\.\d/);
   assert.equal((await failed.json()).bookings, undefined);
   assert.equal(sheetCalls, 0);
 });
