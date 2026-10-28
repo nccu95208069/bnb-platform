@@ -46,3 +46,16 @@ test('accepted row with an action-only void edit remains visible for review',()=
   const pending=financeSheetProjections([],scan,'Sweetfun',source)[0].rows;
   assert.equal(pending[1][4],'SHEET_PENDING_ACTION');
 });
+
+test('daily reconciliation mismatch appears in the protected review tab',()=>{
+  const mismatch={sheet_row:2,row_id:booking,code:'SHEET_LEDGER_ROW_MISMATCH'};
+  const scan={rows:[{sheet_row:2,row_id:booking,action:'create',
+    sync_status:'accepted'}],issues:[],unassigned:[]};
+  const rows=financeSheetProjections([],scan,'Sweetfun',source,[mismatch])[0].rows;
+  assert.equal(rows.length,2);
+  assert.deepEqual(rows[1].slice(1,5),
+    ['2',booking,'待核對','SHEET_LEDGER_ROW_MISMATCH']);
+  scan.issues.push(mismatch);
+  assert.equal(financeSheetProjections([],scan,'Sweetfun',source,[mismatch])[0]
+    .rows.length,2);
+});

@@ -57,10 +57,11 @@ export async function runFinanceSheetBulkScan(){
     const finalValues=await readFinanceSheet(settings.binding);
     const final=scanFinanceSheet(finalValues,settings.binding.propertyDisplay);
     issues.push(...final.issues);
-    issues.push(...financeSheetFullBookIssues(final,documents,
-      settings.binding.spreadsheetId));
+    const reconciliationIssues=financeSheetFullBookIssues(final,documents,
+      settings.binding.spreadsheetId);
+    issues.push(...reconciliationIssues);
     const projections=financeSheetProjections(events,final,
-      settings.binding.propertyDisplay,settings.sourceInstanceId);
+      settings.binding.propertyDisplay,settings.sourceInstanceId,reconciliationIssues);
     const output=await publishFinanceSheetProjections(settings.binding,projections);
     const projectionDigest=financeSheetProjectionDigest(projections);
     const [readbackValues,observedChangeSeq]=await Promise.all([
