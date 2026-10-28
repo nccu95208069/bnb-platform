@@ -41,7 +41,7 @@ test('an unknown OS write survives reload and reuses the original request',async
       if(mode==='NX'&&values.has(key))result=null;
       else{values.set(key,value);result='OK';}
     }else if(verb==='EVAL'){
-      const [script,_count,key,expected,replacement]=args;
+      const [script,,key,expected,replacement]=args;
       if(values.get(key)!==expected)result=0;
       else if(script.includes("redis.call('DEL'")){
         values.delete(key);result=1;
