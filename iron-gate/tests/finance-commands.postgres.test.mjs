@@ -739,6 +739,82 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       assert.equal(legacyOutbox.rows[0].count,1);
       await assert.rejects(service.receipt(principal, otherPropertyId, first.request_key),
         e => e.code === 'PROPERTY_FORBIDDEN');
+
+      // A new Offland-style credential shares the existing connector but may
+      // write only general, unallocated income and expenses. Its correction
+      // scope cannot be used to revise an older booking-linked document.
+      const general = { ...principal, financeGeneralEntriesOnly:true,
+        actions:['finance:read','finance:record_receipt','finance:record_expense',
+          'finance:correct','finance:plan'] };
+      await assert.rejects(service.categories({ ...general,
+        financeSourceInstanceId:sheetConnectorId },propertyId),
+      e => e.code === 'SOURCE_FORBIDDEN');
+      const generalIncome = { request_key:'general-income-1',
+        source_record_id:'general-income-1',source_version:'1',action:'create',
+        event_kind:'property_receipt',amount_cents:500,currency:'TWD',
+        effective_on:'2026-10-28',cash_on:'2026-10-28',receipt_purpose:'other',
+        evidence_level:'operator_attested' };
+      const generalIncomeReceipt = await service.command(general,propertyId,
+        generalIncome,generalIncome.request_key);
+      assert.equal(generalIncomeReceipt.document_version,1);
+      const generalIncomeAmend = { ...generalIncome,
+        request_key:'general-income-amend',source_version:'2',expected_version:1,
+        action:'amend',amount_cents:550 };
+      assert.equal((await service.command(general,propertyId,generalIncomeAmend,
+        generalIncomeAmend.request_key)).document_version,2);
+      const generalExpense = { ...expense('create','1'),
+        request_key:'general-expense-1',source_record_id:'general-expense-1' };
+      assert.equal((await service.command(general,propertyId,generalExpense,
+        generalExpense.request_key)).document_version,1);
+      const generalExpenseVoid = { request_key:'general-expense-void',
+        source_record_id:'general-expense-1',source_version:'2',expected_version:1,
+        action:'void' };
+      assert.equal((await service.command(general,propertyId,generalExpenseVoid,
+        generalExpenseVoid.request_key)).document_version,2);
+
+      const forbiddenGeneral = async input => {
+        await assert.rejects(service.preview(general,propertyId,input,input.request_key),
+          e => e.code === 'SOURCE_FORBIDDEN');
+        await assert.rejects(service.command(general,propertyId,input,input.request_key),
+          e => e.code === 'SOURCE_FORBIDDEN');
+      };
+      await forbiddenGeneral(roomCommand('general-room',100));
+      await forbiddenGeneral({ ...roomCommand('general-deposit',100),
+        receipt_purpose:'deposit',booking_allocations:[{booking_id:bookingId,
+          expected_booking_version:1,amount_cents:100,allocation_kind:'deposit'}] });
+      await forbiddenGeneral({ ...roomCommand('general-extra',100),
+        receipt_purpose:'extra',booking_allocations:[{booking_id:bookingId,
+          expected_booking_version:1,amount_cents:100,allocation_kind:'extra'}] });
+      await forbiddenGeneral({ ...roomCommand('general-other-linked',100),
+        receipt_purpose:'other' });
+      await forbiddenGeneral({ ...expense('create','1'),
+        request_key:'general-processor-fee',source_record_id:'general-processor-fee',
+        event_kind:'processor_fee_paid' });
+      await forbiddenGeneral({ ...generalIncome,request_key:'general-ota-payout',
+        source_record_id:'general-ota-payout',event_kind:'ota_payout',
+        receipt_purpose:null,booking_allocations:[{booking_id:bookingId,
+          expected_booking_version:1,amount_cents:500,allocation_kind:'ota_payout'}] });
+      await forbiddenGeneral({ ...refund,request_key:'general-refund',
+        source_record_id:'general-refund' });
+      await forbiddenGeneral({ ...generalIncomeAmend,
+        request_key:'general-old-room-amend',source_record_id:'room-1',
+        source_version:'2',expected_version:1 });
+      await forbiddenGeneral({ request_key:'general-old-room-void',
+        source_record_id:'room-1',source_version:'2',expected_version:1,
+        action:'void' });
+      const custom = {request_key:'general-custom-category',code:'custom_offland',
+        label:'Offland custom',kind:'expense'};
+      assert.equal((await service.categoryCommand(general,propertyId,custom,
+        custom.request_key)).category_code,'custom_offland');
+      await assert.rejects(service.categoryCommand(general,propertyId,
+        { ...custom,request_key:'general-system-category',code:'supplies2' },
+        'general-system-category'),e => e.code === 'SOURCE_FORBIDDEN');
+      for (const [invoke,input] of [
+        [service.accountCommand.bind(service),account],
+        [service.recurringRule.bind(service),recurring],
+        [service.payoutRule.bind(service),payout],
+      ]) await assert.rejects(invoke(general,propertyId,input,input.request_key),
+        e => e.code === 'SOURCE_FORBIDDEN');
     } finally {
       await admin.query('TRUNCATE iron_gate.property_state CASCADE');
       await runtime.end(); await admin.end();

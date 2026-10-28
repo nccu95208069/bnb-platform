@@ -50,6 +50,17 @@ function canonical(value) {
   return JSON.stringify(value);
 }
 function hash(value) { return createHash('sha256').update(canonical(value)).digest('hex'); }
+function assertGeneralEntryCommand(principal, command) {
+  if (principal.financeGeneralEntriesOnly !== true) return;
+  if (command.booking_allocations.length || command.booking_guards.length)
+    fail('SOURCE_FORBIDDEN',403);
+  if (command.action === 'void') return;
+  if (command.event_kind === 'property_receipt' &&
+    command.receipt_purpose === 'other') return;
+  if (command.event_kind === 'expense_paid' &&
+    command.receipt_purpose == null) return;
+  fail('SOURCE_FORBIDDEN',403);
+}
 function assertImportCatalogProvenance(raw) {
   if (!HEX.test(raw?.origin_request_hash ?? '') ||
     typeof raw?.origin_source_version !== 'string' ||
@@ -290,7 +301,11 @@ export class FinanceCommandService {
       ['os_manual','sheet_bulk'].includes(source?.source_system) :
       principal.origin === 'line' ? source?.source_system === 'line_finance' :
       principal.origin === 'finance' ? ['sheet_bulk','ota_evidence'].includes(source?.source_system) : false;
-    if (!source || !source.enabled || !originAllowed || (write && (!source.cutover_at ||
+    const generalSourceAllowed = principal.financeGeneralEntriesOnly !== true ||
+      (principal.origin === 'os' && source?.source_system === 'os_manual') ||
+      (principal.origin === 'line' && source?.source_system === 'line_finance');
+    if (!source || !source.enabled || !originAllowed || !generalSourceAllowed ||
+      (write && (!source.cutover_at ||
       Date.parse(source.cutover_at) > Date.now()) && !shadowImport))
       fail('SOURCE_FORBIDDEN', 403);
     return { state: row.state_json, source };
@@ -382,6 +397,29 @@ export class FinanceCommandService {
     const requested = command.booking_guards.map(g => g.booking_id).sort();
     if (canonical(actual) !== canonical(requested)) fail('VERSION_CONFLICT',409);
   }
+  async #assertGeneralDocument(client, principal, propertyId, command) {
+    if (principal.financeGeneralEntriesOnly !== true || command.action === 'create') return;
+    const result = await client.query(`SELECT d.current_version,d.status,
+      e.event_kind,e.receipt_purpose,
+      EXISTS (SELECT 1 FROM iron_gate.finance_allocation a
+        JOIN iron_gate.finance_event prior ON prior.property_id=a.property_id
+          AND prior.id=a.event_id
+        WHERE prior.property_id=d.property_id AND prior.document_id=d.id) AS ever_allocated
+      FROM iron_gate.finance_document d
+      JOIN iron_gate.finance_event e ON e.property_id=d.property_id
+        AND e.document_id=d.id AND e.revision_version=d.current_version
+        AND e.event_kind<>'reversal'
+      WHERE d.property_id=$1 AND d.source_instance_id=$2 AND d.source_record_id=$3`,
+      [propertyId,principal.financeSourceInstanceId,command.source_record_id]);
+    if (result.rows.length !== 1 || result.rows[0].status !== 'active' ||
+      result.rows[0].current_version !== command.expected_version)
+      fail('VERSION_CONFLICT',409);
+    const prior = result.rows[0];
+    if (prior.ever_allocated || !((prior.event_kind === 'property_receipt' &&
+      prior.receipt_purpose === 'other') ||
+      (prior.event_kind === 'expense_paid' && prior.receipt_purpose == null)))
+      fail('SOURCE_FORBIDDEN',403);
+  }
   async preview(principal, propertyId, raw, requestKey, shadowImport = false) {
     this.#authorize(principal, propertyId, shadowImport ? 'finance:import' : 'finance:read');
     return this.#transaction(propertyId, false, async client => {
@@ -407,6 +445,10 @@ export class FinanceCommandService {
         }
       }
       const command = normalize(resolved, requestKey);
+      if (!shadowImport) {
+        assertGeneralEntryCommand(principal,command);
+        await this.#assertGeneralDocument(client,principal,propertyId,command);
+      }
       if (shadowImport && !command.source_recorded_at)
         fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
       if (!shadowImport && command.source_recorded_at) fail('INVALID_INPUT');
@@ -1124,6 +1166,8 @@ export class FinanceCommandService {
     });
   }
   async recurringRule(principal, propertyId, raw, requestKey, shadowImport = false) {
+    if (!shadowImport && principal.financeGeneralEntriesOnly === true)
+      fail('SOURCE_FORBIDDEN',403);
     const keys = new Set(['request_key','source_record_id','version','cadence','start_on',
       'end_on','next_due_on','status','category_code','amount_cents',
       'safe_description','payment_method_code','due_day','origin_request_hash',
@@ -1195,6 +1239,8 @@ export class FinanceCommandService {
     });
   }
   async payoutRule(principal, propertyId, raw, requestKey, shadowImport = false) {
+    if (!shadowImport && principal.financeGeneralEntriesOnly === true)
+      fail('SOURCE_FORBIDDEN',403);
     const keys = new Set(['request_key','platform','version','mode','day','offset_days',
       'offset_months','status','origin_request_hash',
       'source_actor_ref','source_recorded_at','origin_source_version']);
@@ -1823,6 +1869,8 @@ export class FinanceCommandService {
     });
   }
   async accountCommand(principal, propertyId, raw, requestKey, shadowImport = false) {
+    if (!shadowImport && principal.financeGeneralEntriesOnly === true)
+      fail('SOURCE_FORBIDDEN',403);
     const keys = new Set(['request_key','code','display_name','kind','last_digits',
       'origin_request_hash','source_actor_ref','source_recorded_at',
       'origin_source_version']);
@@ -1858,6 +1906,9 @@ export class FinanceCommandService {
       },shadowImport);
   }
   async categoryCommand(principal, propertyId, raw, requestKey, shadowImport = false) {
+    if (!shadowImport && principal.financeGeneralEntriesOnly === true &&
+      !/^custom_[a-z0-9_]{1,57}$/.test(raw?.code ?? ''))
+      fail('SOURCE_FORBIDDEN',403);
     const keys = new Set(['request_key','code','label','kind','origin_request_hash',
       'source_actor_ref','source_recorded_at','origin_source_version']);
     if (!raw || typeof raw !== 'object' || Array.isArray(raw) ||
@@ -1889,6 +1940,7 @@ export class FinanceCommandService {
   }
   async command(principal, propertyId, raw, requestKey, shadowImport = false) {
     const command = normalize(raw, requestKey);
+    if (!shadowImport) assertGeneralEntryCommand(principal,command);
     const action = command.action === 'void' || command.action === 'amend' ? 'finance:correct' :
       command.event_kind === 'property_refund' ? 'finance:refund' :
       ['expense_paid', 'processor_fee_paid'].includes(command.event_kind) ?
@@ -1918,6 +1970,8 @@ export class FinanceCommandService {
         if (priorReceipt.rows[0].request_hash !== requestHash) fail('REQUEST_KEY_REUSED', 409);
         return priorReceipt.rows[0].response_json;
       }
+      if (!shadowImport)
+        await this.#assertGeneralDocument(client,principal,propertyId,command);
       if (shadowImport && !command.source_recorded_at)
         fail('SOURCE_MAPPING_REVIEW_REQUIRED',409);
       // A payment method is not a verified processor identity. Until a

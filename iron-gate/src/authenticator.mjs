@@ -49,6 +49,7 @@ export function createGrantAuthenticator(directory, repository, verifyOsMember =
       grantId: grant.grantId, bindingId: grant.bindingId,
       bookingIdScope: grant.bookingIdScope, sourceSystem: grant.sourceSystem,
       sourceAccount: grant.sourceAccount,
-      financeSourceInstanceId: grant.financeSourceInstanceId };
+      financeSourceInstanceId: grant.financeSourceInstanceId,
+      financeGeneralEntriesOnly: grant.financeGeneralEntriesOnly };
   };
 }

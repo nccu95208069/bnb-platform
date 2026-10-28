@@ -49,6 +49,8 @@ export type Principal = {
   sourceSystem?: string;
   sourceAccount?: string;
   financeSourceInstanceId?: string;
+  /** Stored credential restriction for general income and expense entries. */
+  financeGeneralEntriesOnly?: true;
 };
 
 export type Stay = {
