@@ -450,7 +450,7 @@ export function createHandler(service: IronGateService, authenticate: Authentica
           const result = await service.cancelBooking(principal, propertyId, parts[4], requestKey(request),
             value.expectedBookingVersion as number, value.expectedInventoryVersion as number,
             request.headers.get("x-iron-gate-line-preview"),
-            value.channelPolicy as "manual" | undefined, value.reason as string | undefined);
+            value.channelPolicy as "manual" | "provider_free" | undefined, value.reason as string | undefined);
           return json(result, result.operationState === "sync_pending" ? 202 : 200);
         }
         if (parts.length === 6 && parts[5] === "payment-events" && request.method === "POST") {

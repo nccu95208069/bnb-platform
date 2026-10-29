@@ -61,6 +61,13 @@ export function validateGrantShape(grant) {
       (!grant.lineManageAllEnabled || !grant.actions.includes("inventory:write"))) ||
     grant.fields.some((field) => !["guest_name", "contact", "notes", "money"].includes(field))))
     throw new Error("INVALID_LINE_SCOPE");
+  if (grant.lineProviderFreeEnabled !== undefined &&
+    (grant.lineProviderFreeEnabled !== true || grant.origin !== "line" ||
+      grant.lineCreateEnabled !== true || grant.lineManageAllEnabled !== true ||
+      grant.lineInventoryEnabled === true || grant.lineFinanceEnabled === true ||
+      grant.actions.some(action => !["booking:read", "booking:create", "booking:amend",
+        "booking:cancel", "booking:manage_all"].includes(action))))
+    throw new Error("INVALID_PROVIDER_FREE_LINE_SCOPE");
   if (grant.origin === "service" && (grant.fields.length || grant.actions.some((action) =>
     action !== "event:read" && action !== "booking:read" && action !== "booking:aggregate" &&
     action !== "occupancy:aggregate" && action !== "housekeeping:read")))

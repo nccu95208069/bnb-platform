@@ -1,5 +1,7 @@
 # BnB SaaS / Sweetfun OS — Authoritative Work Context
 
+2026-10-29 Offland LINE booking: [provider-free create, amendment and cancellation with dedicated proof routing, exact-grant activation and recovery](docs/work-handoff/OFFLAND_LINE_BOOKING_2026-10-29.md). Isolated implementation candidate; no production credential or activation has been issued.
+
 2026-10-29 Offland retained orders: [same-order retention, cross-month pending list, rescheduling, immutable cash and recovery](docs/work-handoff/OFFLAND_RETAINED_ORDERS_2026-10-29.md). Owner-authorized implementation and isolated verification are complete, including PostgreSQL and desktop/mobile browser checks. The feature has a separate Offland booking grant and starts disabled; it has not been activated in production or used to mutate a real booking.
 
 2026-10-28 Offland shared finance: [property-scoped OS/LINE ledger candidate, authoritative booking reads, general income/expenses and historical coverage boundaries](docs/work-handoff/OFFLAND_FINANCE_PARITY_2026-10-28.md). Isolated verification passes. The owner subsequently authorized deployment of new Offland general income/expenses only, postponing historical import and balance reconciliation. New-ledger totals are labeled as excluding history, original OS records have a read-only archive, and imported booking receipts remain under review. Production cutover requires separate runtime evidence.

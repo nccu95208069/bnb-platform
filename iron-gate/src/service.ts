@@ -234,10 +234,36 @@ function lineManagesAll(principal: Principal): boolean {
 }
 function lineManualPolicy(principal: Principal, policy: unknown): boolean {
   if (policy === undefined) return false;
-  if (policy !== "manual") reject("INVALID_CHANNEL_POLICY");
+  if (policy !== "manual" && policy !== "provider_free") reject("INVALID_CHANNEL_POLICY");
+  if (policy === "provider_free") {
+    if (!lineManagesAll(principal) || !principal.grantId) reject("FORBIDDEN", 403);
+    return false;
+  }
   if (!lineManagesAll(principal) || !principal.actions.includes("inventory:write") ||
     !principal.grantId) reject("FORBIDDEN", 403);
   return true;
+}
+function providerFreeLineReady(principal: Principal, state: PropertyState): boolean {
+  return lineManagesAll(principal) && principal.lineProviderFreeEnabled === true &&
+    Boolean(principal.grantId) &&
+    state.channel.mode === "none" && state.channel.ready === false &&
+    state.channel.sourceReadbackEnabled !== true && state.channel.grantId === null &&
+    state.channel.lineBookingMode === "provider_free" &&
+    state.channel.lineBookingGrantId === principal.grantId;
+}
+function lineProviderReady(state: PropertyState): boolean {
+  return state.channel.mode === "owlnest" && state.channel.ready === true &&
+    state.channel.sourceReadbackEnabled === true && Boolean(state.channel.grantId);
+}
+function requireLineBookingPolicy(principal: Principal, state: PropertyState,
+  policy: unknown): boolean {
+  const providerFree = policy === "provider_free";
+  if (principal.lineProviderFreeEnabled === true && !providerFree)
+    reject("LINE_CHANNEL_NOT_READY", 409);
+  if (state.readOnly !== false || principal.authorityEpoch !== state.authorityEpoch ||
+    !(providerFree ? providerFreeLineReady(principal, state) : lineProviderReady(state)))
+    reject("LINE_CHANNEL_NOT_READY", 409);
+  return providerFree;
 }
 function lineScope(principal: Principal): Record<string, unknown> {
   return lineManagesAll(principal) ? { grantId: principal.grantId, manageAll: true } :
@@ -636,6 +662,11 @@ function verifyCreate(input: CreateBookingInput, principal: Principal): void {
   if (input.roomNightPrices !== undefined && !["line", "os"].includes(principal.origin))
     reject("FORBIDDEN", 403);
   lineManualPolicy(principal, input.channelPolicy);
+  if (input.channelPolicy === "provider_free") requireAmendFields(principal, {
+    guestName: input.guestName, contact: input.contact, notes: input.notes,
+    totalCents: input.totalCents, bookedAt: input.bookedAt,
+    ...(input.roomNightPrices ? { roomNightPrices: input.roomNightPrices } : {}),
+  });
 }
 function verifyAmend(input: AmendBookingInput): void {
   if (!Number.isSafeInteger(input.expectedBookingVersion) || input.expectedBookingVersion < 1 ||
@@ -651,18 +682,31 @@ function verifyAmend(input: AmendBookingInput): void {
   if ("bookedAt" in input.changes && input.changes.bookedAt !== null) dayNumber(input.changes.bookedAt);
   if ("totalCents" in input.changes && input.changes.totalCents !== null &&
     (!Number.isSafeInteger(input.changes.totalCents) || input.changes.totalCents! < 0)) reject("INVALID_AMOUNT");
-  if (input.channelPolicy !== undefined && input.channelPolicy !== "manual")
+  if (input.channelPolicy !== undefined && !["manual", "provider_free"].includes(input.channelPolicy))
     reject("INVALID_CHANNEL_POLICY");
   if (input.reason !== undefined) nonempty(input.reason, 500);
 }
 function requireLineMutation(principal: Principal, state: PropertyState, booking: Booking,
-  manual = false): void {
+  manual = false, providerFree = false): void {
   if (booking.manualRoomHandling) reject("MANUAL_ROOM_HANDLING_REQUIRES_OS", 409);
   if (!lineManagesAll(principal) || !principal.grantId)
     reject("FORBIDDEN", 403);
-  if (state.channel.mode !== "owlnest" || !state.channel.ready ||
-    state.channel.sourceReadbackEnabled !== true || !state.channel.grantId)
-    reject("LINE_CHANNEL_NOT_READY", 409);
+  requireLineBookingPolicy(principal, state, providerFree ? "provider_free" : undefined);
+  if (booking.status === "retained" || providerFree && booking.retention)
+    reject("RETAINED_ORDER_REQUIRES_RESCHEDULE", 409);
+  if (providerFree) {
+    if (booking.status !== "confirmed" || booking.channelSyncState !== "not_required" ||
+      booking.channelOperationKey !== null || booking.lineChannelPending?.length ||
+      booking.osManualRoomChange || booking.lineOverridePending ||
+      state.operations.some(operation => operation.bookingId === booking.id) ||
+      state.sourceLinks.some(link => link.bookingId === booking.id && link.diverged))
+      reject("LINE_BOOKING_NOT_READY", 409);
+    // Imported balances do not prove an unpaid order. Their Q/J ownership and
+    // retained lifecycle remain under the existing explicit review workflow.
+    if (booking.source === "external" || netReceived(booking) !== 0)
+      reject("LINE_PAYMENT_REQUIRES_REVIEW", 409);
+    return;
+  }
   if (booking.status !== "confirmed" ||
     (booking.channelSyncState !== "verified" &&
       !(booking.source === "external" && booking.channelSyncState === "not_required") &&
@@ -833,7 +877,7 @@ function verifyLineBulkCancelInput(input: LineBulkCancelInput): void {
     if (id <= previous) reject("INVALID_INPUT");
     previous = id;
   }
-  if (input.channelPolicy !== undefined && input.channelPolicy !== "manual")
+  if (input.channelPolicy !== undefined && !["manual", "provider_free"].includes(input.channelPolicy))
     reject("INVALID_CHANNEL_POLICY");
 }
 function requireLineInventory(principal: Principal, state: PropertyState,
@@ -1003,9 +1047,9 @@ function operationState(state: PropertyState, booking: Booking): BookingReceipt[
   return booking.channelSyncState === "verified" ? "sync_verified" :
     booking.channelSyncState === "review_required" ? "review_required" : "sync_pending";
 }
-function makeBookingReceipt(state: PropertyState, booking: Booking): BookingReceipt {
+function makeBookingReceipt(state: PropertyState, booking: Booking, providerFreeLine = false): BookingReceipt {
   return { bookingId: booking.id, bookingVersion: booking.version, inventoryVersion: state.version,
-    operationState: operationState(state, booking), operationKey: booking.channelOperationKey,
+    operationState: providerFreeLine ? "not_required" : operationState(state, booking), operationKey: booking.channelOperationKey,
     sourceReviewRequired: booking.lineOverridePending === true,
     refundReviewRequired: netReceived(booking) > 0 &&
       (booking.status === "cancelled" ||
@@ -1124,16 +1168,13 @@ export class IronGateService {
     const state = await this.repository.read(propertyId);
     if (!state) reject("PROPERTY_NOT_FOUND", 404);
     authorize(principal, state, "booking:create");
-    if (state.readOnly !== false || principal.authorityEpoch !== state.authorityEpoch ||
-      state.channel.mode !== "owlnest" || !state.channel.ready ||
-      state.channel.sourceReadbackEnabled !== true || !state.channel.grantId)
-      reject("LINE_CHANNEL_NOT_READY", 409);
+    const providerFree = requireLineBookingPolicy(principal, state, input.channelPolicy);
     if (!manual && state.version !== input.expectedInventoryVersion) reject("VERSION_CONFLICT", 409);
     const cells = nightsFor(input.stays, state.roomIds);
     if (input.roomNightPrices !== undefined &&
       !exactNightPrices(input.roomNightPrices, cells, input.totalCents))
       reject("INVALID_NIGHT_PRICES");
-    requireLineStockWindow(state, cells);
+    if (!providerFree) requireLineStockWindow(state, cells);
     const acknowledged = acknowledgeClosedNights(state, cells, manual, input.acknowledgedClosedNights);
     if (hasConflict(state, cells, undefined, undefined, acknowledged)) reject("ROOM_CONFLICT", 409);
     const hash = await digest({ action: "booking:create", input });
@@ -1143,6 +1184,7 @@ export class IronGateService {
     return { propertyId, inventoryVersion: input.expectedInventoryVersion,
       authorityEpoch: state.authorityEpoch, expiresAt: signed.expiresAt,
       previewToken: signed.token, channelSyncState: "preview_only",
+      ...(input.channelPolicy === "provider_free" ? { bookingMode: "provider_free" } : {}),
       ...(input.acknowledgedClosedNights ? { closedRoomNights: input.acknowledgedClosedNights } : {}),
       ...(manual ? { observedInventoryVersion: state.version } : {}) };
   }
@@ -1173,9 +1215,7 @@ export class IronGateService {
             targetHash(state, cells)) : linePreviewExpiry;
         if (expiry === null || Date.now() >= expiry)
           reject("LINE_PREVIEW_REQUIRED", 409);
-        if (state.readOnly !== false || state.channel.mode !== "owlnest" || !state.channel.ready ||
-          state.channel.sourceReadbackEnabled !== true || !state.channel.grantId)
-          reject("LINE_CHANNEL_NOT_READY", 409);
+        requireLineBookingPolicy(principal, state, input.channelPolicy);
       }
       if (!manual && state.version !== input.expectedInventoryVersion) reject("VERSION_CONFLICT", 409);
       // Direct website writes require a one-use server-issued quote, including
@@ -1187,7 +1227,7 @@ export class IronGateService {
       if (input.roomNightPrices !== undefined &&
         !exactNightPrices(input.roomNightPrices, cells, input.totalCents))
         reject("INVALID_NIGHT_PRICES");
-      if (principal.origin === "line") requireLineStockWindow(state, cells);
+      if (principal.origin === "line" && input.channelPolicy !== "provider_free") requireLineStockWindow(state, cells);
       const acknowledged = acknowledgeClosedNights(state, cells, manual, input.acknowledgedClosedNights);
       if (hasConflict(state, cells, undefined, undefined, acknowledged)) reject("ROOM_CONFLICT", 409);
       const manualSync = principal.origin === "os" && state.channel.mode === "owlnest";
@@ -1222,7 +1262,7 @@ export class IronGateService {
         state.fences.push({ key: operationKey, cells, reason: "channel_pending" });
       }
       state.version++;
-      const response = makeBookingReceipt(state, booking);
+      const response = makeBookingReceipt(state, booking, input.channelPolicy === "provider_free");
       saveReceipt(state, principal, requestKey, "booking:create", hash, { ...response });
       emit(tx, state, "booking.created", booking, principal, requestKey, undefined,
         input.acknowledgedClosedNights);
@@ -1617,7 +1657,7 @@ export class IronGateService {
 
   async previewLineAction(principal: Principal, propertyId: string, bookingId: string,
     action: "amend" | "cancel", input: AmendBookingInput | {
-      expectedBookingVersion: number; expectedInventoryVersion: number; channelPolicy?: "manual";
+      expectedBookingVersion: number; expectedInventoryVersion: number; channelPolicy?: "manual" | "provider_free";
     }): Promise<Record<string, unknown>> {
     uuid(propertyId); uuid(bookingId);
     if (action === "amend") verifyAmend(input as AmendBookingInput);
@@ -1631,14 +1671,14 @@ export class IronGateService {
     authorize(principal, state, action === "amend" ? "booking:amend" : "booking:cancel", true);
     const booking = state.bookings.find((item) => item.id === bookingId);
     if (!booking) reject("BOOKING_NOT_FOUND", 404);
-    requireLineMutation(principal, state, booking, manual);
+    requireLineMutation(principal, state, booking, manual, input.channelPolicy === "provider_free");
     requireManualBaseline(booking, manual, action === "cancel" ||
       action === "amend" && "stays" in (input as AmendBookingInput).changes);
     if ((!manual && state.version !== input.expectedInventoryVersion) ||
       booking.version !== input.expectedBookingVersion) reject("VERSION_CONFLICT", 409);
     if (action === "amend" && "stays" in (input as AmendBookingInput).changes) {
       const next = nightsFor((input as AmendBookingInput).changes.stays!, state.roomIds);
-      requireLineStockWindow(state, next);
+      if (input.channelPolicy !== "provider_free") requireLineStockWindow(state, next);
       if (hasConflict(state, next, bookingId,
         manual ? linePendingFenceKey(bookingId) : undefined,
         acknowledgeClosedNights(state, next, manual,
@@ -1667,6 +1707,7 @@ export class IronGateService {
       inventoryVersion: input.expectedInventoryVersion, authorityEpoch: state.authorityEpoch,
       expiresAt: signed.expiresAt, previewToken: signed.token,
       channelSyncState: "preview_only",
+      ...(input.channelPolicy === "provider_free" ? { bookingMode: "provider_free" } : {}),
       ...((input as AmendBookingInput).acknowledgedClosedNights ?
         { closedRoomNights: (input as AmendBookingInput).acknowledgedClosedNights } : {}),
       ...(manual ? { observedInventoryVersion: state.version } : {}) };
@@ -1706,7 +1747,7 @@ export class IronGateService {
       if (booking.version !== input.expectedBookingVersion) reject("VERSION_CONFLICT", 409);
       if (booking.status === "cancelled") reject("ORDER_CANCELLED", 409);
       if (booking.status === "retained") reject("RETAINED_ORDER_REQUIRES_RESCHEDULE", 409);
-      if (principal.origin === "line") requireLineMutation(principal, state, booking, manual);
+      if (principal.origin === "line") requireLineMutation(principal, state, booking, manual, input.channelPolicy === "provider_free");
       requireManualBaseline(booking, manual, "stays" in input.changes);
       const osDirect = principal.origin === "os" && isOsDirectBooking(booking);
       if (principal.origin === "os" && booking.source !== "external" && !osDirect)
@@ -1729,7 +1770,7 @@ export class IronGateService {
           reject("SOURCE_AMEND_REQUIRES_REVIEW", 409);
       }
       const baselineReadbackNeeded = principal.origin === "line" &&
-        booking.channelSyncState === "not_required" && !manual;
+        booking.channelSyncState === "not_required" && !manual && input.channelPolicy !== "provider_free";
       requireAmendFields(principal, input.changes);
       const originalPrices = bookingNightPrices(booking);
       let roomNightsChanged = false;
@@ -1747,7 +1788,7 @@ export class IronGateService {
       }
       if ("stays" in input.changes) {
         next = nightsFor(input.changes.stays!, state.roomIds);
-        if (principal.origin === "line") requireLineStockWindow(state, next);
+        if (principal.origin === "line" && input.channelPolicy !== "provider_free") requireLineStockWindow(state, next);
         roomNightsChanged = changedNights(current, next);
         if (roomNightsChanged && state.channel.mode !== "none" && principal.origin !== "line" &&
           !(principal.origin === "os" && state.channel.mode === "owlnest"))
@@ -1822,7 +1863,7 @@ export class IronGateService {
           reason: "channel_pending" });
       }
       if (roomNightsChanged || baselineReadbackNeeded) state.version++;
-      const response = makeBookingReceipt(state, booking);
+      const response = makeBookingReceipt(state, booking, input.channelPolicy === "provider_free");
       saveReceipt(state, principal, requestKey, "booking:amend", hash, { ...response });
       emit(tx, state, "booking.amended", booking, principal, requestKey, input.reason,
         input.acknowledgedClosedNights);
@@ -2209,17 +2250,25 @@ export class IronGateService {
     if (!state) reject("PROPERTY_NOT_FOUND", 404);
     authorize(principal, state, "booking:read");
     if (principal.origin !== "line" || !principal.grantId) reject("FORBIDDEN", 403);
+    const writable = state.readOnly === false && principal.authorityEpoch === state.authorityEpoch &&
+      this.linePreviewSecret !== null;
+    const providerReady = writable && principal.lineProviderFreeEnabled !== true && lineProviderReady(state);
+    const providerFreeReady = writable && providerFreeLineReady(principal, state);
+    const canManual = providerReady && lineManagesAll(principal) && principal.actions.includes("inventory:write");
+    const bookingReady = providerReady || providerFreeReady;
     return { propertyId, inventoryVersion: state.version,
       authorityEpoch: state.authorityEpoch, readOnly: state.readOnly === true,
-      lineScope: lineScope(principal),
-      channelReady: state.channel.mode === "owlnest" && state.channel.ready === true &&
-        state.channel.sourceReadbackEnabled === true && Boolean(state.channel.grantId),
+      lineScope: lineScope(principal), canReadAll: lineManagesAll(principal),
+      bookingMode: providerFreeReady ? "provider_free" : canManual ? "manual" :
+        providerReady ? "provider" : "unavailable",
+      channelReady: lineProviderReady(state),
       stockObservedThrough: state.channel.stockObservedThrough ?? null,
-      canCreate: principal.actions.includes("booking:create"),
-      canAmend: lineManagesAll(principal) && principal.actions.includes("booking:amend"),
-      canCancel: lineManagesAll(principal) && principal.actions.includes("booking:cancel"),
-      canInventory: lineManagesAll(principal) && principal.actions.includes("inventory:write"),
-      canManualChannel: lineManagesAll(principal) && principal.actions.includes("inventory:write") };
+      canCreate: bookingReady && principal.actions.includes("booking:create") &&
+        (!providerFreeReady || ["guest_name", "contact", "notes", "money"].every(field =>
+          principal.fields.includes(field as Principal["fields"][number]))),
+      canAmend: bookingReady && lineManagesAll(principal) && principal.actions.includes("booking:amend"),
+      canCancel: bookingReady && lineManagesAll(principal) && principal.actions.includes("booking:cancel"),
+      canInventory: canManual, canManualChannel: canManual };
   }
 
   async previewLineChannelAction(principal: Principal, propertyId: string, bookingId: string,
@@ -2608,7 +2657,7 @@ export class IronGateService {
     if (principal.origin === "line" && auditReason !== undefined) reject("INVALID_INPUT");
     const manual = lineManualPolicy(principal, channelPolicy);
     const hash = await digest({ action: "booking:cancel", bookingId,
-      expectedBookingVersion, expectedInventoryVersion, ...(manual ? { channelPolicy } : {}),
+      expectedBookingVersion, expectedInventoryVersion, ...(channelPolicy !== undefined ? { channelPolicy } : {}),
       reason: auditReason });
     const linePreviewExpiry = principal.origin === "line" && this.linePreviewSecret !== null && !manual ?
       await verifyLinePreview(this.linePreviewSecret, linePreviewToken, principal, propertyId,
@@ -2630,7 +2679,7 @@ export class IronGateService {
         if (expiry === null || Date.now() >= expiry) reject("LINE_PREVIEW_REQUIRED", 409);
       }
       if (booking.version !== expectedBookingVersion) reject("VERSION_CONFLICT", 409);
-      if (principal.origin === "line") requireLineMutation(principal, state, booking, manual);
+      if (principal.origin === "line") requireLineMutation(principal, state, booking, manual, channelPolicy === "provider_free");
       requireManualBaseline(booking, manual, true);
       if (booking.osManualRoomChange) reject("CHANNEL_CANCELLATION_NOT_READY", 409);
       if (booking.status === "cancelled") reject("ORDER_CANCELLED", 409);
@@ -2680,7 +2729,7 @@ export class IronGateService {
         }
       }
       state.version++;
-      const response = makeBookingReceipt(state, booking);
+      const response = makeBookingReceipt(state, booking, channelPolicy === "provider_free");
       saveReceipt(state, principal, requestKey, "booking:cancel", hash, { ...response });
       emit(tx, state, "booking.cancelled", booking, principal, requestKey, auditReason);
       return response;
@@ -2702,7 +2751,7 @@ export class IronGateService {
       const booking = state.bookings.find((value) => value.id === item.bookingId);
       if (!booking) reject("BOOKING_NOT_FOUND", 404);
       if (booking.version !== item.expectedBookingVersion) reject("VERSION_CONFLICT", 409);
-      requireLineMutation(principal, state, booking, manual);
+      requireLineMutation(principal, state, booking, manual, input.channelPolicy === "provider_free");
       requireManualBaseline(booking, manual, true);
       target.push(...nightsFor(booking.stays, state.roomIds));
     }
@@ -2714,6 +2763,7 @@ export class IronGateService {
       bookingIds: input.bookings.map((item) => item.bookingId),
       expiresAt: signed.expiresAt, previewToken: signed.token,
       channelSyncState: "preview_only",
+      ...(input.channelPolicy === "provider_free" ? { bookingMode: "provider_free" } : {}),
       ...(manual ? { observedInventoryVersion: state.version } : {}) };
   }
 
@@ -2736,7 +2786,7 @@ export class IronGateService {
         const booking = state.bookings.find((value) => value.id === item.bookingId);
         if (!booking) reject("BOOKING_NOT_FOUND", 404);
         if (booking.version !== item.expectedBookingVersion) reject("VERSION_CONFLICT", 409);
-        requireLineMutation(principal, state, booking, manual);
+        requireLineMutation(principal, state, booking, manual, input.channelPolicy === "provider_free");
         requireManualBaseline(booking, manual, true);
         return booking;
       });
@@ -2747,11 +2797,17 @@ export class IronGateService {
       if (validExpiry === null || Date.now() >= validExpiry) reject("LINE_PREVIEW_REQUIRED", 409);
       const now = new Date().toISOString();
       const operationKeys: (string | null)[] = [];
+      state.version++;
       for (const booking of bookings) {
         const cells = nightsFor(booking.stays, state.roomIds);
         flagExternalSourceReview(state, booking, cells, []);
         booking.status = "cancelled";
         booking.version++;
+        if (input.channelPolicy === "provider_free") {
+          operationKeys.push(null);
+          emit(tx, state, "booking.cancelled", booking, principal, requestKey);
+          continue;
+        }
         if (manual) {
           booking.lineChannelBaselineNights ??= cells;
           updateLinePending(state, booking, []);
@@ -2771,10 +2827,9 @@ export class IronGateService {
         state.fences.push({ key: operationKey, cells, reason: "channel_pending" });
         emit(tx, state, "booking.cancelled", booking, principal, requestKey);
       }
-      state.version++;
       const response = { bookingIds: bookings.map((booking) => booking.id),
         bookingVersions: bookings.map((booking) => booking.version),
-        inventoryVersion: state.version, operationState: manual ?
+        inventoryVersion: state.version, operationState: input.channelPolicy === "provider_free" ? "not_required" : manual ?
           bookings.some((booking) => booking.lineChannelPending?.length) ? "action_required" :
           "not_required" : "sync_pending",
         operationKeys, sourceReviewRequired: bookings.some((booking) =>

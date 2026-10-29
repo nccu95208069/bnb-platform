@@ -42,6 +42,8 @@ export type Principal = {
   fields: FieldGrant[];
   /** Server-side routing generation; never a caller-asserted source of authority. */
   authorityEpoch: number;
+  /** Stored dedicated credential marker; never accepted from request bodies. */
+  lineProviderFreeEnabled?: true;
   grantId?: string;
   bindingId?: string;
   /** Required for a guest's order-status credential; never supplied by a browser body. */
@@ -277,6 +279,9 @@ export type PropertyState = {
   /** Restricted provenance for a read-only OFFLAND Sheet candidate. */
   offlandImport?: Record<string, unknown>;
   channel: { mode: "none" | "owlnest"; ready: boolean; websiteSalesEnabled: boolean;
+    /** Server-only allowlist. Provider-free LINE writes require mode none and this exact grant. */
+    lineBookingMode?: "provider_free";
+    lineBookingGrantId?: string;
     /** Disabled until source events have a durable OwlNest operation dispatcher. */
     sourceReadbackEnabled?: boolean;
     /** Last date whose complete room stock was observed at mode activation. */
@@ -308,7 +313,7 @@ export type CreateBookingInput = {
   bookedAt: string | null;
   source: "os" | "line" | "website";
   /** Opt-in rollout policy, bound into the LINE preview and request receipt. */
-  channelPolicy?: "manual";
+  channelPolicy?: "manual" | "provider_free";
   acknowledgedClosedNights?: Night[];
 };
 
@@ -343,7 +348,7 @@ export type AmendBookingInput = {
   expectedBookingVersion: number;
   expectedInventoryVersion: number;
   changes: Partial<Pick<Booking, "stays" | "guestName" | "contact" | "notes" | "totalCents" | "roomNightPrices" | "bookedAt">>;
-  channelPolicy?: "manual";
+  channelPolicy?: "manual" | "provider_free";
   acknowledgedClosedNights?: Night[];
   reason?: string;
 };
@@ -367,7 +372,7 @@ export type RescheduleBookingInput = RescheduleBookingPreviewInput & {
 export type LineBulkCancelInput = {
   expectedInventoryVersion: number;
   bookings: { bookingId: string; expectedBookingVersion: number }[];
-  channelPolicy?: "manual";
+  channelPolicy?: "manual" | "provider_free";
 };
 
 export type PaymentEventInput = PaymentMetadata & {

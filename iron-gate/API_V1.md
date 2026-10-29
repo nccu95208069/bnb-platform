@@ -1,5 +1,7 @@
 # Iron Gate API v1：介面與程式落地規劃
 
+2026-10-29：新增 [Offland LINE provider-free 訂單政策](../docs/work-handoff/OFFLAND_LINE_BOOKING_2026-10-29.md)。專用憑證／逐館開關／簽署預覽下可新增、修改及取消原生訂單；回覆不需通路同步，不產生 OwlNest 工作。候選實作已隔離驗證，尚未正式啟用。
+
 日期：2026-10-13（Asia/Taipei）
 狀態：**可執行的合成驗證版本；已有受保護的 Preview 與固定 503 的 Production 空殼，未接真實訂單或 OwlNest 寫入**。產品權威與遷移決策仍以 [Iron Gate v1](IRON_GATE_V1.md) 為準；機器可讀路徑及請求格式見 [OpenAPI](openapi.yaml)。
 

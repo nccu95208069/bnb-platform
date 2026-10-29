@@ -47,6 +47,7 @@ export function createGrantAuthenticator(directory, repository, verifyOsMember =
       workspaceId: grant.workspaceId, propertyIds: [grant.propertyId],
       authorityEpoch: grant.authorityEpoch, actions: allowedActions, fields: allowedFields,
       grantId: grant.grantId, bindingId: grant.bindingId,
+      lineProviderFreeEnabled: grant.lineProviderFreeEnabled,
       bookingIdScope: grant.bookingIdScope, sourceSystem: grant.sourceSystem,
       sourceAccount: grant.sourceAccount,
       financeSourceInstanceId: grant.financeSourceInstanceId,

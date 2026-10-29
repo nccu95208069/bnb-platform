@@ -71,7 +71,7 @@ components:
           items: { $ref: '#/components/schemas/NightPrice' }
         bookedAt: { type: [string, 'null'], format: date }
         source: { type: string, enum: [os, line, website] }
-        channelPolicy: { type: string, enum: [manual], description: LINE manage-all only; booking commits with action_required and no OwlNest operation until a second staff confirmation. }
+        channelPolicy: { type: string, enum: [manual, provider_free], description: LINE manage-all only. manual requires later channel handling; provider_free requires a server-bound dedicated grant and channel mode none and creates no provider work. }
         acknowledgedClosedNights:
           type: array
           minItems: 1
@@ -195,7 +195,7 @@ components:
       properties:
         expectedBookingVersion: { type: integer, minimum: 1 }
         expectedInventoryVersion: { type: integer, minimum: 0 }
-        channelPolicy: { type: string, enum: [manual], description: LINE manage-all or OS direct booking amendment; OS saves room changes for explicit later synchronization. }
+        channelPolicy: { type: string, enum: [manual, provider_free], description: manual supports LINE manage-all or OS deferred room changes. provider_free is restricted to the server-bound dedicated LINE booking grant and channel mode none. }
         acknowledgedClosedNights:
           type: array
           minItems: 1
@@ -551,14 +551,14 @@ components:
       properties:
         expectedBookingVersion: { type: integer, minimum: 1 }
         expectedInventoryVersion: { type: integer, minimum: 0 }
-        channelPolicy: { type: string, enum: [manual], description: LINE manage-all only. }
+        channelPolicy: { type: string, enum: [manual, provider_free], description: LINE manage-all only; provider_free additionally requires the exact server-configured dedicated grant and channel mode none. }
     LineBulkCancel:
       type: object
       additionalProperties: false
       required: [expectedInventoryVersion, bookings]
       properties:
         expectedInventoryVersion: { type: integer, minimum: 0 }
-        channelPolicy: { type: string, enum: [manual], description: LINE manage-all only. }
+        channelPolicy: { type: string, enum: [manual, provider_free], description: LINE manage-all only; provider_free additionally requires the exact server-configured dedicated grant and channel mode none. }
         bookings:
           type: array
           minItems: 2
@@ -687,8 +687,11 @@ paths:
       description: >-
         PII-free. A LINE operator proof is required. Returns propertyId,
         inventoryVersion, authorityEpoch, readOnly, lineScope, channelReady,
-        stockObservedThrough, canCreate, canAmend, canCancel, canInventory and
-        canManualChannel. A candidate Cloud Run
+        stockObservedThrough, bookingMode (provider_free/manual/provider/unavailable),
+        canReadAll, canCreate, canAmend, canCancel, canInventory and canManualChannel.
+        Write capabilities account for current authority, writable state and
+        preview signing configuration. Provider-free mode keeps channelReady,
+        canInventory and canManualChannel false. A candidate Cloud Run
         revision checks these values before receiving traffic.
       parameters:
         - { $ref: '#/components/parameters/PropertyId' }
