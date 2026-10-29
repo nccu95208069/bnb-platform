@@ -8,6 +8,7 @@ export type OrderIdentity = {id:string; aliases:string[]; row_ids:string[]; firs
 export type SummaryRegistry = {schema:1; version:number; orders:OrderIdentity[]; audits:{version:number; actor:string; at:string; source_version:string}[]};
 export const emptyRegistry = ():SummaryRegistry => ({schema:1,version:0,orders:[],audits:[]});
 export type FinanceSummaryRow = {
+ can_record?:boolean;
  id:string; platform:string; rooms:string[]; check_in:string; check_out:string;
  ota_ids:string[]; owl_ids:string[]; row_ids:string[]; aliases:string[];
  source_amount_cents:number|null; customer_payment:SettlementStatus;

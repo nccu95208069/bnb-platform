@@ -1035,15 +1035,15 @@ const uiLocale = useIntlLocale();
 
               {permissions.viewPrices && booking.source_amount_reconciliation && (
                 <section className="rounded-xl border bg-muted/30 p-4">
-                  <h3 className="text-sm font-semibold">Airbnb 訂單金額（五房合計）</h3>
+                  <h3 className="text-sm font-semibold">Airbnb 訂單金額（整筆合計）</h3>
                   <dl className="mt-2 divide-y">
                     <DetailRow label="住宿房費" value={formatMoney(booking.source_amount_reconciliation.groupGrossCents / 100, uiLocale)} />
                     <DetailRow label="Airbnb 房東服務費" value={formatMoney(booking.source_amount_reconciliation.groupHostFeeCents / 100, uiLocale)} />
                     <DetailRow label="預計淨入帳" value={formatMoney(booking.source_amount_reconciliation.groupNetCents / 100, uiLocale)} />
                     <DetailRow label="平台另收稅額" value={formatMoney(booking.source_amount_reconciliation.groupTaxCents / 100, uiLocale)} />
-                    <DetailRow label="旅客支付合計" value={formatMoney(booking.source_amount_reconciliation.groupGuestPaidCents / 100, uiLocale)} />
+                    {booking.source_amount_reconciliation.groupGuestPaidCents !== null && <DetailRow label="旅客支付合計" value={formatMoney(booking.source_amount_reconciliation.groupGuestPaidCents / 100, uiLocale)} />}
                   </dl>
-                  <p className="mt-3 text-xs text-muted-foreground">本房金額依原五房比例分攤；以上是預計金額，實際入帳以收款紀錄為準。</p>
+                  <p className="mt-3 text-xs text-muted-foreground">本房晚金額依原訂單比例分攤；以上是預計金額，實際入帳以收款紀錄為準。</p>
                 </section>
               )}
 

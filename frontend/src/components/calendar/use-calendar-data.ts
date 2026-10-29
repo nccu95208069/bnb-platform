@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ApiError } from '@/lib/api-client';
 import type { CalendarProperty, CalendarResponse } from './calendar-types';
-import { combinedCalendarWindows, hasCalendarCoverage, retainedCalendar, validCalendarResponse } from './calendar-retention';
+import { hasCalendarCoverage, retainedCalendar } from './calendar-retention';
+import { cachedCalendarWindow, calendarWindowKey, createCalendarWindowState, readCalendarWindow } from './calendar-window-cache';
 
 type Input = {
   start: string; end: string; scope: string; reload: number;
@@ -12,34 +12,26 @@ type Input = {
   onProperties: (properties: CalendarProperty[]) => void;
   onAccessLost: () => void;
 };
-type WindowState = { scope: string; reload: number;
-  windows: Map<string, { data: CalendarResponse; at: number }>;
-  pending: Map<string, Promise<CalendarResponse>> };
-
-function readWindow(state: WindowState, from: string, to: string,
-  read: Input['read']): Promise<CalendarResponse> {
-  const key = `${from}:${to}`;
-  const existing = state.pending.get(key);
-  if (existing) return existing;
-  const request = read(from, to);
-  state.pending.set(key, request);
-  void request.then(() => { if (state.pending.get(key) === request) state.pending.delete(key); },
-    () => { if (state.pending.get(key) === request) state.pending.delete(key); });
-  return request;
-}
+type LoadResult = { scope: string; data: CalendarResponse | null; failed: boolean;
+  error: string | null; lastLoadedAt: Date | null; settledKey: string | null };
 
 // Private data is retained only in this mounted view and only for the exact access scope.
 export function useCalendarData({ start, end, visibleStart = start, visibleEnd = end, scope, reload, prefetch = [], read, onProperties, onAccessLost }: Input) {
-  const [loaded, setLoaded] = useState<{ scope: string; data: CalendarResponse } | null>(null);
-  const cache = useRef<WindowState>({
-    scope, reload, windows: new Map(), pending: new Map(),
-  });
-  const [failed, setFailed] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
+  const [result, setResult] = useState<LoadResult>({ scope, data: null, failed: false,
+    error: null, lastLoadedAt: null, settledKey: null });
+  // Discard the old result on the scope-changing render itself. Merely hiding
+  // it would resurrect that private snapshot if the caller switched back.
+  if (result.scope !== scope) setResult({ scope, data: null, failed: false,
+    error: null, lastLoadedAt: null, settledKey: null });
+  const cache = useRef(createCalendarWindowState(scope, reload));
+  const mounted = useRef(false);
+  const scopedResult = result.scope === scope ? result : null;
+  const failed = scopedResult?.failed ?? false;
+  const error = scopedResult?.error ?? null;
+  const lastLoadedAt = scopedResult?.lastLoadedAt ?? null;
   const requestKey = JSON.stringify([scope, start, end, reload]);
-  const [settledKey, setSettledKey] = useState<string | null>(null);
-  const data = useMemo(() => retainedCalendar(loaded?.scope === scope ? loaded.data : null, failed), [loaded, scope, failed]);
+  const settledKey = scopedResult?.settledKey ?? null;
+  const data = useMemo(() => retainedCalendar(scopedResult?.data ?? null, failed), [scopedResult, failed]);
   // Effects start after the first render for a new date range. Derive pending
   // from the requested range so an uncovered range never flashes as a failure.
   const pending = settledKey !== requestKey;
@@ -52,92 +44,76 @@ export function useCalendarData({ start, end, visibleStart = start, visibleEnd =
   const prefetchKey = JSON.stringify(prefetch.map(({ start: from, end: to }) => [from, to]));
 
   useEffect(() => {
-    cache.current = { scope, reload: -1, windows: new Map(), pending: new Map() };
-    setLoaded(null); setLastLoadedAt(null); setFailed(false); setError(null);
-    setSettledKey(null);
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      cache.current.windows.clear(); cache.current.pending.clear();
+    };
+  }, []);
+
+  useEffect(() => {
+    cache.current = createCalendarWindowState(scope, -1);
   }, [scope]);
 
   useEffect(() => {
     let active = true;
-    setSettledKey(null);
-    void (async () => {
+    const force = cache.current.reload !== reload;
+    if (force) cache.current = createCalendarWindowState(scope, reload);
+    const state = cache.current;
+    state.foregroundKey = calendarWindowKey(start, end);
+    state.requestKey = requestKey;
+    const current = () => mounted.current && cache.current === state;
+    const accessLost = (cause: Error) => {
+      setResult({ scope, data: null, lastLoadedAt: null, failed: true,
+        error: cause.message, settledKey: state.requestKey });
+      onAccessLost();
+    };
+    void Promise.resolve().then(async () => {
+      if (!active || !current()) return;
       try {
-        const state = cache.current;
-        const force = state.reload !== reload;
-        if (force) state.pending.clear();
-        state.reload = reload;
-        const key = `${start}:${end}`;
-        // Iron Gate windows share an inventory version. Keep adjacent years in
-        // memory until a scheduled reload observes a new version; a time-only
-        // eviction would stall scrolling even when nothing changed.
-        const fresh = [...state.windows.values()].filter(item =>
-          item.data.source?.private_snapshot_version || Date.now() - item.at < 120_000);
-        const cached = combinedCalendarWindows(fresh.map(item => item.data), start, end);
+        const cached = cachedCalendarWindow(state, start, end);
         if (!force && cached && hasCalendarCoverage(cached, start, end)) {
-          setLoaded({ scope, data: cached }); setFailed(false); setError(null);
-          setSettledKey(requestKey); return;
+          setResult(previous => ({ scope, data: cached, failed: false, error: null,
+            lastLoadedAt: previous.scope === scope ? previous.lastLoadedAt : null, settledKey: requestKey }));
+          return;
         }
-        const response = await readWindow(state, start, end, read);
-        if (!active) return;
-        if (!validCalendarResponse(response, start, end)) throw Error('收到的日曆資料不完整，保留上次資料。');
-        const priorVersion = state.windows.values().next().value?.data.source?.private_snapshot_version;
-        const nextVersion = response.source?.private_snapshot_version;
-        if (priorVersion !== nextVersion) state.windows.clear();
-        state.windows.delete(key);
-        state.windows.set(key, { data: response, at: Date.now() });
-        while (state.windows.size > 7) state.windows.delete(state.windows.keys().next().value!);
-        const combined = combinedCalendarWindows([...state.windows.values()].map(item => item.data), start, end) ?? response;
-        setLoaded({ scope, data: combined }); setFailed(false); setError(null);
-        setLastLoadedAt(new Date()); setSettledKey(requestKey); onProperties(response.properties);
+        const response = await readCalendarWindow(state, start, end, read, current, accessLost);
+        if (!active || !current() || state.revoked || !response) return;
+        const combined = cachedCalendarWindow(state, start, end) ?? response;
+        setResult({ scope, data: combined, failed: false, error: null,
+          lastLoadedAt: new Date(), settledKey: requestKey });
+        onProperties(response.properties);
       } catch (cause) {
-        if (!active) return;
-        setFailed(true);
-        if (cause instanceof ApiError && [401, 403].includes(cause.status)) {
-          cache.current.windows.clear();
-          setLoaded(null); setLastLoadedAt(null); onAccessLost();
-        }
-        setError(cause instanceof Error ? cause.message : '無法讀取訂單日曆');
-        setSettledKey(requestKey);
+        if (!active || !current() || state.revoked) return;
+        setResult(previous => ({ scope, data: previous.scope === scope ? previous.data : null,
+          lastLoadedAt: previous.scope === scope ? previous.lastLoadedAt : null,
+          failed: true, error: cause instanceof Error ? cause.message : '無法讀取訂單日曆', settledKey: requestKey }));
       }
-    })();
+    });
     return () => { active = false; };
   }, [start, end, scope, reload, requestKey, read, onProperties, onAccessLost]);
 
   useEffect(() => {
     if (settledKey !== requestKey || !mainCovered || failed || !hasSource) return;
     let active = true;
-    void (async () => {
-      const state = cache.current;
-      if (state.scope !== scope || state.reload !== reload) return;
-      const ranges = (JSON.parse(prefetchKey) as [string, string][]).filter(([from, to]) => {
-        const cached = combinedCalendarWindows([...state.windows.values()].map(item => item.data), from, to);
-        return !hasCalendarCoverage(cached, from, to);
-      });
-      // Adjacent month/year requests start together so either direction is warm.
-      const results = await Promise.allSettled(ranges.map(async ([from, to]) => ({
-        from, to, response: await readWindow(state, from, to, read),
-      })));
-      if (!active || state !== cache.current || state.reload !== reload) return;
-      for (const result of results) {
-        if (result.status === 'rejected') {
-          const cause = result.reason;
-          if (cause instanceof ApiError && [401, 403].includes(cause.status)) {
-            state.windows.clear(); setLoaded(null); setLastLoadedAt(null);
-            setFailed(true); setError(cause.message); onAccessLost(); return;
-          }
-          continue;
-        }
-        const { from, to, response } = result.value;
-        if (!validCalendarResponse(response, from, to) ||
-          response.source?.private_snapshot_version !== sourceVersion) continue;
-        const key = `${from}:${to}`;
-        state.windows.delete(key);
-        state.windows.set(key, { data: response, at: Date.now() });
-      }
-      while (state.windows.size > 7) state.windows.delete(state.windows.keys().next().value!);
-      const combined = combinedCalendarWindows([...state.windows.values()].map(item => item.data), start, end);
-      if (combined) setLoaded({ scope, data: combined });
-    })();
+    const state = cache.current;
+    if (state.scope !== scope || state.reload !== reload || state.revoked) return;
+    const current = () => mounted.current && cache.current === state;
+    const accessLost = (cause: Error) => {
+      setResult({ scope, data: null, lastLoadedAt: null, failed: true,
+        error: cause.message, settledKey: state.requestKey });
+      onAccessLost();
+    };
+    for (const [from, to] of JSON.parse(prefetchKey) as [string, string][]) {
+      if (hasCalendarCoverage(cachedCalendarWindow(state, from, to), from, to)) continue;
+      void readCalendarWindow(state, from, to, read, current, accessLost).then(response => {
+        // The shared request has already committed its cache entry, even if the
+        // viewport moved. Only the current effect may update the visible data.
+        if (!active || !current() || state.revoked || !response) return;
+        const combined = cachedCalendarWindow(state, start, end);
+        if (combined) setResult(previous => previous.scope === scope ? { ...previous, data: combined } : previous);
+      }).catch(() => { /* A neighbor failure does not hide the verified current month. */ });
+    }
     return () => { active = false; };
   }, [prefetchKey, settledKey, requestKey, mainCovered, failed, hasSource, sourceVersion, scope, reload, start, end, read, onAccessLost]);
   return { data, loading, refreshing, error: pending ? null : error, requestFailed: failed, lastLoadedAt };

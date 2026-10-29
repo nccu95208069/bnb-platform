@@ -25,16 +25,28 @@ export function projectOrders(rows:CalendarBooking[],entries:FinanceEntry[],rule
  return {orders:orders.sort((a,b)=>a.check_in.localeCompare(b.check_in)),excluded};
 }
 export const projectionVersion=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
-export function validateFinanceLinks(input:Record<string,unknown>,orders:FinanceOrder[],entries:FinanceEntry[],recurring:RecurringExpense[],_year:number,asof:string){
+export function validateFinanceLinks(input:Record<string,unknown>,orders:FinanceOrder[],entries:FinanceEntry[],recurring:RecurringExpense[],_year:number,asof:string,options:{ssot?:boolean}={}){
  if(input.action!=='create')return;
  const allocations=input.allocations;
  if(allocations!==undefined){
   if(!Array.isArray(allocations)||allocations.length>100||input.kind!=='income'||input.category!=='lodging'||input.method==='ota')throw new Error('INVALID_INPUT');
   let sum=0;const seen=new Set<string>();
-  for(const a of allocations){if(!a||typeof a.order_id!=='string'||!Number.isSafeInteger(a.amount_cents)||a.amount_cents<=0||seen.has(a.order_id))throw new Error('INVALID_INPUT');seen.add(a.order_id);const order=orders.find(o=>o.id===a.order_id);if(order?.source==='iron_gate')throw new Error('IRON_GATE_DIRECT_PAYMENT_REQUIRED');if(order?.receivable_review_required)throw new Error('SOURCE_MAPPING_REVIEW_REQUIRED');if(!order||order.platform!==input.platform||a.amount_cents>order.receivable)throw new Error('VERSION_CONFLICT');sum+=a.amount_cents;}
+  for(const a of allocations){if(!a||typeof a.order_id!=='string'||!Number.isSafeInteger(a.amount_cents)||a.amount_cents<=0||seen.has(a.order_id))throw new Error('INVALID_INPUT');seen.add(a.order_id);const order=orders.find(o=>o.id===a.order_id);if(order?.source==='iron_gate'&&!(options.ssot&&order.ssot_command_eligible))throw new Error('IRON_GATE_DIRECT_PAYMENT_REQUIRED');if(order?.receivable_review_required)throw new Error('SOURCE_MAPPING_REVIEW_REQUIRED');if(!order||order.platform!==input.platform||a.amount_cents>order.receivable)throw new Error('VERSION_CONFLICT');sum+=a.amount_cents;}
   if(allocations.length&&sum!==Math.round(Number(input.amount)*100))throw new Error('INVALID_INPUT');
  }
  if(input.kind==='income'&&input.category==='lodging'&&(!Array.isArray(allocations)||!allocations.length))throw new Error('ORDER_REQUIRED');
  if(input.recurrence_id!==undefined){const due=recurrenceDue(recurring,entries,Number(String(input.occurrence).slice(0,4)),asof).find(d=>d.rule_id===input.recurrence_id&&d.date===input.occurrence);if(!due||input.kind!=='expense'||input.category!==due.category||Math.round(Number(input.amount)*100)!==due.amount_cents||String(input.date)<due.date)throw new Error('VERSION_CONFLICT');}
  else if(input.occurrence!==undefined)throw new Error('INVALID_INPUT');
+}
+
+/** All canonical sources settle the same balance once; cancelled identities remain readable. */
+export function projectSsotBookingBalances(orders:FinanceOrder[],entries:FinanceEntry[]){
+ return orders.map(order=>{
+  const received=entries.filter(e=>e.status==='active'&&['income','refund'].includes(e.kind)&&e.method!=='ota')
+   .reduce((sum,entry)=>sum+(entry.kind==='refund'?-1:1)*roomCollectionForOrder(entry,order.id),0);
+  return {...order,received,
+   receivable:order.status==='confirmed'&&!order.receivable_review_required?Math.max(0,order.total-received):0,
+   credit:order.receivable_review_required?0:Math.max(0,received-(order.status==='cancelled'?0:order.total)),
+   source_paid:order.status==='confirmed'&&!order.receivable_review_required&&order.total>0&&received>=order.total};
+ });
 }

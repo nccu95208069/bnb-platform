@@ -437,6 +437,10 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         return json(await service.listEvents(principal, parts[2],
           Number(url.searchParams.get("after") ?? "0"), Number(url.searchParams.get("limit") ?? "50")));
       }
+      if (parts[1] === "properties" && parts[2] && parts[3] === "source-amount-snapshot" &&
+        parts.length === 4 && request.method === "GET") {
+        return json(await service.sourceAmountSnapshot(principal, parts[2]));
+      }
       if (parts[1] === "properties" && parts[2] && parts[3] === "finance" &&
         parts[4] === "direct-snapshot" && parts.length === 5 && request.method === "GET") {
         return json(await service.directFinanceSnapshot(principal, parts[2]));
