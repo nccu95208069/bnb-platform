@@ -1,8 +1,31 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { validateDatabaseTransport } from "../src/main.mjs";
 import { createPostgresIronGateHandler } from "../src/node-server.mjs";
+import { assertRuntimeDatabase } from "../src/runtime-safety.mjs";
 import { restoreDrill } from "../scripts/pg-restore-drill.mjs";
+
+test("finance audit emergency revoke restores the runtime role invariant", async () => {
+  const grant = await readFile(new URL("../sql/013_finance_ssot_activity_read.sql",
+    import.meta.url), "utf8");
+  const revoke = await readFile(new URL("../sql/019_finance_audit_read_emergency_revoke.sql",
+    import.meta.url), "utf8");
+  assert.match(grant, /GRANT SELECT ON iron_gate\.audit_log TO iron_gate_runtime;/);
+  assert.match(revoke, /REVOKE SELECT ON iron_gate\.audit_log FROM iron_gate_runtime;/);
+  const identity = { rolsuper: false, rolbypassrls: false,
+    runtime_member: true, schema_ready: true, property_rls: true,
+    occupancy_rls: true, outbox_rls: true, can_change_schema: false,
+    can_change_credentials: false, can_change_events: false };
+  let auditSelect = true;
+  const pool = { async query(sql) {
+    assert.match(sql, /has_table_privilege\(current_user, 'iron_gate\.audit_log'/);
+    return { rows: [{ ...identity, can_read_or_change_audit: auditSelect }] };
+  } };
+  await assert.rejects(assertRuntimeDatabase(pool), /UNSAFE_DATABASE_ROLE_OR_SCHEMA/);
+  auditSelect = false;
+  await assert.doesNotReject(assertRuntimeDatabase(pool));
+});
 
 test("remote booking database requires hostname-verified TLS", () => {
   assert.doesNotThrow(() => validateDatabaseTransport(

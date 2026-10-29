@@ -1,6 +1,10 @@
 # Finance SSOT W7 offline checkpoint — 2026-10-28
 
-**Decision: Sweetfun cutover remains closed.** This branch is a disabled historical-import candidate in draft PR #117. Separate read-only tools captured point-in-time Sweetfun LINE Firestore and OS Redis finance snapshots. No real record has been imported, and this branch has not applied a production migration, changed a writer flag, published an Iron Gate/OS service, or edited a workbook. A synthetic `matched` report is only a test of the supplied fixture and comparison contract; it is not approval to cut over.
+**Decision: Sweetfun cutover remains closed.** This branch is a disabled historical-import candidate in draft PR #117. Separate read-only tools captured point-in-time Sweetfun LINE Firestore and OS Redis finance snapshots. At this 2026-10-28 checkpoint, no real record had been imported and this branch had not applied a production migration, changed a writer flag, published an Iron Gate/OS service, or edited a workbook. The later production schema incident is recorded immediately below. A synthetic `matched` report is only a test of the supplied fixture and comparison contract; it is not approval to cut over.
+
+### 2026-10-29 calendar availability incident
+
+Migration 013 granted `iron_gate_runtime` direct `SELECT` on `iron_gate.audit_log`. The existing Iron Gate startup guard forbids that privilege, so the production calendar dependency returned 503 after the schema change. The emergency production migration named `finance_audit_read_emergency_revoke_019` revoked that grant; its exact SQL is now source-controlled in `iron-gate/sql/019_finance_audit_read_emergency_revoke.sql`. This restores the guard's expected role contract. The W7 finance activity query still reads `audit_log` directly, so that candidate route cannot work with the revoked privilege. Keep finance commands and the Sweetfun cutover disabled until a separately reviewed property-scoped read design replaces the direct table query and passes a runtime-role integration test. No finance source write is part of this emergency repair.
 
 ## Local candidate
 
