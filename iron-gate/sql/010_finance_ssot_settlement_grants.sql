@@ -12,7 +12,7 @@ BEGIN
     'finance_evidence_assertion','finance_settlement','finance_settlement_link'
   ] LOOP
     EXECUTE format('DROP POLICY IF EXISTS finance_insert_scope ON iron_gate.%I', t);
-    EXECUTE format('CREATE POLICY finance_insert_scope ON iron_gate.%I FOR INSERT TO iron_gate_runtime WITH CHECK (property_id::text = current_setting(''iron_gate.property_id'', true))', t);
+    EXECUTE format('CREATE POLICY finance_insert_scope ON iron_gate.%I FOR INSERT TO iron_gate_runtime WITH CHECK (property_id::text = current_setting(''iron_gate.property_id'', true) AND iron_gate.finance_write_scope_allowed(property_id))', t);
     EXECUTE format('GRANT INSERT ON iron_gate.%I TO iron_gate_runtime', t);
     EXECUTE format('DROP TRIGGER IF EXISTS finance_immutable ON iron_gate.%I', t);
     EXECUTE format('CREATE TRIGGER finance_immutable BEFORE UPDATE OR DELETE ON iron_gate.%I FOR EACH ROW EXECUTE FUNCTION iron_gate.finance_immutable_row()', t);

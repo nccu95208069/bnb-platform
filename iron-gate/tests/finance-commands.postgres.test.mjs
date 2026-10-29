@@ -15,6 +15,7 @@ const otherPropertyId = '10000000-0000-4000-8000-000000000003';
 const bookingId = '10000000-0000-4000-8000-000000000004';
 const connectorId = '10000000-0000-4000-8000-000000000005';
 const importConnectorId = '10000000-0000-4000-8000-000000000006';
+const importManualConnectorId = '10000000-0000-4000-8000-000000000014';
 const lineConnectorId = '10000000-0000-4000-8000-000000000010';
 const lineBookingId = '10000000-0000-4000-8000-000000000011';
 const sheetConnectorId = '10000000-0000-4000-8000-000000000012';
@@ -69,6 +70,8 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
         await admin.query(`INSERT INTO iron_gate.property_state
           (property_id,workspace_id,authority_epoch,inventory_version,state_json)
           VALUES ($1,$2,1,1,$3::jsonb)`, [id, workspaceId, JSON.stringify(state(id, withBooking))]);
+      await admin.query(`INSERT INTO iron_gate.finance_write_scope(property_id,mode)
+        VALUES ($1,'full')`,[propertyId]);
       await admin.query(`INSERT INTO iron_gate.finance_connector
         (source_instance_id,property_id,source_system,enabled,cutover_at)
         VALUES ($1,$2,'os_manual',true,now()-interval '1 day')`, [connectorId, propertyId]);
@@ -118,6 +121,7 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
         service_on:'2026-11-10',
         payment_method_code:'bank_transfer' };
       const preview = await service.preview(principal, propertyId, room, room.request_key);
+      assert.equal(Object.hasOwn(preview.resolved_command,'source_actor_ref'),false);
       assert.equal(preview.bookings[0].bookingId, bookingId);
       assert.equal(preview.resolved_command.booking_allocations[0].booking_id,bookingId);
       const roomAccepted = await service.command(principal, propertyId,
@@ -164,6 +168,7 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       assert.equal(projection.unmapped_legacy_payment_events,0);
       const ledger = await service.ledger(principal, propertyId,
         { from:'2026-10-28', to:'2026-10-29', limit:2 });
+      assert.equal(ledger.property_id,propertyId);
       assert.equal(ledger.source_instance_id,connectorId);
       assert.equal(ledger.source_system,'os_manual');
       assert.equal(ledger.source_sheet_ref,null);
@@ -330,18 +335,177 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       assert.deepEqual(await service.sourceLinkCommit(importer,propertyId,
         { ...link,preview_token:linkPreview.preview_token },link.request_key),linked);
       const imported = { ...roomCommand('legacy-receipt-1',1000),
+        source_actor_ref:'line_actor:synthetic-reviewed-1',
+        source_recorded_at:'2026-10-27T11:42:13.590172+08:00',
         booking_allocations:[{source_order_key:'SF-IMPORTED-1',
           amount_cents:1000,allocation_kind:'room'}] };
+      await assert.rejects(service.importPreview(importer,propertyId,
+        {...imported,source_recorded_at:undefined},imported.request_key),
+      e => e.code==='SOURCE_MAPPING_REVIEW_REQUIRED');
+      await assert.rejects(service.importPreview(importer,propertyId,
+        {...imported,source_recorded_at:'2026-02-30T11:42:13+08:00'},imported.request_key),
+      e => e.code==='INVALID_SOURCE_TIMESTAMP');
       const importPreview = await service.importPreview(importer,propertyId,
         imported,imported.request_key);
+      await assert.rejects(service.importCommand(importer,propertyId,
+        {...importPreview.resolved_command,source_recorded_at:undefined,
+          preview_token:importPreview.preview_token},imported.request_key),
+      e => e.code==='SOURCE_MAPPING_REVIEW_REQUIRED');
       const importReceipt = await service.importCommand(importer,propertyId,
         {...importPreview.resolved_command,preview_token:importPreview.preview_token},
         imported.request_key);
       assert.equal(importReceipt.receipt_status,'accepted');
+      const historicalActor=await admin.query(`SELECT actor_ref,source_actor_ref,
+        to_char(source_recorded_at AT TIME ZONE 'UTC',
+          'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS source_recorded_at,created_at
+        FROM iron_gate.finance_revision WHERE property_id=$1 AND document_id=$2`,
+        [propertyId,importReceipt.document_id]);
+      assert.equal(historicalActor.rows[0].actor_ref,importer.subjectId);
+      assert.equal(historicalActor.rows[0].source_actor_ref,imported.source_actor_ref);
+      assert.equal(historicalActor.rows[0].source_recorded_at,
+        '2026-10-27T03:42:13.590172Z');
+      assert.notEqual(historicalActor.rows[0].created_at.toISOString(),
+        historicalActor.rows[0].source_recorded_at);
       assert.deepEqual(await service.importReceipt(importer,propertyId,
         imported.request_key),importReceipt);
-      assert.equal((await service.importLedger(importer,propertyId,
-        {limit:100})).events.some(event => event.document_id===importReceipt.document_id),true);
+      const importLedger=await service.importLedger(importer,propertyId,{limit:100});
+      assert.equal(importLedger.property_id,propertyId);
+      const importedEvent=importLedger.events.find(event =>
+        event.document_id===importReceipt.document_id);
+      assert.equal(importedEvent.source_recorded_at,
+        '2026-10-27T03:42:13.590172Z');
+      assert.equal(importedEvent.revision_source_recorded_at,
+        '2026-10-27T03:42:13.590172Z');
+      assert.notEqual(importedEvent.created_at.toISOString(),
+        importedEvent.source_recorded_at);
+      const nonmoneyBefore = await admin.query(`SELECT count(*)::int AS count
+        FROM iron_gate.finance_event WHERE property_id=$1`,[propertyId]);
+      const historicalOrigin={source_actor_ref:`os_actor:${'a'.repeat(64)}`,
+        source_recorded_at:'2026-09-01T03:04:05.000Z',
+        origin_source_version:'redis:2026:42'};
+      const historicalStatus={request_key:'import-status-1',source_record_id:'legacy-status-1',
+        version:1,status_code:'room_confirmed',settles_room:true,booking_id:bookingId,
+        expected_booking_version:1,origin_request_hash:'1'.repeat(64),
+        source_order_key:link.source_order_key,
+        source_snapshot_hash:link.source_snapshot_hash,
+        ...historicalOrigin};
+      await assert.rejects(service.statusCommand(importer,propertyId,
+        {...historicalStatus,request_key:'import-status-missing-hash',
+          origin_request_hash:undefined},'import-status-missing-hash',true),
+      e => e.code==='INVALID_INPUT');
+      await assert.rejects(service.statusCommand(importer,propertyId,
+        {...historicalStatus,request_key:'import-status-invalid-time',
+          source_recorded_at:'2026-02-31T03:04:05Z'},'import-status-invalid-time',true),
+      e => e.code==='INVALID_INPUT');
+      await assert.rejects(service.statusCommand(importer,propertyId,
+        {...historicalStatus,request_key:'import-status-invalid-actor',
+          source_actor_ref:'1234567890123456'},'import-status-invalid-actor',true),
+      e => e.code==='INVALID_INPUT');
+      await assert.rejects(service.statusCommand(importer,propertyId,
+        {...historicalStatus,request_key:'import-status-missing-source-version',
+          origin_source_version:undefined},'import-status-missing-source-version',true),
+      e => e.code==='INVALID_INPUT');
+      await assert.rejects(service.statusCommand(importer,propertyId,
+        {...historicalStatus,request_key:'import-status-unlinked',
+          source_order_key:'SF-UNLINKED'},'import-status-unlinked',true),
+      e => e.code==='SOURCE_MAPPING_REVIEW_REQUIRED');
+      const importedStatus=await service.statusCommand(importer,propertyId,
+        historicalStatus,historicalStatus.request_key,true);
+      assert.equal(importedStatus.cash_effect_cents,0);
+      const statusTarget=(await service.importCatalog(importer,propertyId)).entries
+        .find(row=>row.record_kind==='operational_status').target_current;
+      assert.equal(statusTarget.source_recorded_at.toISOString(),
+        historicalOrigin.source_recorded_at);
+      assert.notEqual(statusTarget.recorded_at.toISOString(),
+        historicalOrigin.source_recorded_at);
+      assert.deepEqual(await service.statusCommand(importer,propertyId,
+        historicalStatus,historicalStatus.request_key,true),importedStatus);
+      await assert.rejects(service.statusCommand(principal,propertyId,
+        {...historicalStatus,request_key:'wrong-origin-status'},'wrong-origin-status',true),
+      e => e.code==='PROPERTY_FORBIDDEN');
+      await admin.query(`INSERT INTO iron_gate.finance_connector
+        (source_instance_id,property_id,source_system,enabled)
+        VALUES ($1,$2,'os_manual',true)`,[importManualConnectorId,propertyId]);
+      const manualImporter={...importer,financeSourceInstanceId:importManualConnectorId};
+      const historicalCategory={request_key:'import-category-1',kind:'expense',
+        code:'historical_supplies',label:'Historical supplies',
+        origin_request_hash:'2'.repeat(64),...historicalOrigin};
+      await assert.rejects(service.categoryCommand(manualImporter,propertyId,
+        {...historicalCategory,request_key:'import-category-unnormalized',
+          label:' Historical supplies '},'import-category-unnormalized',true),
+      e => e.code==='INVALID_INPUT');
+      await service.categoryCommand(manualImporter,propertyId,historicalCategory,
+        historicalCategory.request_key,true);
+      const historicalAccount={request_key:'import-account-1',code:'historical_bank',
+        display_name:'Synthetic bank',kind:'bank',last_digits:'12345',
+        origin_request_hash:'3'.repeat(64),...historicalOrigin};
+      await service.accountCommand(manualImporter,propertyId,historicalAccount,
+        historicalAccount.request_key,true);
+      const historicalRecurring={request_key:'import-recurring-1',
+        source_record_id:'historical-rent',version:1,cadence:'monthly',
+        start_on:'2026-01-01',end_on:null,next_due_on:'2026-11-01',
+        status:'active',category_code:'historical_supplies',amount_cents:5000,
+        safe_description:'Synthetic rent',payment_method_code:'bank_transfer',due_day:1,
+        origin_request_hash:'4'.repeat(64),...historicalOrigin};
+      await service.recurringRule(manualImporter,propertyId,historicalRecurring,
+        historicalRecurring.request_key,true);
+      const takeover={request_key:'import-payout-takeover',platform:'booking',version:2,
+        mode:'fixed_day',day:12,offset_months:1,status:'active',
+        origin_request_hash:'6'.repeat(64),...historicalOrigin};
+      await assert.rejects(service.payoutRule(manualImporter,propertyId,
+        takeover,takeover.request_key,true),e => e.code==='SOURCE_MAPPING_REVIEW_REQUIRED');
+      const historicalPayout={request_key:'import-payout-1',platform:'airbnb',version:1,
+        mode:'fixed_day',day:10,offset_months:1,status:'active',
+        origin_request_hash:'5'.repeat(64),...historicalOrigin};
+      await service.payoutRule(manualImporter,propertyId,historicalPayout,
+        historicalPayout.request_key,true);
+      await assert.rejects(service.payoutRule(importer,propertyId,
+        {...historicalPayout,request_key:'wrong-source-payout',platform:'agoda'},
+        'wrong-source-payout',true),e => e.code==='SOURCE_FORBIDDEN');
+      const catalogFirst=await service.importCatalog(manualImporter,propertyId,{limit:1});
+      assert.equal(catalogFirst.entries.length,1);
+      assert.equal(catalogFirst.entries[0].source_instance_id,importManualConnectorId);
+      assert.ok(catalogFirst.next_cursor);
+      let cursor=catalogFirst.next_cursor;
+      const catalog=[...catalogFirst.entries];
+      while(cursor){
+        const page=await service.importCatalog(manualImporter,propertyId,
+          {limit:1,cursor,as_of_change_seq:catalogFirst.as_of_change_seq});
+        catalog.push(...page.entries);
+        cursor=page.next_cursor;
+      }
+      assert.deepEqual(new Set(catalog.map(row=>row.record_kind)),
+        new Set(['category','account','recurring_rule','payout_rule']));
+      assert.equal(catalog.find(row=>row.record_kind==='recurring_rule')
+        .target_current.amount_cents,'5000');
+      assert.equal(catalog.find(row=>row.record_kind==='recurring_rule')
+        .target_current.start_on,'2026-01-01');
+      assert.equal(catalog.find(row=>row.record_kind==='account')
+        .source_snapshot_hash,'3'.repeat(64));
+      assert.equal(catalog.find(row=>row.record_kind==='account')
+        .source_version,historicalOrigin.origin_source_version);
+      assert.equal(catalog.find(row=>row.record_kind==='account')
+        .target_version,1);
+      assert.equal(catalog.find(row=>row.record_kind==='account')
+        .source_actor_ref,historicalOrigin.source_actor_ref);
+      assert.equal(catalog.find(row=>row.record_kind==='account')
+        .source_recorded_at.toISOString(),historicalOrigin.source_recorded_at);
+      await assert.rejects(admin.query(`UPDATE iron_gate.finance_import_catalog
+        SET source_snapshot_hash=$1 WHERE property_id=$2 AND source_instance_id=$3`,
+        ['f'.repeat(64),propertyId,importManualConnectorId]),
+      e => e.code==='23514');
+      assert.equal((await service.importCatalog(importer,propertyId)).entries.length,1);
+      const nonmoneyAfter = await admin.query(`SELECT count(*)::int AS count
+        FROM iron_gate.finance_event WHERE property_id=$1`,[propertyId]);
+      assert.equal(nonmoneyAfter.rows[0].count,nonmoneyBefore.rows[0].count);
+      await admin.query(`UPDATE iron_gate.finance_connector
+        SET cutover_at=now()-interval '1 day',version=version+1,
+          updated_at=clock_timestamp() WHERE source_instance_id=$1`,
+        [importManualConnectorId]);
+      await assert.rejects(service.categoryCommand(manualImporter,propertyId,
+        {...historicalCategory,request_key:'late-import-category',code:'late_category'},
+        'late-import-category',true),e => e.code==='SOURCE_FORBIDDEN');
+      assert.equal((await service.importCatalog(manualImporter,propertyId)).entries.length,4);
       const issue = { request_key:'import-issue-1',source_record_id:'legacy-ambiguous-1',
         source_version:'1',reason_code:'BOOKING_MAPPING_AMBIGUOUS',severity:'blocking' };
       const flagged = await service.importIssue(importer,propertyId,issue,issue.request_key);
@@ -577,6 +741,82 @@ test('finance commands commit atomically, retry exactly, and isolate the propert
       assert.equal(legacyOutbox.rows[0].count,1);
       await assert.rejects(service.receipt(principal, otherPropertyId, first.request_key),
         e => e.code === 'PROPERTY_FORBIDDEN');
+
+      // A new Offland-style credential shares the existing connector but may
+      // write only general, unallocated income and expenses. Its correction
+      // scope cannot be used to revise an older booking-linked document.
+      const general = { ...principal, financeGeneralEntriesOnly:true,
+        actions:['finance:read','finance:record_receipt','finance:record_expense',
+          'finance:correct','finance:plan'] };
+      await assert.rejects(service.categories({ ...general,
+        financeSourceInstanceId:sheetConnectorId },propertyId),
+      e => e.code === 'SOURCE_FORBIDDEN');
+      const generalIncome = { request_key:'general-income-1',
+        source_record_id:'general-income-1',source_version:'1',action:'create',
+        event_kind:'property_receipt',amount_cents:500,currency:'TWD',
+        effective_on:'2026-10-28',cash_on:'2026-10-28',receipt_purpose:'other',
+        evidence_level:'operator_attested' };
+      const generalIncomeReceipt = await service.command(general,propertyId,
+        generalIncome,generalIncome.request_key);
+      assert.equal(generalIncomeReceipt.document_version,1);
+      const generalIncomeAmend = { ...generalIncome,
+        request_key:'general-income-amend',source_version:'2',expected_version:1,
+        action:'amend',amount_cents:550 };
+      assert.equal((await service.command(general,propertyId,generalIncomeAmend,
+        generalIncomeAmend.request_key)).document_version,2);
+      const generalExpense = { ...expense('create','1'),
+        request_key:'general-expense-1',source_record_id:'general-expense-1' };
+      assert.equal((await service.command(general,propertyId,generalExpense,
+        generalExpense.request_key)).document_version,1);
+      const generalExpenseVoid = { request_key:'general-expense-void',
+        source_record_id:'general-expense-1',source_version:'2',expected_version:1,
+        action:'void' };
+      assert.equal((await service.command(general,propertyId,generalExpenseVoid,
+        generalExpenseVoid.request_key)).document_version,2);
+
+      const forbiddenGeneral = async input => {
+        await assert.rejects(service.preview(general,propertyId,input,input.request_key),
+          e => e.code === 'SOURCE_FORBIDDEN');
+        await assert.rejects(service.command(general,propertyId,input,input.request_key),
+          e => e.code === 'SOURCE_FORBIDDEN');
+      };
+      await forbiddenGeneral(roomCommand('general-room',100));
+      await forbiddenGeneral({ ...roomCommand('general-deposit',100),
+        receipt_purpose:'deposit',booking_allocations:[{booking_id:bookingId,
+          expected_booking_version:1,amount_cents:100,allocation_kind:'deposit'}] });
+      await forbiddenGeneral({ ...roomCommand('general-extra',100),
+        receipt_purpose:'extra',booking_allocations:[{booking_id:bookingId,
+          expected_booking_version:1,amount_cents:100,allocation_kind:'extra'}] });
+      await forbiddenGeneral({ ...roomCommand('general-other-linked',100),
+        receipt_purpose:'other' });
+      await forbiddenGeneral({ ...expense('create','1'),
+        request_key:'general-processor-fee',source_record_id:'general-processor-fee',
+        event_kind:'processor_fee_paid' });
+      await forbiddenGeneral({ ...generalIncome,request_key:'general-ota-payout',
+        source_record_id:'general-ota-payout',event_kind:'ota_payout',
+        receipt_purpose:null,booking_allocations:[{booking_id:bookingId,
+          expected_booking_version:1,amount_cents:500,allocation_kind:'ota_payout'}] });
+      await forbiddenGeneral({ ...refund,request_key:'general-refund',
+        source_record_id:'general-refund' });
+      await forbiddenGeneral({ ...generalIncomeAmend,
+        request_key:'general-old-room-amend',source_record_id:'room-1',
+        source_version:'2',expected_version:1 });
+      await forbiddenGeneral({ request_key:'general-old-room-void',
+        source_record_id:'room-1',source_version:'2',expected_version:1,
+        action:'void' });
+      const custom = {request_key:'general-custom-category',code:'custom_offland',
+        label:'Offland custom',kind:'expense'};
+      assert.equal((await service.categoryCommand(general,propertyId,custom,
+        custom.request_key)).category_code,'custom_offland');
+      await assert.rejects(service.categoryCommand(general,propertyId,
+        { ...custom,request_key:'general-system-category',code:'supplies2' },
+        'general-system-category'),e => e.code === 'SOURCE_FORBIDDEN');
+      for (const [invoke,input] of [
+        [service.accountCommand.bind(service),account],
+        [service.recurringRule.bind(service),recurring],
+        [service.payoutRule.bind(service),payout],
+      ]) await assert.rejects(invoke(general,propertyId,input,input.request_key),
+        e => e.code === 'SOURCE_FORBIDDEN');
     } finally {
       await admin.query('TRUNCATE iron_gate.property_state CASCADE');
       await runtime.end(); await admin.end();

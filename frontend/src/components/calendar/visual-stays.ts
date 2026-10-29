@@ -216,6 +216,9 @@ export function visualCalendarStays(bookings: CalendarBooking[]): CalendarBookin
       payment_review_status: linked.every((booking) =>
         booking.payment_review_status === first.payment_review_status)
         ? first.payment_review_status : undefined,
+      legacy_settlement_status: linked.every((booking) =>
+        booking.legacy_settlement_status === first.legacy_settlement_status)
+        ? first.legacy_settlement_status : "review_required",
       stay_nights: linked.length,
       visual_source_ids: ids,
     };

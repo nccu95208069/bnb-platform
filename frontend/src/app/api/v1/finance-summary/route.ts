@@ -9,7 +9,8 @@ import {normalizeRows,HEADERS} from '@/lib/sheet-monitor/reconcile';
 import {adaptSheetBookings} from '@/lib/booking-sources/sweetfun-sheet';
 import {attachPrivateGuestNames} from '@/lib/booking-sources/private-guest-names';
 import {readSummaryRegistry,saveSummaryRegistry} from '@/lib/finance-summary-store';
-import {summarizeOrders,summaryVersion,captureIdentities} from '@/lib/finance-summary';
+import {summarizeOrders,summaryVersion,captureIdentities,
+ attachHistoricalSummaryReadback} from '@/lib/finance-summary';
 import {RedisWorkspaceStore} from '@/lib/workspace-auth/store';
 async function context(request:NextRequest){
  const actor=await principalFor(request);
@@ -24,6 +25,8 @@ async function context(request:NextRequest){
  const snapshot=adaptSheetBookings([HEADERS,...normalized.map(r=>r.cells)],source.sourceId,new Date().toISOString(),[],normalized.map(r=>r.sourceRow),source.property);
  const rows=attachPrivateGuestNames(snapshot.bookings,values,source);
  const summary=summarizeOrders(source.property.id,rows,report.entries,registry.state);
+ if(source.property.id==='sweetfun'&&process.env.OS_SWEETFUN_FINANCE_SSOT_ENABLED==='true')
+  summary.orders=attachHistoricalSummaryReadback(summary.orders,report.orders);
  return {actor,source,registry,summary,source_version:summaryVersion([summary.orders,report.projection_version]),properties:sources.map(s=>({id:s.property.id,name:s.property.name})),issues:snapshot.issues.length};
 }
 function failure(e:unknown){const code=e instanceof Error?e.message:'';const status=({UNAUTHORIZED:401,FORBIDDEN:403,VERSION_CONFLICT:409,INVALID_INPUT:400,RATE_LIMITED:429} as Record<string,number>)[code]??503;return NextResponse.json({code:status===503?'UNAVAILABLE':code},{status,headers:privateHeaders});}

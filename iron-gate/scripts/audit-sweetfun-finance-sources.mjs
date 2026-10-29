@@ -12,7 +12,8 @@ function privateJson(path) {
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   try {
-    if (process.argv[2] !== "--restricted-live-evidence" || process.argv.length !== 7)
+    if (process.argv[2] !== "--restricted-live-evidence" ||
+      ![7, 8].includes(process.argv.length))
       throw Error("EXPLICIT_PRIVATE_EVIDENCE_REQUIRED");
     const result = auditSweetfunFinanceSources(...process.argv.slice(3).map(privateJson));
     process.stdout.write(`${JSON.stringify(result.report)}\n`);
@@ -22,7 +23,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
       "OS_RECEIPT_ORDER_NOT_IN_SHEET", "OS_RECEIPT_LEDGER_KEY_MISMATCH",
       "OS_RECEIPT_AUDIT_MISMATCH", "LINE_SOURCE_PROJECTION_MISMATCH",
       "LINE_SOURCE_ORDER_NOT_IN_SHEET", "SHEET_PARENT_ORDER_DRIFT",
-      "LINE_CHAIN_INCOMPLETE", "FINANCE_CLAIM_REVERSE_MISMATCH"]);
+      "LINE_CHAIN_INCOMPLETE", "FINANCE_CLAIM_REVERSE_MISMATCH",
+      "OS_IG_BOOKING_EVIDENCE_REQUIRED", "OS_IG_BOOKING_EVIDENCE_INVALID",
+      "OS_IG_BOOKING_EVIDENCE_MISMATCH", "OS_IG_MONEY_RECEIPT_REVIEW"]);
     process.stderr.write(`Finance source audit failed: ${allowed.has(error?.message) ?
       error.message : "REDACTED_ERROR"}\n`);
     process.exitCode = 1;

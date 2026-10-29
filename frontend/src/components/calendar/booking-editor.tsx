@@ -70,6 +70,7 @@ import {
   PLATFORM_STYLES,
   formatDate,
   formatMoney,
+  paymentDisplayLabel,
   stayNightCount,
 } from "./calendar-utils";
 
@@ -93,13 +94,6 @@ export type UpdateBookingInput = {
   babySupplies: BabySupplyKey[];
   serviceNote: string;
 };
-
-const PAYMENT_LABELS = {
-  unknown: "付款待確認",
-  paid: "已付清",
-  deposit: "已付訂金",
-  unpaid: "未付款",
-} as const;
 
 function DetailRow({ label, value }: { label: string; value: ReactNode }) {
   const uiText = useT();
@@ -929,7 +923,7 @@ const uiLocale = useIntlLocale();
               >
                 {booking.reservation_status === "cancelled"
                   ? uiText("已取消")
-                  : uiText("{0} · {1}{2}", [PLATFORM_LABELS[booking.platform] ?? booking.platform,PAYMENT_LABELS[booking.payment_status],stayNightCount(booking) > 1 ? ` · 連住 ${stayNightCount(booking)} 晚` : ""])}
+                  : uiText("{0} · {1}{2}", [PLATFORM_LABELS[booking.platform] ?? booking.platform,paymentDisplayLabel(booking),stayNightCount(booking) > 1 ? ` · 連住 ${stayNightCount(booking)} 晚` : ""])}
               </div>
 
               {booking.iron_gate_channel_sync && (
@@ -1033,7 +1027,7 @@ const uiLocale = useIntlLocale();
                     value={<CopyableValue label="系統內部 ID" value={booking.order_id} missing="未提供" />}
                   />
                   <DetailRow label={booking.source_read_only ? uiText("資料說明") : uiText("原始備註")} value={booking.source_read_only ? uiText(booking.notes ?? "—") : booking.notes ?? "—"} />
-                  {booking.source_payment_label && <DetailRow label={uiText("付款標記")} value={uiText(booking.source_payment_label)} />}
+                  {booking.source_payment_label && <DetailRow label={uiText(booking.legacy_settlement_status ? "原始來源付款標記（非目前清算狀態）" : "付款標記")} value={uiText(booking.source_payment_label)} />}
                   {booking.source_read_only && <DetailRow label={uiText("入住人數")} value={booking.source_guest_count ? uiText("{0} 人", [booking.source_guest_count]) : uiText("來源未提供")} />}
                   {booking.source_read_only && <DetailRow label={uiText("入住需求")} value={uiText("來源未提供結構化資料，尚未確認")} /> }
                 </dl>

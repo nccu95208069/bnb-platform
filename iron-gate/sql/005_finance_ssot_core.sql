@@ -1,5 +1,6 @@
 -- Additive finance ledger foundation. No existing finance writer uses these tables.
--- Apply only after 001-004; do not backfill or enable finance commands in this migration.
+-- Apply after 001-003. Migration 004 is a separate Sweetfun credential change,
+-- not a finance schema prerequisite. Do not backfill or enable finance commands here.
 BEGIN;
 CREATE TABLE IF NOT EXISTS iron_gate.finance_connector (
   source_instance_id uuid PRIMARY KEY,

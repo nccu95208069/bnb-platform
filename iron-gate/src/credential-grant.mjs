@@ -73,6 +73,19 @@ export function validateGrantShape(grant) {
   if (grant.financeSourceInstanceId !== undefined &&
     !validCredentialId(grant.financeSourceInstanceId))
     throw new Error("INVALID_FINANCE_CONNECTOR_SCOPE");
+  // This stored credential marker narrows the otherwise broad finance actions.
+  // Operator proofs may further intersect actions, but cannot remove this limit.
+  if (grant.financeGeneralEntriesOnly !== undefined &&
+    grant.financeGeneralEntriesOnly !== true)
+    throw new Error("INVALID_GENERAL_FINANCE_SCOPE");
+  if (grant.financeGeneralEntriesOnly === true &&
+    (!['os', 'line'].includes(grant.origin) ||
+      grant.actions.some((action) => ![
+        'finance:read', 'finance:record_receipt', 'finance:record_expense',
+        'finance:correct', 'finance:plan',
+      ].includes(action)) ||
+      grant.fields.some((field) => field !== 'money')))
+    throw new Error("INVALID_GENERAL_FINANCE_SCOPE");
   if (grant.actions.includes("card:sync") && (grant.origin !== "finance" ||
     grant.actions.some(action => action !== "card:sync") ||
     grant.fields.length !== 1 || grant.fields[0] !== "money")) throw new Error("INVALID_CARD_SCOPE");

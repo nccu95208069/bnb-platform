@@ -56,8 +56,8 @@ async function request(config:ManualConfig,actor:Principal,method:'GET'|'POST',
   return callIronGate(config,actor,method,path(config,suffix),body,key,send,
     actions,['money'],2_100_000);
 }
-export async function readSsotLedger(config:ManualConfig,actor:Principal,
-  send:typeof fetch=fetch):Promise<SsotEvent[]>{
+export async function readSsotLedgerSnapshot(config:ManualConfig,actor:Principal,
+  send:typeof fetch=fetch):Promise<{events:SsotEvent[];asOfChangeSeq:number}>{
   const events:SsotEvent[]=[];let cursor:string|null=null,pin:number|null=null;
   const seen=new Set<string>(),cursors=new Set<string>();
   for(let page=0;page<200;page++){
@@ -76,7 +76,7 @@ export async function readSsotLedger(config:ManualConfig,actor:Principal,
       throw Error('FINANCE_SSOT_READBACK_MISMATCH');
     pin??=asOf;
     for(const event of result.events){seen.add(String(event.id));events.push(event as SsotEvent);}
-    if(result.next_cursor===null)return events;
+    if(result.next_cursor===null)return {events,asOfChangeSeq:pin};
     if(typeof result.next_cursor!=='string'||!result.next_cursor||
       result.events.length===0||cursors.has(result.next_cursor))
       throw Error('FINANCE_SSOT_READBACK_MISMATCH');
@@ -84,6 +84,59 @@ export async function readSsotLedger(config:ManualConfig,actor:Principal,
     cursor=result.next_cursor;
   }
   throw Error('FINANCE_SSOT_READBACK_MISMATCH');
+}
+export async function readSsotLedger(config:ManualConfig,actor:Principal,
+  send:typeof fetch=fetch):Promise<SsotEvent[]>{
+  return (await readSsotLedgerSnapshot(config,actor,send)).events;
+}
+
+export type HistoricalSettlementReadback={
+  property_id:string;booking_id:string;status:
+    'settled_before_cutover_cash_details_unknown'|'unpaid_at_cutover';
+  booking_version:number;booking_total_cents:number;
+  booking_snapshot_hash:string;source_link_snapshot_hash:string;
+  sheet_order_source_version:string;
+  cash_effect_cents:0;
+  collection_hold:boolean;historical_cash_detail_missing:boolean;
+  review_required:boolean;remaining_due_cents:number|null;
+  room_received_cents:number;room_refunded_cents:number;
+  recorded_change_seq:number;as_of_change_seq:number;
+};
+export async function readSsotHistoricalSettlements(config:ManualConfig,actor:Principal,
+  asOfChangeSeq:number,send:typeof fetch=fetch):Promise<HistoricalSettlementReadback[]>{
+  if(!sequence(asOfChangeSeq))throw Error('FINANCE_SSOT_READBACK_MISMATCH');
+  const result=await request(config,actor,'GET',
+    `historical-settlements?as_of_change_seq=${asOfChangeSeq}`,null,null,
+    ['finance:read'],send);
+  if(result.property_id!==config.grant.propertyId||
+    result.as_of_change_seq!==asOfChangeSeq||
+    result.current_change_seq!==asOfChangeSeq||
+    !Array.isArray(result.legacy_settlements)||result.legacy_settlements.length>4)
+    throw Error('FINANCE_SSOT_READBACK_MISMATCH');
+  const rows=result.legacy_settlements as HistoricalSettlementReadback[];
+  const seen=new Set<string>();
+  for(const row of rows){
+    if(!object(row)||row.property_id!==config.grant.propertyId||
+      !UUID.test(String(row.booking_id))||seen.has(row.booking_id)||
+      !['settled_before_cutover_cash_details_unknown','unpaid_at_cutover'].includes(row.status)||
+      !Number.isSafeInteger(row.booking_version)||row.booking_version<1||
+      !Number.isSafeInteger(row.booking_total_cents)||row.booking_total_cents<1||
+      !/^[0-9a-f]{64}$/.test(row.booking_snapshot_hash)||
+      !/^[0-9a-f]{64}$/.test(row.source_link_snapshot_hash)||
+      !/^[0-9a-f]{64}$/.test(row.sheet_order_source_version)||
+      row.cash_effect_cents!==0||typeof row.collection_hold!=='boolean'||
+      typeof row.historical_cash_detail_missing!=='boolean'||
+      typeof row.review_required!=='boolean'||
+      !(row.remaining_due_cents===null||Number.isSafeInteger(row.remaining_due_cents)&&
+        row.remaining_due_cents>=0)||
+      !Number.isSafeInteger(row.room_received_cents)||
+      !Number.isSafeInteger(row.room_refunded_cents)||
+      !sequence(row.recorded_change_seq)||row.recorded_change_seq<1||
+      row.recorded_change_seq>asOfChangeSeq||row.as_of_change_seq!==asOfChangeSeq)
+      throw Error('FINANCE_SSOT_READBACK_MISMATCH');
+    seen.add(row.booking_id);
+  }
+  return rows;
 }
 export async function readSsotCatalog(config:ManualConfig,actor:Principal,
   send:typeof fetch=fetch){

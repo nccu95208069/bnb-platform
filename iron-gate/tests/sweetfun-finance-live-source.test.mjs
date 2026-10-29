@@ -73,6 +73,42 @@ function fixture() {
   return { osRaw, lineRaw, sheetMap, projection };
 }
 
+function withIgStatus() {
+  const data = fixture();
+  const bookingId = "33333333-3333-4333-8333-333333333333";
+  const propertyId = "11111111-1111-4111-8111-111111111111";
+  const orderId = `IG-${bookingId}`;
+  const sourceVersion = createHash("sha256").update(JSON.stringify([
+    "iron_gate", bookingId, 3, 10000,
+  ])).digest("hex");
+  const receipt = { id: "synthetic-ig-status", amount: 0, status_only: true,
+    payment_type: "full", payment_method: "other", settles_room: true,
+    request_id: "synthetic-ig-request", received_at: "2026-10-20T02:00:00Z",
+    created_at: "2026-10-20T02:01:00Z", actor: "synthetic-owner",
+    source_version: sourceVersion, booking_version: sourceVersion,
+    audit: { schema_version: 1, property_id: "sweetfun", source: "calendar",
+      result: "succeeded", action: "calendar_payment_confirmed",
+      target_id: "synthetic-ig-status", request_id: "synthetic-ig-request",
+      actor_id: "synthetic-owner", at: "2026-10-20T02:01:00Z",
+      version_before: 0, version_after: 1,
+      source_version: sourceVersion, after: { order_id: orderId,
+        source_version: sourceVersion, booking_version: sourceVersion } } };
+  data.osRaw.records.push({ key: key(orderId), raw: JSON.stringify({ version: 1,
+    receipts: [receipt] }) });
+  data.osRaw.records.push({ key: `${key(orderId)}:mission:33333333-3333-4333-8333-333333333333`,
+    raw: JSON.stringify({ id: "33333333-3333-4333-8333-333333333333",
+      receipt_id: receipt.id, status: "completed" }) });
+  const igReadback = { schema: 1, source: "iron_gate", property_key: "sweetfun",
+    property_id: propertyId, read_only: true, complete: true,
+    scope: "all IG-prefixed receipt orders in paired OS source snapshot",
+    watermark_kind: "inventory_version",
+    as_of_change_seq: 30, captured_at: "2026-10-28T00:00:00.000Z",
+    snapshot_hash: "a".repeat(64), bookings: [{ id: bookingId,
+      property_id: propertyId, status: "confirmed", version: 3,
+      total_cents: 10000 }] };
+  return { ...data, igReadback };
+}
+
 function shadowFixture(sheetMap, sourceHash) {
   const sourceCopyCreatedAt = "2026-10-21T00:00:00.000Z";
   const rawRow = (row) => {
@@ -130,6 +166,59 @@ test("live finance evidence rejects altered LINE projection and OS ledger identi
   changedOperation.collections.operations[0].fields.status.stringValue = "failed";
   assert.throws(() => auditSweetfunFinanceSources(data.osRaw, changedOperation,
     data.sheetMap, data.projection), /LINE_SOURCE_PROJECTION_MISMATCH/);
+});
+
+test("IG status-only receipt requires exact authoritative booking readback", () => {
+  const data = withIgStatus();
+  assert.throws(() => auditSweetfunFinanceSources(data.osRaw, data.lineRaw,
+    data.sheetMap, data.projection), /OS_IG_BOOKING_EVIDENCE_REQUIRED/);
+  const result = auditSweetfunFinanceSources(data.osRaw, data.lineRaw,
+    data.sheetMap, data.projection, data.igReadback);
+  assert.equal(result.report.osReceipts, 3);
+  assert.equal(result.report.statusOnlyReceipts, 2);
+  assert.equal(result.report.statusOnlySheetReceipts, 1);
+  assert.equal(result.report.statusOnlyNotesMatched, 1);
+  assert.equal(result.report.igStatusOnlyVerified, 1);
+  assert.deepEqual(result.report.issueCodes, []);
+  for (const mutate of [
+    proof => { proof.bookings = []; },
+    proof => { proof.bookings[0].property_id = "22222222-2222-4222-8222-222222222222"; },
+    proof => { proof.bookings[0].status = "cancelled"; },
+    proof => { proof.bookings[0].version = 4; },
+    proof => { proof.bookings.push(structuredClone(proof.bookings[0])); },
+    proof => { proof.bookings.push({ ...proof.bookings[0],
+      id: "44444444-4444-4444-8444-444444444444" }); },
+    proof => { proof.complete = false; },
+    proof => { proof.scope = "all finance changes"; },
+    proof => { proof.watermark_kind = "finance_change_seq"; },
+  ]) {
+    const invalid = structuredClone(data.igReadback);
+    mutate(invalid);
+    assert.throws(() => auditSweetfunFinanceSources(data.osRaw, data.lineRaw,
+      data.sheetMap, data.projection, invalid),
+    /OS_IG_BOOKING_EVIDENCE_(INVALID|MISMATCH)/);
+  }
+  const money = structuredClone(data.osRaw);
+  const ledger = money.records.find(row => row.key === key(`IG-33333333-3333-4333-8333-333333333333`));
+  const parsed = JSON.parse(ledger.raw);
+  parsed.receipts[0].status_only = false;
+  parsed.receipts[0].amount = 100;
+  ledger.raw = JSON.stringify(parsed);
+  assert.throws(() => auditSweetfunFinanceSources(money, data.lineRaw,
+    data.sheetMap, data.projection, data.igReadback), /OS_IG_MONEY_RECEIPT_REVIEW/);
+  const changedAudit = structuredClone(data.osRaw);
+  const changedLedger = changedAudit.records.find(row => row.key ===
+    key(`IG-33333333-3333-4333-8333-333333333333`));
+  const stale = JSON.parse(changedLedger.raw);
+  stale.receipts[0].audit.version_after = 2;
+  changedLedger.raw = JSON.stringify(stale);
+  assert.throws(() => auditSweetfunFinanceSources(changedAudit, data.lineRaw,
+    data.sheetMap, data.projection, data.igReadback), /OS_IG_BOOKING_EVIDENCE_MISMATCH/);
+  const missingMission = structuredClone(data.osRaw);
+  missingMission.records.pop();
+  assert.throws(() => auditSweetfunFinanceSources(missingMission, data.lineRaw,
+    data.sheetMap, data.projection, data.igReadback),
+  /OS_MISSION_RECEIPT_COVERAGE_MISMATCH/);
 });
 
 test("links each source claim to one shadow booking and keeps property expense separate", () => {

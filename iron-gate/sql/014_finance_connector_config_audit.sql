@@ -80,10 +80,31 @@ FROM iron_gate.finance_connector c
 ON CONFLICT (property_id,source_instance_id,version) DO NOTHING;
 
 ALTER TABLE iron_gate.finance_connector_config_history ENABLE ROW LEVEL SECURITY;
+ALTER TABLE iron_gate.finance_connector_config_history FORCE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS finance_write_scope_insert ON iron_gate.finance_connector_config_history;
+CREATE POLICY finance_write_scope_insert ON iron_gate.finance_connector_config_history
+  AS RESTRICTIVE FOR INSERT TO iron_gate_runtime
+  WITH CHECK (iron_gate.finance_write_scope_allowed(property_id));
+DROP POLICY IF EXISTS finance_write_scope_update ON iron_gate.finance_connector_config_history;
+CREATE POLICY finance_write_scope_update ON iron_gate.finance_connector_config_history
+  AS RESTRICTIVE FOR UPDATE TO iron_gate_runtime
+  USING (iron_gate.finance_write_scope_allowed(property_id))
+  WITH CHECK (iron_gate.finance_write_scope_allowed(property_id));
+DROP POLICY IF EXISTS finance_general_mode_insert ON iron_gate.finance_connector_config_history;
+CREATE POLICY finance_general_mode_insert ON iron_gate.finance_connector_config_history
+  AS RESTRICTIVE FOR INSERT TO iron_gate_runtime
+  WITH CHECK (iron_gate.finance_write_scope_mode(property_id)='full');
+DROP POLICY IF EXISTS finance_general_mode_update ON iron_gate.finance_connector_config_history;
+CREATE POLICY finance_general_mode_update ON iron_gate.finance_connector_config_history
+  AS RESTRICTIVE FOR UPDATE TO iron_gate_runtime
+  USING (iron_gate.finance_write_scope_mode(property_id)='full')
+  WITH CHECK (iron_gate.finance_write_scope_mode(property_id)='full');
 DROP POLICY IF EXISTS finance_connector_history_property_read ON iron_gate.finance_connector_config_history;
 CREATE POLICY finance_connector_history_property_read
   ON iron_gate.finance_connector_config_history FOR SELECT TO iron_gate_runtime
   USING (property_id::text = current_setting('iron_gate.property_id', true));
+REVOKE ALL ON iron_gate.finance_connector_config_history
+  FROM PUBLIC, anon, authenticated, iron_gate_runtime;
 GRANT SELECT ON iron_gate.finance_connector_config_history TO iron_gate_runtime;
 
 COMMIT;
