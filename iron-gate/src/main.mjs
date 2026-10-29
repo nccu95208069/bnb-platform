@@ -2,7 +2,7 @@ import { Pool } from "pg";
 import { fileURLToPath } from "node:url";
 import { createPostgresIronGateServer } from "./node-server.mjs";
 import { createOsMemberProofVerifier } from "./os-member-proof.mjs";
-import { createLineOperatorProofVerifier } from "./line-operator-proof.mjs";
+import { createRuntimeLineProof } from "./line-proof-routing.mjs";
 import { validateDatabaseTransport, assertRuntimeDatabase } from "./runtime-safety.mjs";
 
 export { validateDatabaseTransport } from "./runtime-safety.mjs";
@@ -22,15 +22,14 @@ export async function startPrivateServer(env = process.env) {
   if (!env.IRON_GATE_OS_PROOF_SECRET) throw Error("OS_PROOF_SECRET_REQUIRED");
   validateDatabaseTransport(env.IRON_GATE_DATABASE_URL);
   const verifier = createOsMemberProofVerifier(env.IRON_GATE_OS_PROOF_SECRET);
-  const lineVerifier = env.IRON_GATE_LINE_PROOF_SECRET ?
-    createLineOperatorProofVerifier(env.IRON_GATE_LINE_PROOF_SECRET) : null;
+  const { verifyLineOperator: lineVerifier, linePreviewSecret } = createRuntimeLineProof(env);
   const bindPort = port(env.IRON_GATE_PORT ?? "8787");
   const pool = new Pool({ connectionString: env.IRON_GATE_DATABASE_URL,
     max: 10, connectionTimeoutMillis: 5000, idleTimeoutMillis: 30000 });
   try {
     await assertRuntimeDatabase(pool);
     const server = createPostgresIronGateServer(pool, verifier, env.IRON_GATE_DATABASE_URL,
-      lineVerifier, env.IRON_GATE_LINE_PROOF_SECRET || null);
+      lineVerifier, linePreviewSecret);
     try {
       await new Promise((resolve, reject) => {
         const onError = (error) => { server.off("listening", onListening); reject(error); };
@@ -67,7 +66,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     running.server.on("error", () => { process.exitCode = 1; shutdown(); });
   } catch (error) {
     const safe = new Set(["DATABASE_URL_REQUIRED", "OS_PROOF_SECRET_REQUIRED",
-      "OS_PROOF_SECRET_TOO_SHORT", "LINE_PROOF_SECRET_TOO_SHORT", "LINE_PREVIEW_SECRET_INVALID", "INVALID_BIND_PORT", "UNSAFE_DATABASE_TRANSPORT",
+      "OS_PROOF_SECRET_TOO_SHORT", "LINE_PROOF_SECRET_TOO_SHORT", "LINE_PREVIEW_SECRET_INVALID", "OFFLAND_LINE_BOOKING_PROOF_CONFIGURATION_INVALID", "INVALID_BIND_PORT", "UNSAFE_DATABASE_TRANSPORT",
       "UNSAFE_DATABASE_ROLE_OR_SCHEMA"]);
     const code = safe.has(error?.message) ? error.message : "STARTUP_FAILED";
     process.stderr.write(`Iron Gate startup failed: ${code}\n`);

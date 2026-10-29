@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-29 Offland LINE booking: [provider-free create, amendment and cancellation with dedicated proof routing, exact-grant activation and recovery](OFFLAND_LINE_BOOKING_2026-10-29.md). Isolated implementation candidate; no production credential or activation has been issued.
+
 2026-10-29 Offland retained orders: [same-order retention, pending list, rescheduling, source protection and recovery](OFFLAND_RETAINED_ORDERS_2026-10-29.md). Implementation candidate under isolated verification; not deployed.
 
 2026-10-28 Offland finance: [OS and same-LINE-OA property-scoped candidate, validation and independent rollout conditions](OFFLAND_FINANCE_PARITY_2026-10-28.md). General income and expenses share the ledger; imported booking receipt coverage remains a separate unresolved contract. Not deployed.
