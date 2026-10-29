@@ -1605,8 +1605,8 @@ export class FinanceCommandService {
         WHERE r.property_id=$1
         UNION ALL
         SELECT a.created_at AS at,a.audit_id::text AS id,
-          'operation'::text AS source,a.audit_json->>'action' AS action,
-          a.audit_json->>'actorRef' AS actor_ref,
+          'operation'::text AS source,a.action,
+          a.actor_ref,
           NULL::text AS source_actor_ref,
           NULL::text AS source_recorded_at,
           COALESCE(rr.response_json->>'rule_id',rr.response_json->>'account_code',
@@ -1618,14 +1618,14 @@ export class FinanceCommandService {
           NULL::text AS safe_description,NULL::text AS reason_note,
           NULL::bigint AS before_amount_cents,
           NULL::text AS before_safe_description,
-          a.audit_json->>'requestKey' AS request_key,rr.response_json AS response,
-          a.audit_json->>'operationKind' AS operation_kind
-        FROM iron_gate.audit_log a
+          a.request_key,rr.response_json AS response,
+          a.operation_kind
+        FROM iron_gate.finance_activity_operations($1::uuid) a
         LEFT JOIN iron_gate.finance_request_receipt rr
           ON rr.property_id=a.property_id
-          AND rr.source_instance_id=(a.audit_json->>'sourceInstanceId')::uuid
-          AND rr.request_key=a.audit_json->>'requestKey'
-        WHERE a.property_id=$1 AND a.audit_json->>'type'='finance.operation'
+          AND rr.source_instance_id=a.source_instance_id
+          AND rr.request_key=a.request_key
+        WHERE a.property_id=$1
       ), mapped AS (SELECT *, CASE
         WHEN source='money' AND action='create' AND event_kind IN
           ('expense_paid','processor_fee_paid') THEN 'expense_created'
