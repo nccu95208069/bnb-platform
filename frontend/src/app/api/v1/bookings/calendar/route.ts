@@ -18,6 +18,7 @@ import { ironGateCalendarConfig, offlandIronGateCalendarConfig,
   readSweetfunIronGateCalendar, readSweetfunIronGateCalendarSnapshot,
   type IronGateCalendarConfig } from "@/lib/booking-sources/iron-gate-calendar.server";
 import { ironGateManualConfig } from "@/lib/booking-sources/iron-gate-manual.server";
+import { offlandRetainedConfig, canWriteRetained } from "@/lib/booking-sources/iron-gate-retained.server";
 import { ironGateFinanceConfig } from "@/lib/booking-sources/iron-gate-finance.server";
 import { ironGateManualPaymentConfig } from "@/lib/booking-sources/iron-gate-manual-payment.server";
 import { type NextRequest, NextResponse } from "next/server";
@@ -322,6 +323,10 @@ async function readCalendarRequest(request: NextRequest, timing: CalendarServerT
           ...offlandPayments, ...(other?.bookings ?? [])], principal);
         let manualEnabled = false;
         let manualPaymentEnabled = false;
+        let retainedEnabled = false;
+        if (offlandIg && (principal.allProperties || principal.propertyIds.includes('offland'))) {
+          try { offlandRetainedConfig(); retainedEnabled = true; } catch { /* separate grant, closed by default */ }
+        }
         if (ig && principal.viewPrices && ["owner", "admin", "god"].includes(principal.role) &&
           (principal.allProperties || principal.propertyIds.includes("sweetfun"))) {
           try { ironGateManualConfig(); manualEnabled = true; } catch { /* closed by default */ }
@@ -394,6 +399,8 @@ async function readCalendarRequest(request: NextRequest, timing: CalendarServerT
           data_mode: "iron_gate_booking_only",
           iron_gate_manual_enabled: manualEnabled,
           iron_gate_manual_payment_enabled: manualPaymentEnabled,
+          retained_orders_enabled: retainedEnabled,
+          retained_orders_can_write: retainedEnabled && canWriteRetained(principal),
           finance_ssot_enabled: ssotFinanceEnabled('sweetfun'),
           finance_ssot_properties: definitions.filter(d=>ssotFinanceEnabled(d.property.id)).map(d=>d.property.id),
         }, { headers });

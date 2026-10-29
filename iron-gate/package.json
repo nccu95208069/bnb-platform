@@ -6,7 +6,7 @@
   "scripts": {
     "start:private": "node --experimental-strip-types src/main.mjs",
     "test": "npm run build && node --experimental-sqlite --experimental-strip-types --test tests/*.test.mjs",
-    "test:pg": "node --experimental-strip-types --test tests/postgres-repository.test.mjs",
+    "test:pg": "node --experimental-strip-types --test tests/postgres-repository.test.mjs tests/retained-postgres.test.mjs",
     "test:restore": "node --experimental-strip-types scripts/pg-restore-drill.mjs",
     "check:property": "node --experimental-strip-types scripts/check-property-integrity.mjs",
     "test:server": "node --experimental-strip-types --test tests/node-server.integration.mjs",

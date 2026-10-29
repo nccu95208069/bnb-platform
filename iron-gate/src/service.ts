@@ -6,7 +6,8 @@ import type {
   LineChannelActionInput,
   DesiredCell, Night, NightPrice, PaymentEventInput, Principal, PropertyRepository, PropertyState,
   ReadbackInput, RequestReceipt, SourceEventInput, SourceFactsInput, SourceOrderLookupInput, Stay,
-  TransactionContext, EventType,
+  TransactionContext, EventType, RetainBookingPreviewInput, RetainBookingInput,
+  RescheduleBookingPreviewInput, RescheduleBookingInput, RetentionPeriod,
 } from "./types.ts";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import { GateError } from "./errors.ts";
@@ -15,6 +16,7 @@ import { firstGmailNotification, GMAIL_NOTIFICATION_SOURCE,
   GMAIL_NOTIFICATION_SUBJECT } from "./source-notification.ts";
 import { isOsDirectBooking, originalDirectOrderRef } from "./os-direct-booking.ts";
 import { channelDispatchStatus, channelReviewBlock } from "./channel-dispatch-state.ts";
+import { originalOfflandOrderRef, retentionSourceIdentity, retainedSourceOwners } from "./retained-booking.ts";
 export { GateError } from "./errors.ts";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -308,7 +310,7 @@ function manualHandlingCells(state: PropertyState, booking: Booking): DesiredCel
     state.operations.some(operation => operation.bookingId === booking.id)) return null;
   if (booking.manualRoomHandling) {
     return booking.channelSyncState === "action_required" && booking.manualRoomHandling.pending.length &&
-      ["confirmed", "cancelled"].includes(booking.status) ? booking.manualRoomHandling.pending : null;
+      ["confirmed", "cancelled", "retained"].includes(booking.status) ? booking.manualRoomHandling.pending : null;
   }
   if (booking.status !== "confirmed" ||
     !["awaiting_manual_sync", "action_required"].includes(booking.channelSyncState) ||
@@ -387,6 +389,12 @@ function publicBooking(booking: Booking, principal: Principal,
       state.sourceLinks.some((link) => link.bookingId === booking.id && link.diverged);
   if (principal.origin === "os" || lineManagesAll(principal)) result.bookedAt = booking.bookedAt;
   if (principal.origin === "os") {
+    result.retentionEligible = retentionUnavailableReason(principal, state, booking, "retain") === null;
+    result.rescheduleEligible = retentionUnavailableReason(principal, state, booking, "reschedule") === null;
+    if (booking.retention) {
+      result.retention = publicRetention(booking, principal);
+      Object.assign(result, retentionOutcome(state, booking, principal.fields.includes("money")));
+    }
     result.manualRoomConfirmationAvailable = manualHandlingCells(state, booking) !== null;
     if (booking.manualRoomHandling) result.manualRoomHandling = structuredClone(booking.manualRoomHandling);
     result.channelOperationKey = booking.channelOperationKey;
@@ -402,10 +410,15 @@ function publicBooking(booking: Booking, principal: Principal,
     principal.fields.includes("guest_name")) {
     result.guestName = booking.guestName;
     const enriched = principal.fields.includes("money") ? identityEnrichmentLabels(booking) : null;
+    const retainedRef = booking.retention?.sourceOrderRef;
+    const retainedSourceIdentity = retainedRef &&
+      (retainedRef === originalOfflandOrderRef(booking) || retainedRef === originalDirectOrderRef(booking))
+      ? retainedRef : null;
     if (principal.origin === "os" && booking.sourceCalendar) {
       result.sourceCalendar = { platform: booking.sourceCalendar.platform,
         ...(principal.fields.includes("money") ?
           { externalOrderNo: booking.sourceCalendar.externalOrderNo,
+            ...(retainedSourceIdentity ? { sourceOrderRef: retainedSourceIdentity } : {}),
             ...(enriched ? { sourceOrderRef: enriched.sourceOrderRef,
               sourceIdentityEnriched: true } : {}) } : {}),
         bookedAt: enriched ? enriched.bookedAt : booking.bookedAt };
@@ -449,7 +462,8 @@ function publicBooking(booking: Booking, principal: Principal,
               ? `L:${String(row.values[11] ?? "").trim()}`
               : `J:${String(row.values[9] ?? "").trim()}`))
           ? { sourceOrderRef: groupKey } : {}),
-        ...(principal.fields.includes("money") && booking.osDirectOverride === true &&
+        ...(principal.fields.includes("money") && (booking.osDirectOverride === true ||
+          booking.retention?.sourceOrderRef === originalDirectOrderRef(booking)) &&
           originalDirectOrderRef(booking) ? { sourceOrderRef: originalDirectOrderRef(booking) } : {}) };
     }
     const offland = booking.offlandSnapshot;
@@ -463,7 +477,7 @@ function publicBooking(booking: Booking, principal: Principal,
         return values.length === 1 ? values[0] : null;
       };
       const sourceOrderRef = principal.fields.includes("money") &&
-        booking.version === 1 &&
+        (booking.version === 1 || booking.retention?.sourceOrderRef === originalOfflandOrderRef(booking)) &&
         (/^Q:[A-Za-z0-9-]{8,128}$/.test(offlandKey ?? "") ||
           /^J:[A-Za-z0-9_-]{8,100}$/.test(offlandKey ?? "")) &&
         offlandRows.every((row: { values?: unknown[] }) =>
@@ -476,6 +490,23 @@ function publicBooking(booking: Booking, principal: Principal,
           { externalOrderNo: unique(16),
             ...(sourceOrderRef ? { sourceOrderRef } : {}) } : {}),
         bookedAt: booking.bookedAt };
+    }
+    if (principal.origin === "os" && principal.fields.includes("money") &&
+      booking.retention && originalOfflandOrderRef(booking) === booking.retention.sourceOrderRef &&
+      result.sourceCalendar && typeof result.sourceCalendar === "object") {
+      const originalLinks = state.sourceLinks.filter(link => link.bookingId === booking.id &&
+        link.sourceSystem === "offland-calendar-sheet" &&
+        link.externalOrderId === booking.retention!.sourceOrderRef);
+      if (originalLinks.length === 1) {
+        // Only proven row/group IDs leave the server. Source account and raw
+        // import evidence stay private even for a member who can see prices.
+        Object.assign(result.sourceCalendar, { retainedSourceAliases: [...new Set(
+          booking.retention.sourceAliases.filter(alias =>
+            alias.sourceSystem === "offland-calendar-sheet" &&
+            alias.sourceAccount === originalLinks[0].sourceAccount &&
+            /^(?:Q:[A-Za-z0-9-]{8,128}|J:[A-Za-z0-9_-]{8,100})$/.test(alias.externalOrderId))
+            .map(alias => alias.externalOrderId))].sort() });
+      }
     }
   }
   if ((principal.origin === "os" || principal.origin === "line") &&
@@ -569,6 +600,7 @@ function exactNightPrices(prices: NightPrice[] | undefined, cells: Night[], tota
   return structuredClone(prices);
 }
 function bookingNightPrices(booking: Booking): NightPrice[] | null {
+  if (booking.status === "retained" || !booking.stays.length) return null;
   const cells = nightsFor(booking.stays, [...new Set(booking.stays.flatMap((stay) => stay.roomIds))]);
   const stored = exactNightPrices(booking.roomNightPrices, cells, booking.totalCents);
   if (stored) return stored;
@@ -852,6 +884,116 @@ function requireAmendFields(principal: Principal, changes: AmendBookingInput["ch
   if (grants.some(([field, grant]) => field in changes && !principal.fields.includes(grant as
     Principal["fields"][number]))) reject("FORBIDDEN", 403);
 }
+
+function verifyRetainInput(input: RetainBookingPreviewInput): void {
+  if (!input || typeof input !== "object" || Array.isArray(input) ||
+    Object.keys(input).some(key => !["reason", "expiresOn", "expectedBookingVersion", "expectedInventoryVersion"].includes(key)))
+    reject("INVALID_INPUT");
+  nonempty(input.reason, 500);
+  if (!input.reason.trim()) reject("INVALID_INPUT");
+  if (input.expiresOn !== undefined && input.expiresOn !== null) dayNumber(input.expiresOn);
+}
+function verifyRescheduleInput(input: RescheduleBookingPreviewInput, state: PropertyState): Night[] {
+  if (!input || typeof input !== "object" || Array.isArray(input) ||
+    Object.keys(input).some(key => !["reason", "stays", "totalCents", "roomNightPrices",
+      "expectedBookingVersion", "expectedInventoryVersion"].includes(key))) reject("INVALID_INPUT");
+  nonempty(input.reason, 500);
+  if (!input.reason.trim()) reject("INVALID_INPUT");
+  if (!Number.isSafeInteger(input.totalCents) || input.totalCents < 0 || input.totalCents > 1_000_000_000_000)
+    reject("INVALID_AMOUNT");
+  const cells = nightsFor(input.stays, state.roomIds);
+  if (input.roomNightPrices !== undefined && !exactNightPrices(input.roomNightPrices, cells, input.totalCents))
+    reject("INVALID_NIGHT_PRICES");
+  return cells;
+}
+function verifyLifecycleVersions(input: { expectedBookingVersion: number; expectedInventoryVersion: number }): void {
+  if (!Number.isSafeInteger(input.expectedBookingVersion) || input.expectedBookingVersion < 1 ||
+    !Number.isSafeInteger(input.expectedInventoryVersion) || input.expectedInventoryVersion < 0)
+    reject("INVALID_VERSION");
+}
+function retentionUnavailableReason(principal: Principal, state: PropertyState, booking: Booking,
+  action: "retain" | "reschedule"): string | null {
+  if (principal.origin !== "os" || !principal.actions.includes("booking:amend") ||
+    !principal.fields.includes("guest_name") || !principal.fields.includes("money")) return "FORBIDDEN";
+  if (state.readOnly) return "PROPERTY_READ_ONLY";
+  if (principal.authorityEpoch !== state.authorityEpoch) return "AUTHORITY_MOVED";
+  if (booking.status !== (action === "retain" ? "confirmed" : "retained")) return "RETENTION_STATE_CONFLICT";
+  if (!retentionSourceIdentity(state, booking)) return "RETENTION_SOURCE_REQUIRES_REVIEW";
+  if (booking.lineOverridePending || state.sourceLinks.some(link => link.bookingId === booking.id && link.diverged))
+    return "SOURCE_AMEND_REQUIRES_REVIEW";
+  if (["pending", "review_required"].includes(booking.channelSyncState) ||
+    state.operations.some(operation => operation.bookingId === booking.id &&
+      ["sync_pending", "review_required"].includes(operation.state)))
+    return "CHANNEL_PREVIOUS_OPERATION_UNRESOLVED";
+  const active = booking.retention?.activeRetentionId;
+  if (action === "reschedule" && (!active || booking.stays.length !== 0 ||
+    booking.totalCents !== null || !booking.retention?.history.some(period =>
+      period.id === active && !period.rescheduledAt))) return "RETENTION_STATE_CONFLICT";
+  if (action === "retain" && (active || (booking.retention?.history.length ?? 0) >= 100))
+    return "RETENTION_STATE_CONFLICT";
+  return null;
+}
+function requireRetention(principal: Principal, state: PropertyState, booking: Booking,
+  action: "retain" | "reschedule"): void {
+  const reason = retentionUnavailableReason(principal, state, booking, action);
+  if (reason) reject(reason, reason === "FORBIDDEN" ? 403 : 409);
+}
+function publicRetention(booking: Booking, principal: Principal): Record<string, unknown> {
+  const retention = booking.retention!;
+  return { schema: 1, lifecycleRevision: retention.lifecycleRevision,
+    activeRetentionId: retention.activeRetentionId,
+    history: retention.history.map(period => {
+      const result: Record<string, unknown> = { id: period.id, retainedAt: period.retainedAt,
+        retainedBookingVersion: period.retainedBookingVersion,
+        expiresOn: period.expiresOn, previousStays: structuredClone(period.previousStays),
+        ...(period.rescheduledAt ? { rescheduledAt: period.rescheduledAt,
+          rescheduledBookingVersion: period.rescheduledBookingVersion,
+          rescheduledRequestKey: period.rescheduledRequestKey,
+          rescheduledStays: structuredClone(period.rescheduledStays) } : {}) };
+      if (principal.fields.includes("notes")) result.reason = period.reason;
+      if (principal.fields.includes("money")) {
+        result.previousTotalCents = period.previousTotalCents;
+        if (period.previousRoomNightPrices) result.previousRoomNightPrices = structuredClone(period.previousRoomNightPrices);
+        if (period.rescheduledAt) {
+          result.rescheduledTotalCents = period.rescheduledTotalCents;
+          if (period.rescheduledRoomNightPrices)
+            result.rescheduledRoomNightPrices = structuredClone(period.rescheduledRoomNightPrices);
+        }
+      }
+      return result;
+    }) };
+}
+function retentionOutcome(state: PropertyState, booking: Booking, money = true): Record<string, unknown> {
+  return { status: booking.status, channelSyncState: booking.channelSyncState,
+    lifecycleRevision: booking.retention?.lifecycleRevision ?? 0,
+    // The booking store is not complete payment evidence for imported orders.
+    // The finance projection may supply a verified amount; never infer it from
+    // an old contract price, a paid flag, or an empty paymentEvents array.
+    ...(money ? { retainedAmountCents: null, retainedAmountReviewRequired: true } : {}),
+    externalRoomActionRequired: ["action_required", "awaiting_manual_sync", "pending", "review_required"]
+      .includes(booking.channelSyncState),
+    externalRoomStatus: state.channel.mode === "none" ? "not_integrated" : booking.channelSyncState };
+}
+function lifecycleOwnFence(booking: Booking): string | undefined {
+  return booking.manualRoomHandling ? manualHandlingFenceKey(booking.id) :
+    booking.osManualRoomChange ? osChangeFenceKey(booking.id) :
+    booking.lineChannelBaselineNights !== undefined ? linePendingFenceKey(booking.id) : undefined;
+}
+/** Record exact deferred work only. No provider operation is dispatched here;
+ * independent LINE controls continue to own their separate confirmation flow. */
+function deferLifecycleRoomChange(state: PropertyState, booking: Booking, before: Night[], after: Night[]): void {
+  if (state.channel.mode === "none") return;
+  if (booking.manualRoomHandling) updateManualHandling(state, booking, after);
+  else if (booking.osManualRoomChange || booking.lineChannelBaselineNights !== undefined ||
+    ["verified", "manually_confirmed"].includes(booking.channelSyncState))
+    saveOsRoomChange(state, booking, before, after);
+  else {
+    // A new native booking that never synchronized has no proved external
+    // closure to reopen. A future reschedule still needs its own close action.
+    booking.channelSyncState = after.length ? "awaiting_manual_sync" : "not_required";
+    booking.channelOperationKey = null;
+  }
+}
 function operationState(state: PropertyState, booking: Booking): BookingReceipt["operationState"] {
   if (booking.channelSyncState === "manually_confirmed") return "manually_confirmed";
   if (state.channel.mode === "none") return "local_only";
@@ -945,7 +1087,8 @@ function changedNights(before: Night[], after: Night[]): boolean {
 
 function emit(tx: TransactionContext, state: PropertyState, type: EventType,
   booking: Booking | null, principal: Principal, requestKey: string | null,
-  reason?: string, evidence?: Night[] | { closedNights: Night[]; handledCells: DesiredCell[] }): void {
+  reason?: string, evidence?: Night[] | { closedNights: Night[]; handledCells: DesiredCell[] } |
+    { retentionId: string; lifecycleRevision: number; previousStays: Stay[]; currentStays: Stay[] }): void {
   const at = new Date().toISOString();
   tx.emit({ eventId: crypto.randomUUID(), at, type,
     propertyId: state.propertyId, bookingId: booking?.id ?? null,
@@ -958,7 +1101,8 @@ function emit(tx: TransactionContext, state: PropertyState, type: EventType,
     actorGrantId: principal.grantId ?? null, requestKey,
     ...(reason ? { reason } : {}),
     ...(Array.isArray(evidence) ? { acknowledgedClosedNights: structuredClone(evidence) } :
-      evidence ? { manualRoomHandling: structuredClone(evidence) } : {}) });
+      evidence && "retentionId" in evidence ? { retention: structuredClone(evidence) } :
+        evidence ? { manualRoomHandling: structuredClone(evidence) } : {}) });
 }
 
 export class IronGateService {
@@ -1147,14 +1291,14 @@ export class IronGateService {
       const booking = state.bookings.find((item) => item.id === bookingId);
       if (!booking) reject("BOOKING_NOT_FOUND", 404);
       if (booking.version !== expectedBookingVersion) reject("VERSION_CONFLICT", 409);
-      if (!isOsDirectBooking(booking) || booking.status !== "confirmed" ||
+      if (!isOsDirectBooking(booking) || !["confirmed", "retained"].includes(booking.status) ||
         booking.manualRoomHandling ||
         booking.channelSyncState !== "awaiting_manual_sync" ||
         booking.channelOperationKey !== null) reject("CHANNEL_SYNC_NOT_READY", 409);
       if (state.channel.mode !== "owlnest" || !state.channel.ready ||
         state.channel.sourceReadbackEnabled !== true || !state.channel.grantId)
         reject("CHANNEL_SYNC_NOT_READY", 409);
-      const cells = nightsFor(booking.stays, state.roomIds);
+      const cells = booking.status === "retained" ? [] : nightsFor(booking.stays, state.roomIds);
       const change = booking.osManualRoomChange;
       if (booking.lineOverridePending || state.sourceLinks.some(link => link.bookingId === booking.id && link.diverged))
         reject("SOURCE_AMEND_REQUIRES_REVIEW", 409);
@@ -1306,6 +1450,171 @@ export class IronGateService {
     });
   }
 
+  async previewRetainBooking(principal: Principal, propertyId: string, bookingId: string,
+    input: RetainBookingPreviewInput): Promise<Record<string, unknown>> {
+    uuid(propertyId); uuid(bookingId); verifyRetainInput(input);
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    authorize(principal, state, "booking:amend", true);
+    const booking = state.bookings.find(item => item.id === bookingId);
+    if (!booking) reject("BOOKING_NOT_FOUND", 404);
+    requireRetention(principal, state, booking, "retain");
+    const before = structuredClone(booking.stays);
+    const previousTotalCents = booking.totalCents;
+    const previousPrices = bookingNightPrices(booking);
+    deferLifecycleRoomChange(state, booking, nightsFor(before, state.roomIds), []);
+    return { bookingId, bookingVersion: booking.version, inventoryVersion: state.version,
+      authorityEpoch: state.authorityEpoch, ...retentionOutcome(state, booking),
+      lifecycleRevision: (booking.retention?.lifecycleRevision ?? 0) + 1,
+      previousStays: before, proposedStays: [], previousTotalCents,
+      ...(previousPrices ? { previousRoomNightPrices: previousPrices } : {}),
+      reason: input.reason.trim(), expiresOn: input.expiresOn ?? null };
+  }
+
+  async retainBooking(principal: Principal, propertyId: string, bookingId: string, requestKey: string,
+    input: RetainBookingInput): Promise<BookingReceipt> {
+    uuid(propertyId); uuid(bookingId); uuid(requestKey);
+    verifyRetainInput(input); verifyLifecycleVersions(input);
+    const hash = await digest({ action: "booking:retain", bookingId, input });
+    return this.repository.transact(propertyId, (state, tx) => {
+      authorize(principal, state, "booking:amend", true);
+      if (principal.origin !== "os" || !principal.fields.includes("guest_name") ||
+        !principal.fields.includes("money")) reject("FORBIDDEN", 403);
+      const prior = receiptFor(state, principal, requestKey, hash);
+      if (prior) return prior.response as BookingReceipt;
+      const booking = state.bookings.find(item => item.id === bookingId);
+      if (!booking) reject("BOOKING_NOT_FOUND", 404);
+      if (booking.version !== input.expectedBookingVersion || state.version !== input.expectedInventoryVersion)
+        reject("VERSION_CONFLICT", 409);
+      requireRetention(principal, state, booking, "retain");
+      const before = structuredClone(booking.stays);
+      const beforeCells = nightsFor(before, state.roomIds);
+      const prices = bookingNightPrices(booking);
+      const identity = retentionSourceIdentity(state, booking)!;
+      booking.retention ??= { schema: 1, lifecycleRevision: 0, activeRetentionId: null,
+        history: [], ...identity, sourceReviews: [] };
+      const period: RetentionPeriod = { id: requestKey, retainedAt: new Date().toISOString(),
+        retainedBookingVersion: booking.version + 1, reason: input.reason.trim(),
+        expiresOn: input.expiresOn ?? null, previousStays: before,
+        previousTotalCents: booking.totalCents,
+        ...(prices ? { previousRoomNightPrices: prices } : {}) };
+      booking.retention.history.push(period);
+      booking.retention.activeRetentionId = requestKey;
+      booking.retention.lifecycleRevision++;
+      deferLifecycleRoomChange(state, booking, beforeCells, []);
+      booking.status = "retained";
+      booking.stays = [];
+      booking.totalCents = null;
+      delete booking.roomNightPrices;
+      booking.version++;
+      state.version++;
+      const response: BookingReceipt = { ...makeBookingReceipt(state, booking), ...retentionOutcome(state, booking) };
+      saveReceipt(state, principal, requestKey, "booking:amend", hash, { ...response });
+      emit(tx, state, "booking.retained", booking, principal, requestKey, input.reason.trim(),
+        { retentionId: period.id, lifecycleRevision: booking.retention.lifecycleRevision,
+          previousStays: before, currentStays: [] });
+      return response;
+    });
+  }
+
+  async previewRescheduleBooking(principal: Principal, propertyId: string, bookingId: string,
+    input: RescheduleBookingPreviewInput): Promise<Record<string, unknown>> {
+    uuid(propertyId); uuid(bookingId);
+    const state = await this.repository.read(propertyId);
+    if (!state) reject("PROPERTY_NOT_FOUND", 404);
+    authorize(principal, state, "booking:amend", true);
+    const booking = state.bookings.find(item => item.id === bookingId);
+    if (!booking) reject("BOOKING_NOT_FOUND", 404);
+    requireRetention(principal, state, booking, "reschedule");
+    const cells = verifyRescheduleInput(input, state);
+    if (hasConflict(state, cells, booking.id, lifecycleOwnFence(booking))) reject("ROOM_CONFLICT", 409);
+    const period = booking.retention!.history.find(item => item.id === booking.retention!.activeRetentionId)!;
+    deferLifecycleRoomChange(state, booking, [], cells);
+    return { bookingId, bookingVersion: booking.version, inventoryVersion: state.version,
+      authorityEpoch: state.authorityEpoch, ...retentionOutcome(state, booking),
+      lifecycleRevision: booking.retention!.lifecycleRevision + 1,
+      retentionId: period.id, previousStays: structuredClone(period.previousStays),
+      previousTotalCents: period.previousTotalCents,
+      proposedStays: structuredClone(input.stays), totalCents: input.totalCents,
+      ...(input.roomNightPrices ? { roomNightPrices: structuredClone(input.roomNightPrices) } : {}),
+      reason: input.reason.trim() };
+  }
+
+  async rescheduleBooking(principal: Principal, propertyId: string, bookingId: string, requestKey: string,
+    input: RescheduleBookingInput): Promise<BookingReceipt> {
+    uuid(propertyId); uuid(bookingId); uuid(requestKey); verifyLifecycleVersions(input);
+    const hash = await digest({ action: "booking:reschedule", bookingId, input });
+    return this.repository.transact(propertyId, (state, tx) => {
+      authorize(principal, state, "booking:amend", true);
+      if (principal.origin !== "os" || !principal.fields.includes("guest_name") ||
+        !principal.fields.includes("money")) reject("FORBIDDEN", 403);
+      const prior = receiptFor(state, principal, requestKey, hash);
+      if (prior) return prior.response as BookingReceipt;
+      const booking = state.bookings.find(item => item.id === bookingId);
+      if (!booking) reject("BOOKING_NOT_FOUND", 404);
+      if (booking.version !== input.expectedBookingVersion || state.version !== input.expectedInventoryVersion)
+        reject("VERSION_CONFLICT", 409);
+      requireRetention(principal, state, booking, "reschedule");
+      const cells = verifyRescheduleInput(input, state);
+      if (hasConflict(state, cells, booking.id, lifecycleOwnFence(booking))) reject("ROOM_CONFLICT", 409);
+      const retention = booking.retention!;
+      const period = retention.history.find(item => item.id === retention.activeRetentionId)!;
+      period.rescheduledAt = new Date().toISOString();
+      period.rescheduledBookingVersion = booking.version + 1;
+      period.rescheduledRequestKey = requestKey;
+      period.rescheduledStays = structuredClone(input.stays);
+      period.rescheduledTotalCents = input.totalCents;
+      if (input.roomNightPrices) period.rescheduledRoomNightPrices = structuredClone(input.roomNightPrices);
+      retention.activeRetentionId = null;
+      retention.lifecycleRevision++;
+      deferLifecycleRoomChange(state, booking, [], cells);
+      booking.status = "confirmed";
+      booking.stays = structuredClone(input.stays);
+      booking.totalCents = input.totalCents;
+      if (input.roomNightPrices) booking.roomNightPrices = structuredClone(input.roomNightPrices);
+      else delete booking.roomNightPrices;
+      booking.version++;
+      state.version++;
+      const response: BookingReceipt = { ...makeBookingReceipt(state, booking), ...retentionOutcome(state, booking) };
+      saveReceipt(state, principal, requestKey, "booking:amend", hash, { ...response });
+      emit(tx, state, "booking.rescheduled", booking, principal, requestKey, input.reason.trim(),
+        { retentionId: period.id, lifecycleRevision: retention.lifecycleRevision,
+          previousStays: [], currentStays: structuredClone(input.stays) });
+      return response;
+    });
+  }
+
+  async abandonRetainedRequest(principal: Principal, propertyId: string, bookingId: string,
+    requestKey: string, action: "retain" | "reschedule", input: RetainBookingInput | RescheduleBookingInput): Promise<BookingReceipt> {
+    uuid(propertyId); uuid(bookingId); uuid(requestKey);
+    if (action !== "retain" && action !== "reschedule") reject("INVALID_INPUT");
+    if (!input || typeof input !== "object" || Array.isArray(input)) reject("INVALID_INPUT");
+    verifyLifecycleVersions(input);
+    if (action === "retain") verifyRetainInput(input as RetainBookingInput);
+    const hash = await digest({ action: `booking:${action}`, bookingId, input });
+    return this.repository.transact(propertyId, (state, tx) => {
+      authorize(principal, state, "booking:amend", true);
+      if (principal.origin !== "os" || !principal.fields.includes("guest_name") ||
+        !principal.fields.includes("money")) reject("FORBIDDEN", 403);
+      if (state.receipts.some(receipt => receipt.key === requestKey &&
+        (receipt.clientId !== principal.clientId || receipt.subjectId !== principal.subjectId ||
+          receipt.grantId !== (principal.grantId ?? null)))) reject("FORBIDDEN", 403);
+      const prior = receiptFor(state, principal, requestKey, hash);
+      if (prior) return prior.response as BookingReceipt;
+      const booking = state.bookings.find(item => item.id === bookingId);
+      if (!booking) reject("BOOKING_NOT_FOUND", 404);
+      if (action === "reschedule") verifyRescheduleInput(input as RescheduleBookingInput, state);
+      // Do not require the stale preview's versions here: preventing that exact
+      // delayed command is the purpose. The same receipt namespace and request
+      // hash make commit-versus-abandon atomic under the property transaction.
+      const response: BookingReceipt = { ...makeBookingReceipt(state, booking),
+        ...retentionOutcome(state, booking), outcome: "not_applied", operationState: "not_applied" };
+      saveReceipt(state, principal, requestKey, "booking:amend", hash, { ...response });
+      emit(tx, state, "booking.retention_request_abandoned", booking, principal, requestKey);
+      return response;
+    });
+  }
+
   async previewLineAction(principal: Principal, propertyId: string, bookingId: string,
     action: "amend" | "cancel", input: AmendBookingInput | {
       expectedBookingVersion: number; expectedInventoryVersion: number; channelPolicy?: "manual";
@@ -1396,6 +1705,7 @@ export class IronGateService {
       }
       if (booking.version !== input.expectedBookingVersion) reject("VERSION_CONFLICT", 409);
       if (booking.status === "cancelled") reject("ORDER_CANCELLED", 409);
+      if (booking.status === "retained") reject("RETAINED_ORDER_REQUIRES_RESCHEDULE", 409);
       if (principal.origin === "line") requireLineMutation(principal, state, booking, manual);
       requireManualBaseline(booking, manual, "stays" in input.changes);
       const osDirect = principal.origin === "os" && isOsDirectBooking(booking);
@@ -1705,7 +2015,7 @@ export class IronGateService {
   }): Promise<Record<string, unknown>> {
     uuid(propertyId);
     if (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > 100) reject("INVALID_LIMIT");
-    if (options.status !== null && !["held", "confirmed", "cancelled"].includes(options.status))
+    if (options.status !== null && !["held", "confirmed", "cancelled", "retained"].includes(options.status))
       reject("INVALID_STATUS");
     if ((options.from === null) !== (options.to === null)) reject("INVALID_DATE_RANGE");
     if (options.from !== null && options.to !== null && dayNumber(options.to) <= dayNumber(options.from))
@@ -2159,7 +2469,7 @@ export class IronGateService {
     if (principal.origin !== "os") reject("FORBIDDEN", 403);
     const { occupied, blocked } = readInventoryIndex(state, first, end);
     const bookings = state.bookings.filter((booking) =>
-      booking.status !== "cancelled" && booking.stays.some((stay) =>
+      occupies(booking) && booking.stays.some((stay) =>
         stay.checkIn < to && stay.checkOut > from));
     if (bookings.length > 2048) reject("READ_CAPACITY_LIMIT", 409);
     const cells: { roomId: string; date: string; state: "sold" | "held" | "blocked" }[] = [];
@@ -2325,6 +2635,7 @@ export class IronGateService {
       if (booking.osManualRoomChange) reject("CHANNEL_CANCELLATION_NOT_READY", 409);
       if (booking.status === "cancelled") reject("ORDER_CANCELLED", 409);
       if (booking.status === "held") reject("HOLD_RELEASE_REQUIRED", 409);
+      if (booking.status === "retained") reject("RETAINED_ORDER_REQUIRES_RESCHEDULE", 409);
       if (booking.source === "external" && principal.origin !== "line")
         reject("SOURCE_CANCEL_REQUIRES_REVIEW", 409);
       if (principal.origin === "os" && netReceived(booking) !== 0)
@@ -2692,7 +3003,7 @@ export class IronGateService {
             booking.status === "confirmed" && currentNights.has(keyOf(cell)) ||
               !currentNights.has(keyOf(cell)) && hasConflict(state, [cell], booking.id,
                 operation.key) :
-          (booking.status === "confirmed" || booking.status === "cancelled") &&
+          (booking.status === "confirmed" || booking.status === "cancelled" || booking.status === "retained") &&
           !currentNights.has(keyOf(cell)) &&
           !hasConflict(state, [cell], booking.id, operation.key)) :
         operation.bookingId === null && operation.bookingVersion === 0 &&
@@ -2758,7 +3069,9 @@ export class IronGateService {
     authorize(principal, state, "source:write");
     const key = sourceOrderKey(input.sourceSystem, input.sourceAccount, input.externalOrderId);
     const link = state.sourceLinks.find((item) => item.key === key);
-    const booking = link?.bookingId ? state.bookings.find((item) => item.id === link.bookingId) : null;
+    const protectedOwners = retainedSourceOwners(state, input);
+    const booking = link?.bookingId ? state.bookings.find((item) => item.id === link.bookingId) :
+      protectedOwners.length === 1 ? protectedOwners[0] : null;
     if (link?.bookingId && !booking) reject("SOURCE_LINK_BROKEN", 409);
     return { propertyId: state.propertyId, inventoryVersion: state.version,
       readOnly: state.readOnly === true,
@@ -2772,6 +3085,8 @@ export class IronGateService {
         externalOrderNo: booking.sourceCalendar?.externalOrderNo ?? null } } : {}),
       diverged: link?.diverged ?? false,
       tombstoned: Boolean(link?.tombstoneNights.length),
+      ...(protectedOwners.length ? { ownerManagedLifecycle: true,
+        lifecycleRevision: booking?.retention?.lifecycleRevision ?? null } : {}),
     };
   }
 
@@ -2813,6 +3128,28 @@ export class IronGateService {
       const sourceKey = sourceOrderKey(input.sourceSystem, input.sourceAccount, input.externalOrderId);
       let link = state.sourceLinks.find((item) => item.key === sourceKey);
       const linkedBooking = link?.bookingId ? state.bookings.find((item) => item.id === link!.bookingId) : null;
+      const protectedOwners = retainedSourceOwners(state, input);
+      if (protectedOwners.length) {
+        // This source describes a prior owner-controlled lifecycle, including
+        // when the order has already been rescheduled. Preserve evidence, but
+        // never restore/cancel stays, replace prices, or fence released nights.
+        for (const owner of protectedOwners) {
+          const reviews = owner.retention!.sourceReviews;
+          if (reviews.length >= 1000) reject("SOURCE_REVIEW_LIMIT_REACHED", 409);
+          reviews.push({ requestKey, receivedAt: new Date().toISOString(),
+            sourceSystem: input.sourceSystem, sourceAccount: input.sourceAccount,
+            externalOrderId: input.externalOrderId, sourceVersion: input.sourceVersion, kind: input.kind });
+        }
+        state.version++;
+        const owner = protectedOwners.length === 1 ? protectedOwners[0] : null;
+        const response = { state: "review_required", reason: "ORDER_LIFECYCLE_OWNER_MANAGED",
+          nonBlocking: true, ownerManagedLifecycle: true,
+          bookingId: owner?.id ?? null, bookingVersion: owner?.version ?? null,
+          inventoryVersion: state.version };
+        saveReceipt(state, principal, requestKey, "source:write", hash, response);
+        emit(tx, state, "source.lifecycle_review_required", owner, principal, requestKey);
+        return response;
+      }
       const channelMode = state.channel.mode === "owlnest";
       const gmailSourceNotice = principal.subjectId === GMAIL_NOTIFICATION_SUBJECT &&
         input.sourceSystem === GMAIL_NOTIFICATION_SOURCE;
@@ -3151,6 +3488,7 @@ export class IronGateService {
       const key = sourceOrderKey(input.sourceSystem, input.sourceAccount, input.externalOrderId);
       const link = state.sourceLinks.find((item) => item.key === key);
       const booking = link?.bookingId ? state.bookings.find((item) => item.id === link.bookingId) : null;
+      if (booking?.retention) reject("SOURCE_LIFECYCLE_OWNER_MANAGED", 409);
       if (!link || !booking || booking.sweetfunSnapshot || link.diverged || link.tombstoneNights.length ||
         link.sourceVersion !== input.sourceVersion ||
         link.lastAppliedBookingVersion !== input.expectedBookingVersion ||

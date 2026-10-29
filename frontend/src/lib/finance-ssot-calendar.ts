@@ -6,6 +6,7 @@ export function overlaySsotCalendarPayments(bookings:CalendarBooking[],orders:Fi
   const byId=new Map(orders.map(order=>[order.id,order]));
   return bookings.map(booking=>{
     if(booking.property_id!==property)throw Error('FINANCE_SSOT_READBACK_MISMATCH');
+    if(booking.reservation_status==='retained')return {...booking,payment_status:'unknown' as const};
     if(property==='sweetfun'&&booking.iron_gate_source==='os')return booking;
     if(booking.source_conflict||booking.reservation_status==='cancelled')return booking;
     const key=property==='offland'&&booking.iron_gate_booking_id?

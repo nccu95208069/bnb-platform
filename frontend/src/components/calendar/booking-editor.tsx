@@ -814,6 +814,7 @@ export function BookingDetailsPanel({
   onManualCancel,
   onManualSync,
   onManualConfirm,
+  onRetainBooking,
 }: {
   booking: CalendarBooking | null;
   orderSegments: CalendarBooking[];
@@ -830,6 +831,7 @@ export function BookingDetailsPanel({
   onManualCancel?: () => void;
   onManualSync?: () => void;
   onManualConfirm?: () => void;
+  onRetainBooking?: () => void;
 }) {
 const uiLocale = useIntlLocale();
 
@@ -953,6 +955,10 @@ const uiLocale = useIntlLocale();
                   {onManualCancel && <Button variant="outline" onClick={onManualCancel}>
                     取消訂單</Button>}
                 </div>}
+
+              {onRetainBooking && <Button variant="outline" className="w-full justify-start" onClick={onRetainBooking}>
+                <CalendarClock className="size-4" />轉為保留訂單
+              </Button>}
 
               {booking.reservation_status !== "cancelled" &&
                 (permissions.recordPayments || permissions.editBookings) && (

@@ -12,7 +12,7 @@ import {ArrowDownLeft,ArrowUpRight,Plus,ChevronLeft,ChevronRight,RefreshCw,Recei
 import {Button} from '@/components/ui/button';
 import {Dialog,DialogContent,DialogTitle,DialogDescription} from '@/components/ui/dialog';
 import {EXPENSE_CATEGORIES,INCOME_CATEGORIES,METHODS,categoryLabel,summarize,entryInMonth,expenseAmountInMonth,type FinanceEntry,type FinanceKind,type FinanceReport} from '@/lib/finance-model';
-import {RevenueCharts,InteractiveDonut,Receivables,RecurringPanel,RecurringForm,PayoutRulesForm} from './finance-receivables';
+import {RevenueCharts,InteractiveDonut,Receivables,RetainedFunds,RecurringPanel,RecurringForm,PayoutRulesForm} from './finance-receivables';
 import {PLATFORMS,revenueSummary,type FinanceOrder,type DueExpense} from '@/lib/finance-model';
 const money=(cents:number,locale="zh-TW")=>new Intl.NumberFormat(locale,{style:'currency',currency:'TWD',maximumFractionDigits:cents%100?2:0}).format(cents/100);
 const today=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
@@ -25,7 +25,7 @@ function sourceLabel(entry:FinanceEntry):string {
     entry.source==='calendar'?'日曆付款自動帶入':'手動記帳';
 }
 function canSelectOrder(report:FinanceReport,order:FinanceOrder):boolean {
-  return !report.general_only&&!order.receivable_review_required&&order.status!=='held'&&order.status!=='cancelled'&&
+  return !report.general_only&&!order.receivable_review_required&&order.status!=='held'&&order.status!=='cancelled'&&order.status!=='retained'&&
     (order.source!=='iron_gate'||report.ssot_enabled===true&&order.ssot_command_eligible===true);
 }
 function evidenceStatus(entry:FinanceEntry):string|null {
@@ -83,6 +83,7 @@ const uiLocale = useIntlLocale();
    {revenue.review_count>0&&<p role="status" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">{revenue.review_count} {uiText('筆訂單的付款責任或歷史收款明細待核對，未列入確定應收與總收入。已收數字只含可回讀的收款紀錄。')}</p>}
    <p className="text-xs leading-5 text-slate-500">{uiText("本月實際入帳")}{money(summary.income-summary.ota, uiLocale)} {uiText("· 已退款")}{money(summary.refund, uiLocale)} {uiText("· 已付支出")}{money(summary.expense, uiLocale)} {uiText("· 現金收支差額")}{money(summary.income-summary.ota-summary.refund-summary.expense, uiLocale)}{uiText("。依收付款日期，與上方入住月份不同。來源表 done 僅代表客人付清，不等於旅宿已入帳。")}</p>
    <RevenueCharts report={data} month={month}/>
+   <RetainedFunds report={data}/>
    {!data.general_only&&<Receivables report={data} month={month} onReceive={order=>{if(data.property_id==='sweetfun'&&order?.source==='iron_gate'&&order.platform==='direct')setDirectBooking(order.booking_id!);else if(!order||canSelectOrder(data,order)){setReceiveOrder(order);setFormKind('income');}else setNotice('此訂單收款仍待核對，尚未開放新增。');}} onRules={()=>setRulesOpen(true)}/>}
    {data.property_id==='sweetfun'&&data.orders.some(order=>order.source==='iron_gate'&&order.platform==='direct')&&<section className={box}><h2 className="font-semibold">{uiText('直訂收退款')}</h2><p className="mt-1 text-xs text-slate-500">{uiText('本月入住的直訂可在這裡登記或退款，紀錄會自動列入財務。已取消但尚有淨收款的訂單也會列出。')}</p><div className="mt-3 divide-y">{data.orders.filter(order=>order.source==='iron_gate'&&order.platform==='direct'&&(order.check_in.startsWith(month)||order.status==='cancelled'&&order.received>0)).map(order=><div key={order.id} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm"><div><p>{order.check_in} · {order.rooms.join('、')} · {order.status==='cancelled'?uiText('已取消'):order.status==='held'?uiText('暫留'):uiText('直訂')}</p><p className="mt-1 text-xs text-slate-500">{uiText('淨收款')} {money(order.received,uiLocale)} · {uiText('應收')} {order.receivable_review_required?uiText('待核對'):money(order.receivable,uiLocale)}</p></div><Button variant="outline" onClick={()=>setDirectBooking(order.booking_id!)}>{uiText('查看收退款')}</Button></div>)}</div></section>}
    {!data.general_only&&<RecurringPanel report={data} month={month} onNew={()=>setRecurringOpen(true)} onPay={due=>{setPayDue(due);setFormKind('expense');}} onChanged={changed}/>}

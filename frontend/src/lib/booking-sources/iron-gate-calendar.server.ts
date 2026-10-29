@@ -622,8 +622,9 @@ export async function readSweetfunIronGateCalendar(start: string, end: string,
       if (!object(item) || !UUID.test(String(item.id)) ||
         item.propertyId !== config.grant.propertyId ||
         item.workspaceId !== config.grant.workspaceId ||
-        !['confirmed', 'cancelled', 'held'].includes(String(item.status)) ||
+        !['confirmed', 'cancelled', 'held', 'retained'].includes(String(item.status)) ||
         !Array.isArray(item.stays) || item.stays.length > 32 ||
+        item.status === 'retained' && item.stays.length !== 0 ||
         seenBookings.has(String(item.id)))
         throw Error('IRON_GATE_CALENDAR_INVALID_BOOKING');
       seenBookings.add(String(item.id));
