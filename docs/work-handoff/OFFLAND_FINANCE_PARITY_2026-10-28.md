@@ -85,6 +85,11 @@ and settings stay unchanged. No historical receipt is inferred or imported.
   defaults to general income and omits lodging allocation, recurring and payout
   controls. Backend credentials independently reject booking money and broader
   planning commands; hiding controls is not the authorization boundary.
+- The separate LINE general-finance grant includes `finance:correct` for edits
+  and voids of unallocated general entries in its own source instance. The
+  stored general-only marker and source-instance checks reject booking-linked
+  and other-source documents; `finance:correct` does not unlock booking receipts
+  or refunds.
 - After the first new-ledger write, never roll back to a legacy-writer release or
   disable SSOT to recover. Set `OS_OFFLAND_FINANCE_WRITES_PAUSED=true` on the
   SSOT-capable release to stop new commands while retaining reads, grants, history

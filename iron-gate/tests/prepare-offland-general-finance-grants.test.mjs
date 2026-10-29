@@ -54,6 +54,10 @@ test('OS and LINE packages bind distinct Offland connectors and store no plainte
   assert.equal(line.grant.lineGroupId,'verified-group');
   assert.deepEqual(line.grant.lineActorIds,['approved-actor-a','approved-actor-b']);
   assert.equal(line.grant.lineFinanceEnabled,true);
+  assert.deepEqual(line.grant.actions, ['finance:read','finance:record_receipt',
+    'finance:record_expense','finance:correct']);
+  assert.equal(line.grant.actions.includes('finance:refund'),false);
+  assert.equal(line.grant.actions.includes('booking:read'),false);
   assert.notEqual(os.grant.credentialId,line.grant.credentialId);
   assert.match(plan.sql,/source\.enabled IS DISTINCT FROM true/);
   assert.match(plan.sql,/source\.cutover_at IS NULL/);

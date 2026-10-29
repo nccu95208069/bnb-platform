@@ -67,7 +67,8 @@ export function offlandGeneralFinanceGrantPackage(candidate, authority,
     grant: { ...common, credentialId: randomUUID(), clientId: randomUUID(),
       subjectId: 'offland-line-general-finance', origin: 'line',
       financeSourceInstanceId: line.source_instance_id,
-      actions: ['finance:read', 'finance:record_receipt', 'finance:record_expense'],
+      actions: ['finance:read', 'finance:record_receipt', 'finance:record_expense',
+        'finance:correct'],
       grantId: randomUUID(), lineGroupId: lineAuthority.group_id,
       lineActorIds: lineAuthority.actor_ids, lineFinanceEnabled: true } });
   const items = definitions.map(({ name, source, grant }) => {
