@@ -12,6 +12,7 @@ const id=n=>`20000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const grant={workspaceId:id(1),propertyId:id(2),credentialId:id(3),clientId:id(4),token:'o'.repeat(43)};
 test('Offland finance, summary and calendar read the same ledger without Sheet access or legacy writes',async t=>{
  const old={...process.env};t.after(()=>{for(const key of Object.keys(process.env))if(!(key in old))delete process.env[key];Object.assign(process.env,old);});
+ let now=Date.now();t.mock.method(Date,'now',()=>now);
  Object.assign(process.env,{CALENDAR_SOURCE:'sheet_snapshot',BOOKING_SHEET_SOURCES:'sweetfun,offland',
   CALENDAR_OWNER_CODE_HASH:'a'.repeat(64),CALENDAR_OWNER_SESSION_SECRET:'b'.repeat(64),
   UPSTASH_REDIS_REST_URL:'https://redis.example',UPSTASH_REDIS_REST_TOKEN:'synthetic',
@@ -26,7 +27,7 @@ test('Offland finance, summary and calendar read the same ledger without Sheet a
  const member={id:'c'.repeat(32),displayName:'Synthetic operator',role:'admin',status:'active',
   allProperties:false,propertyIds:['offland'],credential:{schema:1,kind:'password',revision:'d'.repeat(64),salt:'e'.repeat(32),hash:'f'.repeat(128)}};
  let review=false,failLedger=false;const commands=[];
- let activeReads=0,maxActiveReads=0,trackReads=true;
+ let activeReads=0,maxActiveReads=0,trackReads=true,advancedClock=false;
  const booking=()=>({id:id(7),workspaceId:id(1),propertyId:id(2),version:1,status:'confirmed',
   source:review?'external':'line',sourceReviewRequired:false,currency:'TWD',totalCents:200000,
   createdAt:'2026-10-28T01:00:00.000Z',channelSyncState:'not_required',guestName:'Synthetic guest',
@@ -50,8 +51,13 @@ test('Offland finance, summary and calendar read the same ledger without Sheet a
   }
   const target=new URL(url);assert.equal(target.origin,'https://ig.example','No Sheet or other source access');
   assert.ok(target.pathname.startsWith(`/v1/properties/${id(2)}/`));
+  const proof=options.headers['x-iron-gate-os-proof'];
+  const claims=JSON.parse(Buffer.from(proof.split('.')[0],'base64url').toString('utf8'));
+  if(claims.expiresAtMs<=now)return Response.json({error:{code:'EXPIRED_PROOF'}},{status:401});
   if(trackReads){activeReads++;maxActiveReads=Math.max(maxActiveReads,activeReads);
-   await new Promise(resolve=>setImmediate(resolve));activeReads--;}
+   await new Promise(resolve=>setImmediate(resolve));
+   if(!advancedClock){now+=6000;advancedClock=true;}
+   activeReads--;}
   const suffix=target.pathname.split('/').at(-1);
   const envelope={propertyId:id(2),workspaceId:id(1),inventoryVersion:7,authorityEpoch:1,readOnly:false};
   if(suffix==='bookings')return Response.json({...envelope,snapshot:null,nextCursor:null,bookings:[booking()]});
