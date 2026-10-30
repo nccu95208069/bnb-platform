@@ -146,15 +146,12 @@ export async function readSsotHistoricalSettlements(config:ManualConfig,actor:Pr
   return rows;
 }
 export async function readSsotCatalog(config:ManualConfig,actor:Principal,
-  send:typeof fetch=fetch,serial=false){
+  send:typeof fetch=fetch){
   const read=(suffix:string)=>request(config,actor,'GET',suffix,null,null,
     ['finance:read'],send);
-  const [accounts,categories,recurring,payout,links]=serial?
-    [await read('accounts'),await read('categories'),
-      await read('recurring-rules'),await read('payout-rules'),
-      await read('source-links')]:
-    await Promise.all([read('accounts'),read('categories'),
-      read('recurring-rules'),read('payout-rules'),read('source-links')]);
+  const [accounts,categories,recurring,payout,links]=await Promise.all([
+    read('accounts'),read('categories'),read('recurring-rules'),
+    read('payout-rules'),read('source-links')]);
   if(!Array.isArray(accounts.accounts)||!Array.isArray(categories.categories)||
     !Array.isArray(recurring.recurring_rules)||!Array.isArray(payout.payout_rules)||
     !Array.isArray(links.source_links))
