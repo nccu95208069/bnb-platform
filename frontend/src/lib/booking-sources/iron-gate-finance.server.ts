@@ -115,18 +115,23 @@ export async function readDirectFinance(principal: Principal, config: ManualConf
 }
 
 
-type FinanceCorrection = SourceAmountBreakdown & {bookingId:string;version:number;status:string;orderId:string;room:string};
-function checkedFinanceCorrections(raw: unknown, config: ManualConfig): FinanceCorrection[] {
+type FinanceCorrection = SourceAmountBreakdown & {bookingId:string;version:number;status:string;orderId:string;room:string;historicalOnly?:boolean};
+export function checkedFinanceCorrections(raw: unknown, config: ManualConfig): FinanceCorrection[] {
   if (!Array.isArray(raw) || raw.length > 5000) return invalid();
   const rows = raw.map(value => {
     if (!object(value) || !UUID.test(String(value.bookingId)) ||
-      !['confirmed','cancelled'].includes(String(value.status))) return invalid();
+      !['confirmed','cancelled','retained'].includes(String(value.status)) ||
+      value.historicalOnly !== undefined && value.historicalOnly !== true ||
+      value.status === 'retained' && value.historicalOnly !== true) return invalid();
     const amount = checkedAmountBreakdown(value, Number(value.netCents), Number(value.version));
+    const property = config.calendar.propertyKey ?? 'sweetfun';
+    if ((amount.schema === 1 ? 'sweetfun' : amount.sourceProperty) !== property) return invalid();
     const room = Object.entries(config.calendar.roomIds).find(([,id]) => id === amount.roomId)?.[0];
     if (!room) return invalid();
     const orderId = `SF-${createHash('sha256').update(
-      `sweetfun-operations-sheet-v1:order:ungrouped:${amount.sourceOrderRef.slice(2)}`).digest('hex').slice(0,20)}`;
-    return {...amount,bookingId:String(value.bookingId),version:Number(value.version),status:String(value.status),orderId,room};
+      `${property}-operations-sheet-v1:order:ungrouped:${amount.sourceOrderRef.slice(2)}`).digest('hex').slice(0,20)}`;
+    return {...amount,bookingId:String(value.bookingId),version:Number(value.version),status:String(value.status),orderId,room,
+      ...(value.historicalOnly === true ? {historicalOnly:true} : {})};
   });
   if (new Set(rows.map(r => r.bookingId)).size !== rows.length ||
     new Set(rows.map(r => r.orderId)).size !== rows.length) return invalid();
@@ -134,8 +139,13 @@ function checkedFinanceCorrections(raw: unknown, config: ManualConfig): FinanceC
     'groupTaxCents','groupGuestFeeCents','groupGuestPaidCents','externalOrderNo','checkIn','checkOut'] as const;
   for (const groupId of new Set(rows.map(r => r.groupId))) {
     const group=rows.filter(r => r.groupId===groupId), first=group[0];
-    if (group.length!==first.groupSize || new Set(group.map(r => r.roomId)).size!==group.length ||
-      group.some(r => fields.some(k => r[k]!==first[k])) ||
+    const sharedFields=first.schema===2?fields.filter(k=>k!=='checkIn'&&k!=='checkOut'):fields;
+    const occupied=new Set<string>();
+    for(const row of group) for(let day=Date.parse(row.checkIn);day<Date.parse(row.checkOut);day+=86400000){
+      const key=`${row.roomId}:${day}`;if(occupied.has(key))return invalid();occupied.add(key);
+    }
+    if (group.length!==first.groupSize || group.some(r=>r.schema!==first.schema||r.sourceProperty!==first.sourceProperty||r.groupSize!==first.groupSize) ||
+      group.some(r => sharedFields.some(k => r[k]!==first[k])) ||
       group.reduce((s,r)=>s+r.originalTotalCents,0)!==first.groupOriginalCents ||
       group.reduce((s,r)=>s+r.grossCents,0)!==first.groupGrossCents ||
       group.reduce((s,r)=>s+r.hostFeeCents,0)!==first.groupHostFeeCents ||
@@ -146,6 +156,9 @@ function checkedFinanceCorrections(raw: unknown, config: ManualConfig): FinanceC
 
 export function applyFinanceAmountCorrections(orders: FinanceOrder[], corrections: FinanceCorrection[]) {
   for (const correction of corrections) {
+    // An owner-managed booking has its own current stay/price. Keep every
+    // historical member in cohort validation, but never reapply its old price.
+    if (correction.historicalOnly) continue;
     const matches=orders.filter(o => o.id===correction.orderId);
     const order=matches[0];
     if (matches.length!==1 || order.source || order.platform!=='airbnb' ||

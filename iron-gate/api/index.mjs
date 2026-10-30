@@ -18,6 +18,24 @@ function unavailable() {
   });
 }
 
+/** pg emits errors on disconnected clients outside an awaited query. */
+export function createDatabasePool(databaseUrl) {
+  const pool = new Pool({ connectionString: databaseUrl,
+    max: 2, connectionTimeoutMillis: 5000, idleTimeoutMillis: 10000 });
+  pool.on('connect', client => {
+    client.on('error', () => {
+      // The query itself still rejects. Avoid logging SQL, URLs or credentials.
+      console.error('iron_gate_database_connection_error');
+    });
+  });
+  pool.on('error', () => {
+    // pg-pool removes an idle client before emitting this error. Later queries
+    // can open a new connection, so the worker must remain alive.
+    console.error('iron_gate_database_idle_connection_error');
+  });
+  return pool;
+}
+
 /** One warm invocation reuses a small pool; a failed setup stays closed. */
 export function createVercelFetch(env = process.env) {
   let ready;
@@ -45,8 +63,7 @@ export function createVercelFetch(env = process.env) {
           env.IRON_GATE_LINE_PROOF_SECRET;
         const verifyLineOperator = lineProofSecret ?
           createLineOperatorProofVerifier(lineProofSecret) : null;
-        const pool = new Pool({ connectionString: databaseUrl,
-          max: 2, connectionTimeoutMillis: 5000, idleTimeoutMillis: 10000 });
+        const pool = createDatabasePool(databaseUrl);
         return createPostgresIronGateHandler(pool, verifyOsMember,
           databaseUrl, verifyLineOperator, lineProofSecret || null,
           ({ propertyId, operationKey }) => {

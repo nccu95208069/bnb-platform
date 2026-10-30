@@ -20,6 +20,12 @@ test('uses correct channel and checkout semantics, does not expose guest informa
  assert.equal(result.cells[0].pricing.suggested_price,null);assert.equal(result.cells[0].sellable_units,null);
  assert.equal(JSON.stringify(result).includes('PRIVATE'),false);
 });
+test('retained history never occupies old dates while legacy rows remain conservatively occupied',()=>{
+ const rows=[{room_number:'101',check_in:'2026-09-07',check_out:'2026-09-08',reservation_status:'retained'},
+  {room_number:'102',check_in:'2026-09-07',check_out:'2026-09-08'}];
+ const result=liveAvailability(query,{...source,bookings:rows},prices,now);
+ assert.equal(result.cells[0].state,'available');assert.equal(result.cells[1].state,'sold');
+});
 test('source outage, overlapping marker, locked stock and missing price never become confirmed inventory or invented prices',()=>{
  const p=structuredClone(prices);p.cells[0].stock.is_lock=true;p.cells[1].stock.count=0;delete p.cells[2].channels.booking;
  const r=liveAvailability(query,{...source,bookings:[{room_number:'301',check_in:'2026-09-07',check_out:'2026-09-08',source_conflict:true}]},p,now);

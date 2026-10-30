@@ -3,6 +3,7 @@ import ts from "typescript";
 
 // Keep the production bundler unchanged; compile TSX only for Node DOM tests.
 export async function resolve(specifier, context, nextResolve) {
+  if (specifier === "next/link") return nextResolve("next/link.js", context);
   if (specifier === "next/navigation")
     return {
       url: new URL("./next-navigation-stub.mjs", import.meta.url).href,

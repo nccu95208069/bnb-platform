@@ -1,5 +1,9 @@
 # Work Handoff Index — 2026-09-05
 
+2026-10-29 Offland retained orders: [same-order retention, pending list, rescheduling, source protection and recovery](OFFLAND_RETAINED_ORDERS_2026-10-29.md). Implementation candidate under isolated verification; not deployed.
+
+2026-10-30 Offland general finance: [production release and remaining acceptance](OFFLAND_GENERAL_FINANCE_BASE_RELEASE_2026-10-29.md) records the live OS and existing LINE OA paths into one Offland-only ledger for new general income and expenses. First real entry readback remains open. [The implementation contract](OFFLAND_FINANCE_PARITY_2026-10-28.md) keeps imported booking receipts and old history under separate review.
+
 2026-10-28 finance SSOT W7: [offline integrated checkpoint and remaining Sweetfun cutover gates](FINANCE_SSOT_W7_OFFLINE_CHECKPOINT_2026-10-28.md). Native/Card, OS and separate LINE historical candidates are local and disabled; no real source import or cutover has occurred.
 
 2026-10-28 W7 native/Card finance history: [source-specific, offline historical import candidate and per-record reconciliation](FINANCE_SSOT_W7_NATIVE_CARD_HISTORY_2026-10-28.md). Synthetic PostgreSQL checks pass; live W0 ownership and cross-source proof remain required before any cutover.

@@ -24,7 +24,7 @@ export function checkRows(rows: CalendarBooking[], property: string, order: stri
   const matches = rows.filter(b => b.property_id === property &&
     (b.payment_order_id ?? b.order_id) === order);
   if (!matches.length) throw new Error('NOT_FOUND');
-  if (matches.some(b => b.source_conflict || b.reservation_status === 'cancelled')) throw new Error('SOURCE_CONFLICT');
+  if (matches.some(b => b.source_conflict || b.reservation_status === 'cancelled' || b.reservation_status === 'retained')) throw new Error('SOURCE_CONFLICT');
   const first=matches[0];
   const ironGate=first.source_read_only && /^IG-[0-9a-f-]{36}$/i.test(first.order_id) &&
     Number.isSafeInteger(first.source_booking_version) &&
@@ -133,7 +133,7 @@ export async function appendReceipt(check:OrderCheck,raw:string|null,receipt:Rec
 export async function overlayPayments(bookings:CalendarBooking[]):Promise<CalendarBooking[]> {
   const finance=new Map<string,FinanceEntry[]>();await Promise.all([...new Set(bookings.map(b=>b.property_id))].map(async property=>finance.set(property,await manualFinanceEntries(property))));
   const groups=new Map<string,CalendarBooking[]>();
-  for(const b of bookings)if(!b.source_conflict&&b.reservation_status!=='cancelled'){const key=ledgerKey(b.property_id,b.payment_order_id??b.order_id);groups.set(key,[...(groups.get(key)??[]),b]);}
+  for(const b of bookings)if(!b.source_conflict&&b.reservation_status!=='cancelled'&&b.reservation_status!=='retained'){const key=ledgerKey(b.property_id,b.payment_order_id??b.order_id);groups.set(key,[...(groups.get(key)??[]),b]);}
   const entries=[...groups.entries()]; if(!entries.length)return bookings;
   const values=await redisCommand(['MGET',...entries.map(([key])=>key)]) as (string|null)[];
   if(!Array.isArray(values)||values.length!==entries.length||values.some(v=>v!==null&&typeof v!=='string'))throw Error('PAYMENT_DATA_INVALID');

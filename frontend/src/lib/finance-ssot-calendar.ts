@@ -2,18 +2,25 @@ import type {CalendarBooking} from '../components/calendar/calendar-types.ts';
 import type {FinanceOrder} from './finance-model.ts';
 
 /** Imported-order payment state must come from the accepted ledger after cutover. */
-export function overlaySsotCalendarPayments(bookings:CalendarBooking[],orders:FinanceOrder[]){
+export function overlaySsotCalendarPayments(bookings:CalendarBooking[],orders:FinanceOrder[],property='sweetfun'){
   const byId=new Map(orders.map(order=>[order.id,order]));
   return bookings.map(booking=>{
-    if(booking.property_id!=='sweetfun'||booking.iron_gate_source==='os')return booking;
+    if(booking.property_id!==property)throw Error('FINANCE_SSOT_READBACK_MISMATCH');
+    if(booking.reservation_status==='retained')return {...booking,payment_status:'unknown' as const};
+    if(property==='sweetfun'&&booking.iron_gate_source==='os')return booking;
     if(booking.source_conflict||booking.reservation_status==='cancelled')return booking;
-    const key=booking.payment_order_id??booking.order_id;
+    const key=property==='offland'&&booking.iron_gate_booking_id?
+      `IG-${booking.iron_gate_booking_id}`:booking.payment_order_id??booking.order_id;
     const order=byId.get(key);
-    if(!order||order.source==='iron_gate'||order.total<0||order.received<0)
+    if(!order||(property==='sweetfun'&&order.source==='iron_gate')||order.total<0||order.received<0)
       throw Error('FINANCE_SSOT_READBACK_MISMATCH');
     // The finance ledger replaces Iron Gate's earlier Sheet/payment review for
     // this display. Leaving the old field would override payment_status in badges.
     const current={...booking,payment_review_status:undefined};
+    if(property==='offland'&&
+      (order.receivable_review_required||order.amount_review_required))
+      return {...current,payment_status:'unknown' as const,
+        legacy_settlement_status:undefined};
     const legacy=order.legacy_settlement;
     if(legacy?.review_required)return {...current,payment_status:'unknown' as const,
       legacy_settlement_status:'review_required' as const};

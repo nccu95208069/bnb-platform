@@ -34,10 +34,10 @@ test("Postgres commits one last-room winner and outbox, with RLS property isolat
       manualBlocks: [], receipts: [] });
     const principal = { clientId: "synthetic-os", subjectId: "synthetic-member", origin: "os",
       workspaceId, propertyIds: [propertyId], authorityEpoch: 7,
-      actions: ["booking:create", "event:read"], fields: [] };
+      actions: ["booking:create", "event:read"], fields: ["guest_name", "money"] };
     const input = { expectedInventoryVersion: 1,
       stays: [{ checkIn: "2026-11-10", checkOut: "2026-11-11", roomIds: [roomId] }],
-      guestName: null, contact: null, notes: null, totalCents: null,
+      guestName: "Synthetic Guest", contact: null, notes: null, totalCents: 100000,
       bookedAt: null, source: "os" };
     try {
       await repository.seed(state(propertyId));

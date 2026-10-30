@@ -9,6 +9,7 @@ export async function mount(t, component, props = {}, hash = "") {
   // Calendar UI measures layout; jsdom does not provide these browser APIs.
   for (const key of [
     "window",
+    "self",
     "document",
     "location",
     "history",
@@ -25,6 +26,7 @@ export async function mount(t, component, props = {}, hash = "") {
     original[key] = globalThis[key];
   Object.assign(globalThis, {
     window: dom.window,
+    self: dom.window,
     document: dom.window.document,
     location: dom.window.location,
     history: dom.window.history,

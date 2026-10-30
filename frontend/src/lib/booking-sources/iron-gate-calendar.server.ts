@@ -439,7 +439,7 @@ export async function readSweetfunIronGatePaymentOrder(bookingId: string,
     throw Error('IRON_GATE_PAYMENT_SOURCE_INVALID');
   const source = object(raw.sourceCalendar) ? raw.sourceCalendar : null;
   const ref = source?.sourceOrderRef;
-  const paymentId = paymentOrderId(bookingId, ref, true);
+  const paymentId = paymentOrderId(bookingId, ref, true, propertyKey(config));
   // Iron Gate derives this flag only while the private, version-bound evidence
   // still matches the original imported stay and amount.
   const identityEnriched = raw.source === 'external' && Number(raw.version) >= 2 &&
@@ -622,8 +622,9 @@ export async function readSweetfunIronGateCalendar(start: string, end: string,
       if (!object(item) || !UUID.test(String(item.id)) ||
         item.propertyId !== config.grant.propertyId ||
         item.workspaceId !== config.grant.workspaceId ||
-        !['confirmed', 'cancelled', 'held'].includes(String(item.status)) ||
+        !['confirmed', 'cancelled', 'held', 'retained'].includes(String(item.status)) ||
         !Array.isArray(item.stays) || item.stays.length > 32 ||
+        item.status === 'retained' && item.stays.length !== 0 ||
         seenBookings.has(String(item.id)))
         throw Error('IRON_GATE_CALENDAR_INVALID_BOOKING');
       seenBookings.add(String(item.id));
@@ -683,4 +684,20 @@ export async function readSweetfunIronGateCalendar(start: string, end: string,
     soldRoomNights: sold.size,
     blockedRoomNights: [...observed.values()].filter(state => state === 'blocked').length,
     observedAt: new Date().toISOString() };
+}
+
+
+/** Whole-property correction snapshot, including historical cancelled orders. */
+export async function readSourceAmountSnapshot(principal: Principal, config: IronGateCalendarConfig,
+  send: typeof fetch = fetch): Promise<Record<string, unknown>> {
+  if (!principal.viewPrices || config.mode !== 'authority') throw Error('IRON_GATE_CALENDAR_FORBIDDEN');
+  const url = new URL(`/v1/properties/${config.grant.propertyId}/source-amount-snapshot`, config.baseUrl);
+  const raw = await getJson(url.toString(), config, principal, send, 2100000);
+  if (!object(raw)) throw Error('IRON_GATE_FINANCE_INCOMPLETE');
+  const {revision, ...snapshot} = raw;
+  if (raw.schema !== 1 || raw.propertyId !== config.grant.propertyId || raw.workspaceId !== config.grant.workspaceId ||
+    raw.authorityEpoch !== config.expectedAuthorityEpoch || !Number.isSafeInteger(raw.inventoryVersion) ||
+    Number(raw.inventoryVersion) < 1 || !Array.isArray(raw.sourceAmountReconciliations) ||
+    revision !== createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')) throw Error('IRON_GATE_FINANCE_INCOMPLETE');
+  return raw;
 }

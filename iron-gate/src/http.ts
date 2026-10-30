@@ -1,7 +1,8 @@
 import type { CardInput } from "./card-sync.ts";
 import { GateError, IronGateService } from "./service.ts";
 import type { AmendBookingInput, CreateBookingInput, CreateHoldInput, ExtendHoldInput, LineInventoryInput, LineInventoryBatchInput, LineBulkCancelInput, LineChannelActionInput, PaymentEventInput,
-  Principal, ReadbackInput, SourceEventInput, SourceFactsInput, SourceOrderLookupInput } from "./types.ts";
+  Principal, ReadbackInput, SourceEventInput, SourceFactsInput, SourceOrderLookupInput,
+  RetainBookingPreviewInput, RetainBookingInput, RescheduleBookingPreviewInput, RescheduleBookingInput } from "./types.ts";
 
 export type Authenticate = (request: Request) => Promise<Principal | null>;
 export type ChannelQueued = (job: { propertyId: string; operationKey: string }) => void;
@@ -333,7 +334,7 @@ export function createHandler(service: IronGateService, authenticate: Authentica
           return json(await service.listBookings(principal, propertyId, {
             limit: Number(url.searchParams.get("limit") ?? "50"),
             cursor: url.searchParams.get("cursor"),
-            status: url.searchParams.get("status") as "held" | "confirmed" | "cancelled" | null,
+            status: url.searchParams.get("status") as "held" | "confirmed" | "cancelled" | "retained" | null,
             from: url.searchParams.get("from"), to: url.searchParams.get("to"),
             attention: url.searchParams.get("attention") === "true",
           }));
@@ -356,6 +357,42 @@ export function createHandler(service: IronGateService, authenticate: Authentica
           const result = await service.amendBooking(principal, propertyId, parts[4], requestKey(request),
             value as AmendBookingInput, request.headers.get("x-iron-gate-line-preview"));
           return json(result, result.operationState === "sync_pending" ? 202 : 200);
+        }
+        if (parts.length === 6 && parts[5] === "retain-preview" && request.method === "POST") {
+          const value = await body(request);
+          exact(value, ["reason"], ["expiresOn"]);
+          return json(await service.previewRetainBooking(principal, propertyId, parts[4],
+            value as RetainBookingPreviewInput));
+        }
+        if (parts.length === 6 && parts[5] === "retain" && request.method === "POST") {
+          const value = await body(request);
+          exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "reason"], ["expiresOn"]);
+          return json(await service.retainBooking(principal, propertyId, parts[4], requestKey(request),
+            value as RetainBookingInput));
+        }
+        if (parts.length === 6 && parts[5] === "reschedule-preview" && request.method === "POST") {
+          const value = await body(request);
+          exact(value, ["stays", "totalCents", "reason"], ["roomNightPrices"]);
+          return json(await service.previewRescheduleBooking(principal, propertyId, parts[4],
+            value as RescheduleBookingPreviewInput));
+        }
+        if (parts.length === 6 && parts[5] === "reschedule" && request.method === "POST") {
+          const value = await body(request);
+          exact(value, ["expectedBookingVersion", "expectedInventoryVersion", "stays", "totalCents", "reason"],
+            ["roomNightPrices"]);
+          return json(await service.rescheduleBooking(principal, propertyId, parts[4], requestKey(request),
+            value as RescheduleBookingInput));
+        }
+        if (parts.length === 6 && parts[5] === "retained-request-abandon" && request.method === "POST") {
+          const value = await body(request);
+          exact(value, ["requestKey", "action", "input"]);
+          if (value.requestKey !== requestKey(request) ||
+            value.action !== "retain" && value.action !== "reschedule" ||
+            !value.input || typeof value.input !== "object" || Array.isArray(value.input))
+            throw new GateError("INVALID_INPUT", 400);
+          return json(await service.abandonRetainedRequest(principal, propertyId, parts[4],
+            value.requestKey as string, value.action,
+            value.input as RetainBookingInput | RescheduleBookingInput));
         }
         if (parts.length === 6 && parts[5] === "confirm-manual-room-handling" && request.method === "POST") {
           const value = await body(request);
@@ -436,6 +473,10 @@ export function createHandler(service: IronGateService, authenticate: Authentica
         parts.length === 4 && request.method === "GET") {
         return json(await service.listEvents(principal, parts[2],
           Number(url.searchParams.get("after") ?? "0"), Number(url.searchParams.get("limit") ?? "50")));
+      }
+      if (parts[1] === "properties" && parts[2] && parts[3] === "source-amount-snapshot" &&
+        parts.length === 4 && request.method === "GET") {
+        return json(await service.sourceAmountSnapshot(principal, parts[2]));
       }
       if (parts[1] === "properties" && parts[2] && parts[3] === "finance" &&
         parts[4] === "direct-snapshot" && parts.length === 5 && request.method === "GET") {
