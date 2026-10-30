@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID, randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdtemp, readFile, writeFile, stat, rm, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, writeFile, stat, rm, symlink } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Pool } from 'pg';
 import { PROJECT_REF } from '../scripts/stage-offland-line-booking-grant.mjs';
 import { prepareOfflandLineBookingSql } from '../scripts/prepare-offland-line-booking-sql.mjs';
@@ -87,7 +89,7 @@ test('recovery readback rejects changed expected fields without requiring a fres
 });
 
 test('private CLI writes token once before SQL, never overwrites, and refuses unsafe files/paths', async () => {
-  const directory = await mkdtemp('/private/tmp/offland-line-sql-cli-test-');
+  const directory = await mkdtemp(join(tmpdir(), 'offland-line-sql-cli-test-'));
   try {
     const f = fixture(), manifest = `${directory}/manifest.json`, snapshot = `${directory}/snapshot.json`;
     await writeFile(manifest, JSON.stringify(f.manifest), { mode: 0o600 });
@@ -113,13 +115,60 @@ test('private CLI writes token once before SQL, never overwrites, and refuses un
     await symlink(manifest, `${directory}/manifest-link.json`);
     await assert.rejects(prepareOfflandLineBookingSql('stage', `${directory}/manifest-link.json`, snapshot, `${directory}/link`), /UNSAFE_PRIVATE_INPUT/);
     await assert.rejects(prepareOfflandLineBookingSql('stage', manifest, snapshot, '/offland-line-sql-unsafe-test-output'), /PRIVATE_TEMP/);
+    await symlink('/', `${directory}/escaped-parent`);
+    await assert.rejects(prepareOfflandLineBookingSql('stage', manifest, snapshot,
+      `${directory}/escaped-parent/offland-line-sql-unsafe-test-output`), /PRIVATE_TEMP/);
+    await mkdir(`${directory}/existing-target`, { mode: 0o700 });
+    await symlink(`${directory}/existing-target`, `${directory}/output-link`);
+    await assert.rejects(prepareOfflandLineBookingSql('stage', manifest, snapshot, `${directory}/output-link`), { code: 'EEXIST' });
+    assert.deepEqual(await readdir(`${directory}/existing-target`), []);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('Linux preparation does not require a Darwin temp root and fails closed when its own root is unavailable', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'offland-line-sql-linux-test-'));
+  try {
+    const f = fixture(), manifest = `${directory}/manifest.json`, snapshot = `${directory}/snapshot.json`;
+    await writeFile(manifest, JSON.stringify(f.manifest), { mode: 0o600 });
+    await writeFile(snapshot, JSON.stringify(f.snapshot), { mode: 0o600 });
+    // A separate process exercises Linux selection even on a Mac, without
+    // modifying the parent test process or creating/removing system paths.
+    const script = `
+      import assert from 'node:assert/strict';
+      import fs from 'node:fs/promises';
+      import { syncBuiltinESMExports } from 'node:module';
+      import { tmpdir } from 'node:os';
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      const original = fs.realpath;
+      fs.realpath = async path => {
+        const code = path === '/private/tmp' ? 'ENOENT'
+          : process.argv[5] === 'deny-root' && path === tmpdir() ? 'EACCES' : null;
+        if (code) throw Object.assign(new Error(code), { code });
+        return original(path);
+      };
+      syncBuiltinESMExports();
+      const { prepareOfflandLineBookingSql } = await import(process.argv[1]);
+      const prepare = () => prepareOfflandLineBookingSql('stage', ...process.argv.slice(2, 5));
+      if (process.argv[5] === 'deny-root') await assert.rejects(prepare(), { code: 'EACCES' });
+      else await prepare();
+    `;
+    const tool = new URL('../scripts/prepare-offland-line-booking-sql.mjs', import.meta.url).href;
+    const outputParent = `${directory}/outputs`;
+    await mkdir(outputParent, { mode: 0o700 });
+    for (const mode of ['missing-darwin-root', 'deny-root'])
+      execFileSync(process.execPath, ['--experimental-strip-types', '--input-type=module', '-e', script, tool, manifest, snapshot, `${outputParent}/${mode}`, mode],
+        { stdio: 'pipe', env: { ...process.env, TMPDIR: directory, TMP: directory, TEMP: directory } });
+    assert.equal((await stat(`${outputParent}/missing-darwin-root/credential.private.json`)).mode & 0o777, 0o600);
+    assert.equal(existsSync(`${outputParent}/deny-root`), false);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 const pgBin = process.env.IRON_GATE_LOCAL_PG_BIN ?? '/opt/homebrew/opt/postgresql@15/bin';
 test('isolated PostgreSQL staging and switching use committed full-scope CAS and preserve other data',
   { skip: !existsSync(`${pgBin}/initdb`) }, async t => {
-    const directory = await mkdtemp('/private/tmp/offland-line-sql-pg-test-');
+    // Darwin's default TMPDIR can exceed PostgreSQL's Unix socket path limit.
+    const root = process.platform === 'darwin' ? '/private/tmp' : tmpdir();
+    const directory = await mkdtemp(join(root, 'offland-line-sql-pg-test-'));
     let pool, independent, running = false;
     try {
       execFileSync(`${pgBin}/initdb`, ['-D', `${directory}/data`, '-U', 'postgres', '--auth=trust', '--no-locale', '--encoding=UTF8'], { stdio: 'ignore' });
