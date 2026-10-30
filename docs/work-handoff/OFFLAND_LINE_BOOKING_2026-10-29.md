@@ -150,3 +150,90 @@ loopback PostgreSQL database explicitly selected by
 This document records engineering and isolated verification only. Production
 credential issuance, secret installation, activation, deployment and a real LINE
 operator acceptance remain the coordinated release's separate evidence.
+
+## Reviewed SQL transport for an administrator without a connection file
+
+`iron-gate/scripts/prepare-offland-line-booking-sql.mjs` prepares private SQL for
+the existing administrator SQL transport. It does not connect to a database,
+issue a credential, install a secret, or deploy a service. The connected
+PostgreSQL lifecycle CLIs above retain their behavior. Both paths reuse the same
+pure grant/activation planners and grant shape validation.
+
+Output must be inside the operating system's temporary directory; macOS also
+allows `/private/tmp` for short PostgreSQL socket paths. On Linux, substitute
+the system temporary directory for `/private/tmp` in the examples below.
+
+From the `iron-gate` package, using Node 22 and installed locked dependencies:
+
+```sh
+node --experimental-strip-types scripts/prepare-offland-line-booking-sql.mjs snapshot \
+  /private/tmp/release/manifest.json /private/tmp/release/snapshot.sql
+node --experimental-strip-types scripts/prepare-offland-line-booking-sql.mjs stage \
+  /private/tmp/release/manifest.json /private/tmp/release/snapshot.json /private/tmp/release/stage
+node --experimental-strip-types scripts/prepare-offland-line-booking-sql.mjs activate \
+  /private/tmp/release/activate-manifest.json /private/tmp/release/fresh-snapshot.json /private/tmp/release/activate
+node --experimental-strip-types scripts/prepare-offland-line-booking-sql.mjs revoke \
+  /private/tmp/release/revoke-manifest.json /private/tmp/release/fresh-revoke-snapshot.json /private/tmp/release/revoke
+node --experimental-strip-types scripts/prepare-offland-line-booking-sql.mjs verify \
+  /private/tmp/release/activate/plan.json /private/tmp/release/activate/committed-readback.json
+```
+
+Every input must be a regular private file. Outputs are exclusive new files or
+directories under the real private temporary directory, with mode 0600/0700;
+existing packages and symlink inputs are refused. `snapshot` emits a repeatable
+read, read-only query. Execute it against the exact reviewed `manifest.projectRef`
+and save its single `snapshot` object without changing the embedded raw JSONB
+text. The snapshot contains private records and credential hashes; never print
+it or add it to source control. It expires after fifteen minutes.
+
+Stage and activation manifests have the earlier stage fields plus `requestKey`
+and `authorizationRef`. Revocation uses only `projectRef`, `propertyId`,
+`workspaceId`, `expectedVersion`, `credentialId`, `grantId`, `requestKey` and
+`authorizationRef`. Each new action needs a new request key. Activation must use
+the same staged grant IDs, actors, group and expiry; refresh its property version
+and snapshot after any intervening legitimate write. Revocation accepts an
+expired credential and current authority changes, with fresh complete evidence.
+
+Staging prepares one random bearer in `credential.private.json` before writing
+SQL. That file explicitly says `prepared_not_applied`: it is not proof that a
+credential exists. All other artifacts contain only its hash. Keep the file when
+an apply response is uncertain, and inspect the exact existing request/credential;
+never generate a replacement token just to retry. The package includes
+`apply.sql`, `dry-run.sql`, `readback.sql`, a token-free `plan.json` and file hashes.
+The executable SQL contains the target grant and full-scope hashes, not guest
+records or unrelated credential contents.
+
+Apply/dry-run use SERIALIZABLE isolation, a locked property row, bounded lock and
+statement timeouts, exact database-native state/occupancy/credential hashes and
+relational metadata. A short credential-table lock prevents grant phantoms.
+Staging rejects another unexpired booking grant even if inactive. Stage and
+activation also reject any other credential using the dedicated grant ID,
+including finance credentials or another property's grant: the proof router
+selects a dedicated identity by grant ID as well as credential ID.
+
+Activation and revocation derive only the two channel policy keys and the next
+inventory version from the locked database state. They update only the exact
+credential's active flag and verify every remaining state/credential/occupancy
+value before recording the immutable request audit. Audit failure rolls the
+whole operation back. No schema, RLS, role, booking, occupancy, finance or source
+data mutation is generated.
+
+An exact recorded request returns its original receipt before freshness/version
+checks; an altered request with the same key is rejected. Replaying activation
+after a later revoke cannot revive the credential. Readback distinguishes the
+historical receipt from current state and credential match flags.
+
+Run `dry-run.sql` first, then the exact reviewed `apply.sql`, then run
+`readback.sql` independently and save its single `verification` object. The
+verifier recomputes the immutable plan identity and compares current hashes to
+the actual committed audit. It refuses `dry_run` and `apply_postcommit` outputs,
+missing receipts, changed expected fields and expired stage/activation grants.
+Recovery queries remain available after plan/credential expiry. No dry run or
+historical receipt alone is a current activation proof.
+
+Isolated PostgreSQL verification covers rollback/commit, inactive denial,
+full-state and occupancy drift without a version increment, credential
+hash/grant/expiry drift, concurrent staging, global grant-ID collisions, lost
+acknowledgement recovery, later-revoke replay, audit failure, state/audit
+corruption, and preservation of another property and existing financial rows.
+Deployment and production activation still require their own release evidence.
