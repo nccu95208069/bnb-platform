@@ -9,7 +9,7 @@ import { tokenHash, validateGrant } from "../src/credential-grant.mjs";
 import { privateJson } from "./seed-sweetfun-shadow.mjs";
 import { adminDatabaseUrl } from "./stage-sweetfun-line-read-grant.mjs";
 
-const PROJECT_REF = "brcszrkwkgiwatrxevkf";
+export const PROJECT_REF = "brcszrkwkgiwatrxevkf";
 const SOURCE_SYSTEM = "offland-calendar-sheet";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
