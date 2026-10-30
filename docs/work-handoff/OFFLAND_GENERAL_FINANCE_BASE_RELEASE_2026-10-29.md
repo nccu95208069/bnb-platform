@@ -33,3 +33,51 @@ The LINE release controller's full candidate still contains an unpinned configur
 Before any new connector, SSOT credential or finance row exists, the guarded empty-only rollback can remove the new schema; it refuses after any such state appears. Existing legacy `card:sync` and `finance:ledger` grants are preserved by that rollback. After the first accepted new-ledger operation, pause new writes and reconcile forward from Iron Gate receipts rather than returning to the old OS/LINE writer. Old Offland finance and booking balances still require their own source-by-source reconciliation before they can be imported or treated as paid/unpaid. Sweetfun W7 keeps its separate final-watermark, historical-cash and owner cutover gates.
 
 The planned remote PG17 restore-drill migration was rejected by automatic approval review because that externally managed test project had not been explicitly authorized as disposable. No remote test database was changed. Migration 020 is applied, but code, grants, flags and release checks remain separate gates before any new finance writer is opened.
+
+## Dedicated LINE finance proof routing — 2026-10-30 candidate
+
+The Offland client signs with its independent finance operator key. The earlier
+backend runtime verified every non-booking LINE grant with the shared LINE key,
+so a correctly signed Offland finance read could return 401. Setting a finance
+secret alone did not change that routing. This repair adds an exact stored-grant
+route; it does not change the client key, shared key or financial authority.
+
+Set the complete production tuple before starting the repaired candidate:
+
+- `IRON_GATE_PRODUCTION_OFFLAND_LINE_FINANCE_PROOF_SECRET`
+- `IRON_GATE_PRODUCTION_OFFLAND_LINE_FINANCE_CREDENTIAL_ID`
+- `IRON_GATE_PRODUCTION_OFFLAND_LINE_FINANCE_GRANT_ID`
+- `IRON_GATE_PRODUCTION_OFFLAND_LINE_FINANCE_PROPERTY_ID`
+
+The secret is the existing client's dedicated finance proof key, exactly 43
+base64url characters, and must differ from the shared LINE, OS and dedicated
+booking keys. Identity values must match the existing finance credential; no new
+grant or database migration is required. A partial tuple, malformed identity or
+credential/grant collision with the booking tuple closes startup. Private/Preview
+processes use the same suffixes after `IRON_GATE_`; Production never falls back
+to those settings.
+
+Every stored LINE grant with `financeGeneralEntriesOnly:true`, and any grant
+matching either configured finance credential or grant ID, enters this dedicated
+gate. It requires both finance markers, the exact credential/grant/property
+tuple, only the general-finance action allowlist, money-only fields and no booking,
+inventory or provider-free capabilities. Missing configuration, altered markers,
+cross-property identity and mixed dedicated scopes are denied; the verifier never
+tries another key. New properties using this marker require their own reviewed
+dedicated configuration instead of inheriting the shared route. Existing legacy
+Sweetfun grants without this marker retain their shared-key behavior.
+
+The shared LINE key still signs server preview tokens. Booking proofs retain
+their separate key and exact tuple. Request method/path/query/body/idempotency,
+actor/group/workspace/epoch and stored-grant restrictions remain enforced by the
+existing verifier and authenticator.
+
+The new regression suite failed 9 of 10 cases against the old routing, then all 10
+passed with the repair; all 4 existing booking proof tests also pass. An independent
+review reran those 14 checks without a finding. TypeScript check/build and the full
+backend suite pass: 583 passing, 30 separate PostgreSQL cases skipped. The real GCO
+signer/client/Engine to synthetic backend loopback still produces three submissions
+and three receipts, recovers a lost response without resubmitting, and completes
+booking cancellation with no provider work or cross-property changes. Runtime
+readback belongs to the coordinated release. This section documents a code
+candidate, not a production deployment or financial write.
