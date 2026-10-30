@@ -298,8 +298,11 @@ export async function ssotFinanceContext(source:SheetSourceDefinition,year:numbe
 /** Offland reads the current authoritative booking set; no operational Sheet is involved. */
 async function offlandSsotContext(year:number,actor:Principal,
  config:ReturnType<typeof ironGateSsotFinanceConfig>){
- const [events,catalog,bookings]=await Promise.all([
-  readSsotLedger(config,actor),readSsotCatalog(config,actor),readSsotBookings(config,actor)]);
+ // The shared production DB role has a tight connection limit. Keep this
+ // read-only fanout to one Iron Gate request at a time for Offland.
+ const events=await readSsotLedger(config,actor);
+ const catalog=await readSsotCatalog(config,actor,fetch,true);
+ const bookings=await readSsotBookings(config,actor);
  const lookup=readCatalog(catalog,'offland');
  const entries=entriesFromLedger(events,'offland',bookings.orders,catalog);
  const orders=reviewUncertainReceivables(projectSsotBookingBalances(bookings.orders,entries),events)
