@@ -10,6 +10,7 @@ import type {Principal} from './workspace-auth/types';
 import {projectOrders,projectionVersion,projectSsotBookingBalances} from './finance-projection';
 import {applyHistoricalSettlements} from './finance-ssot-settlement';
 import {readSsotBookings} from './booking-sources/iron-gate-ssot-bookings.server.ts';
+import {requestBudget} from './booking-sources/iron-gate-request-budget.ts';
 import {recurrenceDue,taipeiDate,type FinanceEntry,type FinanceOrder,
   type PaymentAccount,type PayoutRule,type RecurringExpense,
   EXPENSE_CATEGORIES,METHODS,roomCollectionForOrder} from './finance-model';
@@ -24,22 +25,6 @@ const cents=(v:unknown):number=>{
   const n=typeof v==='string'&&/^[-]?[0-9]+$/.test(v)?Number(v):v;
   return Number.isSafeInteger(n)?Number(n):fail();
 };
-
-function boundedFinanceFetch(send:typeof fetch,max:number):typeof fetch{
- let active=0;const waiting:(()=>void)[]=[];
- const acquire=async()=>{
-  if(active<max&&!waiting.length){active++;return;}
-  await new Promise<void>(resolve=>waiting.push(resolve));
- };
- const release=()=>{
-  const next=waiting.shift();
-  if(next)next();else active--;
- };
- return (async (...args:Parameters<typeof fetch>)=>{
-  await acquire();
-  try{return await send(...args);}finally{release();}
- }) as typeof fetch;
-}
 
 type Catalog={accounts:unknown[];categories:unknown[];recurring:unknown[];
   payout:unknown[];links:unknown[]};
@@ -314,12 +299,13 @@ export async function ssotFinanceContext(source:SheetSourceDefinition,year:numbe
 /** Offland reads the current authoritative booking set; no operational Sheet is involved. */
 async function offlandSsotContext(year:number,actor:Principal,
  config:ReturnType<typeof ironGateSsotFinanceConfig>){
- // Share a request-local budget across ledger, catalog and both booking passes.
- // Each backend request can take one connection from the shared DB role.
- const send=boundedFinanceFetch(fetch,3);
+ // Acquire before signing the short-lived proof and starting the 5-second
+ // network timeout; waiting inside fetch would expire both in the queue.
+ const budget=requestBudget(3);
  const [events,catalog,bookings]=await Promise.all([
-  readSsotLedger(config,actor,send),readSsotCatalog(config,actor,send),
-  readSsotBookings(config,actor,send)]);
+  readSsotLedger(config,actor,fetch,budget),
+  readSsotCatalog(config,actor,fetch,budget),
+  readSsotBookings(config,actor,fetch,budget)]);
  const lookup=readCatalog(catalog,'offland');
  const entries=entriesFromLedger(events,'offland',bookings.orders,catalog);
  const orders=reviewUncertainReceivables(projectSsotBookingBalances(bookings.orders,entries),events)
