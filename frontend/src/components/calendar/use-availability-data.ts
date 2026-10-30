@@ -160,5 +160,6 @@ export function useAvailabilityData({ query, property, scope, reload, preload, r
     })?.[1] ?? '' : '',
   }; };
   void revision;
-  return { data, loading: !data && !error, error, month, retry, fromDeviceCache, deviceSavedAt };
+  return { data, loading: !data && !error, refreshing: !!data && !liveData && !error,
+    error, month, retry, fromDeviceCache, deviceSavedAt };
 }
