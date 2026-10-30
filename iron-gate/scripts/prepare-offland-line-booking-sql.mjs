@@ -11,7 +11,8 @@ import { offlandLineBookingSnapshotSql, planOfflandLineBookingAdminSql,
 
 async function privateDestination(path) {
   const target = resolve(path), parent = await realpath(dirname(target));
-  const roots = await Promise.all(['/private/tmp', tmpdir()].map(root => realpath(root)));
+  const candidates = process.platform === 'darwin' ? ['/private/tmp', tmpdir()] : [tmpdir()];
+  const roots = await Promise.all(candidates.map(root => realpath(root)));
   if (!roots.some(root => parent === root || parent.startsWith(root + sep)))
     throw Error('OFFLAND_LINE_SQL_OUTPUT_MUST_BE_PRIVATE_TEMP');
   return resolve(parent, target.split(sep).at(-1));

@@ -159,6 +159,10 @@ issue a credential, install a secret, or deploy a service. The connected
 PostgreSQL lifecycle CLIs above retain their behavior. Both paths reuse the same
 pure grant/activation planners and grant shape validation.
 
+Output must be inside the operating system's temporary directory; macOS also
+allows `/private/tmp` for short PostgreSQL socket paths. On Linux, substitute
+the system temporary directory for `/private/tmp` in the examples below.
+
 From the `iron-gate` package, using Node 22 and installed locked dependencies:
 
 ```sh
