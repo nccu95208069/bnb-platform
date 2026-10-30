@@ -1,6 +1,27 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { test } from "node:test";
-import { createVercelFetch, databaseUrlForVercel } from "../api/index.mjs";
+import { createDatabasePool, createVercelFetch, databaseUrlForVercel } from "../api/index.mjs";
+
+test("Vercel pool handles disconnected idle and checked-out clients without leaking errors", async () => {
+  const logs = [];
+  const originalError = console.error;
+  const pool = createDatabasePool("postgres://runtime:private-password@localhost/postgres");
+  try {
+    console.error = (...parts) => logs.push(parts);
+    const client = new EventEmitter();
+    pool.emit("connect", client);
+    assert.doesNotThrow(() => client.emit("error", new Error("private SQL and connection string")));
+    assert.doesNotThrow(() => pool.emit("error", new Error("private SQL and connection string"), client));
+    assert.deepEqual(logs, [
+      ["iron_gate_database_connection_error"],
+      ["iron_gate_database_idle_connection_error"],
+    ]);
+  } finally {
+    console.error = originalError;
+    await pool.end();
+  }
+});
 
 test("Vercel entry refuses requests without both private settings", async () => {
   const handle = createVercelFetch({});
