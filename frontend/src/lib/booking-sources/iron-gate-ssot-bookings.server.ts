@@ -1,4 +1,5 @@
 import {callIronGate,type ManualConfig} from './iron-gate-manual.server.ts';
+import {noRequestBudget,type RequestBudget} from './iron-gate-request-budget.ts';
 import {sweetfunCalendarPlatform} from './sweetfun-platform.ts';
 import {projectionVersion} from '../finance-projection.ts';
 import type {FinanceOrder} from '../finance-model';
@@ -95,7 +96,7 @@ function amountOrNull(value:unknown):number|null{return value==null?null:integer
 
 /** Full, bounded two-pass read. Booking versions can move without inventoryVersion. */
 export async function readSsotBookings(config:ManualConfig,actor:Principal,
-  send:typeof fetch=fetch){
+  send:typeof fetch=fetch,budget:RequestBudget=noRequestBudget){
   if(config.calendar.mode!=='authority'||config.calendar.expectedAuthorityEpoch<1||
     config.grant.propertyId!==config.calendar.grant.propertyId||
     config.grant.workspaceId!==config.calendar.grant.workspaceId)fail();
@@ -105,9 +106,9 @@ export async function readSsotBookings(config:ManualConfig,actor:Principal,
     const orders:FinanceOrder[]=[],ids=new Set<string>(),cursors=new Set<string>();
     let cursor:string|null=null,version:number|null=null;
     for(let page=0;page<200;page++){
-      const raw=await callIronGate(readConfig,actor,'GET',prefix+
+      const raw=await budget(()=>callIronGate(readConfig,actor,'GET',prefix+
         (cursor?`&cursor=${encodeURIComponent(cursor)}`:''),null,null,send,
-      ['booking:read'],['money','guest_name','payment_status'],2_100_000);
+        ['booking:read'],['money','guest_name','payment_status'],2_100_000));
       if(raw.propertyId!==config.grant.propertyId||
         raw.authorityEpoch!==config.calendar.expectedAuthorityEpoch||
         raw.readOnly!==false||raw.snapshot!==null||
