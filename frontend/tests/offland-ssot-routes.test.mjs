@@ -26,6 +26,7 @@ test('Offland finance, summary and calendar read the same ledger without Sheet a
  const member={id:'c'.repeat(32),displayName:'Synthetic operator',role:'admin',status:'active',
   allProperties:false,propertyIds:['offland'],credential:{schema:1,kind:'password',revision:'d'.repeat(64),salt:'e'.repeat(32),hash:'f'.repeat(128)}};
  let review=false;const commands=[];
+ let activeReads=0,maxActiveReads=0,trackReads=true;
  const booking=()=>({id:id(7),workspaceId:id(1),propertyId:id(2),version:1,status:'confirmed',
   source:review?'external':'line',sourceReviewRequired:false,currency:'TWD',totalCents:200000,
   createdAt:'2026-10-28T01:00:00.000Z',channelSyncState:'not_required',guestName:'Synthetic guest',
@@ -49,6 +50,8 @@ test('Offland finance, summary and calendar read the same ledger without Sheet a
   }
   const target=new URL(url);assert.equal(target.origin,'https://ig.example','No Sheet or other source access');
   assert.ok(target.pathname.startsWith(`/v1/properties/${id(2)}/`));
+  if(trackReads){activeReads++;maxActiveReads=Math.max(maxActiveReads,activeReads);
+   await new Promise(resolve=>setImmediate(resolve));activeReads--;}
   const suffix=target.pathname.split('/').at(-1);
   const envelope={propertyId:id(2),workspaceId:id(1),inventoryVersion:7,authorityEpoch:1,readOnly:false};
   if(suffix==='bookings')return Response.json({...envelope,snapshot:null,nextCursor:null,bookings:[booking()]});
@@ -62,6 +65,7 @@ test('Offland finance, summary and calendar read the same ledger without Sheet a
   headers:{origin:'https://os.example',host:'os.example',cookie:`${MEMBER_COOKIE}=${createMemberSession(member)}`},
   ...(body?{body:JSON.stringify(body)}:{})});
  const response=await financeGet(request('/api/v1/finance?property=offland&year=2026'));
+ trackReads=false;assert.equal(maxActiveReads,1,'Offland finance read must not fan out backend connections');
  assert.equal(response.status,200);const report=await response.json();
  assert.equal(report.history_status,'not_imported');assert.equal(report.ssot_enabled,true);assert.equal(report.entries.length,1);
  assert.equal(report.entries[0].ssot_source_system,'line_finance');assert.equal(report.orders[0].received,200000);
