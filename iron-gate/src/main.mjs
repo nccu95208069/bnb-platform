@@ -66,7 +66,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     running.server.on("error", () => { process.exitCode = 1; shutdown(); });
   } catch (error) {
     const safe = new Set(["DATABASE_URL_REQUIRED", "OS_PROOF_SECRET_REQUIRED",
-      "OS_PROOF_SECRET_TOO_SHORT", "LINE_PROOF_SECRET_TOO_SHORT", "LINE_PREVIEW_SECRET_INVALID", "OFFLAND_LINE_BOOKING_PROOF_CONFIGURATION_INVALID", "INVALID_BIND_PORT", "UNSAFE_DATABASE_TRANSPORT",
+      "OS_PROOF_SECRET_TOO_SHORT", "LINE_PROOF_SECRET_TOO_SHORT", "LINE_PREVIEW_SECRET_INVALID", "OFFLAND_LINE_BOOKING_PROOF_CONFIGURATION_INVALID", "OFFLAND_LINE_FINANCE_PROOF_CONFIGURATION_INVALID", "INVALID_BIND_PORT", "UNSAFE_DATABASE_TRANSPORT",
       "UNSAFE_DATABASE_ROLE_OR_SCHEMA"]);
     const code = safe.has(error?.message) ? error.message : "STARTUP_FAILED";
     process.stderr.write(`Iron Gate startup failed: ${code}\n`);
