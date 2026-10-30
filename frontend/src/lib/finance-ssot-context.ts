@@ -25,6 +25,22 @@ const cents=(v:unknown):number=>{
   return Number.isSafeInteger(n)?Number(n):fail();
 };
 
+function boundedFinanceFetch(send:typeof fetch,max:number):typeof fetch{
+ let active=0;const waiting:(()=>void)[]=[];
+ const acquire=async()=>{
+  if(active<max&&!waiting.length){active++;return;}
+  await new Promise<void>(resolve=>waiting.push(resolve));
+ };
+ const release=()=>{
+  const next=waiting.shift();
+  if(next)next();else active--;
+ };
+ return (async (...args:Parameters<typeof fetch>)=>{
+  await acquire();
+  try{return await send(...args);}finally{release();}
+ }) as typeof fetch;
+}
+
 type Catalog={accounts:unknown[];categories:unknown[];recurring:unknown[];
   payout:unknown[];links:unknown[]};
 
@@ -298,11 +314,12 @@ export async function ssotFinanceContext(source:SheetSourceDefinition,year:numbe
 /** Offland reads the current authoritative booking set; no operational Sheet is involved. */
 async function offlandSsotContext(year:number,actor:Principal,
  config:ReturnType<typeof ironGateSsotFinanceConfig>){
- // The shared production DB role has a tight connection limit. Keep this
- // read-only fanout to one Iron Gate request at a time for Offland.
- const events=await readSsotLedger(config,actor);
- const catalog=await readSsotCatalog(config,actor,fetch,true);
- const bookings=await readSsotBookings(config,actor);
+ // Share a request-local budget across ledger, catalog and both booking passes.
+ // Each backend request can take one connection from the shared DB role.
+ const send=boundedFinanceFetch(fetch,3);
+ const [events,catalog,bookings]=await Promise.all([
+  readSsotLedger(config,actor,send),readSsotCatalog(config,actor,send),
+  readSsotBookings(config,actor,send)]);
  const lookup=readCatalog(catalog,'offland');
  const entries=entriesFromLedger(events,'offland',bookings.orders,catalog);
  const orders=reviewUncertainReceivables(projectSsotBookingBalances(bookings.orders,entries),events)
