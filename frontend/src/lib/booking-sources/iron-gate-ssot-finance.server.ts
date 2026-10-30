@@ -1,6 +1,7 @@
 import type {Principal} from '../workspace-auth/types';
 import {ironGateCalendarConfig,offlandIronGateCalendarConfig} from './iron-gate-calendar.server.ts';
 import {callIronGate,type Grant,type ManualConfig} from './iron-gate-manual.server.ts';
+import {noRequestBudget,type RequestBudget} from './iron-gate-request-budget.ts';
 
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TOKEN=/^[A-Za-z0-9_-]{43}$/;
@@ -64,13 +65,14 @@ async function request(config:ManualConfig,actor:Principal,method:'GET'|'POST',
     actions,['money'],2_100_000);
 }
 export async function readSsotLedgerSnapshot(config:ManualConfig,actor:Principal,
-  send:typeof fetch=fetch):Promise<{events:SsotEvent[];asOfChangeSeq:number}>{
+  send:typeof fetch=fetch,budget:RequestBudget=noRequestBudget):Promise<{events:SsotEvent[];asOfChangeSeq:number}>{
   const events:SsotEvent[]=[];let cursor:string|null=null,pin:number|null=null;
   const seen=new Set<string>(),cursors=new Set<string>();
   for(let page=0;page<200;page++){
-    const suffix=`ledger?limit=100${cursor?`&cursor=${encodeURIComponent(cursor)}`:''}`+
+    const suffix:string=`ledger?limit=100${cursor?`&cursor=${encodeURIComponent(cursor)}`:''}`+
       `${pin!==null?`&as_of_change_seq=${pin}`:''}`;
-    const result=await request(config,actor,'GET',suffix,null,null,['finance:read'],send);
+    const result:Record<string,unknown>=await budget(()=>request(config,actor,'GET',suffix,null,null,
+      ['finance:read'],send));
     const asOf=result.as_of_change_seq,current=result.current_change_seq;
     if(!Array.isArray(result.events)||result.events.length>100||
       !sequence(asOf)||!sequence(current)||current<asOf||
@@ -93,8 +95,8 @@ export async function readSsotLedgerSnapshot(config:ManualConfig,actor:Principal
   throw Error('FINANCE_SSOT_READBACK_MISMATCH');
 }
 export async function readSsotLedger(config:ManualConfig,actor:Principal,
-  send:typeof fetch=fetch):Promise<SsotEvent[]>{
-  return (await readSsotLedgerSnapshot(config,actor,send)).events;
+  send:typeof fetch=fetch,budget:RequestBudget=noRequestBudget):Promise<SsotEvent[]>{
+  return (await readSsotLedgerSnapshot(config,actor,send,budget)).events;
 }
 
 export type HistoricalSettlementReadback={
@@ -146,9 +148,9 @@ export async function readSsotHistoricalSettlements(config:ManualConfig,actor:Pr
   return rows;
 }
 export async function readSsotCatalog(config:ManualConfig,actor:Principal,
-  send:typeof fetch=fetch){
-  const read=(suffix:string)=>request(config,actor,'GET',suffix,null,null,
-    ['finance:read'],send);
+  send:typeof fetch=fetch,budget:RequestBudget=noRequestBudget){
+  const read=(suffix:string)=>budget(()=>request(config,actor,'GET',suffix,
+    null,null,['finance:read'],send));
   const [accounts,categories,recurring,payout,links]=await Promise.all([
     read('accounts'),read('categories'),read('recurring-rules'),
     read('payout-rules'),read('source-links')]);
