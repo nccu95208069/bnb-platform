@@ -25,7 +25,7 @@ test('Offland finance, summary and calendar read the same ledger without Sheet a
  const archived={id:'old-expense',property_id:'offland',kind:'expense',category:'other',amount_cents:500,date:'2026-10-01',created_at:'2026-10-01T01:00:00Z',status:'active',source:'manual'};
  const member={id:'c'.repeat(32),displayName:'Synthetic operator',role:'admin',status:'active',
   allProperties:false,propertyIds:['offland'],credential:{schema:1,kind:'password',revision:'d'.repeat(64),salt:'e'.repeat(32),hash:'f'.repeat(128)}};
- let review=false;const commands=[];
+ let review=false,failLedger=false;const commands=[];
  let activeReads=0,maxActiveReads=0,trackReads=true;
  const booking=()=>({id:id(7),workspaceId:id(1),propertyId:id(2),version:1,status:'confirmed',
   source:review?'external':'line',sourceReviewRequired:false,currency:'TWD',totalCents:200000,
@@ -57,7 +57,10 @@ test('Offland finance, summary and calendar read the same ledger without Sheet a
   if(suffix==='bookings')return Response.json({...envelope,snapshot:null,nextCursor:null,bookings:[booking()]});
   if(suffix==='calendar-snapshot')return Response.json({...envelope,from:'2026-11-01',to:'2026-11-02',
    bookings:[booking()],cells:[{roomId:id(6),date:'2026-11-01',state:'sold'}]});
-  if(suffix==='ledger')return Response.json({events:[event],as_of_change_seq:1,current_change_seq:1,unsequenced_event_count:0,next_cursor:null});
+  if(suffix==='ledger'){
+   if(failLedger)throw Error('synthetic backend failure');
+   return Response.json({events:[event],as_of_change_seq:1,current_change_seq:1,unsequenced_event_count:0,next_cursor:null});
+  }
   const keys={accounts:'accounts',categories:'categories','recurring-rules':'recurring_rules','payout-rules':'payout_rules','source-links':'source_links'};
   assert.ok(keys[suffix],`Unexpected ${suffix}`);return Response.json({[keys[suffix]]:[]});
  });
@@ -65,7 +68,7 @@ test('Offland finance, summary and calendar read the same ledger without Sheet a
   headers:{origin:'https://os.example',host:'os.example',cookie:`${MEMBER_COOKIE}=${createMemberSession(member)}`},
   ...(body?{body:JSON.stringify(body)}:{})});
  const response=await financeGet(request('/api/v1/finance?property=offland&year=2026'));
- trackReads=false;assert.equal(maxActiveReads,1,'Offland finance read must not fan out backend connections');
+ trackReads=false;assert.equal(maxActiveReads,3,'Offland finance read must bound backend concurrency');
  assert.equal(response.status,200);const report=await response.json();
  assert.equal(report.history_status,'not_imported');assert.equal(report.ssot_enabled,true);assert.equal(report.entries.length,1);
  assert.equal(report.entries[0].ssot_source_system,'line_finance');assert.equal(report.orders[0].received,200000);
@@ -97,4 +100,8 @@ test('Offland finance, summary and calendar read the same ledger without Sheet a
   for(const handler of [financePost,previewPost]){const blocked=await handler(request('/api/v1/finance',{property_id:'offland',year:2026,...input}));assert.equal(blocked.status,403);assert.equal((await blocked.json()).code,'FINANCE_GENERAL_ONLY');}
  }
  const limited=await (await financeGet(request('/api/v1/finance?property=offland&year=2026'))).json();assert.equal(limited.general_only,true);assert.ok(limited.orders.every(order=>order.ssot_command_eligible===false));
+ failLedger=true;
+ const failed=await financeGet(request('/api/v1/finance?property=offland&year=2026'));
+ assert.equal(failed.status,503);assert.equal((await failed.json()).code,'UNAVAILABLE');
+ assert.ok(!commands.some(command=>command[0]==='SET'));
 });
