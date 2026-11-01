@@ -27,7 +27,9 @@ export async function retentionFixture(options = {}) {
     bookingIds: { 'Q:synthetic-parent': bookingId, 'J:synthetic-single-c': otherBookingId } };
   const { state } = prepareOfflandShadow(snapshot, importConfig);
   state.readOnly = false; state.authorityEpoch = 1;
-  state.roomIds.push(secondRoomId);
+  // Generic/native retention cases use a second room to check unrelated blocks.
+  // OFFLAND reporting must use its actual single-villa inventory shape.
+  if (!options.singleVilla) state.roomIds.push(secondRoomId);
   state.sourceGrants = [{ grantId: sourceGrantId, sourceSystem: 'offland-calendar-sheet',
     sourceAccount: 'synthetic-offland-sheet', active: true }];
   if (options.mode === 'owlnest') state.channel = { mode: 'owlnest', ready: true,
@@ -109,3 +111,4 @@ export function occupancy(state) {
       return cells;
     }));
 }
+

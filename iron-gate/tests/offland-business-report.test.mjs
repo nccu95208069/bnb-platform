@@ -126,6 +126,11 @@ test('contradictory property import markers cannot choose a reporting profile', 
     error => error?.code === 'REPORT_DATA_INVALID');
 });
 
+test('OFFLAND reporting rejects multiple rooms instead of projecting a single-villa total', () => {
+  assert.throws(() => report([], { roomIds: [roomId, '44444444-4444-4444-8444-444444444444'] }),
+    error => error?.code === 'REPORT_DATA_INVALID');
+});
+
 test('aggregate service supports OFFLAND exact room-night amounts without adding permissions or writes', async () => {
   const repository = new MemoryPropertyRepository();
   repository.seed(state([booking('scoped', ['2026-12-01', '2026-12-02'], [100001, 299999])]));
