@@ -57,7 +57,7 @@ test('Offland retain releases the whole imported Q order and preserves source an
 });
 
 test('retained list has no stay-date window and all readers accept a zero-stay order', async () => {
-  const f = await retentionFixture(); await retain(f);
+  const f = await retentionFixture({ singleVilla: true }); await retain(f);
   const list = await f.service.listBookings(f.owner, f.propertyId,
     { limit: 100, cursor: null, status: 'retained', from: null, to: null });
   assert.equal(list.bookings.length, 1);
@@ -76,7 +76,11 @@ test('retained list has no stay-date window and all readers accept a zero-stay o
   assert.equal(calendar.bookings.some(b => b.id === f.bookingId), false);
   const availability = await f.service.availability(f.owner, f.propertyId, '2027-01-31', '2027-02-02');
   assert.equal(availability.cells.filter(cell => cell.roomId === f.roomId).every(cell => cell.state === 'unsold'), true);
-  assert.ok(await f.service.businessReport({ ...f.owner, origin: 'service', fields: [] }, f.propertyId));
+  const report = await f.service.businessReport({ ...f.owner, origin: 'service', fields: [] }, f.propertyId);
+  assert.equal(report.meta.orderCount, 1, 'the other confirmed order remains in the report');
+  assert.equal(report.meta.excludedUnconfirmedOrders, 1, 'the zero-stay retained order is excluded');
+  assert.equal(report.grids.next7Nights.capacity, 1);
+  assert.deepEqual(report.grids.next7Nights.rooms.map(room => room.room), ['包棟']);
   assert.ok(await f.service.occupancySummary(f.owner, f.propertyId, '2027-01-01', '2027-01-31'));
   assert.ok(await f.service.housekeepingTurnovers(f.owner, f.propertyId, '2027-01-01', '2027-01-31'));
 });
@@ -582,3 +586,4 @@ test('corrected Airbnb imports retain immutable amount cohorts as historical evi
       code('SOURCE_AMOUNT_RECONCILIATION_CONFLICT'));
   }
 });
+
