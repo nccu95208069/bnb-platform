@@ -3,13 +3,14 @@ import {readBookingSnapshot} from './booking-sources/snapshot';
 import type {SheetSourceDefinition} from './booking-sources/config';
 import {ironGateFinanceConfig,readDirectFinance,
   applyFinanceAmountCorrections} from './booking-sources/iron-gate-finance.server.ts';
-import {ironGateSsotFinanceConfig,readSsotLedger,readSsotLedgerSnapshot,readSsotCatalog,
+import {ironGateSsotFinanceConfig,readSsotLedgerSnapshot,readSsotCatalog,
   readSsotHistoricalSettlements,
   type SsotEvent} from './booking-sources/iron-gate-ssot-finance.server.ts';
 import type {Principal} from './workspace-auth/types';
 import {projectOrders,projectionVersion,projectSsotBookingBalances} from './finance-projection';
 import {applyHistoricalSettlements} from './finance-ssot-settlement';
 import {readSsotBookings} from './booking-sources/iron-gate-ssot-bookings.server.ts';
+import {requestBudget} from './booking-sources/iron-gate-request-budget.ts';
 import {recurrenceDue,taipeiDate,type FinanceEntry,type FinanceOrder,
   type PaymentAccount,type PayoutRule,type RecurringExpense,
   EXPENSE_CATEGORIES,METHODS,roomCollectionForOrder} from './finance-model';
@@ -124,6 +125,13 @@ function attachLinks(orders:FinanceOrder[],catalog:Catalog){
 export function entriesFromLedger(events:SsotEvent[],property:string,
   orders:FinanceOrder[],catalog:Catalog):FinanceEntry[]{
   const mapping=orderMap(orders,catalog);
+  const categoryNames=new Map<string,string>();
+  for(const value of catalog.categories){
+    if(object(value)&&typeof value.code==='string'&&
+      typeof value.label==='string'&&
+      ['income','expense'].includes(String(value.kind)))
+      categoryNames.set(`${value.kind}:${value.code}`,value.label);
+  }
   return currentEvents(events).flatMap(event=>{
     if(event.event_kind==='ota_guest_payment_observed')return [];
     const kind:FinanceEntry['kind']=['expense_paid','processor_fee_paid'].includes(event.event_kind)?
@@ -144,11 +152,18 @@ export function entriesFromLedger(events:SsotEvent[],property:string,
     const recurrence=/^os-recurring:([0-9a-f-]{36}):(\d{4}-\d{2}-\d{2})$/i.exec(sourceRecord);
     // A platform payout is cash received by the property. Only a guest-paid
     // observation is non-cash, and those events are omitted above.
-    const method=(event.payment_method_code??'other') as FinanceEntry['method'];
-    if(!(method in METHODS))fail();
+    const rawMethod=event.payment_method_code;
+    if(rawMethod!==null&&
+      (typeof rawMethod!=='string'||!Object.hasOwn(METHODS,rawMethod)))fail();
+    const method=rawMethod as FinanceEntry['method'];
+    const sourceRecordedAt=event.source_recorded_at;
+    if(sourceRecordedAt!=null&&
+      (typeof sourceRecordedAt!=='string'||!Number.isFinite(Date.parse(sourceRecordedAt))))fail();
     const category=event.category_code??(kind==='expense'?'other':
       event.event_kind==='ota_payout'?'lodging':
       event.receipt_purpose==='room'||event.receipt_purpose==='deposit'?'lodging':'other');
+    const categoryName=category.startsWith('custom_')?
+      categoryNames.get(`${kind==='expense'?'expense':'income'}:${category}`):undefined;
     const spread=event.expense_attributions.map(a=>({month:date(a.month).slice(0,7),
       amount_cents:cents(a.amount_cents)}));
     const account=event.payment_account_ref?catalog.accounts.find(value=>
@@ -165,10 +180,12 @@ export function entriesFromLedger(events:SsotEvent[],property:string,
       ...(event.advanced_by_kind==='account'?{account_id:event.advanced_by_ref??undefined}:{})
     }:undefined;
     const entry:FinanceEntry={id:event.document_id,property_id:property,kind,
-      category,amount_cents:amount,date:day,description:event.safe_description??
+      category,...(categoryName?{category_name:categoryName}:{}),
+      amount_cents:amount,date:day,description:event.safe_description??
         (kind==='expense'?'支出':kind==='refund'?'退款':'收入'),
       method,stage:event.receipt_purpose??undefined,source:'iron_gate',
       actor:event.actor_ref,created_at:event.created_at,
+      ...(sourceRecordedAt?{ssot_source_recorded_at:sourceRecordedAt}:{}),
       status:event.document_status,
       order_id:allocations.length===1?allocations[0].order_id:undefined,
       allocations:allocations.length?allocations:undefined,
@@ -183,6 +200,7 @@ export function entriesFromLedger(events:SsotEvent[],property:string,
       ...(recurrence?{recurrence_id:recurrence[1],occurrence:recurrence[2]}:{}),
       ssot_source_record_id:sourceRecord,
       ssot_source_system:event.source_system,
+      ssot_source_instance_id:event.source_instance_id,
       ssot_document_version:Number(event.current_version),
       ssot_event_kind:event.event_kind,
       ssot_evidence_level:event.evidence_level,
@@ -221,7 +239,7 @@ export function readCatalog(catalog:Catalog,property:string){
     return {id:String(row.id),year:Number(String(row.start_on).slice(0,4)),
       category:String(row.category_code),amount_cents:cents(row.amount_cents),
       description:String(row.safe_description??''),
-      method:String(row.payment_method_code) as FinanceEntry['method'],
+      method:String(row.payment_method_code) as RecurringExpense['method'],
       start:date(row.start_on),end:row.end_on?date(row.end_on):null,
       day:Number(row.due_day),created_at:'',actor:'',
       ssot_source_record_id:String(row.source_record_id),
@@ -292,14 +310,23 @@ export async function ssotFinanceContext(source:SheetSourceDefinition,year:numbe
       .flatMap(dueYear=>recurrenceDue(lookup.recurring,active,dueYear)),
     projection_version:projection,
     iron_gate_revision:direct.revision,iron_gate_direct_excluded:false,
-    audit:[],asof:taipeiDate(),ssot_events:events,ssot_catalog:catalog};
+    audit:[],asof:taipeiDate(),ssot_events:events,ssot_catalog:catalog,
+    ssot_live_source_instance_id:ledger.sourceInstanceId};
 }
 
 /** Offland reads the current authoritative booking set; no operational Sheet is involved. */
 async function offlandSsotContext(year:number,actor:Principal,
  config:ReturnType<typeof ironGateSsotFinanceConfig>){
- const [events,catalog,bookings]=await Promise.all([
-  readSsotLedger(config,actor),readSsotCatalog(config,actor),readSsotBookings(config,actor)]);
+ // Acquire before signing the short-lived proof and starting the 5-second
+ // network timeout; waiting inside fetch would expire both in the queue.
+ const budget=requestBudget(3);
+ const [ledger,catalog,bookings]=await Promise.all([
+  readSsotLedgerSnapshot(config,actor,fetch,budget),
+  readSsotCatalog(config,actor,fetch,budget),
+  readSsotBookings(config,actor,fetch,budget)]);
+ if(!ledger.sourceInstanceId||ledger.sourceSystem!=='os_manual')
+  throw Error('FINANCE_SSOT_READBACK_MISMATCH');
+ const events=ledger.events;
  const lookup=readCatalog(catalog,'offland');
  const entries=entriesFromLedger(events,'offland',bookings.orders,catalog);
  const orders=reviewUncertainReceivables(projectSsotBookingBalances(bookings.orders,entries),events)
@@ -314,5 +341,6 @@ async function offlandSsotContext(year:number,actor:Principal,
    .flatMap(dueYear=>recurrenceDue(lookup.recurring,active,dueYear)),
   projection_version:projectionVersion([bookings.revision,events,catalog]),
   iron_gate_revision:bookings.revision,iron_gate_direct_excluded:false,
-  audit:[],asof:taipeiDate(),ssot_events:events,ssot_catalog:catalog};
+  audit:[],asof:taipeiDate(),ssot_events:events,ssot_catalog:catalog,
+  ssot_live_source_instance_id:ledger.sourceInstanceId};
 }

@@ -23,13 +23,13 @@ test('owner login ignores a persisted hidden-price preview; deliberate preview s
   assert.equal(store.getState().previewRole,'viewer_no_price');
   assert.equal(JSON.parse(values.get('sweetfun-os-account-ui-v1')).state.previewRole,null);
   // Focus/session refresh should not end a preview the owner is currently testing.
-  await store.getState().initialize();
+  await store.getState().initialize({force:true});
   assert.equal(store.getState().previewRole,'viewer_no_price');
   await store.persist.rehydrate();
   assert.equal(store.getState().previewRole,null);
   // A real restricted account must still remain unable to see prices.
   account={...owner,id:'restricted-member',role:'viewer_no_price'};
-  await store.getState().initialize();
+  await store.getState().initialize({force:true});
   store.getState().setPreviewRole('owner');
   assert.equal(store.getState().previewRole,null);
   assert.equal(ROLE_DEFINITIONS[store.getState().membership.role].permissions.viewPrices,false);

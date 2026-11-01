@@ -103,7 +103,7 @@ function member(principal: Principal, property: string, readOnly = false): void 
     !readOnly && !principal.viewPrices) throw Error('MANUAL_FORBIDDEN');
 }
 
-export async function callIronGate(config: ManualConfig, principal: Principal,
+async function callIronGateOnce(config: ManualConfig, principal: Principal,
   method: 'GET' | 'POST' | 'PATCH', path: string, body: unknown,
   requestKey: string | null, send: typeof fetch,
   actions: string[] = ['booking:read', 'booking:create', 'booking:amend', 'booking:cancel'],
@@ -166,6 +166,19 @@ export async function callIronGate(config: ManualConfig, principal: Principal,
     throw Error(error);
   }
   return raw;
+}
+
+/** A read can reach Iron Gate after its short-lived proof expires in a queue. */
+export async function callIronGate(...args: Parameters<typeof callIronGateOnce>): Promise<Record<string, unknown>> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { return await callIronGateOnce(...args); }
+    catch (error) {
+      const retryable = error instanceof Error &&
+        (error.message === 'UNAUTHORIZED' || error.message === 'MANUAL_READ_UNAVAILABLE');
+      if (args[2] !== 'GET' || attempt > 0 || !retryable) throw error;
+    }
+  }
+  throw Error('MANUAL_READ_UNAVAILABLE');
 }
 
 function bookingPath(config: ManualConfig, bookingId?: string): string {

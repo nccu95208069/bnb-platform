@@ -166,7 +166,7 @@ export function offlandIronGateCalendarConfig(
 }
 
 function proof(url: string, config: IronGateCalendarConfig, principal: Principal,
-  nowMs = Date.now()): string {
+  nowMs = Date.now(), inventoryOnly = false): string {
   if (!principal.id || !(principal.allProperties ||
     principal.propertyIds.includes(propertyKey(config))))
     throw Error('IRON_GATE_CALENDAR_FORBIDDEN');
@@ -174,7 +174,7 @@ function proof(url: string, config: IronGateCalendarConfig, principal: Principal
   const claims = { v: 1, aud: 'iron-gate-v1', credentialId: config.grant.credentialId,
     clientId: config.grant.clientId, workspaceId: config.grant.workspaceId,
     propertyId: config.grant.propertyId, subjectId: principal.id,
-    actions: ['booking:read'], fields: principal.viewPrices ?
+    actions: ['booking:read'], fields: inventoryOnly ? [] : principal.viewPrices ?
       ['guest_name', 'payment_status', 'money'] : ['guest_name'],
     issuedAtMs: nowMs, expiresAtMs: nowMs + 5000, method: 'GET',
     pathAndQuery: `${parsed.pathname}${parsed.search}`, idempotencyKey: null,
@@ -185,7 +185,7 @@ function proof(url: string, config: IronGateCalendarConfig, principal: Principal
 }
 
 async function getJson(url: string, config: IronGateCalendarConfig, principal: Principal,
-  send: typeof fetch, maxBytes: number, timeoutMs = 5000): Promise<unknown> {
+  send: typeof fetch, maxBytes: number, timeoutMs = 5000, inventoryOnly = false): Promise<unknown> {
   let response: Response;
   const target = new URL(url);
   const endpoint = target.pathname.split('/').at(-1);
@@ -198,7 +198,7 @@ async function getJson(url: string, config: IronGateCalendarConfig, principal: P
     const trustedToken = protectedPreview ? await getVercelOidcToken() : null;
     response = await send(url, { method: 'GET', headers: {
       authorization: `Bearer ${config.grant.token}`,
-      'x-iron-gate-os-proof': proof(url, config, principal),
+      'x-iron-gate-os-proof': proof(url, config, principal, Date.now(), inventoryOnly),
       ...(trustedToken ? { 'x-vercel-trusted-oidc-idp-token': trustedToken } : {}),
     }, cache: 'no-store', redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
   } catch {
@@ -453,6 +453,97 @@ export async function readSweetfunIronGatePaymentOrder(bookingId: string,
   return { source: String(raw.source), bookingId, paymentOrderId: paymentId, version: Number(raw.version),
     totalCents: Number(raw.totalCents), rooms: [...rooms].sort(), nights: occupied.size,
     sourcePaid: review?.status === 'paid', legacyImported: paymentId.startsWith('SF-') };
+}
+
+export type IronGateProtectionReason = 'manual_block' | 'source_review' |
+  'channel_pending' | 'line_action_required' | 'channel_review';
+export type IronGateAvailabilitySnapshot = {
+  kind: 'iron_gate'; property: 'sweetfun' | 'offland'; from: string; to: string;
+  inventoryVersion: number; authorityEpoch: number; observedAt: string;
+  cells: { room: string; date: string; state: 'sold' | 'held' | 'blocked' | 'unsold';
+    protectionReasons: IronGateProtectionReason[] }[];
+};
+
+/** Inventory comes from one protected state snapshot, never from the old Sheet.
+ * The scoped proof asks for no guest or financial fields. Booking stays are used
+ * only to verify the sparse occupancy and are discarded before returning.
+ */
+export async function readIronGateAvailabilitySnapshot(start: string, end: string,
+  principal: Principal, config: IronGateCalendarConfig,
+  send: typeof fetch = fetch): Promise<IronGateAvailabilitySnapshot> {
+  if (config.mode !== 'authority') throw Error('IRON_GATE_CALENDAR_CONFIG_INVALID');
+  const property = propertyKey(config), rooms = Object.keys(config.roomIds);
+  const first = day(start), last = day(end);
+  if (last <= first || last - first > 93) throw Error('IRON_GATE_CALENDAR_INVALID_DATE');
+  if (!(principal.allProperties || principal.propertyIds.includes(property)))
+    throw Error('IRON_GATE_CALENDAR_FORBIDDEN');
+  const url = new URL(`/v1/properties/${config.grant.propertyId}/calendar-snapshot`,
+    `${baseUrl(config.baseUrl)}/`);
+  url.searchParams.set('from', start);
+  url.searchParams.set('to', end);
+  const raw = await getJson(url.toString(), config, principal, send, 1024 * 1024, 8000, true);
+  if (!object(raw) || raw.inventorySchemaVersion !== 1 ||
+    raw.propertyId !== config.grant.propertyId || raw.workspaceId !== config.grant.workspaceId ||
+    raw.from !== start || raw.to !== end || raw.readOnly !== false ||
+    raw.authorityEpoch !== config.expectedAuthorityEpoch ||
+    !Number.isSafeInteger(raw.inventoryVersion) || Number(raw.inventoryVersion) < 1 ||
+    !Array.isArray(raw.cells) || raw.cells.length > rooms.length * (last - first) ||
+    !Array.isArray(raw.bookings) || raw.bookings.length > 2048)
+    throw Error('IRON_GATE_CALENDAR_INVALID_SNAPSHOT');
+  const roomById = new Map(Object.entries(config.roomIds).map(([room, id]) => [id, room]));
+  const reasons = new Set<string>(['manual_block', 'source_review', 'channel_pending',
+    'line_action_required', 'channel_review']);
+  const observed = new Map<string, IronGateAvailabilitySnapshot['cells'][number]>();
+  for (const cell of raw.cells) {
+    if (!object(cell) || !roomById.has(String(cell.roomId)) ||
+      typeof cell.date !== 'string' || day(cell.date) < first || day(cell.date) >= last ||
+      !['sold', 'held', 'blocked'].includes(String(cell.state)) ||
+      !Array.isArray(cell.protectionReasons) || cell.protectionReasons.some(value =>
+        typeof value !== 'string' || !reasons.has(value)) ||
+      new Set(cell.protectionReasons).size !== cell.protectionReasons.length ||
+      cell.state === 'blocked' && cell.protectionReasons.length === 0)
+      throw Error('IRON_GATE_CALENDAR_INVALID_INVENTORY');
+    const key = `${cell.roomId}:${cell.date}`;
+    if (observed.has(key)) throw Error('IRON_GATE_CALENDAR_INVALID_INVENTORY');
+    observed.set(key, { room: roomById.get(String(cell.roomId))!, date: cell.date,
+      state: cell.state as 'sold' | 'held' | 'blocked',
+      protectionReasons: cell.protectionReasons as IronGateProtectionReason[] });
+  }
+  const expected = new Map<string, 'sold' | 'held'>(), seen = new Set<string>();
+  for (const booking of raw.bookings) {
+    if (!object(booking) || !UUID.test(String(booking.id)) || seen.has(String(booking.id)) ||
+      booking.propertyId !== config.grant.propertyId || booking.workspaceId !== config.grant.workspaceId ||
+      !['confirmed', 'held'].includes(String(booking.status)) ||
+      !Array.isArray(booking.stays) || !booking.stays.length || booking.stays.length > 32)
+      throw Error('IRON_GATE_CALENDAR_INVALID_BOOKING');
+    seen.add(String(booking.id));
+    for (const stay of booking.stays) {
+      if (!object(stay) || typeof stay.checkIn !== 'string' || typeof stay.checkOut !== 'string' ||
+        !Array.isArray(stay.roomIds) || !stay.roomIds.length || stay.roomIds.length > rooms.length ||
+        new Set(stay.roomIds).size !== stay.roomIds.length ||
+        stay.roomIds.some(roomId => !roomById.has(String(roomId))))
+        throw Error('IRON_GATE_CALENDAR_INVALID_BOOKING');
+      const from = day(stay.checkIn), to = day(stay.checkOut);
+      if (to <= from || to - from > 1500) throw Error('IRON_GATE_CALENDAR_INVALID_BOOKING');
+      for (const roomId of stay.roomIds) for (let n = Math.max(from, first); n < Math.min(to, last); n++) {
+        const key = `${roomId}:${date(n)}`;
+        if (expected.has(key)) throw Error('IRON_GATE_CALENDAR_COLLISION');
+        expected.set(key, booking.status === 'held' ? 'held' : 'sold');
+      }
+    }
+  }
+  if ([...expected].some(([key, state]) => observed.get(key)?.state !== state) ||
+    [...observed].some(([key, cell]) => cell.state !== 'blocked' && expected.get(key) !== cell.state))
+    throw Error('IRON_GATE_CALENDAR_INVENTORY_DRIFT');
+  const cells: IronGateAvailabilitySnapshot['cells'] = [];
+  for (let n = first; n < last; n++) for (const room of rooms) {
+    const night = date(n);
+    cells.push(observed.get(`${config.roomIds[room]}:${night}`) ??
+      { room, date: night, state: 'unsold', protectionReasons: [] });
+  }
+  return { kind: 'iron_gate', property, from: start, to: end,
+    inventoryVersion: Number(raw.inventoryVersion), authorityEpoch: config.expectedAuthorityEpoch,
+    observedAt: new Date().toISOString(), cells };
 }
 
 /** A single Iron Gate state read supplies both bookings and sparse occupancy. */

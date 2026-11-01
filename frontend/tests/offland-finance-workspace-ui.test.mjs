@@ -77,7 +77,7 @@ test('Offland read-only source entries have truthful labels and cannot open Swee
     created_at:'2026-10-28T01:00:00Z',status:'active'};
   financeFetch(t,{...report,entries:[
     {...common,id:'line-expense',kind:'expense',description:'Synthetic LINE expense',
-      ssot_source_system:'line_finance'},
+      method:null,ssot_source_system:'line_finance'},
     {...common,id:'native-receipt',kind:'income',description:'Synthetic native receipt',
       ssot_source_system:'iron_gate_native',iron_gate_booking_id:bookingId},
     {...common,id:'os-income',kind:'income',description:'Synthetic other income',
@@ -88,11 +88,47 @@ test('Offland read-only source entries have truthful labels and cannot open Swee
   assert.match(document.body.textContent,/訂單收退款/);
   assert.match(document.body.textContent,/手動記帳/);
   assert.doesNotMatch(document.body.textContent,/Booking 刷卡|直訂收退款/);
+  const historical=[...document.querySelectorAll('button')].find(button=>
+    button.textContent.includes('Synthetic LINE expense'));
+  await ui.click(historical);
+  assert.match(document.querySelector('[role="dialog"]').textContent,/付款方式未記錄/);
+  assert.doesNotMatch(document.querySelector('[role="dialog"]').textContent,/其他花費 · 其他(?: |<|$)/);
+  await ui.click(ui.button('Close'));
   const entry=[...document.querySelectorAll('button')].find(button=>
     button.textContent.includes('Synthetic native receipt'));
   await ui.click(entry);
   assert.match(document.querySelector('[role="dialog"]').textContent,/來源：訂單收退款/);
   assert.equal(ui.button('查看原收退款'),undefined);
+});
+
+test('imported OS expense is read only while a live OS expense can still be changed',async t=>{
+  const live='10000000-0000-4000-8000-000000000005';
+  const history='10000000-0000-4000-8000-000000000006';
+  const common={property_id:'offland',kind:'expense',category:'electricity',
+    amount_cents:2500,date:'2026-10-28',description:'',method:'bank_transfer',
+    source:'iron_gate',ssot_source_system:'os_manual',actor:'Synthetic operator',
+    created_at:'2026-10-28T01:00:00Z',status:'active'};
+  financeFetch(t,{...report,ssot_live_source_instance_id:live,entries:[
+    {...common,id:'historical-os',description:'Synthetic historical OS expense',
+      ssot_source_instance_id:history,
+      ssot_source_recorded_at:'2026-10-15T08:30:00.000Z'},
+    {...common,id:'current-os',description:'Synthetic current OS expense',
+      ssot_source_instance_id:live}]});
+  const ui=await mount(t,FinanceWorkspace,{view:'overview'},
+    'finance?month=2026-10&property=offland');
+  const row=label=>[...document.querySelectorAll('button')].find(button=>
+    button.textContent.includes(label));
+  await ui.click(row('Synthetic historical OS expense'));
+  assert.equal(ui.button('編輯費用'),undefined);
+  assert.equal(ui.button('作廢這筆紀錄'),undefined);
+  assert.match(document.querySelector('[role="dialog"]').textContent,/此筆僅供查閱/);
+  assert.match(document.querySelector('[role="dialog"]').textContent,/原帳登記者姓名未在此頁顯示/);
+  assert.match(document.querySelector('[role="dialog"]').textContent,/原帳紀錄時間：/);
+  assert.match(document.querySelector('[role="dialog"]').textContent,/搬入帳本時間：/);
+  await ui.click(ui.button('Close'));
+  await ui.click(row('Synthetic current OS expense'));
+  assert.ok(ui.button('編輯費用'));
+  assert.ok(ui.button('作廢這筆紀錄'));
 });
 
 test('Sweetfun existing native SSOT receipts keep their dedicated payment panel',async t=>{
@@ -122,6 +158,44 @@ test('New Offland ledger explicitly separates preserved history from empty new c
  const dialog=document.querySelector('[role=dialog]');assert.ok(dialog);
  assert.equal(dialog.querySelector('option[value=lodging]'),null);assert.ok(dialog.querySelector('option[value=other]'));
  assert.match(dialog.textContent,/請勿改用其他分類登記房費/);
+});
+
+test('Offland general-history import keeps the old booking cash warning visible',async t=>{
+ financeFetch(t,{...report,history_status:'general_imported_booking_review',
+   general_only:true,orders:[{...order,ssot_command_eligible:false,
+     receivable_review_required:true}]});
+ const ui=await mount(t,FinanceWorkspace,{view:'bookkeeping'},
+   'finance/bookkeeping?month=2026-10&property=offland');
+ assert.match(document.body.textContent,/OS 與 LINE 的舊一般收支已核對搬入本帳本/);
+ assert.match(document.body.textContent,/舊訂單收款仍待逐筆核對/);
+ assert.doesNotMatch(document.body.textContent,/以前的帳已保留，尚未搬入本頁/);
+ assert.equal(ui.button('登記入帳'),undefined);
+ const link=[...document.querySelectorAll('a')].find(a=>
+   a.textContent==='查看 OS 原始舊帳（唯讀）');
+ assert.equal(link?.getAttribute('href'),'/finance/history?property=offland');
+});
+
+test('partial OS history import does not claim LINE is complete',async t=>{
+ financeFetch(t,{...report,history_status:'os_imported_line_pending',
+   general_only:true});
+ await mount(t,FinanceWorkspace,{view:'overview'},
+   'finance?month=2026-10&property=offland');
+ assert.match(document.body.textContent,/OS 舊一般支出已核對搬入本帳本/);
+ assert.match(document.body.textContent,/LINE 舊帳仍在搬移與核對/);
+ assert.doesNotMatch(document.body.textContent,/OS 與 LINE 的舊一般收支已核對搬入本帳本/);
+});
+
+test('Offland order summary preserves unknown old cash after general-history import',async t=>{
+ t.mock.method(globalThis,'fetch',async url=>{
+   assert.match(String(url),/^\/api\/v1\/finance-summary\?/);
+   return Response.json({property_id:'offland',properties:report.properties,
+     updated_at:report.updated_at,orders:[],
+     history_status:'general_imported_booking_review'});
+ });
+ await mount(t,FinanceSummary,{},'finance/summary?property=offland');
+ assert.match(document.body.textContent,/OS 與 LINE 的舊一般收支已搬入帳本/);
+ assert.match(document.body.textContent,/不能據此判定客人還欠多少/);
+ assert.doesNotMatch(document.body.textContent,/以前的收款尚未搬入核對/);
 });
 
 test('retained funds stay visible with unknown amount and never enter receivables or receipt selection',async t=>{

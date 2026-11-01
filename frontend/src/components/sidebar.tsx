@@ -24,6 +24,7 @@ import { VIEW_LABELS } from "@/components/calendar/calendar-utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useAccessControl } from "@/lib/access-control";
+import { clearCalendarDeviceCache } from "@/lib/calendar-device-cache";
 import { PAYMENT_SANDBOX } from "@/lib/payment-workflow";
 import { WORKSPACE_MODULES, maySeeFinance } from "@/lib/workspace-navigation";
 import { MODULE_ICONS } from "@/components/workspace-home";
@@ -170,6 +171,8 @@ function SidebarAccount() {
     try {
       const response = await fetch("/api/calendar-session", { method: "DELETE", signal: AbortSignal.timeout(12000) });
       if (!response.ok) throw new Error();
+      await clearCalendarDeviceCache();
+      useAccessControl.getState().reset({ clearDeviceCache: false });
       window.location.replace("/calendar-access");
     } catch { setBusy(false); setError("登出未完成，請再試一次。"); }
   }

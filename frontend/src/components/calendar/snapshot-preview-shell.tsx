@@ -2,6 +2,8 @@
 
 import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
+import { useAccessControl } from "@/lib/access-control";
+import { clearCalendarDeviceCache } from "@/lib/calendar-device-cache";
 
 export function SnapshotPreviewShell({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -11,6 +13,8 @@ export function SnapshotPreviewShell({ children }: { children: ReactNode }) {
     try {
       const response = await fetch("/api/calendar-session", { method: "DELETE" });
       if (!response.ok) throw Error();
+      await clearCalendarDeviceCache();
+      useAccessControl.getState().reset({ clearDeviceCache: false });
       router.replace("/calendar-access");
     } catch { setBusy(false); }
   }

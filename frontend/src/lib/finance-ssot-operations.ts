@@ -173,7 +173,9 @@ function prepareMoneyAction(input:Record<string,unknown>,report:Report,
   if(!['create','update_expense','void'].includes(action))throw Error('INVALID_INPUT');
   const old=action==='create'?null:report.entries.find(e=>e.id===input.entry_id);
   if(action!=='create'&&(!old||old.ssot_source_system!=='os_manual'||
-    !old.ssot_source_record_id||!Number.isSafeInteger(old.ssot_document_version)))
+    !old.ssot_source_record_id||!Number.isSafeInteger(old.ssot_document_version)||
+    property==='offland'&&(!report.ssot_live_source_instance_id||
+      old.ssot_source_instance_id!==report.ssot_live_source_instance_id)))
     throw Error('SOURCE_MAPPING_REVIEW_REQUIRED');
   if(action==='update_expense'&&old?.kind!=='expense')throw Error('INVALID_INPUT');
   if(action==='create')validateFinanceLinks(input,report.orders,report.entries,
@@ -345,6 +347,12 @@ export async function applySsotFinance(input:Record<string,unknown>,report:Repor
     throw Error('FINANCE_PREVIEW_REQUIRED');
   const action=String(input.action??'');
   if(action==='create'||action==='update_expense'||action==='void'){
+    if(property==='offland'&&action!=='create'){
+      const old=report.entries.find(entry=>entry.id===input.entry_id);
+      if(!old||!report.ssot_live_source_instance_id||
+        old.ssot_source_instance_id!==report.ssot_live_source_instance_id)
+        throw Error('SOURCE_MAPPING_REVIEW_REQUIRED');
+    }
     if(!object(confirmedPreview.draft_command)||
       !object(confirmedPreview.confirmed_command))
       throw Error('FINANCE_PREVIEW_REQUIRED');

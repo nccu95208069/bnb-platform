@@ -1,5 +1,15 @@
 import type { CalendarResponse } from './calendar-types';
 
+// Both properties must agree. The primary source alone does not describe an
+// Offland update when Sweetfun is also selected.
+export function calendarResponseVersion(data: CalendarResponse) {
+  const sources = data.sources?.length ? data.sources.map(item =>
+    [item.property_id, item.source.kind ?? '', item.source.private_snapshot_version ?? ''])
+    .sort((a, b) => a[0].localeCompare(b[0])) :
+    [['', data.source?.kind ?? '', data.source?.private_snapshot_version ?? '']];
+  return JSON.stringify([sources, data.price_hidden ?? false]);
+}
+
 export function hasCalendarCoverage(data: CalendarResponse | null, start: string, end: string) {
   return !!data && data.period_start <= start && data.period_end >= end;
 }
@@ -28,8 +38,8 @@ export function combinedCalendarWindows(windows: CalendarResponse[], start: stri
     windows.find(window => window.period_start <= start && window.period_end >= end) ??
     windows.find(window => window.period_start <= start && window.period_end > start);
   if (!anchor) return null;
-  const version = anchor.source?.private_snapshot_version;
-  const peers = windows.filter(window => window.source?.private_snapshot_version === version)
+  const version = calendarResponseVersion(anchor);
+  const peers = windows.filter(window => calendarResponseVersion(window) === version)
     .sort((left, right) => left.period_start.localeCompare(right.period_start));
   let first = anchor.period_start, last = anchor.period_end;
   let changed = true;
@@ -42,8 +52,18 @@ export function combinedCalendarWindows(windows: CalendarResponse[], start: stri
     }
   }
   if (last < end) return null;
-  const connected = peers.filter(window => window.period_start <= last && window.period_end >= first);
-  const bookings = [...new Map(connected.flatMap(window => window.bookings).map(booking => [booking.id, booking])).values()];
+  // Input order is completion order (oldest first). A newly verified overlap
+  // also removes rows missing from that response, including cancellations.
+  const connected = windows.filter(window => calendarResponseVersion(window) === version &&
+    window.period_start <= last && window.period_end >= first);
+  const bookingMap = new Map<string, CalendarResponse['bookings'][number]>();
+  for (const window of connected) {
+    for (const [id, booking] of bookingMap) {
+      if (booking.check_in < window.period_end && booking.check_out > window.period_start) bookingMap.delete(id);
+    }
+    for (const booking of window.bookings) bookingMap.set(booking.id, booking);
+  }
+  const bookings = [...bookingMap.values()];
   const properties = [...new Map(connected.flatMap(window => window.properties).map(property => [property.id, property])).values()];
   const rooms = [...new Map(connected.flatMap(window => window.rooms).map(room => [room.id, room])).values()];
   return { ...anchor, period_start: first, period_end: last, properties, rooms, bookings,

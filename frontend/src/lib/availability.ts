@@ -87,6 +87,7 @@ export type AvailabilityQuery = {
   demo_cycle: 1 | 2;
 };
 export type AvailabilityResult = {
+  inventory_source?: {kind:'iron_gate';inventory_version:number;authority_epoch:number;observed_at:string};
   pricing_observed_at?: string | null;
   properties?: {id:string;name:string;short_name:string;location:string;room_count:number;color:"emerald"|"violet"|"amber"|"sky"}[];
   status: string;

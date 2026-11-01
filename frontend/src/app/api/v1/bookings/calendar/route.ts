@@ -2,7 +2,7 @@ import { configuredPrivateCalendarCache } from "@/lib/booking-sources/private-ca
 import { overlayPayments } from "@/lib/os-payments";
 import { ssotFinanceContext } from "@/lib/finance-ssot-context";
 import { ssotFinanceEnabled } from "@/lib/booking-sources/iron-gate-ssot-finance.server";
-import { overlaySsotCalendarPayments } from "@/lib/finance-ssot-calendar";
+import { overlaySsotCalendarPayments, reviewOnlyOfflandCalendarPayments } from "@/lib/finance-ssot-calendar";
 import { canUseFinance } from "@/lib/finance-store";
 import { principalFor, sessionMember } from "@/lib/workspace-auth/session";
 import { allowedProperty, projectBookings } from "@/lib/workspace-auth/projection";
@@ -287,38 +287,60 @@ async function readCalendarRequest(request: NextRequest, timing: CalendarServerT
           offlandIgRequested ? readConfiguredIronGate(start, end, principal,
             offlandIronGateCalendarConfig()) : Promise.resolve(null),
         ]));
-        let igPayments = ig?.bookings ?? [];
-        let paymentWarning: CalendarResponse['source_warnings'] = [];
-        const imported = igPayments.filter(booking => booking.iron_gate_source !== 'os');
-        if (principal.viewPrices && imported.length) {
-          try {
-            const ssot=ssotFinanceEnabled('sweetfun');
-            if(ssot&&!canUseFinance(principal))throw Error('FORBIDDEN');
-            const overlaid=await timing.measure('payment', async () => ssot?overlaySsotCalendarPayments(imported,
-              (await ssotFinanceContext(definitions.find(d=>d.key==='sweetfun')!,
-                Number(new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',
-                  year:'numeric'}).format(new Date())),principal)).orders):
-              await overlayPayments(imported));
-            const byId = new Map(overlaid.map(booking => [booking.id, booking]));
-            igPayments = igPayments.map(booking => byId.get(booking.id) ?? booking);
-          }
-          catch { igPayments = igPayments.map(booking =>
-            booking.iron_gate_source === 'os' ? booking : unconfirmedPayment(booking));
-            paymentWarning = [{ property_id: 'sweetfun', label: 'Iron Gate 訂房紀錄', phase: 'payments' }]; }
-        }
-        let offlandPayments=offlandIg?.bookings??[];
-        if(principal.viewPrices&&offlandPayments.length&&ssotFinanceEnabled('offland')){
-          try{
-            if(!canUseFinance(principal))throw Error('FORBIDDEN');
-            offlandPayments=await timing.measure('payment',async()=>overlaySsotCalendarPayments(
-              offlandPayments,(await ssotFinanceContext(definitions.find(d=>d.key==='offland')!,
-                Number(new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Taipei',year:'numeric'})
-                  .format(new Date())),principal)).orders,'offland'));
-          }catch{
-            offlandPayments=offlandPayments.map(unconfirmedPayment);
-            paymentWarning.push({property_id:'offland',label:'OFFLAND Iron Gate 訂房紀錄',phase:'payments'});
-          }
-        }
+        // The two properties' payment projections are independent. A slow
+        // ledger must not serialize the other property's otherwise ready read.
+        const [sweetfunPaymentRead, offlandPaymentRead] = await Promise.all([
+          (async () => {
+            let bookings = ig?.bookings ?? [];
+            const warnings: NonNullable<CalendarResponse['source_warnings']> = [];
+            const imported = bookings.filter(booking => booking.iron_gate_source !== 'os');
+            if (principal.viewPrices && imported.length) {
+              try {
+                const ssot = ssotFinanceEnabled('sweetfun');
+                if (ssot && !canUseFinance(principal)) throw Error('FORBIDDEN');
+                const overlaid = await timing.measure('payment', async () => ssot
+                  ? overlaySsotCalendarPayments(imported,
+                    (await ssotFinanceContext(definitions.find(d => d.key === 'sweetfun')!,
+                      Number(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric' })
+                        .format(new Date())), principal)).orders)
+                  : await overlayPayments(imported));
+                const byId = new Map(overlaid.map(booking => [booking.id, booking]));
+                bookings = bookings.map(booking => byId.get(booking.id) ?? booking);
+              } catch {
+                bookings = bookings.map(booking => booking.iron_gate_source === 'os'
+                  ? booking : unconfirmedPayment(booking));
+                warnings.push({ property_id: 'sweetfun', label: 'Iron Gate 訂房紀錄', phase: 'payments' });
+              }
+            }
+            return { bookings, warnings };
+          })(),
+          (async () => {
+            let bookings = offlandIg?.bookings ?? [];
+            const warnings: NonNullable<CalendarResponse['source_warnings']> = [];
+            if (principal.viewPrices && bookings.length && ssotFinanceEnabled('offland')) {
+              try {
+                if (!canUseFinance(principal)) throw Error('FORBIDDEN');
+                bookings = await timing.measure('payment', async () => {
+                  // External historical orders remain review-only regardless
+                  // of ledger contents; their validated snapshot is sufficient.
+                  const reviewOnly = reviewOnlyOfflandCalendarPayments(bookings);
+                  if (reviewOnly) return reviewOnly;
+                  return overlaySsotCalendarPayments(bookings,
+                    (await ssotFinanceContext(definitions.find(d => d.key === 'offland')!,
+                      Number(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric' })
+                        .format(new Date())), principal)).orders, 'offland');
+                });
+              } catch {
+                bookings = bookings.map(unconfirmedPayment);
+                warnings.push({ property_id: 'offland', label: 'OFFLAND Iron Gate 訂房紀錄', phase: 'payments' });
+              }
+            }
+            return { bookings, warnings };
+          })(),
+        ]);
+        const igPayments = sweetfunPaymentRead.bookings;
+        const offlandPayments = offlandPaymentRead.bookings;
+        const paymentWarning = [...sweetfunPaymentRead.warnings, ...offlandPaymentRead.warnings];
         const bookings = projectBookings([...igPayments,
           ...offlandPayments, ...(other?.bookings ?? [])], principal);
         let manualEnabled = false;

@@ -2,14 +2,14 @@
 
 import { useEffect, useRef } from "react";
 
-// Fixed metric names and numeric durations only. Never include dates, query
+// Fixed metric names, numeric durations and byte counts only. Never include dates, query
 // strings, booking IDs, guest fields, permissions or response bodies.
 function enabled() {
   const navigation = performance.getEntriesByType("navigation")[0];
   return new URLSearchParams(window.location.search).get("calendar_perf") === "1" ||
     Boolean(navigation && new URL(navigation.name).searchParams.get("calendar_perf") === "1");
 }
-export function recordCalendarMeasure(name: "calendar.open" | "calendar.range" | "calendar.auth", start: number, end: number) {
+export function recordCalendarMeasure(name: "calendar.open" | "calendar.range" | "calendar.auth" | "calendar.cached", start: number, end: number) {
   if (typeof performance === "undefined" || !Number.isFinite(start) || end < start) return;
   performance.clearMeasures(name);
   performance.measure(name, { start, end });
@@ -19,9 +19,10 @@ export function recordCalendarMeasure(name: "calendar.open" | "calendar.range" |
   }
 }
 
-export function useCalendarPerformance(rangeKey: string, ready: boolean) {
+export function useCalendarPerformance(rangeKey: string, ready: boolean, cachedReady = false) {
   const request = useRef({ key: "", start: 0, measured: false });
   const opened = useRef(false);
+  const cachedPainted = useRef(false);
   const mountedAt = useRef<number | null>(null);
 
   useEffect(() => {
@@ -52,17 +53,36 @@ export function useCalendarPerformance(rangeKey: string, ready: boolean) {
   }, [rangeKey, ready]);
 
   useEffect(() => {
+    if (!cachedReady || cachedPainted.current) return;
+    let secondFrame = 0;
+    const frame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        if (cachedPainted.current) return;
+        cachedPainted.current = true;
+        // Independent of fresh readiness: the saved copy can paint while the
+        // server is still checking changes. Keep the same navigation time axis.
+        const navigation = performance.getEntriesByType("navigation")[0];
+        recordCalendarMeasure("calendar.cached", navigation?.startTime ?? mountedAt.current ?? 0, performance.now());
+      });
+    });
+    return () => { cancelAnimationFrame(frame); cancelAnimationFrame(secondFrame); };
+  }, [rangeKey, cachedReady]);
+
+  useEffect(() => {
     if (!enabled() || typeof PerformanceObserver === "undefined") return;
     const observer = new PerformanceObserver(list => {
       for (const entry of list.getEntries() as PerformanceResourceTiming[]) {
         const path = new URL(entry.name).pathname;
-        if (path !== "/api/v1/bookings/calendar" && path !== "/api/calendar-session") continue;
-        const stages = Object.fromEntries(entry.serverTiming
-          .filter(stage => ["auth", "source", "payment", "total"].includes(stage.name))
+        if (!["/api/v1/bookings/calendar", "/api/v1/bookings/calendar/sync", "/api/calendar-session"].includes(path)) continue;
+        const stages = Object.fromEntries((entry.serverTiming ?? [])
+          .filter(stage => ["auth", "source", "payment", "total"].includes(stage.name) && Number.isFinite(stage.duration) && stage.duration >= 0)
           .map(stage => [stage.name, stage.duration]));
+        const bytes = (value: number) => Number.isFinite(value) && value >= 0 ? Math.round(value) : 0;
         console.info("[calendar-performance]", JSON.stringify({
-          metric: path === "/api/calendar-session" ? "calendar.session" : "calendar.api",
+          metric: path === "/api/calendar-session" ? "calendar.session" :
+            path === "/api/v1/bookings/calendar/sync" ? "calendar.sync" : "calendar.api",
           durationMs: Math.round(entry.duration * 10) / 10, stages,
+          decodedBodySize: bytes(entry.decodedBodySize), transferSize: bytes(entry.transferSize),
         }));
       }
     });

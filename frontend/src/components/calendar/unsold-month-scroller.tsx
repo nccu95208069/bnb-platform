@@ -1,12 +1,11 @@
 "use client";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
-import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { availabilityApi, inventoryLabels, priceText, type AvailabilityResult, type Channel, type RoomNight } from "@/lib/availability";
-import { PAYMENT_SANDBOX } from "@/lib/payment-workflow";
+import { inventoryLabels, priceText, type AvailabilityResult, type RoomNight } from "@/lib/availability";
 import { availabilityFeatures } from "@/lib/availability-features";
 import { PricePair, roomNightStyle } from "./availability-presentation";
 import { useMonthPosition } from "./use-month-position";
@@ -16,53 +15,39 @@ import { addDays, addMonths, formatMonthLabel, localTodayIso, WEEKDAY_LABELS, mo
 
 const MONTHS = monthStarts("2025-01-01", 36);
 type Props = {
- anchor:string; jump:number; property:string; room:string; channel:Channel; cycle:1|2; refresh:number;
+ anchor:string; jump:number;
  search:string; onlyAvailable:boolean; onVisibleMonth:(month:string)=>void;
  onSelect:(cell:RoomNight)=>void; onSelectDay:(day:string)=>void;
+ getMonth:(start:string,end:string)=>{data:AvailabilityResult|null;error:string;savedAt?:number|null}; onRetry:()=>void;
 };
-function MonthPanel({month,root,props,viewportHeight}: {month:string;root:RefObject<HTMLDivElement|null>;props:Props;viewportHeight:number}) {
+function MonthPanel({month,props,viewportHeight}: {month:string;props:Props;viewportHeight:number}) {
 const uiLocale = useIntlLocale();
 
   const uiText = useT();
 
- const ref=useRef<HTMLElement>(null);
- const [near,setNear]=useState(false),[data,setData]=useState<AvailabilityResult|null>(null),[error,setError]=useState(false),[retry,setRetry]=useState(0);
- const {property,room,channel,cycle,refresh,search,onlyAvailable}=props;
+ const {search,onlyAvailable}=props;
  const expandedWeeks=useCalendarPreferences(s=>s.expandedWeeks),setExpandedWeeks=useCalendarPreferences(s=>s.setExpandedWeeks);
  const monthWeekAuto=useCalendarPreferences(s=>s.monthWeekAuto);
  const monthWeekDensity=useCalendarPreferences(s=>s.monthWeekDensity);
  const {mobile:mobileLimit,desktop:desktopLimit}=unsoldMonthRoomLimits(monthWeekAuto,monthWeekDensity);
  const manualWeekHeight=monthWeekAuto?undefined:Math.max(96,manualMonthWeekMinHeight(viewportHeight,monthWeekDensity));
  const period=useMemo(()=>({start:month,end:addMonths(month,1)}),[month]);
+ const {data,error,savedAt}=props.getMonth(period.start,period.end);
  const monthDays=useMemo(()=>{
   const weekday=(new Date(month+"T12:00Z").getUTCDay()+6)%7;
   const dayCount=(Date.parse(period.end)-Date.parse(month))/86400000;
   return Array.from({length:Math.ceil((weekday+dayCount)/7)*7},(_,i)=>addDays(month,i-weekday));
  },[month,period.end]);
- useEffect(()=>{
-  const observer=new IntersectionObserver(entries=>setNear(entries.some(e=>e.isIntersecting)),{root:root.current,rootMargin:"900px 0px"});
-  if(ref.current)observer.observe(ref.current);
-  return ()=>observer.disconnect();
- },[root]);
- useEffect(()=>{
-  if(!near)return;
-  let active=true;
-  const abort=new AbortController();
-  const query={start:period.start,end:period.end,rooms:room==="all"?[]:[room],channel,demo_cycle:cycle};
-  const params=new URLSearchParams({start:query.start,end:query.end,rooms:query.rooms.join(","),channel,property});
-  const request=PAYMENT_SANDBOX?availabilityApi.check(query):fetch(`/api/v1/availability?${params}`,{cache:"no-store",signal:abort.signal}).then(async r=>{if(!r.ok)throw Error("SOURCE_UNAVAILABLE");return r.json() as Promise<AvailabilityResult>;});
-  request.then(value=>{if(active){setData(value);setError(false);}}).catch(()=>{if(active)setError(true);});
-  return ()=>{active=false;abort.abort();};
- },[near,period,room,channel,cycle,property,refresh,retry]);
- // Do not display cached cells under a newly selected room/channel while loading.
- const correct = data?.query.channel===channel && JSON.stringify(data?.query.rooms)===JSON.stringify(room==="all"?[]:[room]);
+ // The parent cache already isolates property, room, channel and access scope.
+ const correct = !!data;
  const cells = correct && !error ? data?.cells ?? [] : [];
  const hidePrice=!!data?.price_hidden;
  const matches=(c:RoomNight)=>(!onlyAvailable||c.state==="available")&&(!search.trim()||`${c.room} ${inventoryLabels[c.state]} ${c.reason}`.toLowerCase().includes(search.trim().toLowerCase()));
  const openCell=props.onSelect, selectDay=props.onSelectDay;
- return <section ref={ref} data-unsold-month={month} data-position-month={month} className="border-b bg-card">
+ return <section data-unsold-month={month} data-position-month={month} className="border-b bg-card">
   <h2 className="flex h-12 items-center justify-between border-b px-3 text-base font-semibold">{formatMonthLabel(month, uiLocale)}<span className="text-xs font-normal text-muted-foreground">{correct && !error ? uiText("{0} 未售房晚", [cells.filter(c=>c.state==="available").length]):""}</span></h2>
-  {error && <button className="w-full bg-amber-50 p-2 text-sm" onClick={()=>setRetry(v=>v+1)}>{uiText("此月份暫時無法讀取，點此重試")}</button>}
+  {savedAt && <p className="border-b bg-sky-50 px-3 py-1 text-xs text-sky-950">上次讀取：{new Date(savedAt).toLocaleString(uiLocale, { timeZone: 'Asia/Taipei' })} · 正在核對</p>}
+  {error && <button className="w-full bg-amber-50 p-2 text-sm" onClick={props.onRetry}>{uiText("此月份暫時無法讀取，點此重試")}</button>}
 
               <div className="overflow-hidden rounded-xl border bg-card">
                 <div className="grid grid-cols-7 border-b bg-muted/30">
@@ -116,7 +101,7 @@ const uiLocale = useIntlLocale();
                             </span>
                             {inMonth && (
                               <span className="hidden text-[0.625rem] text-muted-foreground sm:inline">
-                                {uiText("未售")}{count}
+                                {uiText("未售")}{correct && !error ? count : "—"}
                               </span>
                             )}
                           </button>
@@ -230,6 +215,6 @@ export function UnsoldMonthScroller(props:Props) {
  const historyRevision=useCalendarPreferences(s=>s.historyRevision);
  useMonthPosition(root,props.anchor,props.jump+historyRevision,props.onVisibleMonth);
  return <div ref={root} style={{overflowAnchor:"none"}} role="region" aria-label={uiText("未售月曆，可上下捲動月份")} tabIndex={0} className="h-[calc(100dvh-280px)] min-h-[280px] overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm">
-  {MONTHS.map(month=><MonthPanel key={month} month={month} root={root} props={props} viewportHeight={viewportHeight}/>)}
+  {MONTHS.map(month=><MonthPanel key={month} month={month} props={props} viewportHeight={viewportHeight}/>)}
  </div>;
 }

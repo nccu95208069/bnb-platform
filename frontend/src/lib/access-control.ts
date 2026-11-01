@@ -5,6 +5,7 @@ import { persist } from "zustand/middleware";
 
 import { supabase } from "@/lib/supabase/client";
 import type { CalendarSessionData } from "@/lib/workspace-auth/session";
+import { CALENDAR_DEVICE_CACHE_EVENT, clearCalendarDeviceCache } from "@/lib/calendar-device-cache";
 
 export type WorkspaceRole =
   | "god"
@@ -244,8 +245,32 @@ type AccessControlState = {
   saveMember: (input: SaveWorkspaceMemberInput) => Promise<void>;
   setMemberStatus: (memberId: string, status: WorkspaceMemberStatus) => Promise<void>;
   setPreviewRole: (role: WorkspaceRole | null) => void;
-  reset: () => void;
+  reset: (options?: { clearDeviceCache?: boolean; preserveBootstrap?: boolean }) => void;
 };
+
+const cacheListenerWindows = new WeakSet<Window>();
+function listenForCalendarCacheClear() {
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function' || cacheListenerWindows.has(window)) return;
+  cacheListenerWindows.add(window);
+  window.addEventListener(CALENDAR_DEVICE_CACHE_EVENT, event => {
+    const state = useAccessControl.getState();
+    const remote = Boolean((event as CustomEvent<{ remote?: boolean }>).detail?.remote);
+    // A different tab can complete logout while this tab is still displaying
+    // a verified in-memory calendar. Hide that view before any asynchronous check.
+    if (state.membership || state.sessionLoading || state.bootstrapSession)
+      state.reset({ clearDeviceCache: false, preserveBootstrap: remote });
+    if (remote)
+      void useAccessControl.getState().initialize({ force: true });
+  });
+}
+function calendarIdentity(member: AccessMembership | null) {
+  return member ? JSON.stringify([member.tenantId, member.id, member.role, member.status,
+    member.allProperties, [...member.propertyIds].sort(), (member as AccessMembership & { viewPrices?: boolean }).viewPrices]) : null;
+}
+function clearChangedCalendarIdentity(previous: AccessMembership | null, next: AccessMembership | null) {
+  if (!next || previous && calendarIdentity(previous) !== calendarIdentity(next))
+    void clearCalendarDeviceCache({ notify: false, broadcast: Boolean(previous) });
+}
 
 export const useAccessControl = create<AccessControlState>()(
   persist(
@@ -264,6 +289,8 @@ export const useAccessControl = create<AccessControlState>()(
       bootstrapSession: null,
       bootstrap: (session) => {
         if (!LIVE_SHEET) return;
+        listenForCalendarCacheClear();
+        clearChangedCalendarIdentity(get().membership, session.membership);
         set({ bootstrapSession: session, sessionGeneration: get().sessionGeneration + 1,
           sessionVerifiedAt: Date.now(), initialized: true, loading: false, sessionLoading: false, error: null,
           requiresPasswordReset: Boolean(session.requires_password_reset),
@@ -272,6 +299,7 @@ export const useAccessControl = create<AccessControlState>()(
 
       initialize: async (options) => {
         if (LIVE_SHEET) {
+          listenForCalendarCacheClear();
           if (get().sessionLoading) return;
           if (!options?.force && get().initialized && Date.now() - get().sessionVerifiedAt < 30_000) return;
           const generation = get().sessionGeneration;
@@ -283,10 +311,12 @@ export const useAccessControl = create<AccessControlState>()(
             const data = await response.json();
             if (generation !== get().sessionGeneration) return;
             if (!response.ok) throw new Error(data.detail || "無法確認登入");
+            clearChangedCalendarIdentity(get().membership, data.membership ?? null);
             set({ sessionVerifiedAt: Date.now(), requiresPasswordReset: Boolean(data.requires_password_reset), membership: data.membership ?? null, initialized: true, loading: false, sessionLoading: false, error: null,
               ...(data.membership?.role !== "owner" ? { previewRole: null, members: [] } : {}) });
           } catch (error) {
             if (generation !== get().sessionGeneration) return;
+            clearChangedCalendarIdentity(get().membership, null);
             set({ sessionVerifiedAt: 0, membership: null, members: [], previewRole: null, initialized: true, loading: false, sessionLoading: false, error: error instanceof Error ? error.message : "無法確認登入" });
           }
           return;
@@ -439,12 +469,13 @@ export const useAccessControl = create<AccessControlState>()(
 
       setPreviewRole: (previewRole) => set({ previewRole: !LIVE_SHEET || get().membership?.role === "owner" ? previewRole : null }),
 
-      reset: () =>
+      reset: (options) => {
+        listenForCalendarCacheClear();
         set({
           sessionGeneration: get().sessionGeneration + 1,
           sessionVerifiedAt: 0,
           sessionLoading: false,
-          bootstrapSession: null,
+          bootstrapSession: options?.preserveBootstrap ? get().bootstrapSession : null,
           requiresPasswordReset: false,
           initialized: DEMO_MODE && !LIVE_SHEET,
           loading: false,
@@ -452,7 +483,9 @@ export const useAccessControl = create<AccessControlState>()(
           membership: DEMO_MODE && !LIVE_SHEET ? DEMO_OWNER : null,
           previewRole: null,
           members: DEMO_MODE && !LIVE_SHEET ? DEFAULT_DEMO_MEMBERS : [],
-        }),
+        });
+        if (options?.clearDeviceCache !== false) void clearCalendarDeviceCache();
+      },
     }),
     {
       name: LIVE_SHEET ? "sweetfun-os-account-ui-v1" : "sweetfun-os-access-control",

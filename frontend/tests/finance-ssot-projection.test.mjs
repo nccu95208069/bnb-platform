@@ -3,7 +3,7 @@ import test from 'node:test';
 import {entriesFromLedger,readCatalog,reviewUncertainReceivables} from
   '../src/lib/finance-ssot-context.ts';
 import {projectOrders,validateFinanceLinks} from '../src/lib/finance-projection.ts';
-import {revenueSummary,roomCollectionForOrder,summarize} from '../src/lib/finance-model.ts';
+import {categoryLabel,paymentMethodLabel,revenueSummary,roomCollectionForOrder,summarize} from '../src/lib/finance-model.ts';
 import {summarizeOrders,emptyRegistry} from '../src/lib/finance-summary.ts';
 
 const bookingId='10000000-0000-4000-8000-000000000001';
@@ -28,6 +28,32 @@ const order={id:'SF-SYNTHETIC',calendar_id:'SF-SYNTHETIC',booking_id:bookingId,
   total:10000,received:0,receivable:10000,eligible_date:null,
   source_paid:false,credit:0,source_version:'synthetic'};
 const catalog={accounts:[],categories:[],recurring:[],payout:[],links:[]};
+
+test('historical null payment method stays unrecorded instead of becoming Other',()=>{
+  const event={...base,current_version:1,event_kind:'expense_paid',category_code:'other',
+    receipt_purpose:null,payment_method_code:null,
+    source_recorded_at:'2026-10-15T08:30:00.000Z',
+    source_system:'line_finance',source_record_id:'line-historical-expense',
+    booking_allocations:[]};
+  const [entry]=entriesFromLedger([event],'offland',[],catalog);
+  assert.equal(entry.method,null);
+  assert.equal(entry.ssot_source_recorded_at,'2026-10-15T08:30:00.000Z');
+  assert.equal(paymentMethodLabel(entry.method),'付款方式未記錄');
+  assert.equal(paymentMethodLabel('other'),'其他');
+  assert.throws(()=>entriesFromLedger([{...event,payment_method_code:'made_up'}],
+    'offland',[],catalog),/FINANCE_SSOT_READBACK_MISMATCH/);
+});
+
+test('historical custom expense keeps its catalog label',()=>{
+  const event={...base,current_version:1,event_kind:'expense_paid',
+    category_code:'custom_supplies',receipt_purpose:null,
+    source_system:'os_manual',booking_allocations:[]};
+  const [entry]=entriesFromLedger([event],'offland',[],{
+    ...catalog,categories:[{code:'custom_supplies',kind:'expense',
+      label:'器材維護',status:'active'}]});
+  assert.equal(entry.category_name,'器材維護');
+  assert.equal(categoryLabel(entry),'器材維護');
+});
 
 test('current finance projection selects replacements, preserves void reason and nets refunds',()=>{
   const replaced={...base,id:'10000000-0000-4000-8000-000000000006',

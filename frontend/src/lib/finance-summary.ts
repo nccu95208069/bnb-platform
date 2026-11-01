@@ -17,7 +17,7 @@ export type FinanceSummaryRow = {
  claim:'unknown'|'not_applicable'|'legacy_claimed'|'legacy_unclaimed';
  receipt:SettlementStatus; recorded_received_cents:number; ota_collected_cents:number;
  receivable_total_cents:number|null; outstanding_cents:number|null;
- legacy_status:string; source_version:string|null; issues:string[]; records:{id:string; amount_cents:number; method:string; at:string; actor:string; source:string}[];
+ legacy_status:string; source_version:string|null; issues:string[]; records:{id:string; amount_cents:number; method:FinanceEntry['method']; at:string; actor:string; source:string}[];
  legacy_settlement?:LegacySettlementDisplay;
 };
 const unique=(items:string[])=>[...new Set(items.filter(Boolean))].sort();

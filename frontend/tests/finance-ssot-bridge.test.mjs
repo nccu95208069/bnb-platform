@@ -167,6 +167,14 @@ test('OS and Sheet finance reads pin every ledger page to one change sequence',a
   await assert.rejects(readSsotLedger(config,actor,async()=>reply({events:[first],
     next_cursor:null,as_of_change_seq:3,current_change_seq:3,
     unsequenced_event_count:1})),/FINANCE_SSOT_READBACK_MISMATCH/);
+  const source='10000000-0000-4000-8000-000000000009';
+  await assert.rejects(readSsotLedger(config,actor,async url=>reply({
+    property_id:propertyId,source_system:'os_manual',
+    source_instance_id:new URL(url).searchParams.has('cursor')?bookingId:source,
+    events:new URL(url).searchParams.has('cursor')?[second]:[first],
+    next_cursor:new URL(url).searchParams.has('cursor')?null:'next',
+    as_of_change_seq:3,current_change_seq:3,unsequenced_event_count:0
+  })),/FINANCE_SSOT_READBACK_MISMATCH/);
 });
 
 test('historical settlements require the same property and pinned change sequence',async()=>{

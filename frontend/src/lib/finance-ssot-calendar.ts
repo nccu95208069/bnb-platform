@@ -1,6 +1,39 @@
 import type {CalendarBooking} from '../components/calendar/calendar-types.ts';
 import type {FinanceOrder} from './finance-model.ts';
 
+const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function historicalReviewPayment(booking:CalendarBooking):CalendarBooking{
+  return {...booking,payment_status:'unknown',payment_review_status:undefined,
+    legacy_settlement_status:undefined,payment_unconfirmed:true,
+    source_payment_flag:'unknown',
+    source_payment_label:'歷史收款尚未核對，請勿視為未付款'};
+}
+
+/** The current Offland finance policy always reviews external-source receipts.
+ * A freshly authorized calendar snapshot already proves this source identity;
+ * reading every historical ledger/catalog row cannot make that status paid.
+ * Return null for native, redacted or incomplete rows so the full SSOT read is
+ * still required. This shortcut never computes a balance or permits collection.
+ */
+export function reviewOnlyOfflandCalendarPayments(bookings:CalendarBooking[]):CalendarBooking[]|null{
+  if(bookings.some(booking=>booking.property_id!=='offland'))return null;
+  const versions=new Map<string,number>();
+  for(const booking of bookings){
+    if(booking.source_conflict)continue;
+    if(booking.price_hidden||booking.reservation_status!=='confirmed'||
+      booking.iron_gate_source!=='external'||
+      !UUID.test(booking.iron_gate_booking_id??'')||
+      !Number.isSafeInteger(booking.iron_gate_booking_version)||
+      Number(booking.iron_gate_booking_version)<1||
+      booking.source_booking_version!==booking.iron_gate_booking_version)return null;
+    const id=booking.iron_gate_booking_id!,version=booking.iron_gate_booking_version!;
+    if(versions.has(id)&&versions.get(id)!==version)return null;
+    versions.set(id,version);
+  }
+  return bookings.map(booking=>booking.source_conflict?booking:historicalReviewPayment(booking));
+}
+
 /** Imported-order payment state must come from the accepted ledger after cutover. */
 export function overlaySsotCalendarPayments(bookings:CalendarBooking[],orders:FinanceOrder[],property='sweetfun'){
   const byId=new Map(orders.map(order=>[order.id,order]));
@@ -19,8 +52,7 @@ export function overlaySsotCalendarPayments(bookings:CalendarBooking[],orders:Fi
     const current={...booking,payment_review_status:undefined};
     if(property==='offland'&&
       (order.receivable_review_required||order.amount_review_required))
-      return {...current,payment_status:'unknown' as const,
-        legacy_settlement_status:undefined};
+      return historicalReviewPayment(current);
     const legacy=order.legacy_settlement;
     if(legacy?.review_required)return {...current,payment_status:'unknown' as const,
       legacy_settlement_status:'review_required' as const};

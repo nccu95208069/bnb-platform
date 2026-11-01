@@ -1,6 +1,7 @@
 import { ApiError } from '@/lib/api-client';
 import type { CalendarResponse } from './calendar-types';
-import { combinedCalendarWindows, validCalendarResponse } from './calendar-retention';
+import { calendarResponseVersion, combinedCalendarWindows, validCalendarResponse } from './calendar-retention';
+import { containsRange, rangesCover } from './calendar-prefetch';
 
 type CachedWindow = { data: CalendarResponse; at: number };
 export type CalendarWindowState = {
@@ -25,6 +26,20 @@ export function calendarWindowKey(start: string, end: string) {
   return `${start}:${end}`;
 }
 
+function keyRange(key: string) {
+  const [start, end] = key.split(':');
+  return { start, end };
+}
+
+// Navigation into a month already included in a larger pending batch shares
+// that request. Shifting the six-month horizon must not re-read its overlaps.
+export function calendarWindowScheduled(state: CalendarWindowState, start: string, end: string) {
+  return rangesCover([
+    ...[...state.windows.values()].map(({ data }) => ({ start: data.period_start, end: data.period_end })),
+    ...[...state.pending.keys()].map(keyRange),
+  ], { start, end });
+}
+
 export function cachedCalendarWindow(state: CalendarWindowState, start: string, end: string) {
   if (state.revoked) return null;
   const fresh = [...state.windows.values()].filter(item =>
@@ -37,7 +52,8 @@ export function readCalendarWindow(state: CalendarWindowState, start: string, en
   isCurrent: () => boolean, onAccessLost: (error: ApiError) => void): Promise<CalendarResponse | null> {
   if (!isCurrent() || state.revoked) return Promise.resolve(null);
   const key = calendarWindowKey(start, end);
-  const existing = state.pending.get(key);
+  const existing = state.pending.get(key) ?? [...state.pending].find(([pending]) =>
+    containsRange(keyRange(pending), { start, end }))?.[1];
   if (existing) return existing;
   const epoch = state.versionEpoch;
   const current = () => isCurrent() && !state.revoked && state.versionEpoch === epoch;
@@ -48,9 +64,11 @@ export function readCalendarWindow(state: CalendarWindowState, start: string, en
     if (!validCalendarResponse(response, start, end)) {
       throw Error('收到的日曆資料不完整，保留上次資料。');
     }
-    const priorVersion = state.windows.values().next().value?.data.source?.private_snapshot_version;
-    const nextVersion = response.source?.private_snapshot_version;
-    if (state.foregroundKey !== key && (!state.windows.size || priorVersion !== nextVersion)) return null;
+    const priorData = state.windows.values().next().value?.data;
+    const priorVersion = priorData && calendarResponseVersion(priorData);
+    const nextVersion = calendarResponseVersion(response);
+    const foreground = state.foregroundKey && containsRange({ start, end }, keyRange(state.foregroundKey));
+    if (!foreground && (!state.windows.size || priorVersion !== nextVersion)) return null;
     if (state.windows.size && priorVersion !== nextVersion) {
       // Only the current foreground read may advance the inventory version.
       // Pending neighbors from the old version cannot join or refill this cache.

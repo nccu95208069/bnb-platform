@@ -1,5 +1,9 @@
 "use client";
 import { useCalendarData } from "./use-calendar-data";
+import { sixMonthPrefetchRanges } from "./calendar-prefetch";
+import { useCalendarPreloadAnchor } from "./use-calendar-preload-anchor";
+import { createCalendarDeviceScope } from '@/lib/calendar-device-cache';
+import { readCalendarWithChanges } from '@/lib/calendar-sync-client';
 import { useCalendarPerformance } from "./use-calendar-performance";
 import { hasCalendarCoverage } from "./calendar-retention";
 import { useCalendarRevision } from "./use-calendar-revision";
@@ -81,7 +85,6 @@ import { WeekCarousel } from "@/components/calendar/week-carousel";
 import { visualCalendarStays } from "@/components/calendar/visual-stays";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { apiClient } from "@/lib/api-client";
 import {
   useAccessControl,
   useEffectivePermissions,
@@ -127,9 +130,8 @@ type DemoEditState = {
 
 const EMPTY_EDITS: DemoEditState = { orders: {}, segments: {} };
 
-async function readCalendar(start: string, end: string, propertyIds: string[]): Promise<CalendarResponse> {
-  const selected = propertyIds.length ? `&properties=${encodeURIComponent(propertyIds.join(','))}` : '';
-  if (!PAYMENT_SANDBOX) return apiClient.get<CalendarResponse>(`/bookings/calendar?start=${start}&end=${end}${selected}`);
+async function readCalendar(start: string, end: string, propertyIds: string[], base?: CalendarResponse): Promise<CalendarResponse> {
+  if (!PAYMENT_SANDBOX) return readCalendarWithChanges(start, end, propertyIds, base);
   const response = await fetch(`/api/payment-sandbox/calendar?start=${start}&end=${end}`, { cache: "no-store" });
   if (!response.ok) throw Error("無法連接隔離測試服務，請稍後重試。");
   return response.json();
@@ -224,6 +226,10 @@ const uiLocale = useIntlLocale();
 
   const initializeAccess = useAccessControl((state) => state.initialize);
   const membership = useAccessControl((state) => state.membership);
+  const sessionVerifiedAt = useAccessControl(state => state.sessionVerifiedAt);
+  const sessionLoading = useAccessControl(state => state.sessionLoading);
+  const initialized = useAccessControl(state => state.initialized);
+  const requiresPasswordReset = useAccessControl(state => state.requiresPasswordReset);
   const rolePermissions = useEffectivePermissions();
   const effectiveRole = useEffectiveRole();
 
@@ -244,7 +250,8 @@ const uiLocale = useIntlLocale();
   useEffect(() => () => {
     cancelScrollCommit();
   }, [cancelScrollCommit]);
-  const accessScope = JSON.stringify([membership?.id, membership?.role, membership?.allProperties, membership?.propertyIds]);
+  const accessScope = JSON.stringify([membership?.tenantId, membership?.id, membership?.role,
+    membership?.allProperties, membership?.propertyIds, effectiveRole, rolePermissions.viewPrices]);
   const requestedPropertyIds = useMemo(() => {
     const valid = selectedPropertyIds.filter(id => id === 'sweetfun' || id === 'offland');
     if (!valid.length || valid.length === 2 || availableProperties.length > 0 &&
@@ -252,8 +259,15 @@ const uiLocale = useIntlLocale();
     return [...valid].sort();
   }, [availableProperties.length, selectedPropertyIds]);
   const propertyScope = requestedPropertyIds.join(',');
-  const scopedRead = useCallback((start: string, end: string) =>
-    readCalendar(start, end, propertyScope ? propertyScope.split(',') : []), [propertyScope]);
+  const scopedRead = useCallback((start: string, end: string, base?: CalendarResponse) =>
+    readCalendar(start, end, propertyScope ? propertyScope.split(',') : [], base), [propertyScope]);
+  // The live source takes precedence over a legacy demo flag, as it does for
+  // authentication and bounded reads. Only an actual demo skips device copies.
+  const deviceScope = useMemo(() => PAYMENT_SANDBOX || (DEMO_MODE && !LIVE_SHEET) ? null : createCalendarDeviceScope(
+    { membership, sessionVerifiedAt, sessionLoading, initialized, requiresPasswordReset },
+    { properties: propertyScope ? propertyScope.split(',') : membership?.propertyIds ?? [],
+      viewPrices: rolePermissions.viewPrices, effectiveRole }),
+  [membership, sessionVerifiedAt, sessionLoading, initialized, requiresPasswordReset, propertyScope, rolePermissions.viewPrices, effectiveRole]);
   const selectedId = useCalendarPreferences((s) => s.selectedBookingId);
   const setSelectedId = useCalendarPreferences((s) => s.setSelectedBookingId);
   const historyRevision = useCalendarPreferences((s) => s.historyRevision);
@@ -282,25 +296,26 @@ const uiLocale = useIntlLocale();
   // Unfetched positions remain explicitly unloaded until their own read succeeds.
   const monthsToShow = useMemo(() => MONTHS.includes(previewMonth) ? MONTHS : [previewMonth],
     [previewMonth]);
+  const prefetchAnchor = useCalendarPreloadAnchor(visibleMonth, JSON.stringify([accessScope, propertyScope, reloadKey]));
   const prefetchRanges = useMemo(() => view === "month" && BOUNDED_MONTH
-    ? [-1, 1].map(offset => addMonths(visibleMonth, offset))
-      .filter(month => monthsToShow.includes(month))
-      .map(month => fetchPeriod(month, "month", true))
-    : [], [view, visibleMonth, monthsToShow]);
+    ? sixMonthPrefetchRanges(prefetchAnchor, true)
+    : [], [view, prefetchAnchor]);
   const visiblePeriod = view === "month" ? fetchPeriod(visibleMonth, "month", true) : requestPeriod;
   const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess({ force: true }); }, [setSelectedId, initializeAccess]);
-  const { data, loading, refreshing, error, requestFailed, lastLoadedAt } = useCalendarData({
+  const { data, loading, refreshing, error, requestFailed, lastLoadedAt, fromDeviceCache } = useCalendarData({
     start: requestPeriod.start, end: requestPeriod.end,
     scope: `${accessScope}:${propertyScope}`, reload: reloadKey,
     read: scopedRead, onProperties: setProperties, onAccessLost: accessLost,
     visibleStart: visiblePeriod.start,
     visibleEnd: visiblePeriod.end,
     prefetch: prefetchRanges,
+    deviceScope,
   });
   useCalendarPerformance(`${accessScope}:${propertyScope}:${view}:${visiblePeriod.start}:${visiblePeriod.end}:${reloadKey}`,
-    !loading && !refreshing && !requestFailed && hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end));
+    !loading && !refreshing && !requestFailed && hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end),
+    fromDeviceCache && hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end));
   const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
-  const manualEnabled = data?.iron_gate_manual_enabled === true && !requestFailed &&
+  const manualEnabled = data?.iron_gate_manual_enabled === true && !requestFailed && !fromDeviceCache &&
     !loading && !error && !refreshing &&
     hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end);
   const canCreateManual = manualEnabled &&
@@ -309,7 +324,7 @@ const uiLocale = useIntlLocale();
   const retainedEnabled = Boolean(membership?.id) && data?.retained_orders_enabled === true &&
     data.properties.some(property => property.id === "offland") &&
     (!selectedPropertyIds.length || selectedPropertyIds.includes("offland"));
-  const retainedCanWrite = data?.retained_orders_can_write === true &&
+  const retainedCanWrite = data?.retained_orders_can_write === true && !fromDeviceCache &&
     ["owner", "admin", "god"].includes(effectiveRole) && permissions.viewPrices;
   const displayPeriod = useMemo(() => {
     if (view === "month") {
@@ -791,7 +806,7 @@ const uiLocale = useIntlLocale();
 
   return (
     <div className="pb-0 md:space-y-2">
-      {renderToolbar(data, loading ? "loading" : refreshing ? "refreshing" : requestFailed ? "failed" : "ready")}
+      {renderToolbar(data, loading ? "loading" : refreshing ? "refreshing" : requestFailed ? "failed" : fromDeviceCache ? "loading" : "ready")}
       {canCreateManual && !manualMode && !selectedBooking && !mobileSearchOpen &&
         <ManualBookingFab onActivate={() => setManualMode("create")} />}
       {PAYMENT_SANDBOX && (
@@ -926,6 +941,7 @@ const uiLocale = useIntlLocale();
         </div>
       </section>
 
+      {fromDeviceCache && <div role="status" className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">先顯示此裝置上次讀取的資料{lastLoadedAt ? `（${lastLoadedAt.toLocaleString(uiLocale, { timeZone: 'Asia/Taipei' })}）` : ''}，正在核對最新變更。確認完成前僅供查看。</div>}
       {requestFailed && data && !loading && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">目前顯示上次載入的資料，僅供查看。最新房況與付款尚未確認，恢復連線後會自動重試。</div>}
       {retainedEnabled && <RetainedOrdersControl key={accessScope} canWrite={retainedCanWrite}
         viewPrices={permissions.viewPrices} storageScope={membership!.id}

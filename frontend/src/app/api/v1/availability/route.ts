@@ -5,8 +5,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { principalFor } from '@/lib/workspace-auth/session';
 import { allowedProperty } from '@/lib/workspace-auth/projection';
 import { redisCommand } from '@/lib/workspace-auth/store';
-import { readBookingSnapshot } from '@/lib/booking-sources/snapshot';
-import { sourceDefinition, activeSources } from '@/lib/booking-sources/config';
+import { ironGateCalendarConfig, offlandIronGateCalendarConfig, readIronGateAvailabilitySnapshot } from '@/lib/booking-sources/iron-gate-calendar.server';
+import { activeSources } from '@/lib/booking-sources/config';
 import { readPricingSnapshot } from '@/lib/pricing-snapshot';
 import { liveAvailability } from '@/lib/live-availability';
 import type { Channel } from '@/lib/availability';
@@ -27,7 +27,11 @@ export async function GET(request: NextRequest) {
     const rooms=(params.get('rooms') ?? '').split(',').filter(Boolean);
     const validDay=(s:string)=>/^\d{4}-\d{2}-\d{2}$/.test(s)&&Number.isFinite(Date.parse(s))&&new Date(s).toISOString().slice(0,10)===s;
     if (!validDay(start)||!validDay(end)||start>=end||(Date.parse(end)-Date.parse(start))/86400000>93||!config.channels.includes(channel)||rooms.some(r=>!config.roomNames.includes(r))||new Set(rooms).size!==rooms.length) return reply({detail:'請選擇有效日期、房間與通路（最多93天）。'},400);
-    const [bookings,raw,inventoryRaw]=await Promise.all([readBookingSnapshot(sourceDefinition(property)),redisCommand(['GET',config.key]),redisCommand(['GET',inventoryKey(property)])]);
+    // Each property uses its own current booking authority and scoped grant.
+    // Failed reads must never revive a legacy Sheet occupancy snapshot.
+    const occupancyRead = readIronGateAvailabilitySnapshot(start,end,principal,
+      property === 'offland' ? offlandIronGateCalendarConfig() : ironGateCalendarConfig());
+    const [bookings,raw,inventoryRaw]=await Promise.all([occupancyRead,redisCommand(['GET',config.key]),redisCommand(['GET',inventoryKey(property)])]);
     if (!bookings) return reply({detail:'訂房來源暫時無法讀取。'},503);
     const prices=raw ? readPricingSnapshot(String(raw),property) : null;
     const result = liveAvailability({start,end,channel,rooms,demo_cycle:1},bookings,prices,new Date(),property,readChannelInventory(inventoryRaw as string | null,property));

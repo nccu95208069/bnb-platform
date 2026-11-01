@@ -12,6 +12,10 @@ const window = (start, end, version = '17') => ({
 test('month windows join only when their dates and inventory versions agree', () => {
   const october = window('2026-09-28', '2026-11-02');
   const november = window('2026-10-26', '2026-12-07');
+  // Distinct stays outside the shared grid edges remain in both months. A stay
+  // spanning the overlap would also be present in the later complete response.
+  Object.assign(october.bookings[0], { check_in: '2026-10-10', check_out: '2026-10-11' });
+  Object.assign(november.bookings[0], { check_in: '2026-11-10', check_out: '2026-11-11' });
   const distant = window('2027-03-01', '2027-04-01');
   const merged = combinedCalendarWindows([october, november, distant], october.period_start, october.period_end);
   assert.equal(merged.period_start, october.period_start);

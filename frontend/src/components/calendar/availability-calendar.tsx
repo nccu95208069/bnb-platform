@@ -9,6 +9,9 @@ import { probabilityText } from "@/lib/sales-probability";
 import { PricePair, roomNightStyle } from "./availability-presentation";
 import { owlNestPriceLabel } from "@/lib/availability";
 import { UnsoldMonthScroller } from "./unsold-month-scroller";
+import { useAvailabilityData } from "./use-availability-data";
+import { ApiError } from "@/lib/api-client";
+import { createCalendarDeviceScope } from '@/lib/calendar-device-cache';
 import { availabilityFeatures } from "@/lib/availability-features";
 import {
   ArrowRight,
@@ -68,6 +71,7 @@ import {
   policyLabels,
   priceText,
   type AvailabilityResult,
+  type AvailabilityQuery,
   type Channel,
   type RoomNight,
   type PriceQuote,
@@ -96,6 +100,10 @@ const uiLocale = useIntlLocale();
   const setProperties = useCalendarPreferences((s) => s.setProperties);
   const selectedPropertyIds = useCalendarPreferences((s) => s.selectedPropertyIds);
   const membership = useAccessControl(s=>s.membership);
+  const sessionVerifiedAt = useAccessControl(s=>s.sessionVerifiedAt);
+  const sessionLoading = useAccessControl(s=>s.sessionLoading);
+  const initialized = useAccessControl(s=>s.initialized);
+  const requiresPasswordReset = useAccessControl(s=>s.requiresPasswordReset);
   const allowedIds = ["sweetfun","offland"].filter(id=>membership?.allProperties || membership?.propertyIds.includes(id));
   const property = selectedPropertyIds.find(id=>allowedIds.includes(id)) ?? allowedIds[0] ?? "sweetfun";
   const config = pricingProperty(property);
@@ -121,10 +129,7 @@ const uiLocale = useIntlLocale();
   const [monthJump, setMonthJump] = useState(0);
   const [monthSelected, setMonthSelected] = useState<RoomNight | null>(null);
   const onVisibleMonth = useCallback((month: string) => setAnchor(current => startOfMonth(current) === month ? current : month), [setAnchor]);
-  const [data, setData] = useState<AvailabilityResult | null>(null),
-    [error, setError] = useState("");
-  const [loading, setLoading] = useState(true),
-    [refresh, setRefresh] = useState(0);
+  const [refresh, setRefresh] = useState(0);
   const changed = useCallback(() => setRefresh(v => v + 1), []);
   useCalendarRevision(property, !PAYMENT_SANDBOX && !!membership, changed);
   const selected = useCalendarPreferences((s) => s.availabilitySelection);
@@ -204,39 +209,33 @@ const uiLocale = useIntlLocale();
       );
     }
   }, [navigation, view, setAnchor]);
-  useEffect(() => {
-    let active = true;
-    setLoading(true);
-    setError("");
-    setData(null);
-    const params = new URLSearchParams({start:query.start,end:query.end,rooms:query.rooms.join(","),channel:query.channel,property});
-    const request = PAYMENT_SANDBOX ? availabilityApi.check(query) : fetch(`/api/v1/availability?${params}`,{cache:"no-store"}).then(async r => { const value = await r.json(); if (!r.ok) throw new Error(value.detail); return value as AvailabilityResult; });
-    request
-      .then((result) => {
-        if (!active) return;
-        setData(result);
-        if (!PAYMENT_SANDBOX && result.properties) setProperties(result.properties);
-        if (PAYMENT_SANDBOX) setProperties([
-          {
-            id: result.property_id,
-            name: "Sweetfun 測試旅宿",
-            short_name: "Sweetfun",
-            location: "合成示範",
-            room_count: 6,
-            color: "emerald",
-          },
-        ]);
-      })
-      .catch((e) => {
-        if (active) setError(availabilityError(e));
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [query, refresh, setProperties, property]);
+  const availabilityRead = useCallback(async (requested: AvailabilityQuery) => {
+    if (PAYMENT_SANDBOX) return availabilityApi.check(requested);
+    const params = new URLSearchParams({ start: requested.start, end: requested.end,
+      rooms: requested.rooms.join(","), channel: requested.channel, property });
+    const response = await fetch(`/api/v1/availability?${params}`, { cache: "no-store" });
+    const value = await response.json();
+    if (!response.ok) throw new ApiError(response.status, value.detail || "無法讀取房況");
+    return value as AvailabilityResult;
+  }, [property]);
+  const availabilityProperties = useCallback((properties: NonNullable<AvailabilityResult['properties']>) => {
+    setProperties(properties);
+  }, [setProperties]);
+  const availabilityAccessLost = useCallback(() => {
+    setSelected(null);
+    void useAccessControl.getState().initialize({ force: true });
+  }, [setSelected]);
+  const availabilityScope = JSON.stringify([membership?.tenantId, membership?.id, membership?.role, membership?.allProperties,
+    membership?.propertyIds, role, canPrice]);
+  const deviceScope = useMemo(() => PAYMENT_SANDBOX ? null : createCalendarDeviceScope(
+    { membership, sessionVerifiedAt, sessionLoading, initialized, requiresPasswordReset },
+    { properties: [property], viewPrices: canPrice, effectiveRole: role }),
+  [membership, sessionVerifiedAt, sessionLoading, initialized, requiresPasswordReset, property, canPrice, role]);
+  const { data, loading, error, month: availabilityMonth, retry: retryAvailability, fromDeviceCache, deviceSavedAt } = useAvailabilityData({
+    query, property, scope: availabilityScope, reload: refresh, preload: view === "month",
+    read: availabilityRead, onProperties: availabilityProperties, onAccessLost: availabilityAccessLost,
+    deviceScope,
+  });
   useEffect(() => { const timer = window.setInterval(() => setRefresh(v => v + 1), 60000); const focus=()=>setRefresh(v=>v+1); window.addEventListener("focus",focus); return ()=>{clearInterval(timer);window.removeEventListener("focus",focus);}; }, []);
   const cells = useMemo(() => data?.cells ?? [], [data]);
   const byKey = useMemo(
@@ -341,6 +340,7 @@ const uiLocale = useIntlLocale();
       : null;
   const rooms = data?.rooms ?? [];
   const periodReady =
+    !fromDeviceCache &&
     !loading &&
     !error &&
     data?.query.start === query.start &&
@@ -420,8 +420,10 @@ const uiLocale = useIntlLocale();
               {uiText("只看未售")}
             </Button>
           </div>
-          <div className="flex items-center gap-3 text-xs" aria-label={uiText("未售房況摘要")}>
-            <span className="whitespace-nowrap font-medium">{uiText("未售")} <strong className="tabular-nums">{availableCount ?? "—"}</strong></span>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs" aria-label={uiText("未售房況摘要")}>
+            <span className="whitespace-nowrap font-medium">{uiText("未售")} <strong className="tabular-nums">{availableCount ?? "—"}</strong> {uiText("房晚")}</span>
+            {!loading && data && data.counts.held > 0 && <span className="whitespace-nowrap text-muted-foreground">{uiText("暫留")} <strong className="tabular-nums">{data.counts.held}</strong></span>}
+            {!loading && data && data.counts.blocked > 0 && <span className="whitespace-nowrap text-muted-foreground">{uiText("封房")} <strong className="tabular-nums">{data.counts.blocked}</strong></span>}
             {reviewCount != null && reviewCount > 0 && <span className="whitespace-nowrap text-amber-700">{uiText("待確認")} <strong className="tabular-nums">{reviewCount}</strong></span>}
           </div>
         </div>
@@ -490,6 +492,7 @@ const uiLocale = useIntlLocale();
       {PAYMENT_SANDBOX && <p className="rounded-lg border border-amber-200 bg-amber-50/70 px-3 py-2 text-xs text-amber-950">
         {uiText("假資料預覽 ·")}{channelLabels[channel]}{" "}
         {uiText("示範售價，建議未發布。尚未接入正式房況與定價引擎。")}</p>}
+      {fromDeviceCache && <p role="status" className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">先顯示此裝置上次讀取的房況{deviceSavedAt ? `（${new Date(deviceSavedAt).toLocaleString(uiLocale, { timeZone: 'Asia/Taipei' })}）` : ''}，正在核對最新變更。確認完成前僅供查看。</p>}
       {(error || focusedError) && (
         <div
           role="alert"
@@ -505,7 +508,7 @@ const uiLocale = useIntlLocale();
         </div>
       )}
       {view === "month" ? (
-        <UnsoldMonthScroller key={property} anchor={anchor} jump={monthJump} property={property} room={room} channel={channel} cycle={cycle} refresh={refresh} search={search} onlyAvailable={onlyAvailable} onVisibleMonth={onVisibleMonth} onSelect={openCell} onSelectDay={selectDay} />
+        <UnsoldMonthScroller key={property} anchor={anchor} jump={monthJump} search={search} onlyAvailable={onlyAvailable} onVisibleMonth={onVisibleMonth} onSelect={openCell} onSelectDay={selectDay} getMonth={availabilityMonth} onRetry={retryAvailability} />
       ) : loading ? (
         <div className="flex min-h-72 items-center justify-center gap-2 text-muted-foreground">
           <LoaderCircle className="size-4 animate-spin" />

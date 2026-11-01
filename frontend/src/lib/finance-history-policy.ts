@@ -1,8 +1,12 @@
 /** Historical coverage is explicit; enabling a new writer does not import old cash. */
 export function financeHistoryStatus(property:string,env:NodeJS.ProcessEnv=process.env){
- return property==='offland'&&env.OS_OFFLAND_FINANCE_SSOT_ENABLED==='true'?
-  env.OS_OFFLAND_FINANCE_HISTORY_STATUS==='verified'?'verified' as const:'not_imported' as const:
-  undefined;
+ if(property!=='offland'||env.OS_OFFLAND_FINANCE_SSOT_ENABLED!=='true')return undefined;
+ if(env.OS_OFFLAND_FINANCE_HISTORY_STATUS==='verified')return 'verified' as const;
+ if(env.OS_OFFLAND_FINANCE_HISTORY_STATUS==='os_imported_line_pending')
+  return 'os_imported_line_pending' as const;
+ if(env.OS_OFFLAND_FINANCE_HISTORY_STATUS==='general_imported_booking_review')
+  return 'general_imported_booking_review' as const;
+ return 'not_imported' as const;
 }
 
 /** Stop new Offland commands without reopening the legacy writer. Reads stay available. */
