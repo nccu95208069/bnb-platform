@@ -17,6 +17,21 @@ export type BusinessReport = BusinessPulseData & {
 
 function invalidReport(): never { throw new GateError("REPORT_DATA_INVALID", 409); }
 
+type ReportProfile = {
+  snapshot: "sweetfunSnapshot" | "offlandSnapshot";
+  propertyName: string;
+  netProfitRatio: number;
+};
+
+/** Import provenance belongs to the authoritative property, not a request or
+ * an individual booking. Unknown properties keep the existing report defaults. */
+function reportProfile(state: PropertyState): ReportProfile {
+  if (state.offlandImport && state.sweetfunImport) invalidReport();
+  return state.offlandImport
+    ? { snapshot: "offlandSnapshot", propertyName: "OFFLAND", netProfitRatio: 0.6 }
+    : { snapshot: "sweetfunSnapshot", propertyName: "民宿", netProfitRatio: 0.68 };
+}
+
 /** Date-only source facts remain date-only. Import time is never a booking date. */
 function sourceDate(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -27,18 +42,18 @@ function sourceDate(value: unknown): string | null {
   return Number.isFinite(parsed) && new Date(parsed).toISOString().slice(0, 10) === date ? date : null;
 }
 
-function importedRows(booking: Booking): Record<string, unknown>[] {
-  const rows = booking.sweetfunSnapshot?.rows;
+function importedRows(booking: Booking, profile: ReportProfile): Record<string, unknown>[] {
+  const rows = booking[profile.snapshot]?.rows;
   return booking.source === "external" && !booking.sourceCalendar && Array.isArray(rows)
     && rows.every((row) => row && typeof row === "object" && !Array.isArray(row)) ? rows : [];
 }
 
-function bookedOn(booking: Booking): string | null {
+function bookedOn(booking: Booking, profile: ReportProfile): string | null {
   const current = sourceDate(booking.bookedAt);
   if (current) return current;
   // Original imports may have retained slash-format dates. Only unanimous,
   // normalized source-row evidence can fill a missing original booking date.
-  const rows = importedRows(booking);
+  const rows = importedRows(booking, profile);
   const dates = rows.map((row) => sourceDate(row.bookedAt));
   return dates.length > 0 && dates.every((date) => date !== null && date === dates[0]) ? dates[0] : null;
 }
@@ -52,10 +67,10 @@ const PLATFORMS: Record<string, string> = {
   "直接訂房": "直接訂房", "電話": "電話", "自來客": "自來客", "其他": "其他",
 };
 
-function platform(booking: Booking): { name: string; unknown: boolean } {
+function platform(booking: Booking, profile: ReportProfile): { name: string; unknown: boolean } {
   let value: unknown = booking.sourceCalendar?.platform;
   if (!booking.sourceCalendar) {
-    const values = importedRows(booking).map((row) => Array.isArray(row.values) ? row.values[2] : null);
+    const values = importedRows(booking, profile).map((row) => Array.isArray(row.values) ? row.values[2] : null);
     if (values.length && values.every((item) => item === values[0])) value = values[0];
     else if (booking.source === "line") value = "LINE";
     else if (booking.source === "website") value = "website";
@@ -67,15 +82,19 @@ function platform(booking: Booking): { name: string; unknown: boolean } {
   return { name: name ?? "其他", unknown: !name };
 }
 
-/** Only unambiguous public room numbers are recovered; canonical UUIDs stay private. */
-function publicRooms(state: PropertyState): Map<string, string> {
+/** Recover public room numbers or the verified villa label; canonical UUIDs stay private. */
+function publicRooms(state: PropertyState, profile: ReportProfile): Map<string, string> {
+  if (profile.snapshot === "offlandSnapshot") {
+    if (state.roomIds.length !== 1) invalidReport();
+    return new Map([[state.roomIds[0], "包棟"]]);
+  }
   const candidates = new Map<string, Set<string>>();
   const reverse = new Map<string, Set<string>>();
   for (const booking of state.bookings) {
     // A later room amendment can retain the same dates and frozen source rows.
     // Those rows no longer prove which canonical room the public label belongs to.
     if (booking.version !== 1 + (booking.paymentEvents?.length ?? 0)) continue;
-    const rows = importedRows(booking);
+    const rows = importedRows(booking, profile);
     if (rows.length !== booking.stays.length) continue;
     for (const [index, stay] of booking.stays.entries()) {
       const row = rows[index];
@@ -96,16 +115,20 @@ function publicRooms(state: PropertyState): Map<string, string> {
   }));
 }
 
-function stayAmounts(booking: Booking, rooms: Map<string, string>): number[] | null {
+function stayAmounts(booking: Booking, rooms: Map<string, string>, profile: ReportProfile): number[] | null {
   if (booking.totalCents === null || booking.stays.some((stay) => stay.roomIds.length !== 1)) return null;
   if (booking.stays.length === 1) return [booking.totalCents];
-  const rows = importedRows(booking);
+  const rows = importedRows(booking, profile);
   if (booking.version !== 1 + (booking.paymentEvents?.length ?? 0) || rows.length !== booking.stays.length)
     return null;
   const amounts: number[] = [];
   for (const [index, stay] of booking.stays.entries()) {
     const row = rows[index];
-    if (row.room !== rooms.get(stay.roomIds[0]) || sourceDate(row.checkIn) !== stay.checkIn ||
+    // OFFLAND's two audited Sheet aliases describe the same physical villa.
+    const room = profile.snapshot === "offlandSnapshot"
+      ? (row.room === "OFFLAND" || row.room === "OFFLAND(連住)" ? "包棟" : null)
+      : row.room;
+    if (room !== rooms.get(stay.roomIds[0]) || sourceDate(row.checkIn) !== stay.checkIn ||
       sourceDate(row.checkOut) !== stay.checkOut || typeof row.roomFeeCents !== "number" ||
       !Number.isSafeInteger(row.roomFeeCents) || row.roomFeeCents < 0) return null;
     amounts.push(row.roomFeeCents);
@@ -118,14 +141,15 @@ function stayAmounts(booking: Booking, rooms: Map<string, string>): number[] | n
 export function createBusinessReport(state: PropertyState,
   paid: (booking: Booking) => boolean, now = new Date(),
   exactNightPrices: ReadonlyMap<string, readonly NightPrice[]> = new Map()): BusinessReport {
-  const rooms = publicRooms(state);
+  const profile = reportProfile(state);
+  const rooms = publicRooms(state, profile);
   let unknownPlatformBookings = 0;
   const input: BusinessBooking[] = state.bookings.map((booking) => {
     if (booking.workspaceId !== state.workspaceId || booking.propertyId !== state.propertyId ||
       booking.currency !== "TWD") invalidReport();
-    const channel = platform(booking);
+    const channel = platform(booking, profile);
     if (booking.status === "confirmed" && channel.unknown) unknownPlatformBookings++;
-    const amounts = stayAmounts(booking, rooms);
+    const amounts = stayAmounts(booking, rooms, profile);
     const prices = exactNightPrices.get(booking.id);
     const stays = prices ? prices.map((price) => {
       const room = rooms.get(price.roomId);
@@ -139,7 +163,7 @@ export function createBusinessReport(state: PropertyState,
       return { room, checkIn: stay.checkIn, checkOut: stay.checkOut,
         ...(amounts ? { amountCents: amounts[index] } : {}) };
     }));
-    return { id: booking.id, status: booking.status, bookedAt: bookedOn(booking),
+    return { id: booking.id, status: booking.status, bookedAt: bookedOn(booking, profile),
       firstNotificationAt: firstNotificationAt(state, booking),
       platform: channel.name, totalCents: booking.totalCents, paid: paid(booking),
       // Guest names, contact, notes, source aliases and external references never
@@ -149,7 +173,7 @@ export function createBusinessReport(state: PropertyState,
   let report: BusinessPulseData;
   try {
     report = computeBusinessMetrics(input, { now, source: "iron-gate",
-      sourceUpdatedAt: null, rooms: [...rooms.values()], propertyName: "民宿",
+      sourceUpdatedAt: null, rooms: [...rooms.values()], propertyName: profile.propertyName,
       notificationCoverageFrom: notificationCoverageFrom(state, now) });
   } catch { invalidReport(); }
   if (unknownPlatformBookings) report.meta.warnings.push(
@@ -157,7 +181,8 @@ export function createBusinessReport(state: PropertyState,
   // Isolate a monthly-only data problem from the already-live daily report.
   let monthly: MonthlyBusinessReport | null = null;
   try {
-    monthly = computeMonthlyBusinessMetrics(input, { now, roomCount: state.roomIds.length });
+    monthly = computeMonthlyBusinessMetrics(input, { now, roomCount: state.roomIds.length,
+      netProfitRatio: profile.netProfitRatio });
   } catch { /* Monthly consumers show unavailable; never substitute a zero report. */ }
   return { ...report, monthly, meta: { ...report.meta, inventoryVersion: state.version,
     authorityEpoch: state.authorityEpoch, readOnly: false, saleReady: false, unknownPlatformBookings } };
