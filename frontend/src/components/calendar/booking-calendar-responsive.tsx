@@ -11,6 +11,7 @@ import { IronGateManualPaymentPanel } from "@/components/payments/iron-gate-manu
 
 import { CalendarPrivacy } from "./calendar-privacy";
 import { CalendarToolbar } from "./calendar-toolbar";
+import type { CalendarReadState } from "./calendar-read-status";
 import { ManualBookingDialog } from "./manual-booking-dialog";
 import { ManualBookingFab } from "./manual-booking-fab";
 import { RetainedOrdersControl, type RetainedOrderTarget } from "./retained-orders-control";
@@ -194,7 +195,7 @@ function overlayEdits(
   };
 }
 
-function SoldBookingCalendar({ renderToolbar }: { renderToolbar: (data: CalendarResponse | null) => ReactNode }) {
+function SoldBookingCalendar({ renderToolbar }: { renderToolbar: (data: CalendarResponse | null, readState: CalendarReadState) => ReactNode }) {
 const uiLocale = useIntlLocale();
 
   const uiText = useT();
@@ -790,7 +791,7 @@ const uiLocale = useIntlLocale();
 
   return (
     <div className="pb-0 md:space-y-2">
-      {renderToolbar(data)}
+      {renderToolbar(data, loading ? "loading" : refreshing ? "refreshing" : requestFailed ? "failed" : "ready")}
       {canCreateManual && !manualMode && !selectedBooking && !mobileSearchOpen &&
         <ManualBookingFab onActivate={() => setManualMode("create")} />}
       {PAYMENT_SANDBOX && (
@@ -1178,7 +1179,7 @@ export function BookingCalendarResponsive() {
           <AvailabilityCalendar key={selectedPropertyIds.join(",")} />
         </>
       ) : (
-        <SoldBookingCalendar renderToolbar={data => <CalendarToolbar data={data} showUnsold={showUnsold} paymentReview={paymentReview} onPaymentReview={() => setPaymentReview(v => !v)} />} />
+        <SoldBookingCalendar renderToolbar={(data, readState) => <CalendarToolbar data={data} readState={readState} showUnsold={showUnsold} paymentReview={paymentReview} onPaymentReview={() => setPaymentReview(v => !v)} />} />
       )}
     </div></GuestNotificationProvider>
   );
