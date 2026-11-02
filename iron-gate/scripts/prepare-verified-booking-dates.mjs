@@ -29,6 +29,20 @@ export function prepareVerifiedDates(snapshot, manifest) {
         || e.bookedAt > b.stays.reduce((d,s) => s.checkIn < d ? s.checkIn : d, b.stays[0].checkIn)
         || e.evidenceType !== "owner_attestation" || typeof e.evidenceRef !== "string"
         || e.evidenceRef.length < 1 || e.evidenceRef.length > 200) fail();
+    } else if (e.kind === "provider-booking-date") {
+      const l = t.link;
+      if (b.source !== "external" || b.sweetfunSnapshot || b.offlandSnapshot || b.osSnapshot
+        || !l || !HASH.test(t.linkHash) || l.bookingId !== b.id || l.key !== b.sourceKey
+        || l.key !== JSON.stringify([l.sourceSystem,l.sourceAccount,l.externalOrderId])
+        || !SOURCES.has(l.sourceSystem) || l.diverged !== false || l.tombstoneNights.length
+        || l.lastAppliedBookingVersion !== b.version || e.externalOrderId !== l.externalOrderId.slice(2)
+        || e.providerPropertyId !== e.propertyId || e.providerStatus !== "active"
+        || !isoDay(e.bookedAt) || !isoDay(e.providerCheckIn) || !isoDay(e.providerCheckOut)
+        || e.providerCheckIn !== b.stays.reduce((d,s)=>s.checkIn<d?s.checkIn:d,b.stays[0].checkIn)
+        || e.providerCheckOut !== b.stays.reduce((d,s)=>s.checkOut>d?s.checkOut:d,b.stays[0].checkOut)
+        || e.bookedAt > e.providerCheckIn || e.evidenceType !== "owlnest_order_list"
+        || !HASH.test(e.evidenceSha256) || typeof e.evidenceRef !== "string" || !e.evidenceRef
+        || !Number.isFinite(Date.parse(e.checkedAt)) || e.bookedAt > e.checkedAt.slice(0,10)) fail();
     } else if (e.kind === "first-new-notice") {
       const l = t.link;
       if (b.source !== "external" || b.sweetfunSnapshot || b.offlandSnapshot || b.osSnapshot
@@ -72,7 +86,7 @@ BEGIN
    RAISE EXCEPTION 'DATE_REPAIR_PARTIAL_REPLAY'; END IF;
   FOR e IN SELECT value FROM jsonb_array_elements(spec->'entries') LOOP
    SELECT state_json INTO STRICT s FROM iron_gate.property_state WHERE property_id=(e->>'propertyId')::uuid;
-   IF e->>'kind'='owner-booking-date' THEN
+   IF e->>'kind' IN ('owner-booking-date','provider-booking-date') THEN
     IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(s->'bookings') x WHERE x->>'id'=e->>'bookingId' AND x->>'bookedAt'=e->>'bookedAt') THEN RAISE EXCEPTION 'DATE_REPAIR_REPLAY_CHANGED'; END IF;
    ELSE
     IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(s->'sourceLinks') x WHERE x->>'bookingId'=e->>'bookingId' AND x->'firstNewOrderNotification'=e->'notification') THEN RAISE EXCEPTION 'DATE_REPAIR_REPLAY_CHANGED'; END IF;
@@ -96,6 +110,23 @@ BEGIN
     replacement:=jsonb_set(jsonb_set(b,'{bookedAt}',e->'bookedAt'),'{version}',to_jsonb((b->>'version')::bigint+1));
     IF replacement-'bookedAt'-'version' IS DISTINCT FROM b-'bookedAt'-'version' THEN RAISE EXCEPTION 'DATE_REPAIR_UNRELATED_BOOKING_CHANGE'; END IF;
     s:=jsonb_set(s,ARRAY['bookings',idx::text],replacement);
+   ELSIF e->>'kind'='provider-booking-date' THEN
+    SELECT count(*),min(ord)::integer-1,jsonb_agg(value)->0 INTO n,linkidx,l FROM jsonb_array_elements(s->'sourceLinks') WITH ORDINALITY x(value,ord) WHERE value->>'key'=b->>'sourceKey' AND value->>'bookingId'=b->>'id';
+    IF n<>1 OR encode(sha256(convert_to(l::text,'UTF8')),'hex') IS DISTINCT FROM e->>'linkHash'
+      OR l->>'sourceSystem' NOT IN ('sweetfun-calendar-sheet','offland-calendar-sheet') OR l->'diverged' IS DISTINCT FROM 'false'::jsonb
+      OR l->'tombstoneNights' IS DISTINCT FROM '[]'::jsonb OR l->'lastAppliedBookingVersion' <> b->'version'
+      OR b->>'source'<>'external' OR b ? 'sweetfunSnapshot' OR b ? 'offlandSnapshot' OR b ? 'osSnapshot'
+      OR e->>'providerPropertyId'<>p->>'id' OR e->>'providerStatus'<>'active' OR e->>'evidenceType'<>'owlnest_order_list'
+      OR l->>'externalOrderId' NOT IN ('Q:'||(e->>'externalOrderId'),'L:'||(e->>'externalOrderId'))
+      OR e->>'providerCheckIn'<>(SELECT min(x->>'checkIn') FROM jsonb_array_elements(b->'stays') x)
+      OR e->>'providerCheckOut'<>(SELECT max(x->>'checkOut') FROM jsonb_array_elements(b->'stays') x)
+      OR (e->>'bookedAt')::date>(e->>'providerCheckIn')::date
+      OR (e->>'checkedAt')::timestamptz>clock_timestamp()+interval '1 minute'
+      OR clock_timestamp()-(e->>'checkedAt')::timestamptz>interval '2 days' THEN RAISE EXCEPTION 'DATE_REPAIR_PROVIDER_EVIDENCE_CHANGED'; END IF;
+    replacement:=jsonb_set(jsonb_set(b,'{bookedAt}',e->'bookedAt'),'{version}',to_jsonb((b->>'version')::bigint+1));
+    IF replacement-'bookedAt'-'version' IS DISTINCT FROM b-'bookedAt'-'version' THEN RAISE EXCEPTION 'DATE_REPAIR_UNRELATED_BOOKING_CHANGE'; END IF;
+    s:=jsonb_set(s,ARRAY['bookings',idx::text],replacement);
+    s:=jsonb_set(s,ARRAY['sourceLinks',linkidx::text],jsonb_set(l,'{lastAppliedBookingVersion}',replacement->'version'));
    ELSIF e->>'kind'='first-new-notice' THEN
     SELECT count(*),min(ord)::integer-1,jsonb_agg(value)->0 INTO n,linkidx,l FROM jsonb_array_elements(s->'sourceLinks') WITH ORDINALITY x(value,ord) WHERE value->>'key'=b->>'sourceKey' AND value->>'bookingId'=b->>'id';
     IF n<>1 OR encode(sha256(convert_to(l::text,'UTF8')),'hex') IS DISTINCT FROM e->>'linkHash' OR l ? 'firstNewOrderNotification'
@@ -116,15 +147,15 @@ BEGIN
     s:=jsonb_set(s,ARRAY['sourceLinks',linkidx::text],l||jsonb_build_object('firstNewOrderNotification',e->'notification'));
    ELSE RAISE EXCEPTION 'DATE_REPAIR_KIND_INVALID'; END IF;
    INSERT INTO iron_gate.audit_log(audit_id,property_id,audit_json) VALUES ((e->>'auditId')::uuid,(p->>'id')::uuid,
-    jsonb_build_object('auditId',e->>'auditId','at',stamp,'type',CASE WHEN e->>'kind'='owner-booking-date' THEN 'booking.date_recorded' ELSE 'source.notification_recorded' END,
-      'workspaceId',p->>'workspace','propertyId',p->>'id','bookingId',e->>'bookingId','bookingVersion',(e->>'bookingVersion')::bigint+CASE WHEN e->>'kind'='owner-booking-date' THEN 1 ELSE 0 END,
+    jsonb_build_object('auditId',e->>'auditId','at',stamp,'type',CASE WHEN e->>'kind'<>'first-new-notice' THEN 'booking.date_recorded' ELSE 'source.notification_recorded' END,
+      'workspaceId',p->>'workspace','propertyId',p->>'id','bookingId',e->>'bookingId','bookingVersion',(e->>'bookingVersion')::bigint+CASE WHEN e->>'kind'<>'first-new-notice' THEN 1 ELSE 0 END,
       'bookingStatus','confirmed','inventoryVersion',old_version+1,'actorOrigin','service','actorClientId','verified-booking-date-maintenance',
       'actorSubjectId','authorized-maintenance','actorGrantId',NULL,'requestKey',spec->>'repairKey',
-      'evidenceType',CASE WHEN e->>'kind'='owner-booking-date' THEN 'owner_attestation' ELSE 'original_gmail_new_order' END,
-      'evidenceRef',e->>'evidenceRef','messageSha256',e->>'messageSha256','recordedDate',coalesce(e->>'bookedAt',e->'notification'->>'receivedAt')));
+      'evidenceType',CASE WHEN e->>'kind'='owner-booking-date' THEN 'owner_attestation' WHEN e->>'kind'='provider-booking-date' THEN 'owlnest_order_list' ELSE 'original_gmail_new_order' END,
+      'evidenceRef',e->>'evidenceRef','evidenceSha256',e->>'evidenceSha256','providerCheckedAt',e->>'checkedAt','messageSha256',e->>'messageSha256','recordedDate',coalesce(e->>'bookedAt',e->'notification'->>'receivedAt')));
    INSERT INTO iron_gate.outbox(event_id,property_id,event_json) VALUES ((e->>'eventId')::uuid,(p->>'id')::uuid,
-    jsonb_build_object('eventId',e->>'eventId','at',stamp,'type',CASE WHEN e->>'kind'='owner-booking-date' THEN 'booking.date_recorded' ELSE 'source.notification_recorded' END,
-      'propertyId',p->>'id','bookingId',e->>'bookingId','bookingVersion',(e->>'bookingVersion')::bigint+CASE WHEN e->>'kind'='owner-booking-date' THEN 1 ELSE 0 END,'inventoryVersion',old_version+1));
+    jsonb_build_object('eventId',e->>'eventId','at',stamp,'type',CASE WHEN e->>'kind'<>'first-new-notice' THEN 'booking.date_recorded' ELSE 'source.notification_recorded' END,
+      'propertyId',p->>'id','bookingId',e->>'bookingId','bookingVersion',(e->>'bookingVersion')::bigint+CASE WHEN e->>'kind'<>'first-new-notice' THEN 1 ELSE 0 END,'inventoryVersion',old_version+1));
   END LOOP;
   result:=jsonb_set(s,'{version}',to_jsonb(old_version+1));
   IF result-'bookings'-'sourceLinks'-'version' IS DISTINCT FROM original-'bookings'-'sourceLinks'-'version' THEN RAISE EXCEPTION 'DATE_REPAIR_UNRELATED_STATE_CHANGE'; END IF;

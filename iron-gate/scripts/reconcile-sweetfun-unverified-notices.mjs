@@ -43,17 +43,20 @@ export function validateManifest(manifest) {
   const orders = manifest.orders.map((order) => {
     const event = order?.event;
     const owlJourney = /^L:OWJ[A-Z0-9]+$/.test(event?.externalOrderId ?? "");
+    const nativeOwlNest = /^L:OBE[A-Z0-9]+$/.test(event?.externalOrderId ?? "") &&
+      event?.platform === "owlting";
+    const withoutOtaAlias = owlJourney || nativeOwlNest;
     const expectedKeys = ["bookedAt", "currency", "expectedInventoryVersion",
       "externalOrderId", "guestName", "kind", "platform", "previousSourceVersion",
       "propertyId", "sourceAccount", "sourceSystem", "sourceVersion", "stays", "totalCents",
-      ...(!owlJourney ? ["externalOrderNo"] : [])].sort().join(",");
+      ...(!withoutOtaAlias ? ["externalOrderNo"] : [])].sort().join(",");
     if (!event || Object.keys(event).sort().join(",") !== expectedKeys ||
       event.propertyId !== PROPERTY || event.sourceSystem !== SOURCE_SYSTEM ||
       event.sourceAccount !== SOURCE_ACCOUNT || event.kind !== "upsert" ||
       event.previousSourceVersion !== null || event.bookedAt !== null ||
       !(owlJourney || /^L:OBE[A-Z0-9]+$/.test(event.externalOrderId)) ||
       !SOURCE_VERSION.test(event.sourceVersion) ||
-      !(owlJourney ? event.platform === "owljourney" :
+      !(owlJourney ? event.platform === "owljourney" : nativeOwlNest ? true :
         ["booking", "agoda", "airbnb", "ctrip"].includes(event.platform) &&
         /^[A-Za-z0-9-]{1,64}$/.test(event.externalOrderNo ?? "")) ||
       typeof event.guestName !== "string" || !event.guestName.trim() ||
@@ -70,11 +73,11 @@ export function validateManifest(manifest) {
       !/^[0-9a-f]{16}$/.test(order.sourceMessageId ?? "") ||
       ![order.bookingId, order.repairRequestKey].every((id) => UUID.test(id ?? "")) ||
       order.providerStatus !== "confirmed" ||
-      (owlJourney && (typeof order.providerGuestName !== "string" ||
+      (withoutOtaAlias && (typeof order.providerGuestName !== "string" ||
         !order.providerGuestName.trim() || order.providerGuestName.length > 200 ||
         !order.providerGuestName.replace(/\s+/g, "").startsWith(
           event.guestName.replace(/[\s*]/g, "")))) ||
-      (!owlJourney && order.providerGuestName !== undefined) ||
+      (!withoutOtaAlias && order.providerGuestName !== undefined) ||
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(order.providerCheckedAt ?? ""))
       throw Error("INVALID_REPAIR_ORDER");
     const match = SOURCE_VERSION.exec(event.sourceVersion);
@@ -85,7 +88,7 @@ export function validateManifest(manifest) {
     const effectiveTotalCents = order.providerTotalCents ?? event.totalCents;
     if (!Number.isSafeInteger(effectiveTotalCents) || effectiveTotalCents < 0 ||
       (order.providerTotalCents !== undefined &&
-        ((owlJourney ? event.totalCents !== effectiveTotalCents :
+        ((withoutOtaAlias ? event.totalCents !== effectiveTotalCents :
           event.totalCents - effectiveTotalCents !== 50) ||
           !Array.isArray(order.providerNightTotalsCents) ||
           order.providerNightTotalsCents.length !== cells.length ||
@@ -99,6 +102,18 @@ export function validateManifest(manifest) {
       new Date(order.providerCheckedAt).toISOString() !== order.providerCheckedAt ||
       Date.parse(order.providerCheckedAt) < Number(match[1]))
       throw Error("PROVIDER_CHECK_BEFORE_NOTICE");
+    if (nativeOwlNest && (order.providerOrderId !== event.externalOrderId.slice(2) ||
+      order.providerGuestName.replace(/\s+/g, "") !== event.guestName.replace(/\s+/g, "") ||
+      canonical(order.providerStays) !== canonical(event.stays) ||
+      order.providerTotalCents !== event.totalCents ||
+      typeof order.providerBookedAt !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(order.providerBookedAt) ||
+      !Number.isFinite(Date.parse(`${order.providerBookedAt}T00:00:00Z`)) ||
+      new Date(`${order.providerBookedAt}T00:00:00Z`).toISOString().slice(0,10) !== order.providerBookedAt ||
+      order.providerBookedAt > order.providerCheckedAt.slice(0,10)))
+      throw Error("NATIVE_PROVIDER_EVIDENCE_MISMATCH");
+    if (!nativeOwlNest && order.providerBookedAt !== undefined)
+      throw Error("UNEXPECTED_PROVIDER_BOOKING_DATE");
     for (const id of [order.originalRequestKey, order.bookingId,
       order.repairRequestKey, sourceKey]) {
       if (allIds.has(id)) throw Error("DUPLICATE_REPAIR_ID");
@@ -109,7 +124,7 @@ export function validateManifest(manifest) {
       if (allNights.has(key)) throw Error("OVERLAPPING_REPAIR_ORDERS");
       allNights.add(key);
     }
-    if (!owlJourney) {
+    if (!withoutOtaAlias) {
       if (allAliases.has(event.externalOrderNo)) throw Error("DUPLICATE_OTA_ALIAS");
       allAliases.add(event.externalOrderNo);
     }
@@ -227,7 +242,7 @@ BEGIN
       'version',1,'status','confirmed','channelSyncState','not_required',
       'channelOperationKey',NULL,'stays',e->'stays',
       'guestName',coalesce(o->>'providerGuestName',e->>'guestName'),'contact',NULL,'notes',NULL,
-      'totalCents',(o->>'effectiveTotalCents')::integer,'currency','TWD','bookedAt',NULL,
+      'totalCents',(o->>'effectiveTotalCents')::integer,'currency','TWD','bookedAt',o->>'providerBookedAt',
       'createdAt',at_iso,'source','external','sourceKey',source_key,
       'sourceCalendar',jsonb_build_object('platform',e->'platform',
         'externalOrderNo',e->'externalOrderNo'));
@@ -267,6 +282,14 @@ BEGIN
       'actorOrigin','source','actorClientId',original->>'clientId',
       'actorSubjectId',original->>'subjectId','actorGrantId',original->>'grantId',
       'requestKey',o->>'repairRequestKey');
+    IF o ? 'providerBookedAt' THEN
+      audit_json := audit_json || jsonb_build_object(
+        'dateEvidence','owlnest_order_detail',
+        'providerOrderId',o->>'providerOrderId',
+        'providerCheckedAt',o->>'providerCheckedAt',
+        'providerBookedAt',o->>'providerBookedAt',
+        'reconciledFromRequestKey',o->>'originalRequestKey');
+    END IF;
     IF (o->>'effectiveTotalCents')::integer <> (e->>'totalCents')::integer THEN
       audit_json := audit_json || jsonb_build_object(
         'sourceNoticeTotalCents',(e->>'totalCents')::integer,

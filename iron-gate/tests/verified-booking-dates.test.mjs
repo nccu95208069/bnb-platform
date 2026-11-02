@@ -35,3 +35,21 @@ test("owner date requires native OS booking, explicit attestation, valid day and
  for(const date of ["2026-02-30","2026-13-01","2026-11-13","2026/10/22"]){const m=structuredClone(manifest);m.entries[0].bookedAt=date;assert.throws(()=>prepareVerifiedDates(snapshot,m));}
  t.booking.bookedAt="2026-10-20";assert.throws(()=>prepareVerifiedDates(snapshot,manifest));
 });
+test("provider original date requires exact property, source identity and stays without changing notice time",()=>{
+ const {snapshot,manifest}=fixture(),t=snapshot[0].targets[0];t.booking.stays[0].checkOut="2026-11-13";
+ t.link.firstNewOrderNotification={schema:1,receivedAt:"2026-10-21T16:01:00.000Z",sourceVersion:t.link.sourceVersion,requestKey:t.receipts[0].key};
+ manifest.entries=[{kind:"provider-booking-date",propertyId:snapshot[0].property_id,bookingId:t.booking.id,
+  externalOrderId:"OBESYNTHETIC",providerPropertyId:snapshot[0].property_id,providerStatus:"active",bookedAt:"2026-10-21",
+  providerCheckIn:"2026-11-12",providerCheckOut:"2026-11-13",checkedAt:"2026-11-02T10:00:00Z",
+  evidenceType:"owlnest_order_list",evidenceRef:"synthetic-provider-row",evidenceSha256:"e".repeat(64)}];
+ const before=structuredClone(snapshot),plan=prepareVerifiedDates(snapshot,manifest);assert.deepEqual(snapshot,before);
+ assert.equal(plan.entries[0].bookedAt,"2026-10-21");assert.equal(plan.entries[0].notification,null);
+ const sql=verifiedDatesSql(plan);assert.match(sql,/DATE_REPAIR_PROVIDER_EVIDENCE_CHANGED/);
+ assert.match(sql,/lastAppliedBookingVersion.*replacement->'version'/);
+ for(const change of [{providerPropertyId:randomUUID()},{externalOrderId:"OTHER"},{providerCheckIn:"2026-11-11"},
+  {providerCheckOut:"2026-11-14"},{providerStatus:"cancelled"},{bookedAt:"2026-02-30"},{bookedAt:"2026-11-14"},
+  {evidenceSha256:""},{evidenceType:"notification_timestamp"}]){
+   const m=structuredClone(manifest);Object.assign(m.entries[0],change);assert.throws(()=>prepareVerifiedDates(snapshot,m),/VERIFIED_DATE_REPAIR_INVALID/);
+ }
+ t.link.lastAppliedBookingVersion=0;assert.throws(()=>prepareVerifiedDates(snapshot,manifest),/VERIFIED_DATE_REPAIR_INVALID/);
+});
