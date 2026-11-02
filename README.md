@@ -82,7 +82,7 @@ flowchart TD
 bnb-platform/
 ├── .github/workflows/
 │   ├── ci.yml                  # CI：lint + test（push / PR to main）
-│   └── cd.yml                  # CD：deploy（push to main）
+│   └── cd.yml                  # manual release instructions; no deployment
 ├── frontend/                   # Next.js 前端
 │   ├── src/
 │   │   ├── app/                # App Router 頁面

@@ -36,5 +36,8 @@
       "path": "/api/cron/calendar-observation",
       "schedule": "* 0 * * *"
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": false
+  }
 }

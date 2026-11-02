@@ -1,5 +1,7 @@
 # BnB SaaS / Sweetfun OS — Authoritative Work Context
 
+2026-11-02 production source integration: [main integration and release policy](docs/work-handoff/PRODUCTION_RELEASE_POLICY.md) preserves the recovered live calendar, device cache and renewal probe while retiring the demo push-to-main publisher. GitHub merge and production release are separate; the integration PR records final merge and live acceptance. This supersedes historical automatic-demo-deployment guidance.
+
 2026-10-29 Offland LINE booking: [provider-free create, amendment and cancellation with dedicated proof routing, exact-grant activation and recovery](docs/work-handoff/OFFLAND_LINE_BOOKING_2026-10-29.md). Isolated implementation candidate; no production credential or activation has been issued.
 
 2026-10-29 Offland retained orders: [same-order retention, cross-month pending list, rescheduling, immutable cash and recovery](docs/work-handoff/OFFLAND_RETAINED_ORDERS_2026-10-29.md). Owner-authorized implementation and isolated verification are complete, including PostgreSQL and desktop/mobile browser checks. The feature has a separate Offland booking grant and starts disabled; it has not been activated in production or used to mutate a real booking.

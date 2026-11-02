@@ -8,6 +8,20 @@ on:
   pull_request: {}
 
 jobs:
+  release-policy:
+    name: Production release policy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install PyYAML==6.0.3
+      - run: python scripts/check_release_policy.py
+      - run: python -m unittest discover -s scripts -p 'test_release_policy.py'
+
   iron-gate:
     name: Iron Gate
     runs-on: ubuntu-latest
@@ -128,6 +142,10 @@ jobs:
         run: |
           node --experimental-strip-types --loader ./tests/helpers/next-route-loader.mjs --test tests/calendar-session-request.test.mjs
           node --loader ./tests/helpers/customer-component-loader.mjs --test tests/calendar-access-bootstrap.test.mjs tests/calendar-performance-ui.test.mjs tests/calendar-prefetch-ui.test.mjs tests/calendar-resilience-ui.test.mjs
+      - name: Recovered device cache and cloud renewal regressions
+        run: |
+          node --experimental-strip-types --loader ./tests/helpers/next-route-loader.mjs --test tests/calendar-device-cache.test.mjs tests/offland-renewal-identity.test.mjs
+          node --loader ./tests/helpers/customer-component-loader.mjs --test tests/calendar-device-hydration-ui.test.mjs tests/calendar-device-auth.test.mjs
       - name: Offland retained orders and recovery regressions
         run: |
           node --experimental-strip-types --loader ./tests/helpers/next-route-loader.mjs --test tests/offland-retained.test.mjs tests/finance-retained-legacy.test.mjs
