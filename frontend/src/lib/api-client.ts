@@ -1,6 +1,7 @@
 import { getAccessToken } from "@/lib/supabase/auth";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "/api/v1";
+const NEXT_LOCAL_API_PREFIXES = ["/competitor-radar/"];
 
 export class ApiError extends Error {
   constructor(
@@ -10,6 +11,13 @@ export class ApiError extends Error {
     super(message);
     this.name = "ApiError";
   }
+}
+
+function apiUrl(path: string): string {
+  const base = NEXT_LOCAL_API_PREFIXES.some((prefix) => path.startsWith(prefix))
+    ? "/api/v1"
+    : API_BASE_URL;
+  return `${base}${path}`;
 }
 
 async function getAuthHeaders(): Promise<Record<string, string>> {
@@ -44,7 +52,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
 
 export const apiClient = {
   async get<T>(path: string): Promise<T> {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const res = await fetch(apiUrl(path), {
       headers: {
         "Content-Type": "application/json",
         ...(await getAuthHeaders()),
@@ -54,7 +62,7 @@ export const apiClient = {
   },
 
   async post<T>(path: string, body?: unknown): Promise<T> {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const res = await fetch(apiUrl(path), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -66,7 +74,7 @@ export const apiClient = {
   },
 
   async delete<T>(path: string): Promise<T> {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const res = await fetch(apiUrl(path), {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
@@ -77,7 +85,7 @@ export const apiClient = {
   },
 
   async upload<T>(path: string, formData: FormData): Promise<T> {
-    const res = await fetch(`${API_BASE_URL}${path}`, {
+    const res = await fetch(apiUrl(path), {
       method: "POST",
       headers: {
         ...(await getAuthHeaders()),
