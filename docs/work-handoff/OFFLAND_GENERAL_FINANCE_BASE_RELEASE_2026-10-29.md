@@ -1,0 +1,83 @@
+# Offland new general finance release candidate — 2026-10-29
+
+**Current state: production migrations 005–020 applied, including emergency revoke 019 and scoped activity read 020; no production connector, new finance credential, flag, finance deployment or new-ledger write.** This release slice lets Offland record *new* general income and expenses through its OS and the existing LINE OA into one Iron Gate ledger. Old Offland entries remain in their current source and old booking balances remain under review. Sweetfun's historical settlement and source cutover stay disabled.
+
+## Production execution checkpoint
+
+On 2026-10-29, the owner explicitly approved the Offland-only general-finance release. The existing healthy Iron Gate Supabase project was read back with migrations 001–003, zero `finance_%` tables, zero SSOT finance credentials and zero nonlegacy finance actions before any change. Source-controlled migrations 005, 006 and 007 were applied in order and each migration record was read back. At that checkpoint the readback was 20 `finance_%` tables. The latest production readback after 020 found all 26 `finance_%` tables empty, zero finance connectors, zero finance documents and zero SSOT finance credentials. No finance writer has been opened.
+
+Automatic approval review rejected the original migration 008 twice because its shared runtime role would gain finance table writes for any property context, broader than the approved Offland-only release. No alternate route was used. The owner chose to narrow the database write scope to Offland. The revised 008–018 passed local PostgreSQL scope tests and were applied to production in order; the scope table remains empty, so no new finance writer is active.
+
+Migration 013 also granted the shared runtime role direct `SELECT` on `audit_log`, conflicting with Iron Gate's startup safety guard. The calendar dependency returned 503 until the emergency production migration `finance_audit_read_emergency_revoke_019` removed that grant and the same healthy backend artifact was restarted. Migrations 019 and 020 are source-controlled. Production readback after 020 found `finance_activity_operations(uuid)` present, direct runtime `audit_log` SELECT absent, and zero scope rows, connectors, documents or events. No finance source or credential was provisioned during this repair. The combined OS and Iron Gate code remains a local candidate; no finance runtime or client flag has been activated.
+
+## Server-side scope
+
+The new Offland OS and LINE credentials are property- and connector-bound and carry `financeGeneralEntriesOnly:true`. Iron Gate accepts only unallocated `property_receipt` with `receipt_purpose=other` or `expense_paid`; it rejects lodging, deposits, extras, OTA payments, processor fees, refunds and booking allocations. Amend/void is limited to an active general document in that connector that has never had a booking allocation. A marked OS credential may create only `custom_*` categories through `finance:plan`; account, recurring, payout and operational-status writes are denied. The existing calendar and booking credentials remain separate. A later historical import into either general connector requires a fresh correction-scope review.
+
+The revised database policy starts with no property admitted for finance writes. At the coordinated cutover, an administrator seeds only Offland in `general_only` mode in the same transaction as its two source connectors. Restrictive row policies must then reject finance writes for every other property and reject non-general event kinds, booking allocations and unrelated plan/import tables even if the shared runtime role holds table privileges. A future property or broader finance mode needs its own explicit authorization and database change.
+
+The private grant package is prepared offline from a current Offland property/workspace/epoch readback and fixed connector candidate. Its issuance SQL holds only token hashes, rechecks live authority and connector configuration, rejects an existing finance document or duplicate active subject, and reads back each issued grant. The optional LINE grant also rechecks the active current OA group/actor authority. Plaintext credentials stay in private `0600` files and are delivered only to the respective service secret stores. The package expires after 28 days and needs planned renewal.
+
+## Release sequence
+
+1. Fix the reviewed code commit and require passing CI and local finance authorization, PostgreSQL, and frontend checks. The local PostgreSQL 15 fixture applied 001–003 and 005–018 and exercised finance commands under `iron_gate_runtime` RLS. A second run of hardened migration 015 added no new rows. The guarded empty-only rollback was tested on a separate disposable database, including refusal when any finance data or new finance credential exists; pre-existing `card:sync` and `finance:ledger` credentials do not prevent removal of an otherwise unused schema.
+2. Confirm the destination is the existing Iron Gate Supabase project and Vercel project. Production has migrations 001–003 and 005–020, with no finance connectors or documents. Skip 004: it changes a specific Sweetfun OS credential and is not a schema dependency. Migration 020 has been applied and read back; before enabling finance commands, recheck its activity function, the lack of direct runtime `audit_log` SELECT, and the existing booking/calendar authority contract. Migration 015 briefly locks `property_state`; its 5-second lock and 60-second statement timeout bounded the production attempt.
+3. Stage and inspect an exact Iron Gate production build before assigning its production alias. Configure a private finance preview secret and `IRON_GATE_FINANCE_COMMANDS_ENABLED=true` only when the schema and the activity read repair are ready. Keep native-ledger and historical-settlement flags off. With no finance connector or credential active yet, the new command routes cannot write. Verify the existing booking API and unauthorized finance requests before promotion. Read back both `iron-gate-green.vercel.app` and `iron-gate-sweetfuns-projects.vercel.app` aliases separately; the latter currently points to an older deployment. Verify the `/api/channel-worker` cron is bound to the promoted build, because an earlier staged deployment left it on the old build.
+4. After pausing old Offland OS and LINE finance writes and draining uncertain requests under their original keys, in one guarded transaction admit only Offland to the database finance write scope in `general_only` mode and provision its `os_manual` and `line_finance` connectors with their reviewed source-instance IDs, enabled and effective at the coordinated new-entry start. Keep `os_legacy_payment` disabled. Read back the sole scope row, connector configuration history and zero documents. Issue and read back the dedicated general-only grants only after those checks, then deliver each token through its service's secret configuration. No grant is published in Git or chat.
+5. With the old writers still paused, verify the new ledger is empty and source identities match, then enable the new general-entry routes for OS and LINE at the coordinated start. Old booking-linked receipts remain blocked. Exercise authenticated reads, preview without commit, denied booking receipt and cross-property access, and the OS/LINE UI with flags closed to ordinary writes until the shared start. Do not create a fake financial transaction for a smoke test. Observe the first real entry through request receipt, ledger and both client readbacks.
+
+The LINE release controller's full candidate still contains an unpinned configuration hash. A separate guard-only local commit (`77eef10`) now allows the old-writer pause guard to be staged without the dedicated finance grant, but it has not been pushed or deployed. Before step 4, verify that guard-only build and obtain this-run authorization for the exact old-writer pause and restore sequence; do not bypass the guard with an unreviewed traffic change. The separate retained-order feature stays disabled pending its own release authorization.
+
+## Recovery and open boundaries
+
+Before any new connector, SSOT credential or finance row exists, the guarded empty-only rollback can remove the new schema; it refuses after any such state appears. Existing legacy `card:sync` and `finance:ledger` grants are preserved by that rollback. After the first accepted new-ledger operation, pause new writes and reconcile forward from Iron Gate receipts rather than returning to the old OS/LINE writer. Old Offland finance and booking balances still require their own source-by-source reconciliation before they can be imported or treated as paid/unpaid. Sweetfun W7 keeps its separate final-watermark, historical-cash and owner cutover gates.
+
+The planned remote PG17 restore-drill migration was rejected by automatic approval review because that externally managed test project had not been explicitly authorized as disposable. No remote test database was changed. Migration 020 is applied, but code, grants, flags and release checks remain separate gates before any new finance writer is opened.
+
+## Dedicated LINE finance proof routing — 2026-10-30 candidate
+
+The Offland client signs with its independent finance operator key. The earlier
+backend runtime verified every non-booking LINE grant with the shared LINE key,
+so a correctly signed Offland finance read could return 401. Setting a finance
+secret alone did not change that routing. This repair adds an exact stored-grant
+route; it does not change the client key, shared key or financial authority.
+
+Set the complete production tuple before starting the repaired candidate:
+
+- `IRON_GATE_PRODUCTION_OFFLAND_LINE_FINANCE_PROOF_SECRET`
+- `IRON_GATE_PRODUCTION_OFFLAND_LINE_FINANCE_CREDENTIAL_ID`
+- `IRON_GATE_PRODUCTION_OFFLAND_LINE_FINANCE_GRANT_ID`
+- `IRON_GATE_PRODUCTION_OFFLAND_LINE_FINANCE_PROPERTY_ID`
+
+The secret is the existing client's dedicated finance proof key, exactly 43
+base64url characters, and must differ from the shared LINE, OS and dedicated
+booking keys. Identity values must match the existing finance credential; no new
+grant or database migration is required. A partial tuple, malformed identity or
+credential/grant collision with the booking tuple closes startup. Private/Preview
+processes use the same suffixes after `IRON_GATE_`; Production never falls back
+to those settings.
+
+Every stored LINE grant with `financeGeneralEntriesOnly:true`, and any grant
+matching either configured finance credential or grant ID, enters this dedicated
+gate. It requires both finance markers, the exact credential/grant/property
+tuple, only the general-finance action allowlist, money-only fields and no booking,
+inventory or provider-free capabilities. Missing configuration, altered markers,
+cross-property identity and mixed dedicated scopes are denied; the verifier never
+tries another key. New properties using this marker require their own reviewed
+dedicated configuration instead of inheriting the shared route. Existing legacy
+Sweetfun grants without this marker retain their shared-key behavior.
+
+The shared LINE key still signs server preview tokens. Booking proofs retain
+their separate key and exact tuple. Request method/path/query/body/idempotency,
+actor/group/workspace/epoch and stored-grant restrictions remain enforced by the
+existing verifier and authenticator.
+
+The new regression suite failed 9 of 10 cases against the old routing, then all 10
+passed with the repair; all 4 existing booking proof tests also pass. An independent
+review reran those 14 checks without a finding. TypeScript check/build and the full
+backend suite pass: 583 passing, 30 separate PostgreSQL cases skipped. The real GCO
+signer/client/Engine to synthetic backend loopback still produces three submissions
+and three receipts, recovers a lost response without resubmitting, and completes
+booking cancellation with no provider work or cross-property changes. Runtime
+readback belongs to the coordinated release. This section documents a code
+candidate, not a production deployment or financial write.

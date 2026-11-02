@@ -1,5 +1,11 @@
 # BnB Platform
 
+2026-10-11 OS-04: owner-approved OS and LINE rollout is complete. Sweetfun and OFFLAND reminders are enabled for Taipei 09:00, with separately labeled unconfirmed room-night summaries. The new scheduler returned HTTP 200; one authorized synthetic LINE message has a persisted provider receipt and was visibly received in LINE desktop. First automatic arrival-note dispatch is due October 12 and has not yet been observed; physical-phone and external-customer acceptance remain open. See [release evidence](docs/work-handoff/OS_READINESS_2026-10-10.md#正式-line-啟用--2026-10-11).
+
+Current product/deployment context: [WORK_CONTEXT.md](WORK_CONTEXT.md). The owner-approved calendar pilot is live at [the customer entry](https://sweetfun-os.vercel.app/join); see [production verification and limits](docs/work-handoff/CALENDAR_LIVE_ACCEPTANCE_2026-10-04.md#primary-domain-owner-pilot). The customer branch remains in draft PR #26. The older messaging subsystem overview below is historical context.
+
+Happy House native website integration is now deployed on the OS primary domain after direct owner authorization. Scoped Email/expiry scheduling and both partner deployments are enabled; the owner’s own calendar approval/LINE pairing and real delivery acceptance are tracked in [the website integration release record](docs/work-handoff/WEBSITE_BOOKING_API_2026-10-07.md).
+
 > 民宿多渠道 AI 智能客服平台 — Multi-channel AI-powered Customer Service Platform for BnB
 
 BnB Platform 是一套專為民宿業者設計的智能客服系統，透過 Channel Adapter 架構整合多種通訊渠道（LINE、未來支援 Facebook Messenger / Instagram / Email），結合 RAG 知識檢索與大型語言模型，自動回覆房客常見問題。管理員可透過 Dashboard 即時監控對話、接管回覆、管理知識庫。
@@ -76,7 +82,7 @@ flowchart TD
 bnb-platform/
 ├── .github/workflows/
 │   ├── ci.yml                  # CI：lint + test（push / PR to main）
-│   └── cd.yml                  # CD：deploy（push to main）
+│   └── cd.yml                  # manual release instructions; no deployment
 ├── frontend/                   # Next.js 前端
 │   ├── src/
 │   │   ├── app/                # App Router 頁面

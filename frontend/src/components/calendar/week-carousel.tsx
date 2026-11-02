@@ -1,7 +1,12 @@
 "use client";
+import {GuestNotificationButton} from "./guest-notification";
+import {useIntlLocale} from "@/components/i18n/language-provider";
+import {useT} from "@/components/i18n/language-provider";
 
+import { PaymentBadge } from "./payment-badge";
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 
+import { BookingIdentity, bookingIdentityText } from "./booking-identity";
 import { cn } from "@/lib/utils";
 
 import type {
@@ -11,6 +16,7 @@ import type {
 } from "./calendar-types";
 import {
   PAYMENT_DOT_STYLES,
+  paymentStateForReview,
   PLATFORM_STYLES,
   PROPERTY_DOT_STYLES,
   addDays,
@@ -42,16 +48,7 @@ function propertyById(properties: CalendarProperty[]) {
   return new Map(properties.map((property) => [property.id, property]));
 }
 
-function PaymentDot({ booking }: { booking: CalendarBooking }) {
-  return (
-    <span
-      className={cn(
-        "inline-block size-2 shrink-0 rounded-full",
-        PAYMENT_DOT_STYLES[booking.payment_status],
-      )}
-    />
-  );
-}
+function PaymentDot({ booking }: { booking: CalendarBooking }) { return <PaymentBadge booking={booking} />; }
 
 function MobileBookingChip({
   booking,
@@ -64,16 +61,18 @@ function MobileBookingChip({
   date: string;
   onSelect: (booking: CalendarBooking) => void;
 }) {
+  const uiText = useT();
   const nights = stayNightCount(booking);
   return (
-    <button
+    <div className="flex min-w-0 items-center gap-1"><button
       type="button"
+      data-payment-state={paymentStateForReview(booking)}
       onClick={() => onSelect(booking)}
       className={cn(
         "flex min-h-10 w-full min-w-0 items-center gap-1.5 rounded-md border px-2 py-1.5 text-left text-xs shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
       )}
-      title={`${booking.property_name}｜${booking.room_number}｜${booking.guest_name}`}
+      title={`${bookingIdentityText(booking)}｜${booking.property_name}｜${booking.check_in}–${booking.check_out}`}
     >
       {property ? (
         <span
@@ -85,17 +84,14 @@ function MobileBookingChip({
       ) : (
         <PaymentDot booking={booking} />
       )}
-      <span className="shrink-0 font-semibold">{booking.room_number}</span>
-      <span className="min-w-0 flex-1 truncate font-medium">
-        {booking.guest_name}
-      </span>
+      <BookingIdentity booking={booking} />
       {nights > 1 && (
-        <span className="shrink-0 rounded-full bg-background/75 px-1.5 py-0.5 text-[10px] font-semibold">
-          {stayProgressLabel(booking, date) ?? `${nights} 晚`}
+        <span className="shrink-0 rounded-full bg-white/20 text-inherit px-1.5 py-0.5 text-[0.625rem] font-semibold">
+          {uiText(stayProgressLabel(booking, date) ?? `連住 ${nights} 晚`)}
         </span>
       )}
       <PaymentDot booking={booking} />
-    </button>
+    </button><GuestNotificationButton booking={booking} /></div>
   );
 }
 
@@ -108,6 +104,10 @@ function MobileWeekPanel({
 }: Omit<WeekCarouselProps, "anchorDate" | "onNavigateWeek" | "rooms"> & {
   weekStart: string;
 }) {
+const uiLocale = useIntlLocale();
+
+  const uiText = useT();
+
   const days = dateRange(weekStart, addDays(weekStart, 7));
   const today = localTodayIso();
   const propertyMap = useMemo(() => propertyById(properties), [properties]);
@@ -141,14 +141,14 @@ function MobileWeekPanel({
               >
                 <span>
                   <span className="text-xs text-muted-foreground">
-                    {formatWeekday(date, true)}
+                    {formatWeekday(date, true, uiLocale)}
                   </span>
                   <span className="ml-2 text-sm font-semibold">
                     {formatShortDate(date)}
                   </span>
                 </span>
-                <span className="text-[11px] text-muted-foreground">
-                  入 {arrivals.length} · 退 {departures.length}
+                <span className="text-[0.6875rem] text-muted-foreground">
+                  {uiText("入")}{arrivals.length} {uiText("· 退")}{departures.length}
                 </span>
               </button>
               <div className="mt-2 space-y-1.5">
@@ -163,8 +163,7 @@ function MobileWeekPanel({
                 ))}
                 {visible.length === 0 && (
                   <p className="py-2 text-center text-xs text-muted-foreground">
-                    沒有住宿中的訂單
-                  </p>
+                    {uiText("沒有住宿中的訂單")}</p>
                 )}
               </div>
             </section>
@@ -185,6 +184,10 @@ function DesktopWeekTimeline({
 }: Omit<WeekCarouselProps, "anchorDate" | "onNavigateWeek"> & {
   currentWeek: string;
 }) {
+const uiLocale = useIntlLocale();
+
+  const uiText = useT();
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const propertyMap = useMemo(() => propertyById(properties), [properties]);
   const rangeStart = addDays(currentWeek, -7);
@@ -210,7 +213,7 @@ function DesktopWeekTimeline({
       <div
         ref={scrollRef}
         className="overflow-x-auto overscroll-x-contain"
-        aria-label="連續三週訂單時間軸"
+        aria-label={uiText("連續三週訂單時間軸")}
       >
         <div className="min-w-max">
           <div
@@ -218,8 +221,7 @@ function DesktopWeekTimeline({
             style={{ gridTemplateColumns }}
           >
             <div className="sticky left-0 z-30 flex items-center border-r bg-muted px-3 py-3 text-xs font-semibold text-muted-foreground">
-              旅宿／房間
-            </div>
+              {uiText("旅宿／房間")}</div>
             {days.map((date, index) => {
               const inCurrentWeek = index >= 7 && index < 14;
               return (
@@ -234,8 +236,8 @@ function DesktopWeekTimeline({
                     date === today && "bg-primary/[0.08]",
                   )}
                 >
-                  <p className="truncate text-[11px] text-muted-foreground">
-                    {formatWeekday(date, true)}
+                  <p className="truncate text-[0.6875rem] text-muted-foreground">
+                    {formatWeekday(date, true, uiLocale)}
                   </p>
                   <p className="mt-1 truncate text-sm font-semibold">
                     {formatShortDate(date)}
@@ -274,7 +276,7 @@ function DesktopWeekTimeline({
                     />
                   )}
                   <div className="min-w-0">
-                    <p className="truncate text-[11px] text-muted-foreground">
+                    <p className="truncate text-[0.6875rem] text-muted-foreground">
                       {property?.short_name}
                     </p>
                     <p className="truncate text-sm font-semibold">{room.label}</p>
@@ -306,21 +308,20 @@ function DesktopWeekTimeline({
                   const endIndex = dayDifference(clippedEnd, rangeStart);
                   const nights = stayNightCount(booking);
                   return (
-                    <button
+                    <div
                       key={booking.id}
-                      type="button"
-                      onClick={() => onSelectBooking(booking)}
+                      data-payment-state={paymentStateForReview(booking)}
                       className={cn(
-                        "z-20 mx-1 my-2 flex h-10 min-w-0 self-center overflow-hidden rounded-lg border px-2.5 text-left text-xs shadow-sm transition hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "z-20 mx-1 my-2 flex min-h-10 py-2 min-w-0 self-center rounded-lg border px-2.5 text-left text-xs shadow-sm transition hover:brightness-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
                       )}
                       style={{
                         gridColumn: `${startIndex + 2} / ${Math.max(startIndex + 3, endIndex + 2)}`,
                         gridRow: 1,
                       }}
-                      title={`${booking.guest_name}｜${booking.check_in}–${booking.check_out}｜連住 ${nights} 晚`}
+                      title={uiText("{0}｜{1}｜{2}–{3}｜連住 {4} 晚", [bookingIdentityText(booking),booking.property_name,booking.check_in,booking.check_out,nights])}
                     >
-                      <span className="flex min-w-0 flex-1 items-center gap-2">
+                      <button type="button" onClick={() => onSelectBooking(booking)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
                         <span
                           className={cn(
                             "size-2 shrink-0 rounded-sm",
@@ -329,20 +330,14 @@ function DesktopWeekTimeline({
                               : PAYMENT_DOT_STYLES[booking.payment_status],
                           )}
                         />
-                        <span className="shrink-0 font-semibold">
-                          {booking.room_number}
-                        </span>
-                        <span className="min-w-0 truncate font-medium">
-                          {booking.guest_name}
-                        </span>
+                        <BookingIdentity booking={booking} />
                         {nights > 1 && (
-                          <span className="ml-auto shrink-0 rounded-full bg-background/75 px-1.5 py-0.5 text-[10px] font-semibold">
-                            連住 {nights} 晚
-                          </span>
+                          <span className="ml-auto shrink-0 rounded-full bg-white/20 text-inherit px-1.5 py-0.5 text-[0.625rem] font-semibold">
+                            {uiText("連住")}{nights} {uiText("晚")}</span>
                         )}
                         <PaymentDot booking={booking} />
-                      </span>
-                    </button>
+                      </button><GuestNotificationButton booking={booking} />
+                    </div>
                   );
                 })}
               </div>

@@ -4,8 +4,11 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { supabase } from "@/lib/supabase/client";
+import type { CalendarSessionData } from "@/lib/workspace-auth/session";
+import { CALENDAR_DEVICE_CACHE_EVENT, clearCalendarDeviceCache } from "@/lib/calendar-device-cache";
 
 export type WorkspaceRole =
+  | "god"
   | "owner"
   | "admin"
   | "housekeeper"
@@ -36,6 +39,9 @@ export type AccessMembership = {
 };
 
 export type WorkspaceMember = {
+  mustResetPassword?: boolean;
+  version?: number;
+  invitationStatus?: "pending" | "sent" | "failed" | null;
   id: string;
   displayName: string;
   email: string | null;
@@ -54,7 +60,7 @@ export type SaveWorkspaceMemberInput = {
   displayName: string;
   email: string;
   phone: string;
-  role: Exclude<WorkspaceRole, "owner">;
+  role: Exclude<WorkspaceRole, "owner" | "god">;
   allProperties: boolean;
   propertyIds: string[];
 };
@@ -63,6 +69,11 @@ export const ROLE_DEFINITIONS: Record<
   WorkspaceRole,
   { label: string; description: string; permissions: RolePermissions }
 > = {
+  god: {
+    label: "系統商 God",
+    description: "系統商最高權限，可管理工作區內所有旅宿；不由一般成員管理介面異動。",
+    permissions: { manageMembers: true, editBookings: true, recordPayments: true, cancelBookings: true, viewPrices: true },
+  },
   owner: {
     label: "擁有者",
     description: "管理所有旅宿、訂單、款項與成員權限。",
@@ -75,10 +86,10 @@ export const ROLE_DEFINITIONS: Record<
     },
   },
   admin: {
-    label: "Admin",
-    description: "可管理訂單、款項與取消，但不能變更成員權限。",
+    label: "管理者（Admin）",
+    description: "管理營運、成員、密碼與寄信設定；不能移除擁有者或停用 Admin。",
     permissions: {
-      manageMembers: false,
+      manageMembers: true,
       editBookings: true,
       recordPayments: true,
       cancelBookings: true,
@@ -120,6 +131,7 @@ export const ROLE_DEFINITIONS: Record<
   },
 };
 
+const LIVE_SHEET = process.env.NEXT_PUBLIC_CALENDAR_SOURCE === "sheet_snapshot";
 const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 const DEMO_TENANT_ID = "demo-sweetfun-workspace";
 
@@ -215,31 +227,100 @@ function demoId() {
 }
 
 type AccessControlState = {
+  requiresPasswordReset: boolean;
   initialized: boolean;
   loading: boolean;
   error: string | null;
   membership: AccessMembership | null;
   previewRole: WorkspaceRole | null;
   members: WorkspaceMember[];
-  initialize: () => Promise<void>;
+  sessionVerifiedAt: number;
+  sessionGeneration: number;
+  sessionLoading: boolean;
+  bootstrapSession: CalendarSessionData | null;
+  bootstrap: (session: CalendarSessionData) => void;
+  initialize: (options?: { force?: boolean }) => Promise<void>;
   refreshMembers: () => Promise<void>;
+  mailConfigured: boolean;
   saveMember: (input: SaveWorkspaceMemberInput) => Promise<void>;
   setMemberStatus: (memberId: string, status: WorkspaceMemberStatus) => Promise<void>;
   setPreviewRole: (role: WorkspaceRole | null) => void;
-  reset: () => void;
+  reset: (options?: { clearDeviceCache?: boolean; preserveBootstrap?: boolean }) => void;
 };
+
+const cacheListenerWindows = new WeakSet<Window>();
+function listenForCalendarCacheClear() {
+  if (typeof window === 'undefined' || typeof window.addEventListener !== 'function' || cacheListenerWindows.has(window)) return;
+  cacheListenerWindows.add(window);
+  window.addEventListener(CALENDAR_DEVICE_CACHE_EVENT, event => {
+    const state = useAccessControl.getState();
+    const remote = Boolean((event as CustomEvent<{ remote?: boolean }>).detail?.remote);
+    // A different tab can complete logout while this tab is still displaying
+    // a verified in-memory calendar. Hide that view before any asynchronous check.
+    if (state.membership || state.sessionLoading || state.bootstrapSession)
+      state.reset({ clearDeviceCache: false, preserveBootstrap: remote });
+    if (remote)
+      void useAccessControl.getState().initialize({ force: true });
+  });
+}
+function calendarIdentity(member: AccessMembership | null) {
+  return member ? JSON.stringify([member.tenantId, member.id, member.role, member.status,
+    member.allProperties, [...member.propertyIds].sort(), (member as AccessMembership & { viewPrices?: boolean }).viewPrices]) : null;
+}
+function clearChangedCalendarIdentity(previous: AccessMembership | null, next: AccessMembership | null) {
+  if (!next || previous && calendarIdentity(previous) !== calendarIdentity(next))
+    void clearCalendarDeviceCache({ notify: false, broadcast: Boolean(previous) });
+}
 
 export const useAccessControl = create<AccessControlState>()(
   persist(
     (set, get) => ({
+      requiresPasswordReset: false,
       initialized: false,
+      mailConfigured: false,
       loading: false,
       error: null,
-      membership: DEMO_MODE ? DEMO_OWNER : null,
+      membership: DEMO_MODE && !LIVE_SHEET ? DEMO_OWNER : null,
       previewRole: null,
-      members: DEMO_MODE ? DEFAULT_DEMO_MEMBERS : [],
+      members: DEMO_MODE && !LIVE_SHEET ? DEFAULT_DEMO_MEMBERS : [],
+      sessionVerifiedAt: 0,
+      sessionGeneration: 0,
+      sessionLoading: false,
+      bootstrapSession: null,
+      bootstrap: (session) => {
+        if (!LIVE_SHEET) return;
+        listenForCalendarCacheClear();
+        clearChangedCalendarIdentity(get().membership, session.membership);
+        set({ bootstrapSession: session, sessionGeneration: get().sessionGeneration + 1,
+          sessionVerifiedAt: Date.now(), initialized: true, loading: false, sessionLoading: false, error: null,
+          requiresPasswordReset: Boolean(session.requires_password_reset),
+          membership: session.membership, members: [], previewRole: null });
+      },
 
-      initialize: async () => {
+      initialize: async (options) => {
+        if (LIVE_SHEET) {
+          listenForCalendarCacheClear();
+          if (get().sessionLoading) return;
+          if (!options?.force && get().initialized && Date.now() - get().sessionVerifiedAt < 30_000) return;
+          const generation = get().sessionGeneration;
+          // Owner requested removal of the three browser-only test members.
+          try { window.localStorage.removeItem("sweetfun-os-access-control"); } catch { /* Storage can be unavailable. */ }
+          set({ loading: true, sessionLoading: true });
+          try {
+            const response = await fetch("/api/calendar-session", { cache: "no-store" });
+            const data = await response.json();
+            if (generation !== get().sessionGeneration) return;
+            if (!response.ok) throw new Error(data.detail || "無法確認登入");
+            clearChangedCalendarIdentity(get().membership, data.membership ?? null);
+            set({ sessionVerifiedAt: Date.now(), requiresPasswordReset: Boolean(data.requires_password_reset), membership: data.membership ?? null, initialized: true, loading: false, sessionLoading: false, error: null,
+              ...(data.membership?.role !== "owner" ? { previewRole: null, members: [] } : {}) });
+          } catch (error) {
+            if (generation !== get().sessionGeneration) return;
+            clearChangedCalendarIdentity(get().membership, null);
+            set({ sessionVerifiedAt: 0, membership: null, members: [], previewRole: null, initialized: true, loading: false, sessionLoading: false, error: error instanceof Error ? error.message : "無法確認登入" });
+          }
+          return;
+        }
         if (get().initialized) return;
         if (DEMO_MODE) {
           set({ initialized: true, membership: DEMO_OWNER, error: null });
@@ -266,6 +347,17 @@ export const useAccessControl = create<AccessControlState>()(
       },
 
       refreshMembers: async () => {
+        if (LIVE_SHEET) {
+          if (!["owner", "admin", "god"].includes(get().membership?.role ?? "")) return;
+          set({ loading: true });
+          try {
+            const response = await fetch("/api/workspace-members", { cache: "no-store" });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.detail || "無法讀取成員");
+            set({ members: data.members, mailConfigured: data.mail.configured, loading: false, error: null });
+          } catch (error) { set({ members: [], loading: false, error: error instanceof Error ? error.message : "無法讀取成員" }); }
+          return;
+        }
         const membership = get().membership;
         if (!membership) return;
         if (DEMO_MODE) return;
@@ -291,6 +383,14 @@ export const useAccessControl = create<AccessControlState>()(
           throw new Error("只有擁有者可以調整成員權限");
         }
 
+        if (LIVE_SHEET) {
+          const current = get().members.find(m => m.id === input.id);
+          const response = await fetch("/api/workspace-members", { method: input.id ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, version: current?.version }) });
+          const data = await response.json();
+          await get().refreshMembers();
+          if (!response.ok) throw new Error(data.detail || (data.delivery === "failed" ? "成員已保存，但邀請信尚未確認寄出，請檢查寄信設定後重寄。" : "無法儲存成員"));
+          return;
+        }
         if (DEMO_MODE) {
           const now = new Date().toISOString();
           set((state) => {
@@ -336,6 +436,14 @@ export const useAccessControl = create<AccessControlState>()(
       },
 
       setMemberStatus: async (memberId, status) => {
+        if (LIVE_SHEET) {
+          const member = get().members.find(m => m.id === memberId);
+          const response = await fetch("/api/workspace-members", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: memberId, status, version: member?.version }) });
+          const data = await response.json();
+          await get().refreshMembers();
+          if (!response.ok) throw new Error(data.detail || "無法更新成員");
+          return;
+        }
         const membership = get().membership;
         if (!membership) throw new Error("尚未取得旅宿權限");
         if (!ROLE_DEFINITIONS[membership.role].permissions.manageMembers) {
@@ -359,23 +467,37 @@ export const useAccessControl = create<AccessControlState>()(
         await get().refreshMembers();
       },
 
-      setPreviewRole: (previewRole) => set({ previewRole }),
+      setPreviewRole: (previewRole) => set({ previewRole: !LIVE_SHEET || get().membership?.role === "owner" ? previewRole : null }),
 
-      reset: () =>
+      reset: (options) => {
+        listenForCalendarCacheClear();
         set({
-          initialized: DEMO_MODE,
+          sessionGeneration: get().sessionGeneration + 1,
+          sessionVerifiedAt: 0,
+          sessionLoading: false,
+          bootstrapSession: options?.preserveBootstrap ? get().bootstrapSession : null,
+          requiresPasswordReset: false,
+          initialized: DEMO_MODE && !LIVE_SHEET,
           loading: false,
           error: null,
-          membership: DEMO_MODE ? DEMO_OWNER : null,
+          membership: DEMO_MODE && !LIVE_SHEET ? DEMO_OWNER : null,
           previewRole: null,
-          members: DEMO_MODE ? DEFAULT_DEMO_MEMBERS : [],
-        }),
+          members: DEMO_MODE && !LIVE_SHEET ? DEFAULT_DEMO_MEMBERS : [],
+        });
+        if (options?.clearDeviceCache !== false) void clearCalendarDeviceCache();
+      },
     }),
     {
-      name: "sweetfun-os-access-control",
+      name: LIVE_SHEET ? "sweetfun-os-account-ui-v1" : "sweetfun-os-access-control",
+      merge: (persisted, current) => ({
+        ...current,
+        ...(persisted as Partial<AccessControlState>),
+        ...(LIVE_SHEET ? { previewRole: null, members: [] } : {}),
+      }),
       partialize: (state) => ({
-        previewRole: state.previewRole,
-        members: DEMO_MODE ? state.members : [],
+        // A permission preview is temporary; never restore it after a reload/login.
+        previewRole: LIVE_SHEET ? null : state.previewRole,
+        members: DEMO_MODE && !LIVE_SHEET ? state.members : [],
       }),
     },
   ),
@@ -383,19 +505,19 @@ export const useAccessControl = create<AccessControlState>()(
 
 export function useActorPermissions() {
   return useAccessControl((state) =>
-    ROLE_DEFINITIONS[state.membership?.role ?? "viewer"].permissions,
+    ROLE_DEFINITIONS[state.membership?.role ?? (LIVE_SHEET ? "viewer_no_price" : "viewer")].permissions,
   );
 }
 
 export function useEffectiveRole() {
   return useAccessControl(
-    (state) => state.previewRole ?? state.membership?.role ?? "viewer",
+    (state) => (state.membership?.role === "owner" || !LIVE_SHEET ? state.previewRole : null) ?? state.membership?.role ?? (LIVE_SHEET ? "viewer_no_price" : "viewer"),
   );
 }
 
 export function useEffectivePermissions() {
   return useAccessControl((state) => {
-    const role = state.previewRole ?? state.membership?.role ?? "viewer";
+    const role = (state.membership?.role === "owner" || !LIVE_SHEET ? state.previewRole : null) ?? state.membership?.role ?? (LIVE_SHEET ? "viewer_no_price" : "viewer");
     return ROLE_DEFINITIONS[role].permissions;
   });
 }

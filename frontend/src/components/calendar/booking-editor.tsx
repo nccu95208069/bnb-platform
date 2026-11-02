@@ -1,6 +1,12 @@
 "use client";
+import {GuestNotificationButton} from "./guest-notification";
+import {useIntlLocale} from "@/components/i18n/language-provider";
+import {useT} from "@/components/i18n/language-provider";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { GuestRemarks } from "./booking-identity";
+import { BookingSourceNotes } from "./booking-source-notes";
+import { CopyableValue } from "./copyable-value";
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   Baby,
   Banknote,
@@ -64,6 +70,7 @@ import {
   PLATFORM_STYLES,
   formatDate,
   formatMoney,
+  paymentDisplayLabel,
   stayNightCount,
 } from "./calendar-utils";
 
@@ -88,17 +95,15 @@ export type UpdateBookingInput = {
   serviceNote: string;
 };
 
-const PAYMENT_LABELS = {
-  paid: "已付清",
-  deposit: "已付訂金",
-  unpaid: "未付款",
-} as const;
+function DetailRow({ label, value }: { label: string; value: ReactNode }) {
+  const uiText = useT();
 
-function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid grid-cols-[88px_1fr] gap-3 py-3 text-sm">
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd className="min-w-0 break-words font-medium text-foreground">{value}</dd>
+      <dt className="text-muted-foreground">{uiText(label)}</dt>
+      <dd className="min-w-0 break-words font-medium text-foreground">
+        {value}
+      </dd>
     </div>
   );
 }
@@ -119,6 +124,10 @@ function PaymentDialog({
   onOpenChange: (open: boolean) => void;
   onConfirm: (input: RecordPaymentInput) => void;
 }) {
+const uiLocale = useIntlLocale();
+
+  const uiText = useT();
+
   const [step, setStep] = useState<"form" | "confirm">("form");
   const [amount, setAmount] = useState("");
   const [paymentType, setPaymentType] = useState<PaymentType>("deposit");
@@ -160,45 +169,47 @@ function PaymentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>登記付款</DialogTitle>
+          <DialogTitle>{uiText("登記付款")}</DialogTitle>
           <DialogDescription>
             {step === "form"
-              ? "填寫實際收到的款項、方式與日期。"
-              : "請確認這次修改是否正確。"}
+              ? uiText("填寫實際收到的款項、方式與日期。")
+              : uiText("請確認這次修改是否正確。")}
           </DialogDescription>
         </DialogHeader>
 
         {step === "form" ? (
           <form onSubmit={submitForm} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="payment-amount">金額</Label>
+              <Label htmlFor="payment-amount">{uiText("金額")}</Label>
               <Input
                 id="payment-amount"
                 inputMode="numeric"
                 value={amount}
                 onChange={(event) => setAmount(event.target.value)}
-                placeholder="例如 2000"
+                placeholder={uiText("例如 2000")}
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label>款項類型</Label>
+                <Label>{uiText("款項類型")}</Label>
                 <Select
                   value={paymentType}
-                  onValueChange={(value) => setPaymentType(value as PaymentType)}
+                  onValueChange={(value) =>
+                    setPaymentType(value as PaymentType)
+                  }
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="deposit">訂金</SelectItem>
-                    <SelectItem value="balance">尾款</SelectItem>
-                    <SelectItem value="other">其他款項</SelectItem>
+                    <SelectItem value="deposit">{uiText("訂金")}</SelectItem>
+                    <SelectItem value="balance">{uiText("尾款")}</SelectItem>
+                    <SelectItem value="other">{uiText("其他款項")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>付款方式</Label>
+                <Label>{uiText("付款方式")}</Label>
                 <Select
                   value={paymentMethod}
                   onValueChange={(value) =>
@@ -209,15 +220,15 @@ function PaymentDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="cash">現金</SelectItem>
-                    <SelectItem value="bank_transfer">匯款</SelectItem>
-                    <SelectItem value="credit_card">信用卡</SelectItem>
+                    <SelectItem value="cash">{uiText("現金")}</SelectItem>
+                    <SelectItem value="bank_transfer">{uiText("匯款")}</SelectItem>
+                    <SelectItem value="credit_card">{uiText("信用卡")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="payment-date">實際收款日</Label>
+              <Label htmlFor="payment-date">{uiText("實際收款日")}</Label>
               <Input
                 id="payment-date"
                 type="date"
@@ -231,38 +242,35 @@ function PaymentDialog({
                 variant="outline"
                 onClick={() => onOpenChange(false)}
               >
-                取消
-              </Button>
+                {uiText("取消")}</Button>
               <Button type="submit" disabled={!isValid}>
-                下一步
-              </Button>
+                {uiText("下一步")}</Button>
             </DialogFooter>
           </form>
         ) : (
           <div className="space-y-4">
             <div className="rounded-xl border bg-muted/35 p-4 text-sm">
               <div className="flex items-center justify-between py-1">
-                <span className="text-muted-foreground">金額</span>
-                <strong>{formatMoney(numericAmount)}</strong>
+                <span className="text-muted-foreground">{uiText("金額")}</span>
+                <strong>{formatMoney(numericAmount, uiLocale)}</strong>
               </div>
               <div className="flex items-center justify-between py-1">
-                <span className="text-muted-foreground">款項</span>
-                <strong>{PAYMENT_TYPE_LABELS[paymentType]}</strong>
+                <span className="text-muted-foreground">{uiText("款項")}</span>
+                <strong>{uiText(PAYMENT_TYPE_LABELS[paymentType])}</strong>
               </div>
               <div className="flex items-center justify-between py-1">
-                <span className="text-muted-foreground">方式</span>
-                <strong>{PAYMENT_METHOD_LABELS[paymentMethod]}</strong>
+                <span className="text-muted-foreground">{uiText("方式")}</span>
+                <strong>{uiText(PAYMENT_METHOD_LABELS[paymentMethod])}</strong>
               </div>
               <div className="flex items-center justify-between py-1">
-                <span className="text-muted-foreground">收款日</span>
-                <strong>{formatDate(receivedAt)}</strong>
+                <span className="text-muted-foreground">{uiText("收款日")}</span>
+                <strong>{formatDate(receivedAt, uiLocale)}</strong>
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setStep("form")}>
-                返回修改
-              </Button>
-              <Button onClick={confirm}>是，確認登記</Button>
+                {uiText("返回修改")}</Button>
+              <Button onClick={confirm}>{uiText("是，確認登記")}</Button>
             </DialogFooter>
           </div>
         )}
@@ -288,6 +296,10 @@ function EditBookingDialog({
   onOpenChange: (open: boolean) => void;
   onConfirm: (input: UpdateBookingInput) => void;
 }) {
+const uiLocale = useIntlLocale();
+
+  const uiText = useT();
+
   const [step, setStep] = useState<"form" | "confirm">("form");
   const [guestName, setGuestName] = useState(booking.guest_name);
   const [roomId, setRoomId] = useState(booking.room_id);
@@ -310,7 +322,9 @@ function EditBookingDialog({
   const [availabilityBookings, setAvailabilityBookings] = useState<
     CalendarBooking[]
   >([]);
-  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(
+    null,
+  );
 
   const propertyRooms = useMemo(
     () => rooms.filter((room) => room.property_id === booking.property_id),
@@ -445,18 +459,18 @@ function EditBookingDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>編輯訂單資料</DialogTitle>
+          <DialogTitle>{uiText("編輯訂單資料")}</DialogTitle>
           <DialogDescription>
             {step === "form"
-              ? "房間選單會依入住區間即時標示可用與衝突房間。"
-              : "請確認住宿、房間與入住需求。"}
+              ? uiText("房間選單會依入住區間即時標示可用與衝突房間。")
+              : uiText("請確認住宿、房間與入住需求。")}
           </DialogDescription>
         </DialogHeader>
 
         {step === "form" ? (
           <form onSubmit={submitForm} className="space-y-5">
             <div className="space-y-2">
-              <Label htmlFor="edit-guest">房客姓名</Label>
+              <Label htmlFor="edit-guest">{uiText("房客姓名")}</Label>
               <Input
                 id="edit-guest"
                 value={guestName}
@@ -466,7 +480,7 @@ function EditBookingDialog({
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-2">
-                <Label htmlFor="edit-check-in">入住日</Label>
+                <Label htmlFor="edit-check-in">{uiText("入住日")}</Label>
                 <Input
                   id="edit-check-in"
                   type="date"
@@ -475,7 +489,7 @@ function EditBookingDialog({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-check-out">退房日</Label>
+                <Label htmlFor="edit-check-out">{uiText("退房日")}</Label>
                 <Input
                   id="edit-check-out"
                   type="date"
@@ -487,12 +501,11 @@ function EditBookingDialog({
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <Label>房間</Label>
+                <Label>{uiText("房間")}</Label>
                 {availabilityState === "loading" && (
                   <span className="flex items-center gap-1 text-xs text-muted-foreground">
                     <LoaderCircle className="size-3 animate-spin" />
-                    檢查房況
-                  </span>
+                    {uiText("檢查房況")}</span>
                 )}
               </div>
               <Select value={roomId} onValueChange={setRoomId}>
@@ -503,9 +516,15 @@ function EditBookingDialog({
                   {propertyRooms.map((room) => {
                     const conflict = roomConflicts.get(room.id);
                     return (
-                      <SelectItem key={room.id} value={room.id} disabled={Boolean(conflict)}>
+                      <SelectItem
+                        key={room.id}
+                        value={room.id}
+                        disabled={Boolean(conflict)}
+                      >
                         {room.label}
-                        {conflict ? ` · 已被 ${conflict.guest_name} 預訂` : " · 可用"}
+                        {conflict
+                          ? uiText(" · 已被 {0} 預訂", [conflict.guest_name])
+                          : uiText(" · 可用")}
                       </SelectItem>
                     );
                   })}
@@ -514,25 +533,24 @@ function EditBookingDialog({
 
               {availabilityError && (
                 <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                  無法確認房況：{availabilityError}。為避免超賣，目前不能儲存。
-                </p>
+                  {uiText("無法確認房況：")}{availabilityError}{uiText("。為避免超賣，目前不能儲存。")}</p>
               )}
               {selectedConflict && (
                 <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                  {selectedRoom?.label} 與 {selectedConflict.guest_name}（
-                  {formatDate(selectedConflict.check_in)}–{formatDate(selectedConflict.check_out)}）重疊，已擋下修改。
-                </p>
+                  {selectedRoom?.label} {uiText("與")}{selectedConflict.guest_name}（
+                  {formatDate(selectedConflict.check_in, uiLocale)}–
+                  {formatDate(selectedConflict.check_out, uiLocale)}{uiText("）重疊，已擋下修改。")}</p>
               )}
               {availabilityState === "ready" && unavailableRooms.length > 0 && (
                 <p className="text-xs text-muted-foreground">
-                  此區間不可用：{unavailableRooms.map((room) => room.label).join("、")}
+                  {uiText("此區間不可用：")}{unavailableRooms.map((room) => room.label).join("、")}
                 </p>
               )}
             </div>
 
             {viewPrices && (
               <div className="space-y-2">
-                <Label htmlFor="edit-rate">房費</Label>
+                <Label htmlFor="edit-rate">{uiText("房費")}</Label>
                 <Input
                   id="edit-rate"
                   inputMode="numeric"
@@ -544,15 +562,14 @@ function EditBookingDialog({
 
             <section className="space-y-3 rounded-xl border p-4">
               <div>
-                <h3 className="font-semibold">入住需求</h3>
+                <h3 className="font-semibold">{uiText("入住需求")}</h3>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  加人、加床與寵物使用結構化數量；特殊細節再寫入備註。
-                </p>
+                  {uiText("加人、加床與寵物使用結構化數量；特殊細節再寫入備註。")}</p>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
                 <div className="space-y-2">
-                  <Label htmlFor="extra-guests">加人</Label>
+                  <Label htmlFor="extra-guests">{uiText("加人")}</Label>
                   <Input
                     id="extra-guests"
                     type="number"
@@ -562,7 +579,7 @@ function EditBookingDialog({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="extra-beds">加床</Label>
+                  <Label htmlFor="extra-beds">{uiText("加床")}</Label>
                   <Input
                     id="extra-beds"
                     type="number"
@@ -572,7 +589,7 @@ function EditBookingDialog({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="pets">寵物</Label>
+                  <Label htmlFor="pets">{uiText("寵物")}</Label>
                   <Input
                     id="pets"
                     type="number"
@@ -584,37 +601,39 @@ function EditBookingDialog({
               </div>
 
               <div className="space-y-2">
-                <Label>嬰兒用品</Label>
+                <Label>{uiText("嬰兒用品")}</Label>
                 <div className="flex flex-wrap gap-2">
-                  {(Object.keys(BABY_SUPPLY_LABELS) as BabySupplyKey[]).map((supply) => {
-                    const selected = babySupplies.includes(supply);
-                    return (
-                      <button
-                        key={supply}
-                        type="button"
-                        onClick={() => toggleSupply(supply)}
-                        className={cn(
-                          "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium",
-                          selected
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "bg-background text-muted-foreground",
-                        )}
-                      >
-                        {selected && <Check className="size-3" />}
-                        {BABY_SUPPLY_LABELS[supply]}
-                      </button>
-                    );
-                  })}
+                  {(Object.keys(BABY_SUPPLY_LABELS) as BabySupplyKey[]).map(
+                    (supply) => {
+                      const selected = babySupplies.includes(supply);
+                      return (
+                        <button
+                          key={supply}
+                          type="button"
+                          onClick={() => toggleSupply(supply)}
+                          className={cn(
+                            "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium",
+                            selected
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "bg-background text-muted-foreground",
+                          )}
+                        >
+                          {selected && <Check className="size-3" />}
+                          {uiText(BABY_SUPPLY_LABELS[supply])}
+                        </button>
+                      );
+                    },
+                  )}
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="service-note">需求備註</Label>
+                <Label htmlFor="service-note">{uiText("需求備註")}</Label>
                 <Textarea
                   id="service-note"
                   value={serviceNote}
                   onChange={(event) => setServiceNote(event.target.value)}
-                  placeholder="例如：嬰兒床需放在靠窗側、寵物不進房等"
+                  placeholder={uiText("例如：嬰兒床需放在靠窗側、寵物不進房等")}
                 />
               </div>
             </section>
@@ -625,11 +644,9 @@ function EditBookingDialog({
                 variant="outline"
                 onClick={() => onOpenChange(false)}
               >
-                取消
-              </Button>
+                {uiText("取消")}</Button>
               <Button type="submit" disabled={!isValid}>
-                下一步
-              </Button>
+                {uiText("下一步")}</Button>
             </DialogFooter>
           </form>
         ) : (
@@ -637,23 +654,39 @@ function EditBookingDialog({
             <div className="rounded-xl border bg-muted/35 p-4 text-sm">
               <p className="font-semibold">{guestName.trim()}</p>
               <p className="mt-2 text-muted-foreground">
-                {selectedRoom?.label} · {formatDate(checkIn)}–{formatDate(checkOut)} · {Math.max(1, stayNightCount({ ...booking, check_in: checkIn, check_out: checkOut }))} 晚
-              </p>
-              {viewPrices && <p className="mt-1 font-semibold">{formatMoney(numericRate)}</p>}
+                {selectedRoom?.label} · {formatDate(checkIn, uiLocale)}–
+                {formatDate(checkOut, uiLocale)} ·{" "}
+                {Math.max(
+                  1,
+                  stayNightCount({
+                    ...booking,
+                    check_in: checkIn,
+                    check_out: checkOut,
+                  }),
+                )}{" "}
+                {uiText("晚")}</p>
+              {viewPrices && (
+                <p className="mt-1 font-semibold">{formatMoney(numericRate, uiLocale)}</p>
+              )}
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                {countValue(extraGuestCount) > 0 && <span>加人 {countValue(extraGuestCount)}</span>}
-                {countValue(extraBedCount) > 0 && <span>加床 {countValue(extraBedCount)}</span>}
-                {countValue(petCount) > 0 && <span>寵物 {countValue(petCount)}</span>}
+                {countValue(extraGuestCount) > 0 && (
+                  <span>{uiText("加人")}{countValue(extraGuestCount)}</span>
+                )}
+                {countValue(extraBedCount) > 0 && (
+                  <span>{uiText("加床")}{countValue(extraBedCount)}</span>
+                )}
+                {countValue(petCount) > 0 && (
+                  <span>{uiText("寵物")}{countValue(petCount)}</span>
+                )}
                 {babySupplies.map((supply) => (
-                  <span key={supply}>{BABY_SUPPLY_LABELS[supply]}</span>
+                  <span key={supply}>{uiText(BABY_SUPPLY_LABELS[supply])}</span>
                 ))}
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setStep("form")}>
-                返回修改
-              </Button>
-              <Button onClick={confirm}>是，確認修改</Button>
+                {uiText("返回修改")}</Button>
+              <Button onClick={confirm}>{uiText("是，確認修改")}</Button>
             </DialogFooter>
           </div>
         )}
@@ -671,6 +704,8 @@ function CancelBookingDialog({
   onOpenChange: (open: boolean) => void;
   onConfirm: (reason: string) => void;
 }) {
+  const uiText = useT();
+
   const [reason, setReason] = useState("");
 
   useEffect(() => {
@@ -681,24 +716,22 @@ function CancelBookingDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>取消這張預訂？</DialogTitle>
+          <DialogTitle>{uiText("取消這張預訂？")}</DialogTitle>
           <DialogDescription>
-            取消後會從目前房況中移除，並保留取消時間與異動紀錄。
-          </DialogDescription>
+            {uiText("取消後會從目前房況中移除，並保留取消時間與異動紀錄。")}</DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          <Label htmlFor="cancel-reason">取消原因（選填）</Label>
+          <Label htmlFor="cancel-reason">{uiText("取消原因（選填）")}</Label>
           <Input
             id="cancel-reason"
             value={reason}
             onChange={(event) => setReason(event.target.value)}
-            placeholder="例如：客人自行取消"
+            placeholder={uiText("例如：客人自行取消")}
           />
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            返回
-          </Button>
+            {uiText("返回")}</Button>
           <Button
             variant="destructive"
             onClick={() => {
@@ -706,8 +739,7 @@ function CancelBookingDialog({
               onOpenChange(false);
             }}
           >
-            是，取消預訂
-          </Button>
+            {uiText("是，取消預訂")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -715,6 +747,8 @@ function CancelBookingDialog({
 }
 
 function RequirementSummary({ booking }: { booking: CalendarBooking }) {
+  const uiText = useT();
+
   const supplies = booking.baby_supplies ?? [];
   const hasRequirements =
     (booking.extra_guest_count ?? 0) > 0 ||
@@ -726,8 +760,7 @@ function RequirementSummary({ booking }: { booking: CalendarBooking }) {
   if (!hasRequirements) {
     return (
       <div className="rounded-xl border border-dashed px-4 py-4 text-sm text-muted-foreground">
-        無特殊入住需求
-      </div>
+        {uiText("無特殊入住需求")}</div>
     );
   }
 
@@ -736,25 +769,24 @@ function RequirementSummary({ booking }: { booking: CalendarBooking }) {
       {(booking.extra_guest_count ?? 0) > 0 && (
         <div className="flex items-center gap-2 rounded-xl border px-3 py-3 text-sm">
           <Users className="size-4" />
-          加人 {booking.extra_guest_count} 位
-        </div>
+          {uiText("加人")}{booking.extra_guest_count} {uiText("位")}</div>
       )}
       {(booking.extra_bed_count ?? 0) > 0 && (
         <div className="flex items-center gap-2 rounded-xl border px-3 py-3 text-sm">
           <Bed className="size-4" />
-          加床 {booking.extra_bed_count} 張
-        </div>
+          {uiText("加床")}{booking.extra_bed_count} {uiText("張")}</div>
       )}
       {(booking.pet_count ?? 0) > 0 && (
         <div className="flex items-center gap-2 rounded-xl border px-3 py-3 text-sm">
           <PawPrint className="size-4" />
-          寵物 {booking.pet_count} 隻
-        </div>
+          {uiText("寵物")}{booking.pet_count} {uiText("隻")}</div>
       )}
       {supplies.length > 0 && (
         <div className="flex items-start gap-2 rounded-xl border px-3 py-3 text-sm sm:col-span-2">
           <Baby className="mt-0.5 size-4 shrink-0" />
-          <span>{supplies.map((supply) => BABY_SUPPLY_LABELS[supply]).join("、")}</span>
+          <span>
+            {supplies.map((supply) => BABY_SUPPLY_LABELS[supply]).join("、")}
+          </span>
         </div>
       )}
       {booking.service_note && (
@@ -769,22 +801,42 @@ function RequirementSummary({ booking }: { booking: CalendarBooking }) {
 export function BookingDetailsPanel({
   booking,
   orderSegments,
+  visualNights,
+  onSelectVisualNight,
   rooms,
   permissions,
   onClose,
   onRecordPayment,
+  paymentWorkspace,
   onUpdateBooking,
   onCancelBooking,
+  onManualEdit,
+  onManualCancel,
+  onManualSync,
+  onManualConfirm,
+  onRetainBooking,
 }: {
   booking: CalendarBooking | null;
   orderSegments: CalendarBooking[];
+  visualNights: CalendarBooking[];
+  onSelectVisualNight: (booking: CalendarBooking) => void;
   rooms: CalendarRoom[];
   permissions: RolePermissions;
   onClose: () => void;
   onRecordPayment: (input: RecordPaymentInput) => void;
+  paymentWorkspace?: React.ReactNode;
   onUpdateBooking: (input: UpdateBookingInput) => void;
   onCancelBooking: (reason: string) => void;
+  onManualEdit?: () => void;
+  onManualCancel?: () => void;
+  onManualSync?: () => void;
+  onManualConfirm?: () => void;
+  onRetainBooking?: () => void;
 }) {
+const uiLocale = useIntlLocale();
+
+  const uiText = useT();
+
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -792,6 +844,12 @@ export function BookingDetailsPanel({
     () => orderSegments.reduce((sum, segment) => sum + segment.room_rate, 0),
     [orderSegments],
   );
+  const sourceOrderTotalCents = booking?.source_read_only &&
+    Number.isSafeInteger(booking.source_order_total_cents) &&
+    orderSegments.length > 0 && orderSegments.every(segment =>
+      segment.order_id === booking.order_id &&
+      segment.source_order_total_cents === booking.source_order_total_cents)
+    ? booking.source_order_total_cents : undefined;
   const recordedPayments = booking?.payments ?? [];
   const recordedAmount = recordedPayments.reduce(
     (sum, payment) => sum + payment.amount,
@@ -800,45 +858,121 @@ export function BookingDetailsPanel({
 
   return (
     <>
-      <Sheet open={booking !== null} onOpenChange={(open) => !open && onClose()}>
+      <Sheet
+        open={booking !== null}
+        onOpenChange={(open) => !open && onClose()}
+      >
         <SheetContent className="w-full overflow-y-auto p-0 sm:max-w-xl">
           <SheetHeader className="border-b px-5 py-5 text-left">
             <div className="pr-8">
-              <SheetTitle className="truncate text-xl">
-                {booking?.guest_name ?? "訂單資料"}
-              </SheetTitle>
+              <div className="flex items-start gap-2">
+                <SheetTitle className="min-w-0 flex-1 break-words text-xl">
+                  {booking?.guest_name ?? "訂單資料"}
+                </SheetTitle>
+                {booking && (booking.guest_name_kind === "real" || (!booking.source_read_only && booking.guest_name)) &&
+                  <CopyableValue label="旅客姓名" value={booking.guest_name} showValue={false} />}
+              </div>
               <SheetDescription className="mt-1">
                 {booking
-                  ? `${booking.property_name} · ${booking.room_number} · ${formatDate(booking.check_in)}–${formatDate(booking.check_out)}`
+                  ? `${booking.property_name} · ${booking.room_number} · ${formatDate(booking.check_in, uiLocale)}–${formatDate(booking.check_out, uiLocale)}`
                   : ""}
               </SheetDescription>
             </div>
           </SheetHeader>
+          {booking && <div className="px-5 pt-4"><GuestNotificationButton booking={booking} detail /></div>}
 
           {booking && (
             <div className="space-y-5 px-5 py-5">
+              {visualNights.length > 1 && (
+                <section className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950" aria-label={uiText("連住房晚") }>
+                  <p className="font-semibold">{uiText("日曆顯示為連住 {0} 晚", [visualNights.length])}</p>
+                  <p className="mt-1 text-xs">{uiText("來源各晚沒有共同訂單編號；以下逐晚保留各自的訂單與付款紀錄。")}</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {visualNights.map((night) => (
+                      <Button key={night.id} type="button" size="sm" variant={booking.id === night.id ? "default" : "outline"}
+                        aria-current={booking.id === night.id ? "true" : undefined}
+                        onClick={() => onSelectVisualNight(night)}>
+                        {formatDate(night.check_in, uiLocale)}
+                      </Button>
+                    ))}
+                  </div>
+                </section>
+              )}
+              <BookingSourceNotes booking={booking} orderSegments={orderSegments} viewPrices={permissions.viewPrices} />
+              {(booking.guest_name_kind === "real" || !!booking.guest_name_sources?.length) && <section className="rounded-xl border p-3" aria-label={uiText("重點備註與來源原文")}>
+                <h3 className="font-semibold">{uiText("重點備註")}</h3>
+                <GuestRemarks booking={booking} />
+                <p className="mt-2 text-xs text-muted-foreground">{uiText("姓名欄原文（需求不代表已安排完成）")}</p>
+                <p className="mt-1 whitespace-pre-wrap break-words text-sm">{(booking.guest_name_sources ?? [booking.guest_name]).join("\n")}</p>
+              </section>}
+              {orderSegments.length > 1 && <section className="rounded-xl border p-3" aria-label={uiText("同一訂單的住宿安排")}>
+                <h3 className="font-semibold">{uiText("同一訂單的住宿安排")}</h3>
+                <ul className="mt-2 space-y-1 text-sm">
+                  {orderSegments.map(segment => <li key={segment.id} className={segment.id === booking.id ? "font-semibold" : ""}>
+                    {segment.room_number} · {formatDate(segment.check_in, uiLocale)}–{formatDate(segment.check_out, uiLocale)}
+                    {segment.id === booking.id && ` · ${uiText("目前選取")}`}
+                  </li>)}
+                </ul>
+              </section>}
               <div
                 className={cn(
                   "rounded-xl border px-3 py-2.5 text-sm font-semibold",
                   booking.reservation_status === "cancelled"
                     ? "border-slate-200 bg-slate-100 text-slate-700"
-                    : PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
+                    : (PLATFORM_STYLES[booking.platform] ??
+                        PLATFORM_STYLES.other),
                 )}
               >
                 {booking.reservation_status === "cancelled"
-                  ? "已取消"
-                  : `${PLATFORM_LABELS[booking.platform] ?? booking.platform} · ${PAYMENT_LABELS[booking.payment_status]}${stayNightCount(booking) > 1 ? ` · 連住 ${stayNightCount(booking)} 晚` : ""}`}
+                  ? uiText("已取消")
+                  : uiText("{0} · {1}{2}", [PLATFORM_LABELS[booking.platform] ?? booking.platform,paymentDisplayLabel(booking),stayNightCount(booking) > 1 ? ` · 連住 ${stayNightCount(booking)} 晚` : ""])}
               </div>
+
+              {booking.iron_gate_channel_sync && (
+                <div role="status" className="rounded-xl border bg-muted/40 px-3 py-2 text-sm">
+                  <div>{uiText("Iron Gate 訂單已記錄")}</div>
+                  <div>{uiText("OwlNest 房況：")}{uiText(({
+                    not_required: "無需同步", action_required: booking.iron_gate_manual_handling ? "待手動處理變動房晚" : "待員工按鈕確認",
+                    awaiting_manual_sync: "尚未同步，請按「同步房況」",
+                    pending: "同步中，尚未驗證",
+                    verified: "已回讀驗證", review_required: "需人工核對", manually_confirmed: booking.reservation_status === "cancelled" ? "已手動處理房況（人工確認）" : "已手動關房（人工確認）",
+                  })[booking.iron_gate_channel_sync])}</div>
+                  {booking.iron_gate_manual_confirmed_at && <div className="mt-1 text-xs text-muted-foreground">
+                    人工確認時間：{new Date(booking.iron_gate_manual_confirmed_at).toLocaleString("zh-TW", { timeZone: "Asia/Taipei" })}
+                  </div>}
+                  {booking.iron_gate_source_review &&
+                    <div className="text-amber-800">{uiText("訂單來源有差異，需人工核對")}</div>}
+                </div>
+              )}
+
+              {(onManualEdit || onManualCancel || onManualSync || onManualConfirm) &&
+                <div className="grid grid-cols-2 gap-2">
+                  {onManualSync && <Button onClick={onManualSync}>同步房況</Button>}
+                  {onManualConfirm && <Button variant="outline" onClick={onManualConfirm}>
+                    {booking.iron_gate_manual_handling ? "已手動處理房況" : "已手動關房"}</Button>}
+                  {onManualEdit && <Button variant="outline" onClick={onManualEdit}>
+                    {booking.iron_gate_edit_mode === "guest_name" ? "更正旅客姓名" : "修改訂單"}</Button>}
+                  {onManualCancel && <Button variant="outline" onClick={onManualCancel}>
+                    取消訂單</Button>}
+                </div>}
+
+              {onRetainBooking && <Button variant="outline" className="w-full justify-start" onClick={onRetainBooking}>
+                <CalendarClock className="size-4" />轉為保留訂單
+              </Button>}
 
               {booking.reservation_status !== "cancelled" &&
                 (permissions.recordPayments || permissions.editBookings) && (
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                    {permissions.recordPayments && permissions.viewPrices && (
-                      <Button className="justify-start" onClick={() => setPaymentOpen(true)}>
-                        <ReceiptText className="size-4" />
-                        登記付款
-                      </Button>
-                    )}
+                    {!paymentWorkspace &&
+                      permissions.recordPayments &&
+                      permissions.viewPrices && (
+                        <Button
+                          className="justify-start"
+                          onClick={() => setPaymentOpen(true)}
+                        >
+                          <ReceiptText className="size-4" />
+                          {uiText("登記付款")}</Button>
+                      )}
                     {permissions.editBookings && (
                       <Button
                         variant="outline"
@@ -846,65 +980,121 @@ export function BookingDetailsPanel({
                         onClick={() => setEditOpen(true)}
                       >
                         <CalendarClock className="size-4" />
-                        編輯訂單資料
-                      </Button>
+                        {uiText("編輯訂單資料")}</Button>
                     )}
                   </div>
                 )}
 
+              {paymentWorkspace}
+
               <section>
-                <h3 className="text-sm font-semibold">訂單資訊</h3>
+                <h3 className="text-sm font-semibold">{uiText("訂單資訊")}</h3>
                 <dl className="mt-2 divide-y rounded-xl border px-4">
-                  <DetailRow label="旅宿" value={booking.property_name} />
-                  <DetailRow label="房間" value={booking.room_number} />
-                  <DetailRow label="入住" value={formatDate(booking.check_in)} />
-                  <DetailRow label="退房" value={formatDate(booking.check_out)} />
+                  <DetailRow label={uiText("旅宿")} value={booking.property_name} />
+                  <DetailRow label={uiText("房間")} value={booking.room_number} />
                   <DetailRow
-                    label="住宿晚數"
-                    value={`${stayNightCount(booking)} 晚`}
+                    label={uiText("入住")}
+                    value={formatDate(booking.check_in, uiLocale)}
+                  />
+                  <DetailRow
+                    label={uiText("退房")}
+                    value={formatDate(booking.check_out, uiLocale)}
+                  />
+                  <DetailRow
+                    label={uiText("住宿晚數")}
+                    value={uiText("{0} 晚", [stayNightCount(booking)])}
                   />
                   {permissions.viewPrices && (
                     <>
-                      <DetailRow label="本筆房費" value={formatMoney(booking.room_rate)} />
-                      <DetailRow label="訂單總額" value={formatMoney(orderTotal)} />
+                      <DetailRow
+                        label={uiText(booking.source_amount_reconciliation ? "本房預計淨入帳" : "本筆房費")}
+                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : booking.price_hidden ? uiText("待核對") : formatMoney(booking.room_rate, uiLocale)}
+                      />
+                      <DetailRow
+                        label={booking.source_amount_reconciliation ? uiText("本房應收總額") : booking.source_read_only && sourceOrderTotalCents !== undefined ? uiText("已串接訂單總額") : booking.source_read_only ? uiText("已串接紀錄合計") : uiText("訂單總額")}
+                        value={booking.source_conflict ? uiText(booking.source_issue_acknowledged ? "歷史金額未核定" : "待核對") : sourceOrderTotalCents !== undefined ? formatMoney(sourceOrderTotalCents / 100, uiLocale) : orderSegments.some(segment => segment.price_hidden) ? uiText("待核對") : formatMoney(orderTotal, uiLocale)}
+                      />
                     </>
                   )}
-                  <DetailRow label="預訂日" value={formatDate(booking.booked_at)} />
-                  <DetailRow label="訂單編號" value={booking.order_id} />
-                  <DetailRow label="外部編號" value={booking.external_order_no ?? "—"} />
-                  <DetailRow label="原始備註" value={booking.notes ?? "—"} />
+                  <DetailRow
+                    label={uiText("預訂日")}
+                    value={formatDate(booking.booked_at, uiLocale)}
+                  />
+                  <DetailRow label={uiText("OTA 訂單編號")} value={<CopyableValue label="OTA 訂單編號" value={booking.external_order_no} missing="來源未提供" />} />
+                  <DetailRow label={uiText("來源訂單編號")} value={<CopyableValue label="來源訂單編號" value={booking.source_order_linked === false ? null : booking.owlnest_order_no} />} />
+                  {!booking.iron_gate_channel_sync && booking.channel_sync_state && <DetailRow label={uiText("OwlNest 房態")} value={uiText(({
+                    not_required: "無待辦房晚", action_required: "待員工按鈕確認",
+                    pending: "處理中，待逐格讀回", verified: "已逐格核對",
+                    review_required: "需人工核對",
+                  } as const)[booking.channel_sync_state]) +
+                    (booking.channel_pending_nights ? ` · ${booking.channel_pending_nights} 晚` : "")} />}
+                  <DetailRow
+                    label={uiText("系統內部 ID")}
+                    value={<CopyableValue label="系統內部 ID" value={booking.order_id} missing="未提供" />}
+                  />
+                  <DetailRow label={booking.source_read_only ? uiText("資料說明") : uiText("原始備註")} value={booking.source_read_only ? uiText(booking.notes ?? "—") : booking.notes ?? "—"} />
+                  {booking.source_payment_label && <DetailRow label={uiText(booking.legacy_settlement_status ? "原始來源付款標記（非目前清算狀態）" : "付款標記")} value={uiText(booking.source_payment_label)} />}
+                  {booking.source_read_only && <DetailRow label={uiText("入住人數")} value={booking.source_guest_count ? uiText("{0} 人", [booking.source_guest_count]) : uiText("來源未提供")} />}
+                  {booking.source_read_only && <DetailRow label={uiText("入住需求")} value={uiText("來源未提供結構化資料，尚未確認")} /> }
                 </dl>
               </section>
 
-              <section>
-                <h3 className="text-sm font-semibold">入住需求</h3>
+              {permissions.viewPrices && booking.source_amount_reconciliation && (
+                <section className="rounded-xl border bg-muted/30 p-4">
+                  <h3 className="text-sm font-semibold">Airbnb 訂單金額（整筆合計）</h3>
+                  <dl className="mt-2 divide-y">
+                    <DetailRow label="住宿房費" value={formatMoney(booking.source_amount_reconciliation.groupGrossCents / 100, uiLocale)} />
+                    <DetailRow label="Airbnb 房東服務費" value={formatMoney(booking.source_amount_reconciliation.groupHostFeeCents / 100, uiLocale)} />
+                    <DetailRow label="預計淨入帳" value={formatMoney(booking.source_amount_reconciliation.groupNetCents / 100, uiLocale)} />
+                    <DetailRow label="平台另收稅額" value={formatMoney(booking.source_amount_reconciliation.groupTaxCents / 100, uiLocale)} />
+                    {booking.source_amount_reconciliation.groupGuestPaidCents !== null && <DetailRow label="旅客支付合計" value={formatMoney(booking.source_amount_reconciliation.groupGuestPaidCents / 100, uiLocale)} />}
+                  </dl>
+                  <p className="mt-3 text-xs text-muted-foreground">本房晚金額依原訂單比例分攤；以上是預計金額，實際入帳以收款紀錄為準。</p>
+                </section>
+              )}
+
+              {permissions.viewPrices && booking.nightly_amounts && (
+                <section>
+                  <h3 className="text-sm font-semibold">{uiText("每晚登記房費")}</h3>
+                  <p className="mt-1 text-xs text-muted-foreground">{uiText("依 Sheet 逐列金額；抓單程式可能平均拆分，並非已核實的 OTA 每晚成交價。")}</p>
+                  <dl className="mt-2 divide-y rounded-xl border px-4">
+                    {booking.nightly_amounts.map(n => <DetailRow key={n.date} label={formatDate(n.date, uiLocale)} value={formatMoney(n.amount, uiLocale)} />)}
+                  </dl>
+                </section>
+              )}
+
+              {!booking.source_read_only && <section>
+                <h3 className="text-sm font-semibold">{uiText("入住需求")}</h3>
                 <div className="mt-2">
                   <RequirementSummary booking={booking} />
                 </div>
-              </section>
+              </section>}
 
-              {permissions.viewPrices && (
+              {permissions.viewPrices && !(booking.source_read_only && paymentWorkspace) && (
                 <section>
                   <div className="flex items-center justify-between">
                     <h3 className="flex items-center gap-2 text-sm font-semibold">
                       <CircleDollarSign className="size-4" />
-                      付款紀錄
-                    </h3>
+                      {uiText("付款紀錄")}</h3>
                     {recordedPayments.length > 0 && (
                       <span className="text-xs font-medium text-muted-foreground">
-                        已登記 {formatMoney(recordedAmount)}
+                        {uiText("已登記")}{formatMoney(recordedAmount, uiLocale)}
                       </span>
                     )}
                   </div>
                   <div className="mt-2 space-y-2">
                     {recordedPayments.length === 0 ? (
                       <div className="rounded-xl border border-dashed px-4 py-5 text-sm text-muted-foreground">
-                        匯入資料目前只含付款狀態；新增的逐筆付款會顯示在這裡。
+                        {paymentWorkspace
+                          ? uiText("尚未登記付款。完成上方付款任務後，明細會顯示在這裡。")
+                          : booking.source_read_only ? uiText("來源未提供可核對的逐筆收款帳。此版本為唯讀，尚未匯入付款紀錄。") : uiText("匯入資料目前只含付款狀態；新增的逐筆付款會顯示在這裡。")}
                       </div>
                     ) : (
                       recordedPayments
                         .slice()
-                        .sort((a, b) => b.received_at.localeCompare(a.received_at))
+                        .sort((a, b) =>
+                          b.received_at.localeCompare(a.received_at),
+                        )
                         .map((payment) => {
                           const MethodIcon =
                             payment.payment_method === "cash"
@@ -922,10 +1112,21 @@ export function BookingDetailsPanel({
                               </span>
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-semibold">
-                                  {PAYMENT_TYPE_LABELS[payment.payment_type]} · {formatMoney(payment.amount)}
+                                  {uiText(PAYMENT_TYPE_LABELS[payment.payment_type])} ·{" "}
+                                  {formatMoney(payment.amount, uiLocale)}
                                 </p>
                                 <p className="text-xs text-muted-foreground">
-                                  {formatDate(payment.received_at)} · {PAYMENT_METHOD_LABELS[payment.payment_method]}
+                                  {payment.received_at.includes("T")
+                                    ? new Date(
+                                        payment.received_at,
+                                      ).toLocaleString(uiLocale)
+                                    : formatDate(payment.received_at, uiLocale)}{" "}
+                                  ·{" "}
+                                  {
+                                    uiText(PAYMENT_METHOD_LABELS[
+                                      payment.payment_method
+                                    ])
+                                  }
                                 </p>
                               </div>
                             </div>
@@ -940,17 +1141,23 @@ export function BookingDetailsPanel({
                 <section>
                   <h3 className="flex items-center gap-2 text-sm font-semibold">
                     <History className="size-4" />
-                    最近異動
-                  </h3>
+                    {uiText("最近異動")}</h3>
                   <div className="mt-2 space-y-2">
                     {booking.audit_log
                       .slice()
-                      .sort((a, b) => b.occurred_at.localeCompare(a.occurred_at))
+                      .sort((a, b) =>
+                        b.occurred_at.localeCompare(a.occurred_at),
+                      )
                       .map((event) => (
-                        <div key={event.id} className="rounded-xl border px-3 py-3">
+                        <div
+                          key={event.id}
+                          className="rounded-xl border px-3 py-3"
+                        >
                           <p className="text-sm font-medium">{event.summary}</p>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            {new Date(event.occurred_at).toLocaleString("zh-TW")}
+                            {new Date(event.occurred_at).toLocaleString(
+                              uiLocale,
+                            )}
                           </p>
                         </div>
                       ))}
@@ -967,8 +1174,7 @@ export function BookingDetailsPanel({
                       onClick={() => setCancelOpen(true)}
                     >
                       <Trash2 className="size-4" />
-                      取消預訂
-                    </Button>
+                      {uiText("取消預訂")}</Button>
                   </div>
                 )}
             </div>
@@ -978,14 +1184,16 @@ export function BookingDetailsPanel({
 
       {booking && (
         <>
-          {permissions.recordPayments && permissions.viewPrices && (
-            <PaymentDialog
-              open={paymentOpen}
-              orderTotal={orderTotal}
-              onOpenChange={setPaymentOpen}
-              onConfirm={onRecordPayment}
-            />
-          )}
+          {!paymentWorkspace &&
+            permissions.recordPayments &&
+            permissions.viewPrices && (
+              <PaymentDialog
+                open={paymentOpen}
+                orderTotal={orderTotal}
+                onOpenChange={setPaymentOpen}
+                onConfirm={onRecordPayment}
+              />
+            )}
           {permissions.editBookings && (
             <EditBookingDialog
               open={editOpen}

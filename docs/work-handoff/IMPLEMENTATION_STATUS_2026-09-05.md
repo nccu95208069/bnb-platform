@@ -2,6 +2,14 @@
 
 This document separates actual merged/deployed behavior from the larger Agent-First product specification.
 
+## Isolated payment implementation update
+
+The payment branch adds a persistent PostgreSQL ledger, Mission state, controlled
+Tools and database-backed acceptance tests, gated off by default. This is an
+isolated backend slice, not a production Sheet connector or calendar integration.
+See [PAYMENT_WORKFLOW.md](PAYMENT_WORKFLOW.md). The original merged/deployed baseline
+below remains historical; this update does not claim the new migration is deployed.
+
 ## Repository and deployment
 
 - Repository: `nccu95208069/bnb-platform`

@@ -23,6 +23,7 @@ import {
   signUpWithEmail,
   verifyPhoneOtp,
 } from "@/lib/supabase/auth";
+import CalendarAccessPage from "@/app/calendar-access/page";
 import { cn } from "@/lib/utils";
 
 type LoginMode = "email" | "phone";
@@ -38,6 +39,9 @@ async function ensureMembership() {
 }
 
 export default function AdminLoginPage() {
+  return process.env.NEXT_PUBLIC_CALENDAR_SOURCE === "sheet_snapshot" ? <CalendarAccessPage /> : <LegacyLoginPage />;
+}
+function LegacyLoginPage() {
   const router = useRouter();
   const resetAccess = useAccessControl((state) => state.reset);
   const [mode, setMode] = useState<LoginMode>("email");

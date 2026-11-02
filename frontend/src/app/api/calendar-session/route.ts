@@ -1,0 +1,129 @@
+import { recordDevice } from "@/lib/workspace-auth/devices";
+import { principalFor, sessionMember, validMemberSession, memberPrincipal, MEMBER_COOKIE, createMemberSession, calendarSessionFor } from "@/lib/workspace-auth/session";
+import { calendarServerTiming } from "@/lib/calendar-server-timing";
+import { ADMIN_EMAIL, normalizedEmail, normalizedPhone, nextWorkspace } from "@/lib/workspace-auth/types";
+import { RedisWorkspaceStore } from "@/lib/workspace-auth/store";
+import { NextRequest, NextResponse } from "next/server";
+import { OWNER_COOKIE, OWNER_SESSION_SECONDS, createOwnerSession, ownerAccessConfigured } from "@/lib/calendar-owner-session";
+import { RedisOwnerCredentialStore, credentialBinding, credentialMatches, changeOwnerPassword, createPasswordCredential, passwordProblem } from "@/lib/owner-password";
+import { PREVIEW_OWNER_COOKIE, OFFLAND_PREVIEW_OWNER_COOKIE,
+  createPreviewOwnerSession, createOfflandPreviewOwnerSession,
+  previewOwnerCodeMatches, offlandPreviewOwnerCodeMatches,
+  previewOwnerConfigured, offlandPreviewOwnerConfigured,
+  previewOwnerSessionSeconds } from "@/lib/iron-gate-preview-owner";
+const headers = { "Cache-Control": "private, no-store", "Vary": "Cookie", "Referrer-Policy": "no-referrer" };
+const sameOrigin = (request: NextRequest) => request.headers.get("origin") === `${request.nextUrl.protocol}//${request.headers.get("host")}`;
+async function cookieResponse(request: NextRequest, session: string, member = false, accountId = "calendar-owner", mustReset = false) {
+  const duration = mustReset ? 1800 : OWNER_SESSION_SECONDS;
+  const response = NextResponse.json({ authenticated: true, requires_password_reset: mustReset }, { headers });
+  response.cookies.set(member ? MEMBER_COOKIE : OWNER_COOKIE, session, { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict", path: "/", maxAge: duration });
+  response.cookies.set(member ? OWNER_COOKIE : MEMBER_COOKIE, "", { path: "/", maxAge: 0, httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict" });
+  await recordDevice(request,response,accountId,duration);
+  return response;
+}
+async function body(request: NextRequest) {
+  if (Number(request.headers.get("content-length")) > 2048) throw new Error("登入資料格式不正確。");
+  const text = await request.text();
+  if (text.length > 2048) throw new Error("登入資料格式不正確。");
+  try { const value = JSON.parse(text); if (!value || typeof value !== "object") throw new Error(); return value; } catch { throw new Error("登入資料格式不正確。"); }
+}
+function failure(error: unknown) {
+  const code = error instanceof Error ? error.message : "";
+  const messages: Record<string, [number, string]> = {
+    UNAUTHORIZED: [401, "信箱或密碼不正確，或帳號尚未啟用。"],
+    PASSWORD_INVALID: [400, "密碼需為不易猜測的 12～128 個字元，且兩次輸入一致。"],
+    RATE_LIMITED: [429, "嘗試次數過多，請稍後再試。"],
+    VERSION_CONFLICT: [409, "帳號剛剛已更新，請重新登入。"],
+    OWNER_UNAUTHORIZED: [401, "登入已過期，請重新登入。"], OWNER_CURRENT_PASSWORD: [400, "目前密碼不正確。"],
+    OWNER_RATE_LIMITED: [429, "嘗試次數過多，請 15 分鐘後再試。"],
+    OWNER_CHANGED_CONCURRENTLY: [409, "密碼剛剛已變更，請以新密碼重新登入。"],
+    OWNER_WRITE_UNCERTAIN: [503, "設定結果暫時無法確認，請先以新密碼重新登入。"],
+    "新密碼需要 12～128 個字元。": [400, "新密碼需要 12～128 個字元。"],
+    "請使用較不容易猜到的密碼或長句。": [400, "請使用較不容易猜到的密碼或長句。"],
+    "兩次新密碼不一致。": [400, "兩次新密碼不一致。"], "登入資料格式不正確。": [400, "登入資料格式不正確。"],
+  };
+  const [status, detail] = messages[code] ?? [503, "登入服務暫時無法使用，請稍後再試。"];
+  return NextResponse.json({ detail }, { status, headers });
+}
+export async function GET(request: NextRequest) {
+  const timing = calendarServerTiming();
+  let response: NextResponse;
+  try {
+    const session = await timing.measure('auth', () => calendarSessionFor(request));
+    response = NextResponse.json(session, { headers });
+  } catch (error) { response = failure(error); }
+  timing.apply(response.headers);
+  return response;
+}
+export async function POST(request: NextRequest) {
+  if (!sameOrigin(request)) return NextResponse.json({ detail: "請從本站登入。" }, { status: 403, headers });
+  if (previewOwnerConfigured() || offlandPreviewOwnerConfigured()) {
+    try {
+      const input = await body(request);
+      const email = normalizedEmail(input.email);
+      const offland = offlandPreviewOwnerCodeMatches(email, input.code);
+      if (!offland && !previewOwnerCodeMatches(email, input.code)) throw Error("UNAUTHORIZED");
+      const response = NextResponse.json({ authenticated: true, requires_password_reset: false }, { headers });
+      response.cookies.set(offland ? OFFLAND_PREVIEW_OWNER_COOKIE : PREVIEW_OWNER_COOKIE,
+        offland ? createOfflandPreviewOwnerSession() : createPreviewOwnerSession(), {
+        httpOnly: true, secure: true, sameSite: "strict", path: "/", maxAge: previewOwnerSessionSeconds });
+      response.cookies.set(offland ? PREVIEW_OWNER_COOKIE : OFFLAND_PREVIEW_OWNER_COOKIE,
+        "", { httpOnly: true, secure: true, sameSite: "strict", path: "/", maxAge: 0 });
+      return response;
+    } catch (error) {
+      if (error instanceof Error && error.message === "UNAUTHORIZED")
+        return NextResponse.json({ detail: "預覽信箱或驗證碼不正確。" }, { status: 401, headers });
+      return failure(error);
+    }
+  }
+  if (!ownerAccessConfigured()) return NextResponse.json({ detail: "私人檢視尚未啟用。" }, { status: 503, headers });
+  try {
+    const input = await body(request), email = normalizedEmail(input.email), workspace = new RedisWorkspaceStore();
+    await workspace.limit("login-global", 100, 900);
+    await workspace.limit(`login:${normalizedPhone(email)||email}`, 20, 900);
+    if (email === ADMIN_EMAIL) {
+      const store = new RedisOwnerCredentialStore();
+      if (!await store.consumeAttempt()) throw new Error("OWNER_RATE_LIMITED");
+      const credential = await store.read();
+      if (!await credentialMatches(input.code, credential.value)) throw new Error("UNAUTHORIZED");
+      return await cookieResponse(request, createOwnerSession(Date.now(), credentialBinding(credential.value)));
+    }
+    const phone = normalizedPhone(email);
+    const matches = (await workspace.read()).value.members.filter(m => phone ? normalizedPhone(m.phone) === phone : Boolean(email) && m.email === email);
+    const member = matches.length === 1 ? matches[0] : null;
+    if (!member || member.status !== "active" || !member.credential || !await credentialMatches(input.code, member.credential)) throw new Error("UNAUTHORIZED");
+    return await cookieResponse(request, createMemberSession(member), true, member.id, Boolean(member.mustResetPassword));
+  } catch (error) { return failure(error); }
+}
+export async function PATCH(request: NextRequest) {
+  if (!sameOrigin(request)) return NextResponse.json({ detail: "請從本站變更密碼。" }, { status: 403, headers });
+  if (!ownerAccessConfigured()) return NextResponse.json({ detail: "私人檢視尚未啟用。" }, { status: 503, headers });
+  try {
+    const input = await body(request), limited = await sessionMember(request);
+    const principal = await principalFor(request) ?? (limited?.mustResetPassword ? memberPrincipal(limited) : null);
+    if (!principal) throw new Error("OWNER_UNAUTHORIZED");
+    if (principal.role === "owner") {
+      const session = await changeOwnerPassword(new RedisOwnerCredentialStore(), request.cookies.get(OWNER_COOKIE)?.value, input);
+      return await cookieResponse(request, session);
+    }
+    const store = new RedisWorkspaceStore();
+    await store.limit(`password:${principal.id}`, 10, 900);
+    const state = await store.read(), member = state.value.members.find(m => m.id === principal.id);
+    if (!member || !validMemberSession(request.cookies.get(MEMBER_COOKIE)?.value,member)) throw new Error("OWNER_UNAUTHORIZED");
+    if (!member?.credential || (!member.mustResetPassword && !await credentialMatches(input.currentPassword, member.credential))) throw new Error("OWNER_CURRENT_PASSWORD");
+    if (passwordProblem(input.password) || input.password !== input.confirmPassword) throw new Error("PASSWORD_INVALID");
+    if(member.mustResetPassword && await credentialMatches(input.password,member.credential)) throw new Error("PASSWORD_INVALID");
+    const updated = { ...member, mustResetPassword: false, credential: await createPasswordCredential(input.password), version: member.version + 1, invitation: null };
+    await store.replace(state.raw, nextWorkspace(state.value, state.value.members.map(m => m.id === member.id ? updated : m), "password_changed", member.id, member.id));
+    return await cookieResponse(request, createMemberSession(updated), true, updated.id);
+  } catch (error) { return failure(error); }
+}
+export async function DELETE(request: NextRequest) {
+  if (!sameOrigin(request)) return NextResponse.json({ detail: "請從本站登出。" }, { status: 403, headers });
+  const response = NextResponse.json({ authenticated: false }, { headers });
+  response.cookies.set(PREVIEW_OWNER_COOKIE, "", { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict", path: "/", maxAge: 0 });
+  response.cookies.set(OFFLAND_PREVIEW_OWNER_COOKIE, "", { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict", path: "/", maxAge: 0 });
+  response.cookies.set(MEMBER_COOKIE, "", { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict", path: "/", maxAge: 0 });
+  response.cookies.set(OWNER_COOKIE, "", { httpOnly: true, secure: request.nextUrl.protocol === "https:", sameSite: "strict", path: "/", maxAge: 0 });
+  return response;
+}

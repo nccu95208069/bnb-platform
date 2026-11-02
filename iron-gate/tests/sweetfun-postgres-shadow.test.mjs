@@ -1,0 +1,301 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { Pool } from "pg";
+import { SWEETFUN_HEADERS } from "../src/sweetfun-sheet-audit.mjs";
+import { prepareSweetfunGroups } from "../src/sweetfun-sheet-candidate.mjs";
+import { seedSweetfunShadow, advanceSweetfunShadow, cancelSweetfunShadow,
+  reconcileSweetfunShadow } from
+  "../scripts/seed-sweetfun-shadow.mjs";
+import { annotateSweetfunDisappearances, diffSweetfunSnapshots } from
+  "../src/sweetfun-sheet-delta.mjs";
+import { PostgresPropertyRepository } from "../src/postgres-repository.mjs";
+import { IronGateService } from "../src/service.ts";
+
+const runtimeUrl = process.env.IRON_GATE_PG_SHADOW_TEST_URL;
+const adminUrl = process.env.IRON_GATE_PG_ADMIN_URL;
+const isLocalTest = (value) => {
+  if (!value) return false;
+  const url = new URL(value);
+  return ["localhost", "127.0.0.1"].includes(url.hostname) &&
+    url.pathname === "/iron_gate_test";
+};
+
+test("Sweetfun bookings-only shadow seeds once, reads back exactly, and stays read-only",
+  { skip: !runtimeUrl || !adminUrl }, async () => {
+    if (!isLocalTest(runtimeUrl) || !isLocalTest(adminUrl))
+      throw Error("SHADOW_TEST_REQUIRES_LOCAL_IRON_GATE_TEST_DATABASE");
+    const values = Array(19).fill("");
+    Object.assign(values, { 0: "101", 1: "Synthetic guest", 2: "Synthetic OTA",
+      3: "2026/11/01", 4: "2026/11/02", 5: "2026/10/01", 6: "1200.50",
+      7: "done", 8: "OK", 9: "synthetic-row", 11: "synthetic-parent" });
+    const snapshot = { headers: [...SWEETFUN_HEADERS], rows: [
+      { rowNumber: 2, values, notes: Array(19).fill(null) }] };
+    const groupKey = prepareSweetfunGroups(snapshot).candidates[0].key;
+    const workspaceId = crypto.randomUUID(), propertyId = crypto.randomUUID();
+    const roomIds = Object.fromEntries(["101", "102", "201", "202", "301", "302"]
+      .map((room) => [room, crypto.randomUUID()]));
+    const bookingId = crypto.randomUUID();
+    const config = { sourceId: "synthetic-original", sourceCopyId: "synthetic-copy",
+      sourceCopyCreatedAt: "2026-10-20T00:00:00.000Z",
+      capturedAt: "2026-10-20T00:00:00.000Z",
+      expectedSourceHash: prepareSweetfunGroups(snapshot).sourceHash,
+      workspaceId, propertyId, roomIds, bookingIds: { [groupKey]: bookingId },
+      inventoryVersion: 1, authorityEpoch: 0 };
+    const pool = new Pool({ connectionString: runtimeUrl });
+    const admin = new Pool({ connectionString: adminUrl });
+    const localDatabase = { expectedDatabaseName: "iron_gate_test" };
+    try {
+      const first = await seedSweetfunShadow(pool, snapshot, config, localDatabase);
+      assert.equal(first.action, "inserted");
+      assert.equal(first.acceptedRows, 1);
+      assert.equal(first.paymentEventsCreated, 0);
+      assert.equal(first.canCutover, false);
+      const again = await seedSweetfunShadow(pool, snapshot, config, localDatabase);
+      assert.equal(again.action, "unchanged");
+      const stored = await new PostgresPropertyRepository(pool).read(propertyId);
+      assert.equal(stored.readOnly, true);
+      assert.equal(stored.bookings.length, 1);
+      assert.deepEqual(stored.bookings[0].paymentEvents, []);
+      const actor = { clientId: "synthetic-os", subjectId: "synthetic-owner", origin: "os",
+        workspaceId, propertyIds: [propertyId], authorityEpoch: 0,
+        actions: ["booking:create"], fields: [] };
+      await assert.rejects(new IronGateService(new PostgresPropertyRepository(pool))
+        .createBooking(actor, propertyId, crypto.randomUUID(), {
+          expectedInventoryVersion: 1,
+          stays: [{ checkIn: "2026-11-03", checkOut: "2026-11-04", roomIds: [roomIds["101"]] }],
+          guestName: null, contact: null, notes: null, totalCents: null,
+          bookedAt: null, source: "os",
+        }), (error) => error?.code === "PROPERTY_READ_ONLY");
+      await assert.rejects(seedSweetfunShadow(pool, snapshot, { ...config,
+        bookingIds: { [groupKey]: crypto.randomUUID() } }, localDatabase),
+      /SHADOW_TARGET_CONFLICT/);
+      snapshot.rows[0].values[6] = "1201.50";
+      await assert.rejects(seedSweetfunShadow(pool, snapshot, config, localDatabase),
+        /SWEETFUN_SOURCE_HASH_MISMATCH/);
+      assert.equal((await new PostgresPropertyRepository(pool).read(propertyId))
+        .bookings[0].id, bookingId);
+    } finally {
+      await admin.query("DELETE FROM iron_gate.occupied_room_nights WHERE property_id=$1", [propertyId]);
+      await admin.query("DELETE FROM iron_gate.property_state WHERE property_id=$1", [propertyId]);
+      await pool.end(); await admin.end();
+    }
+  });
+
+test("Sweetfun shadow cancellation transaction deletes two nights and retains tombstones",
+  { skip: !runtimeUrl || !adminUrl }, async () => {
+    if (!isLocalTest(runtimeUrl) || !isLocalTest(adminUrl))
+      throw Error("SHADOW_TEST_REQUIRES_LOCAL_IRON_GATE_TEST_DATABASE");
+    const makeRow = (rowNumber, room, sourceId, parentId, checkIn, checkOut) => {
+      const values = Array(19).fill("");
+      Object.assign(values, { 0: room, 1: "Synthetic guest", 2: "AI",
+        3: checkIn, 4: checkOut, 5: "2026/10/01", 6: "1200",
+        7: "not_yet", 8: "OK", 9: sourceId, 11: parentId });
+      return { rowNumber, values, notes: Array(19).fill(null) };
+    };
+    const before = { headers: [...SWEETFUN_HEADERS], rows: [
+      makeRow(2, "202", "synthetic-cancel-j", "synthetic-cancel-l",
+        "2026/10/25", "2026/10/26"),
+      makeRow(3, "202", "synthetic-cancel-j-2", "synthetic-cancel-l",
+        "2026/10/26", "2026/10/27"),
+      makeRow(4, "101", "synthetic-keep-j", "synthetic-keep-l",
+        "2026/10/26", "2026/10/27") ] };
+    const after = { headers: [...SWEETFUN_HEADERS], rows: [
+      { ...structuredClone(before.rows[2]), rowNumber: 2 } ] };
+    after.rows[0].values[10] = "Synthetic changed note";
+    const groups = prepareSweetfunGroups(before).candidates;
+    const cancelKey = groups.find((group) =>
+      group.rows.some((row) => row.values[9] === "synthetic-cancel-j")).key;
+    const keepKey = groups.find((group) =>
+      group.rows.some((row) => row.values[9] === "synthetic-keep-j")).key;
+    const workspaceId = crypto.randomUUID(), propertyId = crypto.randomUUID();
+    const roomIds = Object.fromEntries(["101", "102", "201", "202", "301", "302"]
+      .map((room) => [room, crypto.randomUUID()]));
+    const firstConfig = { sourceId: "synthetic-original", sourceCopyId: "synthetic-before",
+      sourceCopyCreatedAt: "2026-10-20T00:00:00.000Z",
+      capturedAt: "2026-10-20T00:00:00.000Z",
+      expectedSourceHash: prepareSweetfunGroups(before).sourceHash,
+      workspaceId, propertyId, roomIds,
+      bookingIds: { [cancelKey]: crypto.randomUUID(), [keepKey]: crypto.randomUUID() },
+      inventoryVersion: 1, authorityEpoch: 0 };
+    const diff = diffSweetfunSnapshots(before, after);
+    const decision = { outcome: "cancelled", evidenceType: "owner_attestation",
+      evidenceRef: "synthetic-owner-message", beforeHash: diff.beforeHash,
+      afterHash: diff.afterHash,
+      sourceIds: ["synthetic-cancel-j", "synthetic-cancel-j-2"] };
+    const nextConfig = { ...firstConfig, sourceCopyId: "synthetic-after",
+      sourceCopyCreatedAt: "2026-10-21T02:50:00.000Z",
+      capturedAt: "2026-10-21T02:50:00.000Z",
+      expectedSourceHash: diff.afterHash, inventoryVersion: 2,
+      bookingIds: { [keepKey]: firstConfig.bookingIds[keepKey] },
+      cancellationTombstones: annotateSweetfunDisappearances(diff,
+        [decision]).tombstones };
+    const pool = new Pool({ connectionString: runtimeUrl });
+    const admin = new Pool({ connectionString: adminUrl });
+    const localDatabase = { expectedDatabaseName: "iron_gate_test" };
+    try {
+      await seedSweetfunShadow(pool, before, firstConfig, localDatabase);
+      const result = await cancelSweetfunShadow(pool, after, nextConfig,
+        decision, localDatabase);
+      assert.equal(result.action, "cancelled");
+      assert.equal(result.removedRows, 2);
+      assert.equal(result.removedRoomNights, 2);
+      assert.equal(result.sourceNoteRowsChanged, 1);
+      assert.equal(result.canCutover, false);
+      assert.equal((await cancelSweetfunShadow(pool, after, nextConfig,
+        decision, localDatabase)).action, "unchanged");
+      const stored = await new PostgresPropertyRepository(pool).read(propertyId);
+      assert.equal(stored.version, 2);
+      assert.equal(stored.readOnly, true);
+      assert.equal(stored.bookings.length, 1);
+      assert.equal(stored.bookings[0].id, firstConfig.bookingIds[keepKey]);
+      assert.equal(stored.sweetfunImport.cancellationTombstones.length, 2);
+      assert.equal((await admin.query(`SELECT count(*)::int AS n
+        FROM iron_gate.occupied_room_nights WHERE property_id=$1`, [propertyId])).rows[0].n, 1);
+    } finally {
+      await admin.query("DELETE FROM iron_gate.occupied_room_nights WHERE property_id=$1", [propertyId]);
+      await admin.query("DELETE FROM iron_gate.property_state WHERE property_id=$1", [propertyId]);
+      await pool.end(); await admin.end();
+    }
+  });
+
+test("Sweetfun mixed revision atomically adds one order and cancels two orders",
+  { skip: !runtimeUrl || !adminUrl }, async () => {
+    if (!isLocalTest(runtimeUrl) || !isLocalTest(adminUrl))
+      throw Error("SHADOW_TEST_REQUIRES_LOCAL_IRON_GATE_TEST_DATABASE");
+    const makeRow = (rowNumber, room, sourceId, parentId, checkIn, checkOut) => {
+      const values = Array(19).fill("");
+      Object.assign(values, { 0: room, 1: "Synthetic guest", 2: "Synthetic OTA",
+        3: checkIn, 4: checkOut, 5: "2026/10/01", 6: "1200",
+        7: "not_yet", 8: "OK", 9: sourceId, 11: parentId });
+      return { rowNumber, values, notes: Array(19).fill(null) };
+    };
+    const before = { headers: [...SWEETFUN_HEADERS], rows: [
+      makeRow(2, "202", "cancel-a", "parent-a", "2026/12/13", "2026/12/14"),
+      makeRow(3, "302", "cancel-b", "parent-b", "2026/12/12", "2026/12/13"),
+      makeRow(4, "101", "keep", "parent-keep", "2026/12/15", "2026/12/16"),
+    ] };
+    const after = { headers: [...SWEETFUN_HEADERS], rows: [
+      { ...structuredClone(before.rows[2]), rowNumber: 2 },
+      makeRow(3, "301", "add-c", "parent-c", "2026/10/25", "2026/10/26"),
+    ] };
+    const oldGroups = prepareSweetfunGroups(before).candidates;
+    const newGroups = prepareSweetfunGroups(after).candidates;
+    const oldIds = Object.fromEntries(oldGroups.map((group) =>
+      [group.key, crypto.randomUUID()]));
+    const nextIds = Object.fromEntries(newGroups.map((group) =>
+      [group.key, oldIds[group.key] ?? crypto.randomUUID()]));
+    const workspaceId = crypto.randomUUID(), propertyId = crypto.randomUUID();
+    const roomIds = Object.fromEntries(["101", "102", "201", "202", "301", "302"]
+      .map((room) => [room, crypto.randomUUID()]));
+    const firstConfig = { sourceId: "synthetic-original", sourceCopyId: "synthetic-before",
+      sourceCopyCreatedAt: "2026-10-21T00:00:00.000Z",
+      capturedAt: "2026-10-21T00:00:00.000Z",
+      expectedSourceHash: prepareSweetfunGroups(before).sourceHash,
+      workspaceId, propertyId, roomIds, bookingIds: oldIds,
+      inventoryVersion: 1, authorityEpoch: 0 };
+    const diff = diffSweetfunSnapshots(before, after);
+    const decisions = ["cancel-a", "cancel-b"].map((sourceId) => ({
+      outcome: "cancelled", evidenceType: "owner_attestation",
+      evidenceRef: "synthetic-owner-confirmation", beforeHash: diff.beforeHash,
+      afterHash: diff.afterHash, sourceIds: [sourceId],
+    }));
+    const config = { ...firstConfig, sourceCopyId: "synthetic-after",
+      sourceCopyCreatedAt: "2026-10-21T01:00:00.000Z",
+      capturedAt: "2026-10-21T01:00:00.000Z",
+      expectedSourceHash: diff.afterHash, bookingIds: nextIds,
+      inventoryVersion: 2,
+      cancellationTombstones: annotateSweetfunDisappearances(diff,
+        decisions).tombstones };
+    const pool = new Pool({ connectionString: runtimeUrl });
+    const admin = new Pool({ connectionString: adminUrl });
+    const localDatabase = { expectedDatabaseName: "iron_gate_test" };
+    try {
+      await seedSweetfunShadow(pool, before, firstConfig, localDatabase);
+      const result = await reconcileSweetfunShadow(pool, after, config,
+        decisions, localDatabase);
+      assert.equal(result.action, "reconciled");
+      assert.equal(result.addedRows, 1);
+      assert.equal(result.removedRows, 2);
+      assert.equal(result.addedBookings, 1);
+      assert.equal(result.removedBookings, 2);
+      assert.equal(result.addedRoomNights, 1);
+      assert.equal(result.removedRoomNights, 2);
+      assert.equal((await reconcileSweetfunShadow(pool, after, config,
+        decisions, localDatabase)).action, "unchanged");
+      const stored = await new PostgresPropertyRepository(pool).read(propertyId);
+      assert.equal(stored.version, 2);
+      assert.equal(stored.readOnly, true);
+      assert.equal(stored.bookings.length, 2);
+      assert.equal(stored.sweetfunImport.cancellationTombstones.length, 2);
+      assert.equal((await admin.query(`SELECT count(*)::int AS n
+        FROM iron_gate.occupied_room_nights WHERE property_id=$1`, [propertyId])).rows[0].n, 2);
+    } finally {
+      await admin.query("DELETE FROM iron_gate.occupied_room_nights WHERE property_id=$1", [propertyId]);
+      await admin.query("DELETE FROM iron_gate.property_state WHERE property_id=$1", [propertyId]);
+      await pool.end(); await admin.end();
+    }
+  });
+
+test("Sweetfun shadow advances an additive snapshot atomically and idempotently",
+  { skip: !runtimeUrl || !adminUrl }, async () => {
+    if (!isLocalTest(runtimeUrl) || !isLocalTest(adminUrl))
+      throw Error("SHADOW_TEST_REQUIRES_LOCAL_IRON_GATE_TEST_DATABASE");
+    const makeRow = (rowNumber, room, sourceId, parentId, checkIn, checkOut) => {
+      const values = Array(19).fill("");
+      Object.assign(values, { 0: room, 1: "Synthetic guest", 2: "AI",
+        3: checkIn, 4: checkOut, 5: "2026/10/01", 6: "1200",
+        7: "not_yet", 8: "OK", 9: sourceId, 11: parentId });
+      return { rowNumber, values, notes: Array(19).fill(null) };
+    };
+    const firstSnapshot = { headers: [...SWEETFUN_HEADERS], rows: [
+      makeRow(2, "101", "synthetic-j1", "synthetic-l1", "2026/11/01", "2026/11/02") ] };
+    const nextSnapshot = { headers: [...SWEETFUN_HEADERS], rows: [
+      structuredClone(firstSnapshot.rows[0]),
+      makeRow(3, "102", "synthetic-j2", "synthetic-l2", "2026/11/03", "2026/11/04") ] };
+    const oldKey = prepareSweetfunGroups(firstSnapshot).candidates[0].key;
+    const newKey = prepareSweetfunGroups(nextSnapshot).candidates[1].key;
+    const workspaceId = crypto.randomUUID(), propertyId = crypto.randomUUID();
+    const roomIds = Object.fromEntries(["101", "102", "201", "202", "301", "302"]
+      .map((room) => [room, crypto.randomUUID()]));
+    const firstConfig = { sourceId: "synthetic-original", sourceCopyId: "synthetic-copy-1",
+      sourceCopyCreatedAt: "2026-10-20T00:00:00.000Z",
+      capturedAt: "2026-10-20T00:00:00.000Z",
+      expectedSourceHash: prepareSweetfunGroups(firstSnapshot).sourceHash,
+      workspaceId, propertyId, roomIds, bookingIds: { [oldKey]: crypto.randomUUID() },
+      inventoryVersion: 1, authorityEpoch: 0 };
+    const nextConfig = { ...firstConfig, sourceCopyId: "synthetic-copy-2",
+      sourceCopyCreatedAt: "2026-10-21T00:00:00.000Z",
+      capturedAt: "2026-10-21T00:00:00.000Z",
+      expectedSourceHash: prepareSweetfunGroups(nextSnapshot).sourceHash,
+      bookingIds: { ...firstConfig.bookingIds, [newKey]: crypto.randomUUID() },
+      inventoryVersion: 2 };
+    const pool = new Pool({ connectionString: runtimeUrl });
+    const admin = new Pool({ connectionString: adminUrl });
+    const localDatabase = { expectedDatabaseName: "iron_gate_test" };
+    try {
+      await seedSweetfunShadow(pool, firstSnapshot, firstConfig, localDatabase);
+      const advanced = await advanceSweetfunShadow(pool, nextSnapshot, nextConfig, localDatabase);
+      assert.equal(advanced.action, "advanced");
+      assert.equal(advanced.addedRows, 1);
+      assert.equal(advanced.paymentEventsCreated, 0);
+      assert.equal((await advanceSweetfunShadow(pool, nextSnapshot, nextConfig,
+        localDatabase)).action, "unchanged");
+      const stored = await new PostgresPropertyRepository(pool).read(propertyId);
+      assert.equal(stored.bookings.length, 2);
+      assert.equal(stored.version, 2);
+      assert.equal(stored.readOnly, true);
+      assert.deepEqual(stored.bookings.map((b) => b.paymentEvents), [[], []]);
+      assert.equal((await admin.query(`SELECT count(*)::int AS n
+        FROM iron_gate.occupied_room_nights WHERE property_id=$1`, [propertyId])).rows[0].n, 2);
+      const changed = structuredClone(nextSnapshot);
+      changed.rows[0].values[6] = "1201";
+      await assert.rejects(advanceSweetfunShadow(pool, changed,
+        { ...nextConfig, expectedSourceHash: prepareSweetfunGroups(changed).sourceHash,
+          inventoryVersion: 3 }, localDatabase), /SWEETFUN_SHADOW_NON_ADDITIVE_SOURCE/);
+      assert.equal((await new PostgresPropertyRepository(pool).read(propertyId)).version, 2);
+    } finally {
+      await admin.query("DELETE FROM iron_gate.occupied_room_nights WHERE property_id=$1", [propertyId]);
+      await admin.query("DELETE FROM iron_gate.property_state WHERE property_id=$1", [propertyId]);
+      await pool.end(); await admin.end();
+    }
+  });

@@ -1,5 +1,24 @@
 "use client";
+import { useCalendarData } from "./use-calendar-data";
+import { sixMonthPrefetchRanges } from "./calendar-prefetch";
+import { useCalendarPreloadAnchor } from "./use-calendar-preload-anchor";
+import { createCalendarDeviceScope } from '@/lib/calendar-device-cache';
+import { readCalendarWithChanges } from '@/lib/calendar-sync-client';
+import { useCalendarPerformance } from "./use-calendar-performance";
+import { hasCalendarCoverage } from "./calendar-retention";
+import { useCalendarRevision } from "./use-calendar-revision";
+import {GuestNotificationProvider} from "./guest-notification";
+import {useIntlLocale} from "@/components/i18n/language-provider";
+import {useT} from "@/components/i18n/language-provider";
+import { OsPaymentPanel } from "@/components/payments/os-payment-panel";
+import { IronGateManualPaymentPanel } from "@/components/payments/iron-gate-manual-payment-panel";
 
+import { CalendarPrivacy } from "./calendar-privacy";
+import { CalendarToolbar } from "./calendar-toolbar";
+import type { CalendarReadState } from "./calendar-read-status";
+import { ManualBookingDialog } from "./manual-booking-dialog";
+import { ManualBookingFab } from "./manual-booking-fab";
+import { RetainedOrdersControl, type RetainedOrderTarget } from "./retained-orders-control";
 import {
   useCallback,
   useEffect,
@@ -7,6 +26,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type ReactNode,
 } from "react";
 import {
   AlertCircle,
@@ -23,6 +43,11 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import Link from "next/link";
+import { useCalendarHistory } from "./calendar-history";
+import { AvailabilityCalendar } from "@/components/calendar/availability-calendar";
+import { PAYMENT_SANDBOX } from "@/lib/payment-workflow";
+import { PaymentWorkspace } from "@/components/payments/payment-workspace";
 
 import {
   BookingDetailsPanel,
@@ -41,10 +66,7 @@ import type {
 } from "@/components/calendar/calendar-types";
 import { DayView, MonthScroller } from "@/components/calendar/calendar-views";
 import {
-  PAYMENT_DOT_STYLES,
-  PAYMENT_LABELS,
   PLATFORM_LABELS,
-  PLATFORM_STYLES,
   VIEW_LABELS,
   addDays,
   addMonths,
@@ -60,9 +82,9 @@ import {
   startOfMonth,
 } from "@/components/calendar/calendar-utils";
 import { WeekCarousel } from "@/components/calendar/week-carousel";
+import { visualCalendarStays } from "@/components/calendar/visual-stays";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { apiClient } from "@/lib/api-client";
 import {
   useAccessControl,
   useEffectivePermissions,
@@ -70,9 +92,14 @@ import {
 } from "@/lib/access-control";
 import { cn } from "@/lib/utils";
 
+const LIVE_SHEET = process.env.NEXT_PUBLIC_CALENDAR_SOURCE === "sheet_snapshot";
 const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
 const EDIT_STORAGE_KEY = "sweetfun-os-demo-edits-v4";
 const MONTHS = monthStarts("2025-01-01", 36);
+const FIXED_PREVIEW = process.env.NEXT_PUBLIC_IRON_GATE_FIXED_PREVIEW === "true";
+// Production may retain the demo flag while reading the live Sheet/Iron Gate
+// source. Keep live requests bounded even though the scroll track has all months.
+const BOUNDED_MONTH = FIXED_PREVIEW || LIVE_SHEET || !DEMO_MODE;
 
 type OrderPatch = {
   guest_name?: string;
@@ -103,6 +130,13 @@ type DemoEditState = {
 
 const EMPTY_EDITS: DemoEditState = { orders: {}, segments: {} };
 
+async function readCalendar(start: string, end: string, propertyIds: string[], base?: CalendarResponse): Promise<CalendarResponse> {
+  if (!PAYMENT_SANDBOX) return readCalendarWithChanges(start, end, propertyIds, base);
+  const response = await fetch(`/api/payment-sandbox/calendar?start=${start}&end=${end}`, { cache: "no-store" });
+  if (!response.ok) throw Error("無法連接隔離測試服務，請稍後重試。");
+  return response.json();
+}
+
 function uniqueId(prefix: string) {
   const random =
     typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -120,13 +154,17 @@ function MetricCard({
   label: string;
   value: string | number;
 }) {
+  const uiText = useT();
+
   return (
-    <div className="rounded-xl border bg-card px-4 py-3 shadow-xs">
+    <div className="rounded-xl border bg-card px-3 py-2 shadow-xs">
       <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
         <Icon className="size-3.5" />
-        {label}
+        {uiText(label)}
       </div>
-      <p className="mt-1 text-xl font-semibold tracking-tight text-foreground">{value}</p>
+      <p className="mt-0.5 text-lg font-semibold tracking-tight text-foreground">
+        {value}
+      </p>
     </div>
   );
 }
@@ -144,12 +182,14 @@ function overlayEdits(
     ...segmentPatch,
     guest_name: orderPatch.guest_name ?? booking.guest_name,
     payment_status: orderPatch.payment_status ?? booking.payment_status,
-    reservation_status: orderPatch.reservation_status ?? booking.reservation_status,
+    reservation_status:
+      orderPatch.reservation_status ?? booking.reservation_status,
     payments: orderPatch.payments ?? booking.payments ?? [],
     audit_log: [...(booking.audit_log ?? []), ...(orderPatch.audit_log ?? [])],
     extra_guest_count:
       segmentPatch.extra_guest_count ?? booking.extra_guest_count ?? 0,
-    extra_bed_count: segmentPatch.extra_bed_count ?? booking.extra_bed_count ?? 0,
+    extra_bed_count:
+      segmentPatch.extra_bed_count ?? booking.extra_bed_count ?? 0,
     pet_count: segmentPatch.pet_count ?? booking.pet_count ?? 0,
     baby_supplies: segmentPatch.baby_supplies ?? booking.baby_supplies ?? [],
     service_note: segmentPatch.service_note ?? booking.service_note ?? null,
@@ -157,57 +197,154 @@ function overlayEdits(
   };
 }
 
-export function BookingCalendarResponsive() {
+function SoldBookingCalendar({ renderToolbar }: { renderToolbar: (data: CalendarResponse | null, readState: CalendarReadState) => ReactNode }) {
+const uiLocale = useIntlLocale();
+
+  const uiText = useT();
+
   const view = useCalendarPreferences((state) => state.view);
   const setView = useCalendarPreferences((state) => state.setView);
   const query = useCalendarPreferences((state) => state.searchQuery);
   const setQuery = useCalendarPreferences((state) => state.setSearchQuery);
-  const mobileSearchOpen = useCalendarPreferences((state) => state.mobileSearchOpen);
-  const setMobileSearchOpen = useCalendarPreferences((state) => state.setMobileSearchOpen);
+  const mobileSearchOpen = useCalendarPreferences(
+    (state) => state.mobileSearchOpen,
+  );
+  const setMobileSearchOpen = useCalendarPreferences(
+    (state) => state.setMobileSearchOpen,
+  );
   const setMobilePeriodLabel = useCalendarPreferences(
     (state) => state.setMobilePeriodLabel,
   );
   const navigationRequest = useCalendarPreferences(
     (state) => state.navigationRequest,
   );
-  const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);
+  const selectedPropertyIds = useCalendarPreferences(
+    (state) => state.selectedPropertyIds,
+  );
+  const availableProperties = useCalendarPreferences((state) => state.properties);
   const setProperties = useCalendarPreferences((state) => state.setProperties);
 
   const initializeAccess = useAccessControl((state) => state.initialize);
   const membership = useAccessControl((state) => state.membership);
-  const permissions = useEffectivePermissions();
+  const sessionVerifiedAt = useAccessControl(state => state.sessionVerifiedAt);
+  const sessionLoading = useAccessControl(state => state.sessionLoading);
+  const initialized = useAccessControl(state => state.initialized);
+  const requiresPasswordReset = useAccessControl(state => state.requiresPasswordReset);
+  const rolePermissions = useEffectivePermissions();
   const effectiveRole = useEffectiveRole();
 
-  const [anchorDate, setAnchorDate] = useState("2026-09-04");
-  const [visibleMonth, setVisibleMonth] = useState("2026-09-01");
-  const [monthTarget, setMonthTarget] = useState("2026-09-01");
-  const [data, setData] = useState<CalendarResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const anchorDate = useCalendarPreferences((state) => state.anchorDate);
+  const setAnchorDate = useCalendarPreferences((state) => state.setAnchorDate);
+  const [visibleMonth, setVisibleMonth] = useState(() =>
+    startOfMonth(anchorDate),
+  );
+  const [todayRequest,setTodayRequest] = useState(0);
+  const [monthTarget, setMonthTarget] = useState(() =>
+    startOfMonth(anchorDate),
+  );
+  const scrollCommit = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelScrollCommit = useCallback(() => {
+    if (scrollCommit.current) clearTimeout(scrollCommit.current);
+    scrollCommit.current = null;
+  }, []);
+  useEffect(() => () => {
+    cancelScrollCommit();
+  }, [cancelScrollCommit]);
+  const accessScope = JSON.stringify([membership?.tenantId, membership?.id, membership?.role,
+    membership?.allProperties, membership?.propertyIds, effectiveRole, rolePermissions.viewPrices]);
+  const requestedPropertyIds = useMemo(() => {
+    const valid = selectedPropertyIds.filter(id => id === 'sweetfun' || id === 'offland');
+    if (!valid.length || valid.length === 2 || availableProperties.length > 0 &&
+      valid.length === availableProperties.length) return [];
+    return [...valid].sort();
+  }, [availableProperties.length, selectedPropertyIds]);
+  const propertyScope = requestedPropertyIds.join(',');
+  const scopedRead = useCallback((start: string, end: string, base?: CalendarResponse) =>
+    readCalendar(start, end, propertyScope ? propertyScope.split(',') : [], base), [propertyScope]);
+  // The live source takes precedence over a legacy demo flag, as it does for
+  // authentication and bounded reads. Only an actual demo skips device copies.
+  const deviceScope = useMemo(() => PAYMENT_SANDBOX || (DEMO_MODE && !LIVE_SHEET) ? null : createCalendarDeviceScope(
+    { membership, sessionVerifiedAt, sessionLoading, initialized, requiresPasswordReset },
+    { properties: propertyScope ? propertyScope.split(',') : membership?.propertyIds ?? [],
+      viewPrices: rolePermissions.viewPrices, effectiveRole }),
+  [membership, sessionVerifiedAt, sessionLoading, initialized, requiresPasswordReset, propertyScope, rolePermissions.viewPrices, effectiveRole]);
+  const selectedId = useCalendarPreferences((s) => s.selectedBookingId);
+  const setSelectedId = useCalendarPreferences((s) => s.setSelectedBookingId);
+  const historyRevision = useCalendarPreferences((s) => s.historyRevision);
+  useEffect(() => {
+    const month = startOfMonth(useCalendarPreferences.getState().anchorDate);
+    cancelScrollCommit();
+    setVisibleMonth(month);
+    setMonthTarget(month);
+  }, [historyRevision, cancelScrollCommit]);
   const [reloadKey, setReloadKey] = useState(0);
-  const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
+  const retryCalendar = useCallback(() => setReloadKey((value) => value + 1), []);
+  const [manualMode, setManualMode] = useState<"create" | "amend" | "cancel" | "sync" | "manual-confirm" | null>(null);
+  const [manualSyncTarget, setManualSyncTarget] = useState<{ bookingId: string; inventoryVersion: number } | null>(null);
+  const [retainedTarget, setRetainedTarget] = useState<RetainedOrderTarget | null>(null);
+  const retainedTargetHandled = useCallback(() => setRetainedTarget(null), []);
   const [edits, setEdits] = useState<DemoEditState>(EMPTY_EDITS);
   const [editsHydrated, setEditsHydrated] = useState(false);
-  const hasLoadedData = useRef(false);
   const previousView = useRef<CalendarView>(view);
-  const handledNavigationRequest = useRef(0);
-
-  const requestPeriod = useMemo(() => fetchPeriod(anchorDate, view), [anchorDate, view]);
+  const handledNavigationRequest = useRef(navigationRequest?.id ?? 0);
+  const requestPeriod = useMemo(
+    () => fetchPeriod(anchorDate, query.trim() ? "month" : view, BOUNDED_MONTH),
+    [anchorDate, view, query],
+  );
+  const previewMonth = startOfMonth(anchorDate);
+  // The fixed month positions preserve native touch momentum across boundaries.
+  // Unfetched positions remain explicitly unloaded until their own read succeeds.
+  const monthsToShow = useMemo(() => MONTHS.includes(previewMonth) ? MONTHS : [previewMonth],
+    [previewMonth]);
+  const prefetchAnchor = useCalendarPreloadAnchor(visibleMonth, JSON.stringify([accessScope, propertyScope, reloadKey]));
+  const prefetchRanges = useMemo(() => view === "month" && BOUNDED_MONTH
+    ? sixMonthPrefetchRanges(prefetchAnchor, true)
+    : [], [view, prefetchAnchor]);
+  const visiblePeriod = view === "month" ? fetchPeriod(visibleMonth, "month", true) : requestPeriod;
+  const accessLost = useCallback(() => { setSelectedId(null); void initializeAccess({ force: true }); }, [setSelectedId, initializeAccess]);
+  const { data, loading, refreshing, error, requestFailed, lastLoadedAt, fromDeviceCache } = useCalendarData({
+    start: requestPeriod.start, end: requestPeriod.end,
+    scope: `${accessScope}:${propertyScope}`, reload: reloadKey,
+    read: scopedRead, onProperties: setProperties, onAccessLost: accessLost,
+    visibleStart: visiblePeriod.start,
+    visibleEnd: visiblePeriod.end,
+    prefetch: prefetchRanges,
+    deviceScope,
+  });
+  useCalendarPerformance(`${accessScope}:${propertyScope}:${view}:${visiblePeriod.start}:${visiblePeriod.end}:${reloadKey}`,
+    !loading && !refreshing && !requestFailed && hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end),
+    fromDeviceCache && hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end));
+  const permissions = { ...rolePermissions, viewPrices: rolePermissions.viewPrices && !data?.price_hidden };
+  const manualEnabled = data?.iron_gate_manual_enabled === true && !requestFailed && !fromDeviceCache &&
+    !loading && !error && !refreshing &&
+    hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end);
+  const canCreateManual = manualEnabled &&
+    data?.properties.some(property => property.id === "sweetfun") &&
+    (!selectedPropertyIds.length || selectedPropertyIds.includes("sweetfun"));
+  const retainedEnabled = Boolean(membership?.id) && data?.retained_orders_enabled === true &&
+    data.properties.some(property => property.id === "offland") &&
+    (!selectedPropertyIds.length || selectedPropertyIds.includes("offland"));
+  const retainedCanWrite = data?.retained_orders_can_write === true && !fromDeviceCache &&
+    ["owner", "admin", "god"].includes(effectiveRole) && permissions.viewPrices;
   const displayPeriod = useMemo(() => {
     if (view === "month") {
       return {
         start: visibleMonth,
         end: addMonths(visibleMonth, 1),
-        label: formatMonthLabel(visibleMonth),
+        label: formatMonthLabel(visibleMonth, uiLocale),
       };
     }
-    return currentPeriod(anchorDate, view);
-  }, [anchorDate, view, visibleMonth]);
+    return currentPeriod(anchorDate, view, uiLocale);
+  }, [anchorDate, view, visibleMonth, uiLocale]);
 
   useEffect(() => {
     void initializeAccess();
+    if (
+      PAYMENT_SANDBOX &&
+      new URLSearchParams(window.location.search).has("order") &&
+      !new URLSearchParams(window.location.search).has("view")
+    )
+      useCalendarPreferences.getState().setView("month");
   }, [initializeAccess]);
 
   useEffect(() => {
@@ -220,6 +357,8 @@ export function BookingCalendarResponsive() {
     handledNavigationRequest.current = navigationRequest.id;
 
     if (navigationRequest.action === "today") {
+      cancelScrollCommit();
+      setTodayRequest(value=>value+1);
       const today = localTodayIso();
       setAnchorDate(today);
       if (view === "month") {
@@ -232,6 +371,7 @@ export function BookingCalendarResponsive() {
 
     const direction = navigationRequest.action === "previous" ? -1 : 1;
     if (view === "month") {
+      cancelScrollCommit();
       const target = addMonths(visibleMonth, direction);
       setVisibleMonth(target);
       setMonthTarget(target);
@@ -243,7 +383,7 @@ export function BookingCalendarResponsive() {
       return;
     }
     setAnchorDate((value) => addDays(value, direction));
-  }, [navigationRequest, view, visibleMonth]);
+  }, [navigationRequest, view, visibleMonth, setAnchorDate, cancelScrollCommit]);
 
   useEffect(() => {
     const oldView = previousView.current;
@@ -259,7 +399,7 @@ export function BookingCalendarResponsive() {
   }, [anchorDate, view]);
 
   useEffect(() => {
-    if (!DEMO_MODE) {
+    if (!DEMO_MODE || PAYMENT_SANDBOX) {
       setEditsHydrated(true);
       return;
     }
@@ -274,50 +414,37 @@ export function BookingCalendarResponsive() {
   }, []);
 
   useEffect(() => {
-    if (!DEMO_MODE || !editsHydrated) return;
+    if (!DEMO_MODE || PAYMENT_SANDBOX || !editsHydrated) return;
     window.localStorage.setItem(EDIT_STORAGE_KEY, JSON.stringify(edits));
   }, [edits, editsHydrated]);
 
   useEffect(() => {
-    let active = true;
-    const initialLoad = !hasLoadedData.current;
-
-    async function loadCalendar() {
-      if (initialLoad) setLoading(true);
-      else setRefreshing(true);
-      setError(null);
-
-      try {
-        const response = await apiClient.get<CalendarResponse>(
-          `/bookings/calendar?start=${requestPeriod.start}&end=${requestPeriod.end}`,
-        );
-        if (!active) return;
-        setData(response);
-        setProperties(response.properties);
-        setLastLoadedAt(new Date());
-        hasLoadedData.current = true;
-      } catch (requestError) {
-        if (!active) return;
-        setError(
-          requestError instanceof Error ? requestError.message : "無法讀取訂單日曆",
-        );
-      } finally {
-        if (!active) return;
-        if (initialLoad) setLoading(false);
-        setRefreshing(false);
-      }
-    }
-
-    void loadCalendar();
-    return () => {
-      active = false;
+    // A slow calendar read must be allowed to settle. Starting another
+    // refresh invalidates its response and can leave the loading state stuck.
+    if (loading || refreshing || (!PAYMENT_SANDBOX && !LIVE_SHEET && !data?.source?.automatic_sync)) return;
+    const refresh = () => {
+      if (!document.hidden) setReloadKey((value) => value + 1);
     };
-  }, [reloadKey, requestPeriod.end, requestPeriod.start, setProperties]);
+    const timer = setInterval(refresh, PAYMENT_SANDBOX ? 5000 : 60_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [data?.source?.automatic_sync, loading, refreshing]);
+
+
+  const sourceChanged = useCallback(() => setReloadKey(value => value + 1), []);
+  useCalendarRevision((data?.properties ?? []).map(p => p.id).filter(id => id === 'sweetfun' || id === 'offland').sort().join(','),
+    !PAYMENT_SANDBOX && !loading && !refreshing &&
+      data?.data_mode !== "iron_gate_booking_only" && !!data?.source?.automatic_sync, sourceChanged);
 
   const rawEditedBookings = useMemo(
     () =>
       (data?.bookings ?? [])
-        .map((booking) => overlayEdits(booking, edits))
+        .map((booking) => data?.source?.read_only ? booking : overlayEdits(booking, edits))
         .filter((booking): booking is CalendarBooking => booking !== null),
     [data, edits],
   );
@@ -331,6 +458,10 @@ export function BookingCalendarResponsive() {
     if (!membership || membership.allProperties) return null;
     return new Set(membership.propertyIds);
   }, [membership]);
+  const coverageMissing = !hasCalendarCoverage(data, visiblePeriod.start, visiblePeriod.end);
+  const keepMonthVisible = view === "month" && !!data && selectedPropertyIds.length > 0;
+  const unavailableSelectedSource = coverageMissing || data?.source_errors?.some(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id)));
+
 
   const selectedProperties = useMemo(
     () =>
@@ -347,7 +478,8 @@ export function BookingCalendarResponsive() {
       editedBookings.filter(
         (booking) =>
           selectedPropertyIds.includes(booking.property_id) &&
-          (!allowedPropertyIds || allowedPropertyIds.has(booking.property_id)) &&
+          (!allowedPropertyIds ||
+            allowedPropertyIds.has(booking.property_id)) &&
           booking.reservation_status === "confirmed",
       ),
     [allowedPropertyIds, editedBookings, selectedPropertyIds],
@@ -360,6 +492,9 @@ export function BookingCalendarResponsive() {
     return propertyBookings.filter((booking) =>
       [
         booking.guest_name,
+        ...(booking.guest_name_sources ?? []),
+        ...(booking.guest_remarks ?? []).flatMap(r => [r.label, r.source]),
+        booking.notes,
         booking.room_number,
         booking.order_id,
         booking.external_order_no,
@@ -371,6 +506,9 @@ export function BookingCalendarResponsive() {
         .some((value) => String(value).toLowerCase().includes(normalized)),
     );
   }, [propertyBookings, query]);
+
+  // Presentation links never enter metrics, order selection, payment, or finance.
+  const displayBookings = useMemo(() => visualCalendarStays(filteredBookings), [filteredBookings]);
 
   const visibleRooms = useMemo(
     () =>
@@ -393,6 +531,16 @@ export function BookingCalendarResponsive() {
       (booking) => booking.order_id === selectedBooking.order_id,
     );
   }, [editedBookings, selectedBooking]);
+  const selectedVisualNights = useMemo(() => {
+    if (!selectedBooking) return [];
+    const span = displayBookings.find((booking) => booking.visual_source_ids?.includes(selectedBooking.id));
+    if (!span?.visual_source_ids) return [];
+    const byId = new Map(editedBookings.map((booking) => [booking.id, booking]));
+    return span.visual_source_ids.flatMap((id) => {
+      const booking = byId.get(id);
+      return booking ? [booking] : [];
+    });
+  }, [displayBookings, editedBookings, selectedBooking]);
 
   const metrics = useMemo(() => {
     const relevant = filteredBookings.filter(
@@ -403,15 +551,16 @@ export function BookingCalendarResponsive() {
     const occupied = relevant.filter(
       (booking) => overlapNights(booking, displayPeriod) > 0,
     );
-    const orderCount = new Set(relevant.map((booking) => booking.order_id)).size;
+    const orderCount = new Set(relevant.filter(b => !b.source_conflict).map((booking) => booking.order_id))
+      .size;
     const arrivals = relevant.filter(
       (booking) =>
-        booking.check_in >= displayPeriod.start &&
+        !booking.source_conflict && booking.check_in >= displayPeriod.start &&
         booking.check_in < displayPeriod.end,
     ).length;
     const departures = relevant.filter(
       (booking) =>
-        booking.check_out >= displayPeriod.start &&
+        !booking.source_conflict && booking.check_out >= displayPeriod.start &&
         booking.check_out < displayPeriod.end,
     ).length;
     const roomNights = occupied.reduce(
@@ -419,21 +568,37 @@ export function BookingCalendarResponsive() {
       0,
     );
     const amount = occupied.reduce((sum, booking) => {
+      if (booking.source_conflict) return sum;
+      if (booking.nightly_amounts) return sum + booking.nightly_amounts
+        .filter(n => n.date >= displayPeriod.start && n.date < displayPeriod.end)
+        .reduce((total, n) => total + n.amount, 0);
       const totalNights = Math.max(
         1,
         dayDifference(booking.check_out, booking.check_in),
       );
       const visibleNights = overlapNights(booking, displayPeriod);
-      return sum + Math.round((booking.room_rate * visibleNights) / totalNights);
+      return (
+        sum + Math.round((booking.room_rate * visibleNights) / totalNights)
+      );
     }, 0);
 
     return { orderCount, arrivals, departures, roomNights, amount };
   }, [displayPeriod, filteredBookings]);
 
-  const handleVisibleMonthChange = useCallback((month: string) => {
-    setVisibleMonth(month);
-    setAnchorDate(month);
-  }, []);
+  const handleVisibleMonthChange = useCallback(
+    (month: string) => {
+      setVisibleMonth(month);
+      // A fast swipe can pass several months in one gesture. Commit the URL
+      // and data anchor only after it settles instead of doing it on every
+      // scroll frame and rebuilding the booking view mid-gesture.
+      if (scrollCommit.current) clearTimeout(scrollCommit.current);
+      scrollCommit.current = setTimeout(() => {
+        scrollCommit.current = null;
+        setAnchorDate((current) => startOfMonth(current) === month ? current : month);
+      }, 180);
+    },
+    [setAnchorDate],
+  );
 
   function switchView(nextView: CalendarView) {
     if (nextView === view) return;
@@ -447,6 +612,7 @@ export function BookingCalendarResponsive() {
 
   function navigate(direction: -1 | 1) {
     if (view === "month") {
+      cancelScrollCommit();
       const target = addMonths(visibleMonth, direction);
       setVisibleMonth(target);
       setMonthTarget(target);
@@ -461,6 +627,8 @@ export function BookingCalendarResponsive() {
   }
 
   function goToToday() {
+    cancelScrollCommit();
+    setTodayRequest(value=>value+1);
     const today = localTodayIso();
     setAnchorDate(today);
     if (view === "month") {
@@ -512,7 +680,7 @@ export function BookingCalendarResponsive() {
           : input.paymentType === "balance"
             ? "尾款"
             : "款項"
-      } ${formatMoney(input.amount)}，收款日 ${input.receivedAt}`,
+      } ${formatMoney(input.amount, uiLocale)}，收款日 ${input.receivedAt}`,
       occurred_at: new Date().toISOString(),
     };
 
@@ -528,8 +696,8 @@ export function BookingCalendarResponsive() {
         },
       },
     }));
-    toast.success("付款已登記", {
-      description: `${formatMoney(input.amount)} · ${input.receivedAt}`,
+    toast.success(uiText("付款已登記"), {
+      description: `${formatMoney(input.amount, uiLocale)} · ${input.receivedAt}`,
     });
   }
 
@@ -546,7 +714,7 @@ export function BookingCalendarResponsive() {
     );
 
     if (conflict) {
-      toast.error("無法修改：新日期已有訂單", {
+      toast.error(uiText("無法修改：新日期已有訂單"), {
         description: `${input.roomNumber} 房與 ${conflict.guest_name} 的住宿區間重疊。`,
       });
       return;
@@ -556,11 +724,13 @@ export function BookingCalendarResponsive() {
       id: uniqueId("audit"),
       action: "update_booking",
       summary: `更新為 ${input.roomNumber} 房，${input.checkIn}–${input.checkOut}${
-        permissions.viewPrices ? `，房費 ${formatMoney(input.roomRate)}` : ""
+        permissions.viewPrices ? `，房費 ${formatMoney(input.roomRate, uiLocale)}` : ""
       }`,
       occurred_at: new Date().toISOString(),
     };
-    const sourceIds = selectedBooking.source_segment_ids ?? [selectedBooking.id];
+    const sourceIds = selectedBooking.source_segment_ids ?? [
+      selectedBooking.id,
+    ];
     const [primaryId, ...obsoleteIds] = sourceIds;
 
     setEdits((current) => {
@@ -598,7 +768,7 @@ export function BookingCalendarResponsive() {
         segments,
       };
     });
-    toast.success("訂單資料已修改");
+    toast.success(uiText("訂單資料已修改"));
   }
 
   function cancelBooking(reason: string) {
@@ -624,7 +794,7 @@ export function BookingCalendarResponsive() {
         },
       },
     }));
-    toast.success("預訂已取消", {
+    toast.success(uiText("預訂已取消"), {
       description: "房況已在示範資料中釋出。",
     });
   }
@@ -635,7 +805,22 @@ export function BookingCalendarResponsive() {
   }
 
   return (
-    <div className="pb-0 md:space-y-4 md:pb-8">
+    <div className="pb-0 md:space-y-2">
+      {renderToolbar(data, loading ? "loading" : refreshing ? "refreshing" : requestFailed ? "failed" : fromDeviceCache ? "loading" : "ready")}
+      {canCreateManual && !manualMode && !selectedBooking && !mobileSearchOpen &&
+        <ManualBookingFab onActivate={() => setManualMode("create")} />}
+      {PAYMENT_SANDBOX && (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card p-3 text-sm">
+          <div>
+            <p className="font-semibold">{uiText("日曆與付款任務已連接")}</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {uiText("隔離測試 · 點選 301 房測試訂單，登記付款後會保存並更新日曆。")}</p>
+          </div>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/missions">{uiText("交辦與查看任務")}</Link>
+          </Button>
+        </div>
+      )}
       {mobileSearchOpen && (
         <div className="fixed inset-x-0 top-0 z-[70] flex h-14 items-center gap-2 border-b bg-background px-2 shadow-sm md:hidden">
           <Search className="ml-2 size-4 shrink-0 text-muted-foreground" />
@@ -645,14 +830,14 @@ export function BookingCalendarResponsive() {
             onChange={(event: ChangeEvent<HTMLInputElement>) =>
               setQuery(event.target.value)
             }
-            placeholder="搜尋客人、房號、需求或訂單編號"
+            placeholder={uiText(BOUNDED_MONTH ? "搜尋本月客人、房號、需求或訂單編號" : "搜尋客人、房號、需求或訂單編號")}
             className="h-10 flex-1 border-0 bg-transparent px-1 text-base shadow-none focus-visible:ring-0"
           />
           <Button
             variant="ghost"
             size="icon"
             onClick={closeMobileSearch}
-            aria-label="清除並關閉搜尋"
+            aria-label={uiText("清除並關閉搜尋")}
           >
             <X className="size-5" />
           </Button>
@@ -660,22 +845,14 @@ export function BookingCalendarResponsive() {
       )}
 
       <section className="sticky top-0 z-30 hidden overflow-hidden rounded-2xl border bg-background/95 shadow-sm backdrop-blur md:block">
-        <div className="flex flex-col gap-4 border-b px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
           <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-              <span className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                SF
-              </span>
-              Sweetfun Operations
-            </div>
-            <div className="mt-2 flex items-center gap-3">
-              <h1 className="text-2xl font-semibold tracking-tight">
-                訂單與房況日曆
-              </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-lg font-semibold tracking-tight">
+                {uiText("訂單與房況日曆")}</h1>
               {effectiveRole !== "owner" && (
-                <span className="rounded-full border bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
-                  權限預覽
-                </span>
+                <span className="rounded-full border bg-muted px-2 py-1 text-[0.6875rem] font-medium text-muted-foreground">
+                  {uiText("權限預覽")}</span>
               )}
             </div>
           </div>
@@ -694,7 +871,7 @@ export function BookingCalendarResponsive() {
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {VIEW_LABELS[option]}
+                  {uiText(VIEW_LABELS[option])}
                 </button>
               ))}
             </div>
@@ -703,7 +880,7 @@ export function BookingCalendarResponsive() {
               size="icon"
               onClick={() => setReloadKey((value) => value + 1)}
               disabled={loading || refreshing}
-              aria-label="重新整理"
+              aria-label={uiText("重新整理")}
             >
               <RefreshCw
                 className={cn(
@@ -715,135 +892,148 @@ export function BookingCalendarResponsive() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 px-5 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2">
           <div className="flex min-w-0 items-center gap-2">
             <Button
               variant="outline"
               size="icon"
               onClick={() => navigate(-1)}
-              aria-label="上一個區間"
+              aria-label={uiText("上一個區間")}
             >
               <ChevronLeft className="size-4" />
             </Button>
             <Button variant="outline" onClick={goToToday}>
-              今天
-            </Button>
+              {uiText("今天")}</Button>
             <Button
               variant="outline"
               size="icon"
               onClick={() => navigate(1)}
-              aria-label="下一個區間"
+              aria-label={uiText("下一個區間")}
             >
               <ChevronRight className="size-4" />
             </Button>
-            <div className="ml-1 min-w-48 truncate text-base font-semibold">
+            <div className="ml-1 min-w-28 truncate text-base font-semibold">
               {displayPeriod.label}
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <div className="relative w-72">
+            <div className="relative w-56">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 value={query}
                 onChange={(event: ChangeEvent<HTMLInputElement>) =>
                   setQuery(event.target.value)
                 }
-                placeholder="搜尋客人、房號、需求或訂單編號"
+                placeholder={uiText(BOUNDED_MONTH ? "搜尋本月客人、房號、需求或訂單編號" : "搜尋客人、房號、需求或訂單編號")}
                 className="bg-background pl-9"
               />
             </div>
-            <span className="whitespace-nowrap text-[11px] text-muted-foreground">
+            <span className="whitespace-nowrap text-[0.6875rem] text-muted-foreground">
               {lastLoadedAt
-                ? `${lastLoadedAt.toLocaleTimeString("zh-TW", {
+                ? uiText("{0} {1}", [lastLoadedAt.toLocaleTimeString(uiLocale, {
                     hour: "2-digit",
                     minute: "2-digit",
-                  })} 更新`
-                : "等待同步"}
+                  }),data?.source ? "載入" : "更新"])
+                : uiText("等待載入")}
             </span>
           </div>
         </div>
       </section>
 
-      <div className="hidden gap-3 sm:grid-cols-2 md:grid xl:grid-cols-5">
-        <MetricCard icon={CalendarDays} label="訂單" value={metrics.orderCount} />
-        <MetricCard icon={LogIn} label="入住" value={metrics.arrivals} />
-        <MetricCard icon={LogOut} label="退房" value={metrics.departures} />
-        <MetricCard icon={DoorOpen} label="房晚" value={metrics.roomNights} />
+      {fromDeviceCache && <div role="status" className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">先顯示此裝置上次讀取的資料{lastLoadedAt ? `（${lastLoadedAt.toLocaleString(uiLocale, { timeZone: 'Asia/Taipei' })}）` : ''}，正在核對最新變更。確認完成前僅供查看。</div>}
+      {requestFailed && data && !loading && <div role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">目前顯示上次載入的資料，僅供查看。最新房況與付款尚未確認，恢復連線後會自動重試。</div>}
+      {retainedEnabled && <RetainedOrdersControl key={accessScope} canWrite={retainedCanWrite}
+        viewPrices={permissions.viewPrices} storageScope={membership!.id}
+        reload={reloadKey} target={retainedTarget} onTargetHandled={retainedTargetHandled} onChanged={retryCalendar} />}
+      {!loading && data?.source_warnings?.filter(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id))).map(item => (
+        <div key={`${item.property_id}:${item.phase}`} role="status" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          {item.label} · {({ private_snapshot: "目前顯示伺服器保存的私人快照，房況、姓名、備註與付款均為當時資料。", snapshot: "目前顯示上次確認的房況，最新變更尚未確認。", guest_details: "姓名與備註暫時無法確認，仍可查看房況。", payments: "付款資料暫時無法確認，請勿視為未付款。" })[item.phase]} {item.captured_at && `保存時間：${new Date(item.captured_at).toLocaleString(uiLocale, { timeZone: "Asia/Taipei" })}。`}僅供查看，恢復確認後才能操作。
+        </div>
+      ))}
+      {!loading && data?.source_errors?.filter(item => selectedPropertyIds.includes(item.property_id) && (!allowedPropertyIds || allowedPropertyIds.has(item.property_id))).map(item => (
+        <div key={item.property_id} role="alert" className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+          {item.label}{uiText("暫時無法載入，相關房況與統計尚無法確認。其他民宿仍可正常查看。")}</div>
+      ))}
+
+      <div className="hidden gap-2 md:grid md:grid-cols-5">
+        <MetricCard
+          icon={CalendarDays}
+          label={data?.source ? uiText("訂單紀錄") : uiText("訂單")}
+          value={unavailableSelectedSource ? "—" : metrics.orderCount}
+        />
+        <MetricCard icon={LogIn} label={uiText("入住")} value={unavailableSelectedSource ? "—" : metrics.arrivals} />
+        <MetricCard icon={LogOut} label={uiText("退房")} value={unavailableSelectedSource ? "—" : metrics.departures} />
+        <MetricCard icon={DoorOpen} label={uiText("房晚")} value={unavailableSelectedSource ? "—" : metrics.roomNights} />
         <MetricCard
           icon={CircleDollarSign}
-          label="房費"
-          value={permissions.viewPrices ? formatMoney(metrics.amount) : "已隱藏"}
+          label={uiText("房費")}
+          value={
+            unavailableSelectedSource ? "—" : permissions.viewPrices ? formatMoney(metrics.amount, uiLocale) : "已隱藏"
+          }
         />
       </div>
 
-      <div className="hidden flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border bg-card px-4 py-2.5 text-xs text-muted-foreground shadow-xs lg:flex">
-        <span className="font-semibold text-foreground">圖例</span>
-        {Object.entries(PLATFORM_LABELS).map(([platform, label]) => (
-          <span key={platform} className="flex items-center gap-1.5">
-            <span
-              className={cn(
-                "size-2.5 rounded-sm border",
-                PLATFORM_STYLES[platform] ?? PLATFORM_STYLES.other,
-              )}
-            />
-            {label}
-          </span>
-        ))}
-        <span className="ml-auto flex flex-wrap items-center gap-3">
-          {(Object.keys(PAYMENT_LABELS) as PaymentStatus[]).map((status) => (
-            <span key={status} className="flex items-center gap-1.5">
-              <span
-                className={cn(
-                  "size-2 rounded-full",
-                  PAYMENT_DOT_STYLES[status],
-                )}
-              />
-              {PAYMENT_LABELS[status]}
-            </span>
-          ))}
-        </span>
-      </div>
-
-      {DEMO_MODE && (
+      {DEMO_MODE && !LIVE_SHEET && !PAYMENT_SANDBOX && data?.data_mode === "anonymized_multi_property_demo" && (
         <div className="hidden rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950 md:block">
-          示範模式：可測試權限、付款、改期與取消；變更只保存在這台裝置。
-        </div>
+          {uiText("示範模式：可測試權限、付款、改期與取消；變更只保存在這台裝置。")}</div>
       )}
 
+      {data?.guest_access?.available && <CalendarPrivacy authenticated={data.guest_access.authenticated} />}
+
+      {query.trim() && <section className="m-2 rounded-xl border bg-card p-3 md:m-0" aria-label={uiText("搜尋結果")}>
+        <h2 className="text-sm font-semibold">{uiText("搜尋結果 ·")}{filteredBookings.length} {uiText(BOUNDED_MONTH ? "筆（目前日曆區間）" : "筆（2025–2027）")}</h2>
+        <div className="mt-2 max-h-64 space-y-1 overflow-y-auto">
+          {filteredBookings.slice(0,50).map(booking=><button key={booking.id} className="block w-full rounded border p-2 text-left text-sm hover:bg-muted" onClick={()=>setSelectedId(booking.id)}>
+            <span className="block">{booking.check_in}–{booking.check_out} · {booking.room_number} · {booking.guest_name}</span>
+            <span className="text-xs">{booking.guest_remarks?.map(r=>r.label).join(" · ")}</span>
+          </button>)}
+          {!filteredBookings.length && <p className="text-sm text-muted-foreground">{uiText("沒有符合的訂單。")}</p>}
+          {filteredBookings.length>50 && <p className="text-xs">{uiText("先顯示 50 筆，請增加關鍵字縮小範圍。")}</p>}
+        </div>
+      </section>}
       {error && (
         <div className="m-2 flex items-center justify-between gap-3 rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive md:m-0">
           <div className="flex items-center gap-2">
             <AlertCircle className="size-4 shrink-0" />
-            <span>{error}</span>
+            <span>{uiText(error)}</span>
           </div>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setReloadKey((value) => value + 1)}
+            onClick={retryCalendar}
           >
-            重試
-          </Button>
+            {uiText("重試")}</Button>
         </div>
       )}
 
-      {loading ? (
+      {loading && !keepMonthVisible ? (
         <div className="flex min-h-[calc(100dvh-7rem)] items-center justify-center gap-2 bg-card text-sm text-muted-foreground md:min-h-96 md:rounded-xl md:border md:shadow-sm">
           <LoaderCircle className="size-4 animate-spin" />
-          讀取訂單與房況中
-        </div>
+          {uiText("讀取訂單與房況中")}</div>
+      ) : coverageMissing && !keepMonthVisible ? (
+        <div role="status" className="m-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-16 text-center text-sm text-amber-950 md:m-0">
+          此日期區間尚未成功載入，房況無法確認。請重試或回到已載入的日期。</div>
       ) : selectedProperties.length === 0 ? (
         <div className="m-2 rounded-xl border border-dashed bg-card px-4 py-16 text-center text-sm text-muted-foreground md:m-0">
-          請從左上角選單選擇至少一間旅宿。
-        </div>
+          {uiText("請從左上角選單選擇至少一間旅宿。")}</div>
       ) : (
         <>
           {view === "month" && (
             <div className="calendar-month-mobile-viewport -mx-2 md:mx-0">
               <MonthScroller
-                months={MONTHS}
+                key={monthsToShow === MONTHS ? "all-months" : previewMonth}
+                months={monthsToShow}
+                coveredMonths={monthsToShow.filter(month => {
+                  const period = fetchPeriod(month, "month", true);
+                  return hasCalendarCoverage(data, period.start, period.end);
+                })}
+                failedMonth={error && !loading ? previewMonth : undefined}
+                onRetry={retryCalendar}
                 targetMonth={monthTarget}
-                bookings={filteredBookings}
+                targetDate={anchorDate}
+                targetRevision={todayRequest + historyRevision}
+                bookings={displayBookings}
                 rooms={visibleRooms}
                 properties={selectedProperties}
                 onVisibleMonthChange={handleVisibleMonthChange}
@@ -856,7 +1046,7 @@ export function BookingCalendarResponsive() {
             <div className="-mx-2 md:mx-0">
               <WeekCarousel
                 anchorDate={anchorDate}
-                bookings={filteredBookings}
+                bookings={displayBookings}
                 rooms={visibleRooms}
                 properties={selectedProperties}
                 onNavigateWeek={(offset) =>
@@ -871,7 +1061,7 @@ export function BookingCalendarResponsive() {
             <div className="-mx-2 p-2 md:mx-0 md:p-0">
               <DayView
                 date={anchorDate}
-                bookings={filteredBookings}
+                bookings={displayBookings}
                 rooms={visibleRooms}
                 properties={selectedProperties}
                 onSelectBooking={(booking) => setSelectedId(booking.id)}
@@ -884,24 +1074,129 @@ export function BookingCalendarResponsive() {
 
       {!loading &&
         !error &&
+        !coverageMissing &&
         selectedProperties.length > 0 &&
         filteredBookings.length === 0 &&
         view !== "month" && (
           <div className="m-2 rounded-xl border border-dashed bg-card px-4 py-10 text-center text-sm text-muted-foreground md:m-0">
-            這個區間沒有符合條件的訂單。
-          </div>
+            {uiText("這個區間沒有符合條件的訂單。")}</div>
         )}
 
       <BookingDetailsPanel
         booking={selectedBooking}
         orderSegments={selectedOrderSegments}
+        visualNights={selectedVisualNights}
+        onSelectVisualNight={(booking) => setSelectedId(booking.id)}
         rooms={data?.rooms ?? []}
-        permissions={permissions}
+        permissions={
+          (data?.source?.read_only || selectedBooking?.snapshot_only)
+            ? { ...permissions, editBookings: false, cancelBookings: false, recordPayments: false }
+            : PAYMENT_SANDBOX
+            ? { ...permissions, editBookings: false, cancelBookings: false }
+            : permissions
+        }
+        paymentWorkspace={
+          data?.source?.read_only && selectedBooking?.snapshot_only ? (
+            <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">目前為唯讀快照。請重新載入並確認最新訂單後，再登錄付款。</p>
+          ) : data?.source?.read_only && selectedBooking?.property_id==='offland' &&
+            data.finance_ssot_properties?.includes('offland') && permissions.viewPrices ? (
+            <div role="status" className="space-y-2 rounded-lg border p-3 text-sm">
+              <p>收款與支出統一在遺忘無際財務頁登記，與 LINE 共用同一份帳。</p>
+              <Link className="inline-block font-semibold underline" href="/finance/bookkeeping?property=offland">開啟遺忘無際收支</Link>
+            </div>
+          ) : data?.source?.read_only &&
+            (selectedBooking?.iron_gate_source === "os" ||
+              (selectedBooking?.iron_gate_card_managed && data?.finance_ssot_enabled)) &&
+            data?.iron_gate_manual_payment_enabled && selectedBooking.iron_gate_booking_id ? (
+            <IronGateManualPaymentPanel key={selectedBooking.iron_gate_booking_id}
+              bookingId={selectedBooking.iron_gate_booking_id}
+              canRecord={permissions.recordPayments} onChange={() => setReloadKey(v => v + 1)} />
+          ) : data?.source?.read_only &&
+            (selectedBooking?.iron_gate_source === "os" || selectedBooking?.iron_gate_card_managed) ? (
+            <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
+              此筆訂單的收退款功能尚未啟用，請先保留收付憑證，避免在其他入口重複登記。</p>
+          ) : data?.source?.read_only && selectedBooking && permissions.viewPrices && !selectedBooking.source_conflict ? (
+            <OsPaymentPanel key={selectedBooking.payment_order_id??selectedBooking.order_id} property={selectedBooking.property_id} order={selectedBooking.payment_order_id??selectedBooking.order_id} sourceBookingId={selectedBooking.order_id.startsWith('IG-')?selectedBooking.order_id:undefined} canRecord={permissions.recordPayments} onChange={() => setReloadKey(v=>v+1)} />
+          ) : PAYMENT_SANDBOX && selectedBooking && permissions.viewPrices ? (
+            <PaymentWorkspace
+              key={selectedBooking.order_id}
+              orderId={selectedBooking.order_id}
+              readOnly={!permissions.recordPayments}
+              onChange={() => setReloadKey((value) => value + 1)}
+            />
+          ) : undefined
+        }
         onClose={() => setSelectedId(null)}
         onRecordPayment={recordPayment}
         onUpdateBooking={updateBooking}
         onCancelBooking={cancelBooking}
+        onRetainBooking={retainedEnabled && retainedCanWrite && !requestFailed && !loading && !refreshing && !error &&
+          selectedBooking?.property_id === "offland" && selectedBooking.reservation_status === "confirmed" &&
+          selectedBooking.iron_gate_booking_id && !selectedBooking.snapshot_only && !selectedBooking.source_conflict &&
+          !selectedBooking.iron_gate_source_review ? () => {
+            setRetainedTarget({ bookingId: selectedBooking.iron_gate_booking_id!, action: "retain" });
+            setSelectedId(null);
+          } : undefined}
+        onManualEdit={manualEnabled && selectedBooking &&
+          ["full", "guest_name"].includes(selectedBooking.iron_gate_edit_mode ?? "") &&
+          ["verified", "not_required", "awaiting_manual_sync", "action_required", "manually_confirmed"].includes(
+            selectedBooking.iron_gate_channel_sync ?? "") &&
+          !selectedBooking.iron_gate_source_review ?
+          () => setManualMode("amend") : undefined}
+        onManualCancel={manualEnabled && selectedBooking &&
+          (selectedBooking.iron_gate_source === "os" || selectedBooking.iron_gate_manual_handling) &&
+          ["verified", "not_required", "awaiting_manual_sync", "manually_confirmed",
+            ...(selectedBooking.iron_gate_manual_handling ? ["action_required"] : [])].includes(
+            selectedBooking.iron_gate_channel_sync ?? "") &&
+          !selectedBooking.iron_gate_source_review ?
+          () => setManualMode("cancel") : undefined}
+        onManualSync={manualEnabled && selectedBooking?.iron_gate_edit_mode === "full" &&
+          selectedBooking.iron_gate_channel_sync === "awaiting_manual_sync" &&
+          !selectedBooking.iron_gate_manual_handling &&
+          !selectedBooking.iron_gate_source_review ?
+          () => { setManualSyncTarget(null); setManualMode("sync"); } : undefined}
+        onManualConfirm={manualEnabled && selectedBooking?.iron_gate_manual_confirmation_available &&
+          !selectedBooking.iron_gate_source_review ? () => setManualMode("manual-confirm") : undefined}
       />
+      {manualMode && <ManualBookingDialog open mode={manualMode}
+        bookingId={manualMode === "sync" ? manualSyncTarget?.bookingId ?? selectedBooking?.iron_gate_booking_id : selectedBooking?.iron_gate_booking_id}
+        inventoryVersion={manualMode === "sync" && manualSyncTarget ? manualSyncTarget.inventoryVersion : Number(data?.source?.private_snapshot_version ?? 0)}
+        defaultDate={anchorDate}
+        onClose={() => { setManualMode(null); setManualSyncTarget(null); }}
+        onDone={() => setReloadKey(value => value + 1)}
+        onSyncCreated={(bookingId, inventoryVersion) => {
+          setManualSyncTarget({ bookingId, inventoryVersion });
+          setManualMode("sync");
+        }} />}
     </div>
+  );
+}
+
+export function BookingCalendarResponsive() {
+  const uiText = useT();
+
+  const [paymentReview, setPaymentReview] = useState(false);
+  const mode = useCalendarPreferences((state) => state.mode);
+  const setMode = useCalendarPreferences((state) => state.setMode);
+  const ready = useCalendarHistory();
+  const { viewPrices } = useEffectivePermissions();
+  const selectedPropertyIds = useCalendarPreferences((state) => state.selectedPropertyIds);
+  const membership = useAccessControl((state) => state.membership);
+  const supported = ["sweetfun", "offland"];
+  const showUnsold = viewPrices && supported.some(id => (PAYMENT_SANDBOX || membership?.allProperties || membership?.propertyIds.includes(id)) && (selectedPropertyIds.length === 0 || selectedPropertyIds.includes(id)));
+  useEffect(() => { if (ready && !showUnsold && mode === "unsold") setMode("sold"); }, [ready, showUnsold, mode, setMode]);
+  if (!ready)
+    return <p className="p-4 text-sm text-muted-foreground">{uiText("讀取日曆…")}</p>;
+  return (
+    <GuestNotificationProvider><div className={paymentReview && viewPrices && mode === "sold" ? "payment-review" : ""}>
+      {mode === "unsold" && showUnsold ? (
+        <>
+          <CalendarToolbar showUnsold={showUnsold} paymentReview={paymentReview} onPaymentReview={() => setPaymentReview(v => !v)} />
+          <AvailabilityCalendar key={selectedPropertyIds.join(",")} />
+        </>
+      ) : (
+        <SoldBookingCalendar renderToolbar={(data, readState) => <CalendarToolbar data={data} readState={readState} showUnsold={showUnsold} paymentReview={paymentReview} onPaymentReview={() => setPaymentReview(v => !v)} />} />
+      )}
+    </div></GuestNotificationProvider>
   );
 }

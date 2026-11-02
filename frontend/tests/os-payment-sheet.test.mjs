@@ -1,0 +1,44 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {SWEETFUN_SOURCE as source,OFFLAND_SOURCE} from '../src/lib/booking-sources/config.ts';
+import {HEADERS} from '../src/lib/sheet-monitor/reconcile.ts';
+import {inspectPaymentGrid,sheetPaymentRequests,receiptSheetNote,supportsSheetPayment} from '../src/lib/os-payment-sheet.ts';
+import {prepareReceipt,emptyLedger,paymentStatus,receiptAccount,shouldMarkSheetPaid} from '../src/lib/os-payments.ts';
+const order='SF-'+createHash('sha256').update(`${source.sourceId}:order:synthetic-order`).digest('hex').slice(0,20);
+const row=(uid,room,date,out)=>[room,'Synthetic','direct',date,out,'2026-10-01',1000,'not_yet','OK',''+uid,'','synthetic-order',''];
+const values=()=>[HEADERS,row('a','101','2026-10-09','2026-10-10'),row('b','102','2026-10-09','2026-10-10'),row('c','101','2026-10-10','2026-10-11')];
+const grid=(rows=values())=>({cells:rows.map(r=>r.map(v=>({formattedValue:String(v),userEnteredValue:typeof v==='number'?{numberValue:v}:{stringValue:String(v)}})))});
+const actor={id:'admin',displayName:'測試管理員',role:'admin',viewPrices:true,allProperties:false,propertyIds:['sweetfun']};
+const now='2026-10-05T09:00:00.000Z';
+function receipt(g=grid(),patch={}){const current=inspectPaymentGrid(g,source,order);const check={...current.check,ledger:emptyLedger()};const r=prepareReceipt({amount:500,payment_type:'deposit',payment_method:'cash',received_at:now,note:'測試',settles_room:false,request_id:'00000000-0000-4000-8000-000000000001',expected_version:0,source_version:check.source_version,...patch},check,actor,now);r.sheet_sync={state:'pending',paid:r.settles_room,targets:current.targets.map(({uid,fingerprint,payment_flag})=>({uid,fingerprint,payment_flag}))};return r;}
+function apply(g,requests){for(const {updateCells:r} of requests){const old=g.cells[r.start.rowIndex][7];Object.assign(old,r.rows[0].values[0]);if(r.fields.includes('userEnteredValue'))old.formattedValue=old.userEnteredValue.stringValue;}}
+test('partial receipt preserves status, existing notes and all unrelated fields; repeat is a no-op',()=>{const g=grid();g.cells[1][7].note='原有註記';const r=receipt(g);const requests=sheetPaymentRequests(g,source,order,r);assert.equal(requests.length,3);for(const {updateCells:u} of requests){assert.equal(u.start.columnIndex,7);assert.equal(u.fields,'note');}apply(g,requests);assert.equal(g.cells[1][7].formattedValue,'not_yet');assert.ok(g.cells[1][7].note.startsWith('原有註記'));assert.match(g.cells[1][7].note,/NT\$ 500/);assert.equal(sheetPaymentRequests(g,source,order,r).length,0);});
+test('whole-order paid confirmation updates every room-night without fabricated income',()=>{const g=grid(),r=receipt(g,{status_only:true,amount:0,payment_type:'full',payment_method:'other',settles_room:true});apply(g,sheetPaymentRequests(g,source,order,r));assert.ok(g.cells.slice(1).every(c=>c[7].formattedValue==='done'));assert.equal(r.amount,0);assert.match(receiptSheetNote(r),/未新增收入/);assert.equal(sheetPaymentRequests(g,source,order,r).length,0);});
+test('retry resolves moved rows by UID, rejects amount changes, duplicate identities and missing room-nights',()=>{const r=receipt();const rows=values();const moved=grid([rows[0],[],rows[3],rows[1],rows[2]]);assert.deepEqual(sheetPaymentRequests(moved,source,order,r).map(q=>q.updateCells.start.rowIndex),[2,3,4]);const changed=grid();changed.cells[1][6].formattedValue='1200';assert.throws(()=>sheetPaymentRequests(changed,source,order,r),/SOURCE_CHANGED/);assert.throws(()=>sheetPaymentRequests(grid(values().slice(0,3)),source,order,r),/SOURCE_CHANGED/);assert.throws(()=>sheetPaymentRequests(grid([...values(),values()[1]]),source,order,r),/SOURCE_CONFLICT|NOT_FOUND/);});
+test('formula status, unexpected schema and altered retry note fail closed',()=>{const g=grid();g.cells[1][7].userEnteredValue={formulaValue:'="not_yet"'};assert.throws(()=>receipt(g),/SHEET_PAYMENT_FORMULA/);const wrong=grid();wrong.cells[0][7].formattedValue='wrong';assert.throws(()=>receipt(wrong),/SHEET_IDENTITY_MISMATCH/);const r=receipt(),changed=grid();changed.cells[1][7].note=`[Sweetfun OS ${r.request_id}] altered`;assert.throws(()=>sheetPaymentRequests(changed,source,order,r),/SOURCE_CONFLICT/);assert.equal(supportsSheetPayment(OFFLAND_SOURCE),false);});
+test('account is resolved within property/method, custom suffix validated and settlement survives own Sheet status update',()=>{const a={id:'account',name:'測試銀行',method:'bank_transfer',last_digits:'12345',property_id:'sweetfun'};assert.deepEqual(receiptAccount({payment_method:'bank_transfer',payment_account_id:'account'},'sweetfun',[a]),{id:a.id,name:a.name,method:a.method,last_digits:a.last_digits});for(const patch of [{payment_method:'cash'},{payment_account_id:'foreign'}])assert.throws(()=>receiptAccount({payment_method:'bank_transfer',payment_account_id:'account',...patch},'sweetfun',[a]),/INVALID_INPUT/);assert.throws(()=>receiptAccount({payment_method:'bank_transfer',payment_account_id:'account'},'offland',[a]),/INVALID_INPUT/);assert.throws(()=>receiptAccount({payment_method:'bank_transfer',payment_account_name:'Bank',payment_account_last_digits:'123456'},'sweetfun',[]),/INVALID_INPUT/);const g=grid(),r=receipt(g,{settles_room:true,payment_type:'balance'}),before=inspectPaymentGrid(g,source,order).check;apply(g,sheetPaymentRequests(g,source,order,r));const after=inspectPaymentGrid(g,source,order).check;assert.notEqual(before.source_version,after.source_version);assert.equal(before.booking_version,after.booking_version);assert.equal(paymentStatus({...after,source_paid:false,ledger:{version:1,receipts:[{...r,sheet_sync:{...r.sheet_sync,state:'verified'}}]}}),'paid');});
+
+test('a pending paid confirmation does not claim the order is paid before verification',()=>{
+ const g=grid(),r=receipt(g,{status_only:true,amount:0,payment_type:'full',payment_method:'other',settles_room:true});
+ const check=inspectPaymentGrid(g,source,order).check;
+ assert.equal(paymentStatus({...check,ledger:{version:1,receipts:[r]}}),'unknown');
+ assert.equal(shouldMarkSheetPaid(check,r),true);
+});
+test('other fees and partial receipts do not repeat a historical paid confirmation',()=>{
+ const g=grid(),check={...inspectPaymentGrid(g,source,order).check,source_paid:true};
+ assert.equal(shouldMarkSheetPaid(check,receipt(g,{payment_type:'other'})),false);
+ assert.equal(shouldMarkSheetPaid(check,receipt(g)),false);
+ const prior=receipt(g,{status_only:true,amount:0,payment_type:'full',payment_method:'other',settles_room:true});
+ assert.equal(shouldMarkSheetPaid({...check,ledger:{version:1,receipts:[prior]}},receipt(g)),false);
+ assert.equal(shouldMarkSheetPaid(check,receipt(g,{amount:3000})),true);
+});
+test('paid retry preserves manual changes before the first write and after a lost write response',()=>{
+ const g=grid(),r=receipt(g,{status_only:true,amount:0,payment_type:'full',payment_method:'other',settles_room:true});
+ g.cells[1][7].formattedValue='done';g.cells[1][7].userEnteredValue={stringValue:'done'};
+ assert.throws(()=>sheetPaymentRequests(g,source,order,r),/SOURCE_CHANGED/);
+ const applied=grid();apply(applied,sheetPaymentRequests(applied,source,order,r));
+ applied.cells[1][7].formattedValue='not_yet';applied.cells[1][7].userEnteredValue={stringValue:'not_yet'};
+ assert.throws(()=>sheetPaymentRequests(applied,source,order,r),/SOURCE_CHANGED/);
+ assert.equal(applied.cells[1][7].formattedValue,'not_yet');
+});

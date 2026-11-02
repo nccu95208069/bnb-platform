@@ -1,0 +1,21 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {provisionOperator} from '../src/lib/workspace-auth/operator.ts';
+import {activateMember} from '../src/lib/workspace-auth/members.ts';
+import {createMemberSession,validMemberSession,memberPrincipal} from '../src/lib/workspace-auth/session.ts';
+import {checkManagement} from '../src/lib/workspace-auth/management.ts';
+import {ownerPrincipal} from '../src/lib/workspace-auth/types.ts';
+test('operator activation establishes independent protected identity',async()=>{
+ process.env.CALENDAR_OWNER_CODE_HASH='a'.repeat(64);process.env.CALENDAR_OWNER_SESSION_SECRET='b'.repeat(64);
+ let raw=null,value={version:0,members:[]};
+ const store={read:async()=>({raw,value}),replace:async(expected,next)=>{assert.equal(expected,raw);value=next;raw=JSON.stringify(next);}};
+ const result=await provisionOperator(store,'operator@example.test');
+ assert.equal(raw.includes(result.token),false);
+ assert.equal(result.member.role,'god');
+ await assert.rejects(()=>provisionOperator(store,'another@example.test'),/EMAIL_EXISTS/);
+ const member=await activateMember(store,{token:result.token,password:'Synthetic operator password!',confirmPassword:'Synthetic operator password!'});
+ assert.equal(validMemberSession(createMemberSession(member),member),true);
+ assert.equal(memberPrincipal(member).allProperties,true);
+ assert.throws(()=>checkManagement(ownerPrincipal(),{id:member.id,status:'suspended'},member),/FORBIDDEN/);
+ await assert.rejects(()=>activateMember(store,{token:result.token}),/INVITE_INVALID/);
+});

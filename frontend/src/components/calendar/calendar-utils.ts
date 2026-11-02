@@ -1,3 +1,4 @@
+import { comparableGuestName, mergeGuestRemarks, parseGuestRemarks } from "@/lib/guest-remarks";
 import type {
   BabySupplyKey,
   CalendarBooking,
@@ -28,26 +29,42 @@ export const PLATFORM_LABELS: Record<string, string> = {
 };
 
 export const PLATFORM_STYLES: Record<string, string> = {
-  direct: "border-emerald-200 bg-emerald-50 text-emerald-950 hover:bg-emerald-100",
-  agoda: "border-violet-200 bg-violet-50 text-violet-950 hover:bg-violet-100",
-  booking: "border-sky-200 bg-sky-50 text-sky-950 hover:bg-sky-100",
-  airbnb: "border-rose-200 bg-rose-50 text-rose-950 hover:bg-rose-100",
-  ctrip: "border-amber-200 bg-amber-50 text-amber-950 hover:bg-amber-100",
-  owljourney: "border-indigo-200 bg-indigo-50 text-indigo-950 hover:bg-indigo-100",
-  other: "border-slate-200 bg-slate-50 text-slate-950 hover:bg-slate-100",
+  direct: "calendar-platform calendar-platform-direct",
+  agoda: "calendar-platform calendar-platform-agoda",
+  booking: "calendar-platform calendar-platform-booking",
+  airbnb: "calendar-platform calendar-platform-airbnb",
+  ctrip: "calendar-platform calendar-platform-ctrip",
+  owljourney: "calendar-platform calendar-platform-owljourney",
+  other: "calendar-platform calendar-platform-other",
 };
 
 export const PAYMENT_LABELS: Record<PaymentStatus, string> = {
+  unknown: "付款待確認",
   paid: "已付清",
   deposit: "已付訂金",
   unpaid: "未付款",
 };
 
 export const PAYMENT_DOT_STYLES: Record<PaymentStatus, string> = {
+  unknown: "bg-slate-400",
   paid: "bg-emerald-500",
   deposit: "bg-amber-500",
   unpaid: "bg-rose-500",
 };
+
+export function paymentStateForReview(booking: CalendarBooking): PaymentStatus | undefined {
+  if (booking.source_conflict) return undefined;
+  if (booking.legacy_settlement_status) return undefined;
+  return booking.payment_review_status ?? (booking.price_hidden ? undefined : booking.payment_status);
+}
+
+export function paymentDisplayLabel(booking: CalendarBooking): string {
+  if(booking.legacy_settlement_status==='review_required')
+    return '歷史付款狀態需重新核對';
+  if(booking.legacy_settlement_status==='settled_before_cutover_cash_details_unknown')
+    return '切換前已結清（收款明細未核實）';
+  return PAYMENT_LABELS[booking.payment_status];
+}
 
 export const PROPERTY_DOT_STYLES: Record<CalendarProperty["color"], string> = {
   emerald: "bg-emerald-500",
@@ -60,11 +77,14 @@ export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   cash: "現金",
   bank_transfer: "匯款",
   credit_card: "信用卡",
+  ota: "OTA 代收",
+  other: "其他",
 };
 
 export const PAYMENT_TYPE_LABELS: Record<PaymentType, string> = {
   deposit: "訂金",
   balance: "尾款",
+  full: "全額付清",
   other: "其他款項",
 };
 
@@ -152,12 +172,12 @@ export function monthCalendarPeriod(monthStart: string): CalendarPeriod {
   };
 }
 
-export function currentPeriod(anchorDate: string, view: CalendarView): CalendarPeriod {
+export function currentPeriod(anchorDate: string, view: CalendarView, locale="zh-TW"): CalendarPeriod {
   if (view === "day") {
     return {
       start: anchorDate,
       end: addDays(anchorDate, 1),
-      label: `${formatDate(anchorDate)} ${formatWeekday(anchorDate, true)}`,
+      label: `${formatDate(anchorDate, locale)} ${formatWeekday(anchorDate, true, locale)}`,
     };
   }
 
@@ -174,8 +194,10 @@ export function currentPeriod(anchorDate: string, view: CalendarView): CalendarP
   return monthCalendarPeriod(startOfMonth(anchorDate));
 }
 
-export function fetchPeriod(anchorDate: string, view: CalendarView): CalendarPeriod {
+export function fetchPeriod(anchorDate: string, view: CalendarView,
+  boundedMonth = false): CalendarPeriod {
   if (view === "month") {
+    if (boundedMonth) return monthCalendarPeriod(startOfMonth(anchorDate));
     return {
       start: "2025-01-01",
       end: "2028-01-01",
@@ -195,9 +217,21 @@ export function fetchPeriod(anchorDate: string, view: CalendarView): CalendarPer
   };
 }
 
-export function formatDate(value: string | null) {
+// Iron Gate can now return one consistent sparse calendar snapshot for a year.
+// Loading each calendar year once restores local month navigation in that year.
+export function sweetfunMonthWindow(anchorDate: string): CalendarPeriod {
+  const month = startOfMonth(anchorDate);
+  const year = Number(month.slice(0, 4));
+  return {
+    start: monthCalendarPeriod(`${year}-01-01`).start,
+    end: monthCalendarPeriod(`${year + 1}-01-01`).end,
+    label: formatMonthLabel(month),
+  };
+}
+
+export function formatDate(value: string | null, locale="zh-TW") {
   if (!value) return "—";
-  return new Intl.DateTimeFormat("zh-TW", {
+  return new Intl.DateTimeFormat(locale, {
     year: "numeric",
     month: "numeric",
     day: "numeric",
@@ -213,20 +247,20 @@ export function formatShortDate(value: string) {
   }).format(parseIso(value));
 }
 
-export function formatWeekday(value: string, long = false) {
-  return new Intl.DateTimeFormat("zh-TW", {
+export function formatWeekday(value: string, long = false, locale="zh-TW") {
+  return new Intl.DateTimeFormat(locale, {
     weekday: long ? "long" : "short",
     timeZone: "UTC",
   }).format(parseIso(value));
 }
 
-export function formatMonthLabel(value: string) {
+export function formatMonthLabel(value: string, locale="zh-TW") {
   const date = parseIso(value);
-  return `${date.getUTCFullYear()} 年 ${date.getUTCMonth() + 1} 月`;
+  return new Intl.DateTimeFormat(locale,{year:"numeric",month:"long",timeZone:"UTC"}).format(date);
 }
 
-export function formatMoney(value: number) {
-  return new Intl.NumberFormat("zh-TW", {
+export function formatMoney(value: number, locale="zh-TW") {
+  return new Intl.NumberFormat(locale, {
     style: "currency",
     currency: "TWD",
     maximumFractionDigits: 0,
@@ -307,8 +341,29 @@ export function coalesceContiguousBookings(bookings: CalendarBooking[]) {
 
       current = {
         ...current,
+        external_order_no: current.external_order_no || booking.external_order_no,
+        owlnest_order_no: current.owlnest_order_no || booking.owlnest_order_no,
+        source_notes: [...(current.source_notes ?? []), ...(booking.source_notes ?? [])],
+        snapshot_only: current.snapshot_only || booking.snapshot_only,
+        payment_unconfirmed: current.payment_unconfirmed || booking.payment_unconfirmed,
+        source_notes_unconfirmed: current.source_notes_unconfirmed || booking.source_notes_unconfirmed || current.source_notes === undefined || booking.source_notes === undefined,
+        payment_status: current.payment_status === booking.payment_status ? current.payment_status : "unknown",
+        payment_review_status: current.payment_review_status === booking.payment_review_status
+          ? current.payment_review_status : undefined,
+        legacy_settlement_status: current.legacy_settlement_status === booking.legacy_settlement_status
+          ? current.legacy_settlement_status : "review_required",
+        guest_name_sources: [...new Set([...(current.guest_name_sources ?? (current.guest_name_kind === "real" ? [current.guest_name] : [])), ...(booking.guest_name_sources ?? (booking.guest_name_kind === "real" ? [booking.guest_name] : []))])],
+        guest_remarks: mergeGuestRemarks([...(current.guest_remarks ?? (current.guest_name_kind === "real" ? parseGuestRemarks(current.guest_name) : [])), ...(booking.guest_remarks ?? (booking.guest_name_kind === "real" ? parseGuestRemarks(booking.guest_name) : []))]),
+        guest_name: current.guest_name_kind === "real" && booking.guest_name_kind === "real" && comparableGuestName(current.guest_name) !== comparableGuestName(booking.guest_name) ? "連住姓名待核對" : current.guest_name,
+        guest_name_kind: current.guest_name_kind === "real" && (booking.guest_name_kind !== "real" || comparableGuestName(current.guest_name) !== comparableGuestName(booking.guest_name)) ? "missing" : current.guest_name_kind,
         check_out: booking.check_out > current.check_out ? booking.check_out : current.check_out,
         room_rate: current.room_rate + booking.room_rate,
+        price_hidden: current.price_hidden || booking.price_hidden,
+        nightly_amounts: current.nightly_amounts && booking.nightly_amounts
+          ? [...current.nightly_amounts, ...booking.nightly_amounts] : undefined,
+        source_payment_label: current.source_payment_label === booking.source_payment_label
+          ? current.source_payment_label : "各晚來源付款標記不同，需核對",
+        source_guest_count: current.source_guest_count === booking.source_guest_count ? current.source_guest_count : undefined,
         source_segment_ids: [
           ...new Set([...(current.source_segment_ids ?? [current.id]), ...sourceIds]),
         ],

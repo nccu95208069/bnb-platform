@@ -1,0 +1,84 @@
+# Iron Gate
+
+## Daily business reporting
+
+`GET /v1/properties/:propertyId/business-report` returns the complete dashboard
+`BusinessPulseData` object at the top level. It uses one current property snapshot
+and every canonical booking, including recent orders whose stays are beyond the
+calendar snapshot window. Only `confirmed` bookings contribute to sales and room
+nights. Daily order totals use the first new-order notification day in
+`Asia/Taipei`, following the owner's 2026-10-24 decision. Original `bookedAt`
+remains independent; historical/other-source date fallbacks are explicitly
+labelled. `createdAt` and import timestamps are never substitutes. Immutable
+source evidence, comparison coverage and bounded recovery are documented in
+[notification reporting](NOTIFICATION_REPORTING.md).
+
+This endpoint requires a dedicated opaque credential with `origin: "service"`,
+`actions: ["booking:aggregate"]`, `fields: []`, the intended property/workspace, and
+its current positive authority epoch. Existing `booking:read` credentials cannot
+access it. The service rechecks the epoch after authentication and refuses a
+shadow/read-only property. It never writes booking, inventory, payment or audit
+state. Credential issuance retains the existing maximum 30-day expiry; operators
+must rotate the reporting credential before expiry using the administrative
+credential directory. Runtime credentials cannot issue or renew credentials.
+Use the bounded [issuance and rotation runbook](REPORTING_CREDENTIAL_ROTATION.md)
+and `scripts/reporting-credential.mjs` for repeatable operator maintenance.
+
+The response contains no canonical property, workspace, booking or room IDs, no
+guest names/contact/notes, and no source aliases or OTA references. Optional
+guest labels are the constant `旅客`; legacy checkout identifiers are omitted.
+Public room numbers are recovered only from consistent imported evidence, with
+neutral room labels when evidence is absent. Arbitrary platform text is mapped to
+`其他`; only a fixed set of public channel names is exposed.
+
+Amounts are TWD booking revenue, not cash received. Verified explicit room-night
+prices from current LINE bookings take precedence. Imported source room prices are used
+only when they still reconcile to the authoritative total; otherwise revenue is
+allocated across room nights with an explicit quality warning. Missing dates or
+prices remain unknown. `meta` includes `inventoryVersion`, `authorityEpoch`,
+quality counts and `warnings`; `sourceUpdatedAt` is null because the property
+state does not expose a trustworthy last-source-update timestamp. `saleReady` is
+always false: confirmed-booking occupancy is not a promise of sellable stock.
+Responses are `private, no-store` and should be fetched by the dashboard server,
+with the reporting token kept out of browser code and logs.
+
+Iron Gate 是獨立的訂單與房晚權威服務。此目錄目前提供可執行的合成 API、PostgreSQL 儲存、館別隔離、憑證與唯讀 OS 影子比對。**已有受保護的 Preview 與固定 503 的 Production 空殼；尚未接管任何真實訂單。** 產品和 API 契約分別見 [Iron Gate v1](IRON_GATE_V1.md)、[API v1](API_V1.md) 與 [OpenAPI](openapi.yaml)。
+
+Sean 自用 OS、民宿客戶 OS 工作區與 Iron Gate 的目前／目標資料責任，見 [2026-10-20 業主對齊紀錄](../docs/work-handoff/SEAN_SAAS_IRON_GATE_DATA_BOUNDARY_2026-10-20.md)。
+水芳主表、Gmail check order、Sweetfun OS、LINE 官方帳號及訂單財務的逐階段遷移與切換檢查，見 [Sweetfun Sheet → Iron Gate 遷移計畫](SWEETFUN_SHEET_MIGRATION_PLAN_2026-10-20.md)；唯讀統計和目前工作分別見[來源盤點](SWEETFUN_MIGRATION_SOURCE_INVENTORY_2026-10-20.md)及[執行紀錄](SWEETFUN_MIGRATION_EXECUTION_2026-10-20.md)。
+
+水芳 LINE／Gmail 共用 OwlNest 房量的候選讀回協定與尚未完成的上線閘門，見[通路讀回候選](SWEETFUN_LINE_CHANNEL_READBACK.md)。
+水芳 LINE 唯讀群組試跑的憑證核發與回退步驟，見[唯讀試跑紀錄](SWEETFUN_LINE_READ_PILOT.md)。
+水芳 OS 日曆的預設關閉讀取候選及其限制見[日曆切換紀錄](OS_CALENDAR_HANDOFF_2026-10-21.md)。
+業主於 2026-10-21 決定先完成日曆格式、舊表轉換與逐筆核對，再補 Gmail 持續更新，最後才接 LINE／OwlNest；目前執行順序見[水芳日曆先行計畫](SWEETFUN_CALENDAR_FIRST_PLAN_2026-10-21.md)。
+
+`src/channel-runner.mjs` 以注入的通路 adapter 逐房晚操作，並要求操作後重新讀回。`src/owlnest-web-readback.mjs` 的登入後日曆 GET 已用真實帳號唯讀驗證；`src/owlnest-stock-command.mjs` 與 `src/owlnest-web-provider.mjs` 依 OwlNest 網頁目前的表單請求建立**尚未接入正式流程**的寫入候選。真實 stock PUT、短暫關房與復原仍需在業主指定的安全房晚受控核對；目前沒有發送任何 OwlNest PUT。詳見 [OwlNest 接線調查](OWLNEST_API_STATUS.md)。
+
+## 本機驗證
+
+需要 Node.js 22.15 以上：
+
+```sh
+npm ci
+npm test
+npm run check
+npm run build
+```
+
+`npm run build` 產生可直接由 Node.js 執行的 `dist/`，不需在正式執行時開啟實驗性 TypeScript 解析。`dist/` 是建置產物，不進 Git；`npm run start:built` 在缺少正式環境設定時會拒絕啟動。
+
+`npm run test:server` 會在本機 `127.0.0.1` 啟動短暫的合成 HTTP 測試。`npm run test:pg` 只接受明確指定的本機 `iron_gate_test` 資料庫；先以管理角色依序套用 [初始 schema](sql/001_property_store.sql) 與 [效能遷移](sql/002_policy_plan_and_credential_index.sql)，再配置單獨的 `iron_gate_runtime` 登入角色。測試資料不可指向正式資料庫。
+
+`npm run test:restore` 要求 `IRON_GATE_PG_ADMIN_URL` 指向本機 `iron_gate_test`，以及可選的 `IRON_GATE_PG_BIN`（`pg_dump`／`pg_restore` 所在目錄）。它建立兩個一次性資料庫，產生合成訂單、房晚、事件、稽核與憑證，備份後還原並核對資料及受限執行角色，最後刪除一次性資料庫。這只驗證本機還原鏈路；正式館別仍需另做有紀錄的備份、還原與回滾演練。
+
+`IRON_GATE_DATABASE_URL=... npm run check:property -- <property-uuid>` 對單一館別做**唯讀**完整性檢查：在同一個可重複讀取快照中核對有效訂單房晚、占房索引、待同步操作與 fence。它要求受限執行角色，僅輸出固定錯誤碼和計數，不列出訂單或客資；非零結束狀態會阻擋逐館切換。資料庫中的稽核與真實來源涵蓋仍須另行核對。
+
+`npm run start:private` 只綁定 `127.0.0.1`。它要求 `IRON_GATE_DATABASE_URL`、`IRON_GATE_OS_PROOF_SECRET`，並在啟動時驗證資料庫角色、RLS 與遠端 TLS。資料庫管理憑證與發證功能不在服務程序中。正式部署還需要專用資料庫、備份還原演練、身分配置、監控，以及逐館 writer 封寫與遷移核對。
+
+## Vercel 專案
+
+`api/index.mjs` 是獨立 Vercel 專案的 Node.js 入口；`vercel.json` 只把 `/v1/` 路徑導向它。建置先產生 `dist/`，公開靜態目錄 `public/` 保持空白。Preview 需要 `VERCEL_ENV=preview`、`IRON_GATE_PREVIEW_ENABLED=true`、伺服器端 `IRON_GATE_DATABASE_URL` 與 `IRON_GATE_OS_PROOF_SECRET`。Production 使用**獨立**的 `IRON_GATE_PRODUCTION_ENABLED=true`、`IRON_GATE_PRODUCTION_DATABASE_URL`、`IRON_GATE_PRODUCTION_OS_PROOF_SECRET`；目前未設定這些正式開關與憑證，故仍回 `503 SERVICE_UNAVAILABLE`。資料庫 URL 必須使用驗證主機名稱的 TLS，連線角色必須是受限的 `iron_gate_runtime` 成員；連線字串及 proof secret 不可提交到 Git 或放在瀏覽器環境變數。資料庫建立、管理帳號、遷移和發證都不由 Vercel 函式執行。
+
+新 Vercel `sweetfuns-projects/iron-gate` 專案已配置三項 Preview 專用變數。Production 空殼固定回 503；受 Vercel 登入保護的 Preview 在完成受限資料庫檢查後，對未授權訂單請求回 401。專用 Supabase PostgreSQL 已建立。短生命週期函式使用 transaction pooler；程式每次讀寫都以明確 transaction 設定逐館 RLS。正式啟用前要在部署預覽中核對 OS 簽章的完整請求路徑與查詢字串。部署及資料庫準備狀態詳見 [部署清單](DEPLOYMENT_VERCEL_SUPABASE.md)。
+
+影子盤點工具 `npm run shadow:report -- report /absolute/private/os-workspace.json` 只輸出去個資報告；輸入檔仍含客資，必須保存在受控私密位置。它不會讀取或修改 OS，也不會啟用切換。現有 OS [只讀橋接](../docs/work-handoff/IRON_GATE_OS_PROOF_2026-10-13.md)預設關閉。

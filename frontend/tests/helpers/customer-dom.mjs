@@ -1,0 +1,105 @@
+import assert from "node:assert/strict";
+import { JSDOM } from "jsdom";
+import { act, createElement } from "react";
+export async function mount(t, component, props = {}, hash = "") {
+  const dom = new JSDOM('<div id="root"></div>', {
+    url: "https://operations.test/" + hash,
+  });
+  const original = {};
+  // Calendar UI measures layout; jsdom does not provide these browser APIs.
+  for (const key of [
+    "window",
+    "self",
+    "document",
+    "location",
+    "history",
+    "FormData",
+    "Event", "Node", "NodeFilter", "Element", "HTMLElement", "HTMLInputElement", "CustomEvent",
+    "getComputedStyle",
+    "MutationObserver",
+    "ResizeObserver",
+    "IntersectionObserver",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
+    original[key] = globalThis[key];
+  Object.assign(globalThis, {
+    window: dom.window,
+    self: dom.window,
+    document: dom.window.document,
+    location: dom.window.location,
+    history: dom.window.history,
+    FormData: dom.window.FormData,
+    Event: dom.window.Event, Node: dom.window.Node, NodeFilter: dom.window.NodeFilter, Element: dom.window.Element,
+    HTMLElement: dom.window.HTMLElement, HTMLInputElement: dom.window.HTMLInputElement,
+    CustomEvent: dom.window.CustomEvent,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    MutationObserver: dom.window.MutationObserver,
+    ResizeObserver: class {
+      observe() {}
+      disconnect() {}
+    },
+    IntersectionObserver: class {
+      observe() {}
+      disconnect() {}
+    },
+    requestAnimationFrame: (callback) => setTimeout(callback, 0),
+    cancelAnimationFrame: (timer) => clearTimeout(timer),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  dom.window.HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
+  dom.window.HTMLDialogElement.prototype.close = function () {
+    this.open = false;
+  };
+  dom.window.HTMLElement.prototype.scrollTo = function ({ top }) {
+    this.scrollTop = top;
+  };
+  const { createRoot } = await import("react-dom/client");
+  const root = createRoot(document.getElementById("root"));
+  t.after(async () => {
+    await act(() => root.unmount());
+    // Radix dispatches its final focus event on the next timer tick.
+    await new Promise(resolve => setTimeout(resolve, 0));
+    Object.assign(globalThis, original);
+    dom.window.close();
+  });
+  await act(() => root.render(createElement(component, props)));
+  const button = (label) =>
+    [...document.querySelectorAll("button")].find(
+      (b) => b.textContent.trim() === label,
+    );
+  const control = (label, parent = document) =>
+    [...parent.querySelectorAll("label")]
+      .find(
+        (l) =>
+          [...l.childNodes]
+            .filter((n) => n.nodeType === 3)
+            .map((n) => n.textContent)
+            .join("")
+            .trim() === label,
+      )
+      ?.querySelector("input,textarea,select");
+  const click = async (el) => {
+    assert.ok(el, "control exists");
+    assert.equal(el.disabled, false);
+    await act(() => el.click());
+  };
+  const fill = async (el, value) => {
+    assert.ok(el, "field exists");
+    await act(() => {
+      const proto =
+        el.tagName === "SELECT"
+          ? dom.window.HTMLSelectElement.prototype
+          : el.tagName === "TEXTAREA"
+            ? dom.window.HTMLTextAreaElement.prototype
+            : dom.window.HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value").set.call(el, value);
+      el.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+      el.dispatchEvent(new dom.window.Event("change", { bubbles: true }));
+    });
+  };
+  return { dom, root, button, control, click, fill };
+}
