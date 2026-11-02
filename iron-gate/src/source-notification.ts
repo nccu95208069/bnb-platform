@@ -1,6 +1,7 @@
 import type { Booking, FirstNewOrderNotification, PropertyState } from "./types.ts";
 
 export const GMAIL_NOTIFICATION_SOURCE = "sweetfun-calendar-sheet";
+const GMAIL_NOTIFICATION_SOURCES = new Set([GMAIL_NOTIFICATION_SOURCE, "offland-calendar-sheet"]);
 export const GMAIL_NOTIFICATION_SUBJECT = "gmail-order-handler";
 const GMAIL_VERSION = /^gmail-v1:([1-9]\d{12}):[0-9a-f]{64}$/;
 // The source API accepts these UUIDs. UUID version is not an authority proof;
@@ -13,7 +14,7 @@ export function firstGmailNotification(sourceSystem: string, sourceVersion: stri
   requestKey: string, createdAt: string): FirstNewOrderNotification | null {
   const match = typeof sourceVersion === "string" ? GMAIL_VERSION.exec(sourceVersion) : null;
   const created = Date.parse(createdAt);
-  if (sourceSystem !== GMAIL_NOTIFICATION_SOURCE || !match ||
+  if (!GMAIL_NOTIFICATION_SOURCES.has(sourceSystem) || !match ||
     !SOURCE_REQUEST_KEY.test(requestKey) || !Number.isFinite(created)) return null;
   const received = Number(match[1]);
   // A delayed import may be later than the notice. It can never precede it.
@@ -24,7 +25,7 @@ export function firstGmailNotification(sourceSystem: string, sourceVersion: stri
 /** Validate private provenance before supplying only its timestamp to reporting.
  * The mutable link.sourceVersion is deliberately not a reporting date source. */
 export function firstNotificationAt(state: PropertyState, booking: Booking): string | null {
-  if (booking.source !== "external" || booking.sweetfunSnapshot || booking.osSnapshot ||
+  if (booking.source !== "external" || booking.sweetfunSnapshot || booking.offlandSnapshot || booking.osSnapshot ||
     !booking.sourceKey) return null;
   const links = state.sourceLinks.filter((link) => link.key === booking.sourceKey &&
     link.bookingId === booking.id);
