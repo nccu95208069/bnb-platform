@@ -113,3 +113,23 @@ test("OwlJourney repair uses its exact source receipt and has no fabricated OTA 
   source.providerGuestName = "Other Guest";
   assert.throws(() => validateManifest(manifest([source])), /INVALID_REPAIR_ORDER/);
 });
+
+test("native OwlNest recovery requires exact provider identity, stays, amount and original date", () => {
+  const source = syntheticOrder();
+  source.event.platform = "owlting";
+  delete source.event.externalOrderNo;
+  source.originalRequestHash = hash(canonical({ action: "source:write", input: source.event }));
+  Object.assign(source, { providerGuestName: "Synthetic Guest", providerOrderId: source.event.externalOrderId.slice(2),
+    providerStays: structuredClone(source.event.stays), providerTotalCents:197000,
+    providerNightTotalsCents:[98000,99000], providerBookedAt:"2026-10-24" });
+  assert.equal(validateManifest(manifest([source])).orders[0].effectiveTotalCents,197000);
+  assert.match(repairSql(manifest([source])), /'bookedAt',o->>'providerBookedAt'/);
+  for (const changes of [{providerOrderId:'OTHER'}, {providerStays:[]},
+    {providerGuestName:'Synthetic Guest changed'}, {providerBookedAt:undefined},
+    {providerBookedAt:'2026-02-30'}, {providerBookedAt:'2026-12-31'}]) {
+    assert.throws(()=>validateManifest(manifest([{...source,...changes}])),/NATIVE_PROVIDER_EVIDENCE_MISMATCH/);
+  }
+  assert.throws(()=>validateManifest(manifest([{...source,providerTotalCents:196950,providerNightTotalsCents:[98000,98950]}])),/PROVIDER_AMOUNT_MISMATCH/);
+  const alias = structuredClone(source);alias.event.externalOrderNo='FAKE';
+  assert.throws(()=>validateManifest(manifest([alias])),/INVALID_REPAIR_ORDER/);
+});

@@ -182,3 +182,38 @@ test("coverage begins at an explicit future full Taipei day and cannot be inferr
   assert.throws(() => planSourceNotificationRecovery(snapshot, manifest, new Date("2026-10-24T16:00:00.000Z")), /COVERAGE_DAY_INVALID/);
   assert.throws(() => planSourceNotificationRecovery({ ...snapshot, reportingPolicy: { ...good, notificationCoverageFrom: "2026-10-26" } }, manifest, now), /COVERAGE_POLICY_CONFLICT/);
 });
+
+test("OFFLAND first new-order notification uses the same receipt proof and survives later edits", async () => {
+  const { repository, service } = setup();
+  const offlandSource = "offland-calendar-sheet";
+  await repository.transact(propertyId, (s) => {
+    s.offlandImport = { sourceId: sourceAccount };
+    s.sourceGrants[0].sourceSystem = offlandSource;
+  });
+  const who = { ...actor, sourceSystem: offlandSource };
+  const event = { ...input, sourceSystem: offlandSource, externalOrderId: "Q:SYNTHETIC-ONLY" };
+  await service.applySourceEvent(who, requestKey, event);
+  let state = await repository.read(propertyId);
+  assert.equal(firstNotificationAt(state, state.bookings[0]), receivedAt);
+  assert.equal(state.bookings[0].bookedAt, null);
+  const first = structuredClone(state.sourceLinks[0].firstNewOrderNotification);
+  await service.applySourceEvent(who, crypto.randomUUID(), { ...event, expectedInventoryVersion: state.version,
+    previousSourceVersion: sourceVersion, sourceVersion: `gmail-v1:${Date.parse("2026-10-23T18:00:00Z")}:${"b".repeat(64)}` });
+  state = await repository.read(propertyId);
+  assert.deepEqual(state.sourceLinks[0].firstNewOrderNotification, first);
+  assert.equal(firstNotificationAt(state, state.bookings[0]), receivedAt);
+  const report = createBusinessReport(state, () => false, new Date("2026-10-24T03:00:00Z"));
+  assert.equal(report.meta.unknownDailyDateOrders, 0);
+  assert.equal(report.meta.notificationDateOrders, 1);
+  assert.equal(report.yesterday.orders, 1);
+  for (const mutate of [
+    s => { s.receipts = []; },
+    s => { s.sourceLinks[0].sourceSystem = "untrusted-calendar-sheet"; },
+    s => { s.bookings[0].offlandSnapshot = {}; },
+    s => { s.receipts[0].response.bookingVersion = 2; },
+  ]) {
+    const bad = structuredClone(state); mutate(bad);
+    assert.equal(firstNotificationAt(bad, bad.bookings[0]), null);
+  }
+  assert.equal(firstGmailNotification("untrusted-calendar-sheet", sourceVersion, requestKey, "2026-10-24T03:00:00.000Z"), null);
+});
