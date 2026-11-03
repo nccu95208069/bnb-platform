@@ -7,6 +7,7 @@ import { readCalendarWithChanges } from '@/lib/calendar-sync-client';
 import { useCalendarPerformance } from "./use-calendar-performance";
 import { hasCalendarCoverage } from "./calendar-retention";
 import { useCalendarRevision } from "./use-calendar-revision";
+import { useCalendarRealtime } from "./use-calendar-realtime";
 import {GuestNotificationProvider} from "./guest-notification";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
@@ -437,6 +438,15 @@ const uiLocale = useIntlLocale();
 
 
   const sourceChanged = useCallback(() => setReloadKey(value => value + 1), []);
+  useCalendarRealtime({
+    properties: (propertyScope ? propertyScope.split(',') : membership?.allProperties
+      ? ['sweetfun', 'offland'] : membership?.propertyIds ?? [])
+      .filter(id => id === 'sweetfun' || id === 'offland').sort().join(','),
+    scope: `${accessScope}:${propertyScope}`,
+    enabled: !PAYMENT_SANDBOX && !!membership && (LIVE_SHEET || !DEMO_MODE),
+    busy: loading || refreshing,
+    changed: sourceChanged,
+  });
   useCalendarRevision((data?.properties ?? []).map(p => p.id).filter(id => id === 'sweetfun' || id === 'offland').sort().join(','),
     !PAYMENT_SANDBOX && !loading && !refreshing &&
       data?.data_mode !== "iron_gate_booking_only" && !!data?.source?.automatic_sync, sourceChanged);
