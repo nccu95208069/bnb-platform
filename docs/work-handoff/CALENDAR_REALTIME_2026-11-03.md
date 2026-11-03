@@ -42,4 +42,6 @@ After promotion, authenticated primary-domain acceptance independently verified:
 
 These primary-domain checks used notification metadata only and did not create or modify a booking, payment or room-inventory record. Browser viewport testing does not establish physical-phone acceptance. A manual hidden-tab experiment is not claimed; hidden-tab lifecycle behavior retains automated regression coverage. The separate unsold-layout issue remains with unshipped PR #131.
 
+The final production readback confirmed both notification mappings active and the trigger enabled, with the outbox count and maximum event cursor unchanged from the acceptance baseline. The 06:38:52–06:48:52 UTC runtime-log scan found no error or fatal entries. The final primary browser showed both sold calendars healthy, with normal network settings restored.
+
 To stop notification delivery, deactivate only the configured property mappings and retain the minute/foreground read paths. Reverting this notification feature must not roll back later booking or finance protections. See [the database bridge contract](CALENDAR_REALTIME_DATABASE_2026-10-30.md) for capability rotation, migration prerequisites and isolated test setup.
