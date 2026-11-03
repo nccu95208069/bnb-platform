@@ -200,9 +200,12 @@ export function UnsoldMonthScroller(props:Props) {
   const container=root.current;if(!container)return;
   let frame=0;
   const measure=()=>{cancelAnimationFrame(frame);frame=requestAnimationFrame(()=>{
-   const height=window.visualViewport?.height ?? window.innerHeight;
+   // visualViewport can be shorter than the page viewport on mobile browsers,
+   // leaving a one-week calendar above a large blank area. Match the sold
+   // calendar's layout viewport measurement so the scroller fills the page.
+   const height=window.innerHeight;
    const top=container.getBoundingClientRect().top;
-   const measuredHeight=Math.max(280,height-Math.max(0,top)-8);
+   const measuredHeight=Math.max(320,Math.floor(height-Math.max(0,top)-12));
    container.style.height=`${measuredHeight}px`;
    setViewportHeight(measuredHeight);
   });};
@@ -213,8 +216,11 @@ export function UnsoldMonthScroller(props:Props) {
   return ()=>{observer.disconnect();cancelAnimationFrame(frame);window.removeEventListener("resize",measure);window.visualViewport?.removeEventListener("resize",measure);};
  },[]);
  const historyRevision=useCalendarPreferences(s=>s.historyRevision);
- useMonthPosition(root,props.anchor,props.jump+historyRevision,props.onVisibleMonth);
- return <div ref={root} style={{overflowAnchor:"none"}} role="region" aria-label={uiText("未售月曆，可上下捲動月份")} tabIndex={0} className="h-[calc(100dvh-280px)] min-h-[280px] overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm">
+ // Month mode starts at its header; the selected day remains highlighted
+ // inside the month instead of hiding the earlier weeks above it.
+ const monthAnchor=props.anchor.slice(0,7)+"-01";
+ useMonthPosition(root,monthAnchor,props.jump+historyRevision,props.onVisibleMonth);
+ return <div ref={root} style={{overflowAnchor:"none"}} role="region" aria-label={uiText("未售月曆，可上下捲動月份")} tabIndex={0} className="h-[calc(100dvh-280px)] min-h-[320px] overflow-y-auto overscroll-contain rounded-xl border bg-card shadow-sm">
   {MONTHS.map(month=><MonthPanel key={month} month={month} props={props} viewportHeight={viewportHeight}/>)}
  </div>;
 }
