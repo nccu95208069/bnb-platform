@@ -1,6 +1,6 @@
 # Work Handoff Index — 2026-09-05
 
-2026-11-03: [Calendar change notifications](CALENDAR_REALTIME_2026-11-03.md) — production database bridge activated; hosted access/delivery and authenticated candidate sold/unsold, mobile-viewport and post-reload notification checks passed. Exact production promotion awaits renewed owner confirmation; the candidate is not live on the primary domain.
+2026-11-03: [Calendar change notifications](CALENDAR_REALTIME_2026-11-03.md) — owner-approved runtime `f55d2c9` is live on the primary domain. Hosted access/delivery, staged mobile-viewport and authenticated primary sold/unsold, reload and actual offline/online checks passed. PR #132 remains draft and unmerged; no physical-phone acceptance is claimed.
 
 2026-11-02: [Production source integration and release policy](PRODUCTION_RELEASE_POLICY.md) is the current release contract; never restore the old demo publisher on main.
 
