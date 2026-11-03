@@ -1,5 +1,10 @@
 # Calendar notification database bridge — 2026-10-30
 
+2026-11-03 follow-up: the owner-authorized production migration and hosted
+notification/access checks are complete. The application candidate remains
+unpromoted pending authenticated browser acceptance. See the
+[current release checkpoint](CALENDAR_REALTIME_2026-11-03.md).
+
 The owner requested an immediate calendar refresh after LINE or OTA creates,
 amends or cancels an order. The database bridge sends a private invalidation
 after a committed Iron Gate outbox event. The browser still reads authoritative,
@@ -71,6 +76,7 @@ and the corresponding server setting together, then reconnect and verify it.
 Existing listeners on the old topic receive no future events. Periodic and
 foreground reconciliation remain enabled throughout.
 
-At this checkpoint only source implementation and isolated validation are
-complete. Production migration, topic provisioning, hosted delivery, OS stream
-release and browser acceptance are owned by the coordinating release task.
+At the original October 30 checkpoint only source implementation and isolated
+validation were complete. The November 3 follow-up above supersedes that
+database-activation status; application release and browser acceptance remain
+owned by the coordinating release task.

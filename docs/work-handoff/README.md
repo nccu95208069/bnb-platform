@@ -1,5 +1,7 @@
 # Work Handoff Index — 2026-09-05
 
+2026-11-03: [Calendar change notifications](CALENDAR_REALTIME_2026-11-03.md) — production database bridge activated and hosted access/delivery verified; application candidate awaits authenticated browser acceptance and promotion.
+
 2026-11-02: [Production source integration and release policy](PRODUCTION_RELEASE_POLICY.md) is the current release contract; never restore the old demo publisher on main.
 
 2026-10-29 Offland LINE booking: [provider-free create, amendment and cancellation with dedicated proof routing, exact-grant activation and recovery](OFFLAND_LINE_BOOKING_2026-10-29.md). Isolated implementation candidate; no production credential or activation has been issued.

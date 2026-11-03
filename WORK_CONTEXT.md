@@ -1,5 +1,7 @@
 # BnB SaaS / Sweetfun OS — Authoritative Work Context
 
+2026-11-03 calendar notifications: [committed order-change notifications and application acceptance](docs/work-handoff/CALENDAR_REALTIME_2026-11-03.md). The owner-authorized production database bridge and hosted permission/delivery checks are complete. The production-preserving application candidate is ready but not promoted; authenticated browser acceptance remains pending. The primary website still uses its prior refresh behavior at this checkpoint.
+
 2026-11-02 production source integration: [main integration and release policy](docs/work-handoff/PRODUCTION_RELEASE_POLICY.md) preserves the recovered live calendar, device cache and renewal probe while retiring the demo push-to-main publisher. GitHub merge and production release are separate; the integration PR records final merge and live acceptance. This supersedes historical automatic-demo-deployment guidance.
 
 2026-10-29 Offland LINE booking: [provider-free create, amendment and cancellation with dedicated proof routing, exact-grant activation and recovery](docs/work-handoff/OFFLAND_LINE_BOOKING_2026-10-29.md). Isolated implementation candidate; no production credential or activation has been issued.
