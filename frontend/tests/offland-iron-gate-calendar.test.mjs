@@ -97,3 +97,15 @@ test('Offland authority flag requires an independent epoch and a single villa ro
   });
   assert.equal(inherited.proofSecret, secret);
 });
+
+test('OFFLAND plans map from Iron Gate and never from occupancy', async () => {
+  for (const plan of ['four','six','unknown',null]) {
+    const raw = snapshot();
+    for (const b of raw.bookings) {
+      if (plan) b.bookingPlan = {projectName:'synthetic project',plan,sourceVersion:'v1'};
+    }
+    const result = await readSweetfunIronGateCalendarSnapshot('2027-01-02','2027-01-04',principal,config(),async () => Response.json(raw));
+    assert.ok(result.bookings.every(b => b.booking_plan === (plan ?? 'unknown')));
+    assert.ok(result.bookings.every(b => b.booking_project_name === (plan ? 'synthetic project' : undefined)));
+  }
+});

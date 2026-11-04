@@ -306,6 +306,12 @@ function calendarBooking(booking: Record<string, unknown>,
       sourceOrderRef?.startsWith('L:') ? sourceOrderRef.slice(2) : null,
     external_order_no: viewPrices && typeof source?.externalOrderNo === 'string'
       ? source.externalOrderNo : null,
+    ...(property === 'offland' ? {
+      booking_plan: object(booking.bookingPlan) && ['four', 'six'].includes(String(booking.bookingPlan.plan))
+        ? booking.bookingPlan.plan as 'four' | 'six' : 'unknown' as const,
+      booking_project_name: object(booking.bookingPlan) && typeof booking.bookingPlan.projectName === 'string'
+        ? booking.bookingPlan.projectName : undefined,
+    } : {}),
     property_id: property, property_name: config ? propertyName(config) : '水芳 Sweetfun',
     room_id: config ? roomLabel(config, roomNumber) : `sweetfun-${roomNumber}`,
     room_number: roomNumber,
