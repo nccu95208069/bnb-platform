@@ -292,14 +292,15 @@ const uiLocale = useIntlLocale();
                   data-payment-state={paymentStateForReview(booking)}
                   onClick={() => onSelectBooking(booking)}
                   style={{ gridColumn: `${segment.start + 1} / ${segment.end + 1}`, gridRow: segment.lane + 2, fontSize: monthBookingFontSize(fontScale, desktop), WebkitTextSizeAdjust: "none", textSizeAdjust: "none" }}
-                  className={cn("relative z-10 mx-1 flex min-w-0 items-center gap-0.5 overflow-hidden rounded-[3px] px-1 text-left leading-none font-medium focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  className={cn("relative z-10 flex min-w-0 items-center gap-0.5 overflow-hidden rounded-[3px] text-left leading-none font-medium focus-visible:z-20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    bookingPlanLabel(booking) ? "mx-0.5 px-0.5 sm:mx-1 sm:px-1" : "mx-1 px-1",
                     booking.source_conflict ? "calendar-source-conflict" : PLATFORM_STYLES[booking.platform] ?? PLATFORM_STYLES.other,
                     segment.continuesBefore && "ml-0 rounded-l-none border-l-0 sm:ml-0 md:ml-0",
                     segment.continuesAfter && "mr-0 rounded-r-none border-r-0 sm:mr-0 md:mr-0")}>
                   {segment.continuesBefore && <span aria-hidden="true">‹</span>}
                   <span className={cn("min-w-0 flex-1", !expanded && !twoLine && "truncate")}>
                     <span className={cn("truncate", expanded || twoLine ? "block" : "inline")} style={{ lineHeight: `${12 * fontScale}px` }}>
-                      {bookingPlanLabel(booking) ? <span className="font-semibold" style={{fontSize: booking.booking_plan === 'unknown' ? '0.8em' : undefined}}>{uiText(bookingPlanLabel(booking)!)}</span> : <>
+                      {bookingPlanLabel(booking) ? <span className="font-semibold" style={{fontSize: !desktop ? (booking.booking_plan === 'unknown' ? '0.68em' : '0.85em') : booking.booking_plan === 'unknown' ? '0.8em' : undefined}}>{uiText(bookingPlanLabel(booking)!)}</span> : <>
                       <span className="font-semibold">{booking.source_conflict ? uiText("待核對") : twoLine && !desktop ? MONTH_COMPACT_PLATFORM_LABELS[booking.platform] ?? "其" : MONTH_PLATFORM_LABELS[booking.platform] ?? "其他"}</span>
                       <span className={cn(twoLine ? "ml-0.5" : "ml-1", "opacity-85")}>{booking.room_number}</span>
                       {nights > 1 && !twoLine && <span className="ml-1">{nights}{uiText("晚")}</span>}
