@@ -746,11 +746,11 @@ export function ServiceJoin({
                 setStarted(false);
                 onBack(false);
               }}
-              aria-label="返回民宿 OS 服務頁"
+              aria-label="返回 Desk Center 服務頁"
             >
               <DoorMark />
               <span>
-                民宿 <span className="service-brand-os">OS</span>
+                Desk <span className="service-brand-os">Center</span>
               </span>
             </button>
             <div className="service-header-actions">
@@ -847,7 +847,7 @@ export function ServiceJoin({
                   </p>
                   <a
                     className="inline-block service-text-accent underline"
-                    href={`mailto:${contactEmail}?subject=${encodeURIComponent(`民宿 OS 申請 ${result.id}`)}`}
+                    href={`mailto:${contactEmail}?subject=${encodeURIComponent(`Desk Center 申請 ${result.id}`)}`}
                   >
                     Email 聯絡我們
                   </a>
@@ -976,7 +976,7 @@ export function ServiceJoin({
             </div>
           </section>
           <footer className="service-contact-footer">
-            <span>民宿 OS · 房況與訂房管理系統</span>
+            <span>Desk Center · 房況與訂房管理系統</span>
             <a href={`mailto:${contactEmail}`}>{contactEmail}</a>
           </footer>
         </div>

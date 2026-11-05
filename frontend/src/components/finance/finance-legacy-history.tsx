@@ -19,8 +19,8 @@ export function FinanceLegacyHistory(){
  const loaded=result?.key===key;
  return <main className="mx-auto max-w-4xl space-y-5 p-4">
   <Link className="text-sm underline" href={`/finance/bookkeeping?property=${encodeURIComponent(property)}`}>返回新帳本</Link>
-  <h1 className="text-2xl font-semibold">OS 舊帳紀錄</h1>
-  <p className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">這裡保留以前在 OS 登記的原始紀錄，只供查閱。匯入與核對進度請以財務首頁顯示的狀態為準。</p>
+  <h1 className="text-2xl font-semibold">Desk Center 舊帳紀錄</h1>
+  <p className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm">這裡保留以前在 Desk Center 登記的原始紀錄，只供查閱。匯入與核對進度請以財務首頁顯示的狀態為準。</p>
   <div className="flex gap-3"><label>年度 <input aria-label="舊帳年度" className="w-24 rounded border p-2" type="number" min="2020" max="2100" value={year} onChange={event=>{const next=Number(event.target.value);if(Number.isInteger(next)&&next>=2020&&next<=2100)setYear(next);}}/></label>
    <button className="rounded border px-3" onClick={()=>setReload(value=>value+1)}>重新整理</button></div>
   {!loaded?<p role="status">讀取舊帳…</p>:result.error?<p role="alert">{result.error}</p>:
@@ -28,6 +28,6 @@ export function FinanceLegacyHistory(){
     <p className="font-semibold">{entry.kind==='expense'?'支出':entry.kind==='refund'?'退款':'收入'} · {categoryLabel(entry)} · NT${(entry.amount_cents/100).toLocaleString('zh-TW')}</p>
     <p className="text-sm">{entry.date} · {paymentMethodLabel(entry.method)} · {entry.status==='void'?'已作廢':'原始紀錄'}</p>
     <p className="whitespace-pre-wrap break-words text-sm">{entry.description}</p>
-   </li>)}</ul>:<p>這個年度沒有 OS 舊帳紀錄；不代表沒有其他來源的收支。</p>}
+   </li>)}</ul>:<p>這個年度沒有 Desk Center 舊帳紀錄；不代表沒有其他來源的收支。</p>}
  </main>;
 }

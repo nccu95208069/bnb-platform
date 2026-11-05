@@ -1,4 +1,4 @@
-export const messages:Record<string,{en:string;th:string;vi:string}>= {
+export const messages:Record<string,{en:string;th:string;vi:string;"zh-TW"?:string}>= {
   "訂單已讀取": {"en":"Bookings loaded","th":"โหลดการจองแล้ว","vi":"Đã tải đơn đặt"},
   "已讀取 Iron Gate 訂單；日曆每分鐘更新。": {"en":"Iron Gate bookings loaded. The calendar refreshes every minute.","th":"โหลดการจองจาก Iron Gate แล้ว ปฏิทินอัปเดตทุกนาที","vi":"Đã tải đơn đặt từ Iron Gate. Lịch được cập nhật mỗi phút."},
   "此狀態只表示訂單讀取結果；OwlNest 房況同步請查看各筆訂單。": {"en":"This status only describes booking reads. Check each booking for OwlNest inventory synchronization.","th":"สถานะนี้แสดงเฉพาะผลการอ่านการจอง ตรวจสอบการซิงค์ห้องว่างกับ OwlNest ในแต่ละการจอง","vi":"Trạng thái này chỉ cho biết kết quả đọc đơn đặt. Xem từng đơn để kiểm tra đồng bộ phòng với OwlNest."},
@@ -139,7 +139,7 @@ export const messages:Record<string,{en:string;th:string;vi:string}>= {
   "代墊人姓名": {"en": "Name of person who paid", "th": "ชื่อผู้สำรองจ่าย", "vi": "Tên người ứng tiền"},
   "整筆訂單房費": {"en":"Total booking room charges","th":"ค่าห้องรวมทั้งการจอง","vi":"Tổng tiền phòng của đơn"},
   "已登記收款": {"en":"Recorded receipts","th":"เงินรับที่บันทึกแล้ว","vi":"Khoản thu đã ghi nhận"},
-  "依訂房表房費帶入，已扣除 OS 登記收款；可按實際收到的金額修改。": {"en":"Prefilled from booking-sheet room charges less OS receipts. Adjust to the amount actually received.","th":"ใส่ค่าห้องจากชีตโดยหักเงินรับที่บันทึกใน OS แล้ว ปรับตามยอดที่ได้รับจริงได้","vi":"Điền từ tiền phòng trên bảng, trừ khoản thu đã ghi trong OS. Có thể sửa theo số tiền thực nhận."},
+  "依訂房表房費帶入，已扣除 OS 登記收款；可按實際收到的金額修改。": {"en": "Prefilled from booking-sheet room charges less Desk Center receipts. Adjust to the amount actually received.", "th": "ใส่ค่าห้องจากชีตโดยหักเงินรับที่บันทึกใน Desk Center แล้ว ปรับตามยอดที่ได้รับจริงได้", "vi": "Điền từ tiền phòng trên bảng, trừ khoản thu đã ghi trong Desk Center. Có thể sửa theo số tiền thực nhận.", "zh-TW": "依訂房表房費帶入，已扣除 Desk Center 登記收款；可按實際收到的金額修改。"},
 
   "訂單收款": {
     "en": "Order receipts",
@@ -261,11 +261,7 @@ export const messages:Record<string,{en:string;th:string;vi:string}>= {
     "th": "หมายเหตุ (ไม่บังคับ)",
     "vi": "Ghi chú (không bắt buộc)"
   },
-  "收款會存入 OS；目前不修改主表。": {
-    "en": "Receipts are saved in OS. The main sheet is not changed yet.",
-    "th": "บันทึกเงินรับใน OS โดยยังไม่แก้ไขชีตหลัก",
-    "vi": "Khoản thu được lưu trong OS; hiện chưa sửa bảng chính."
-  },
+  "收款會存入 OS；目前不修改主表。": {"en": "Receipts are saved in Desk Center. The main sheet is not changed yet.", "th": "บันทึกเงินรับใน Desk Center โดยยังไม่แก้ไขชีตหลัก", "vi": "Khoản thu được lưu trong Desk Center; hiện chưa sửa bảng chính.", "zh-TW": "收款會存入 Desk Center；目前不修改主表。"},
   "確認收款": {
     "en": "Confirm receipt",
     "th": "ยืนยันเงินรับ",
@@ -601,11 +597,7 @@ export const messages:Record<string,{en:string;th:string;vi:string}>= {
     "th": "ค้นหาการจอง",
     "vi": "Tìm đặt phòng"
   },
-  "Sweetfun OS 工作台導覽": {
-    "en": "Sweetfun OS navigation",
-    "th": "เมนู Sweetfun OS",
-    "vi": "Điều hướng Sweetfun OS"
-  },
+  "Sweetfun OS 工作台導覽": {"en": "Desk Center navigation", "th": "เมนู Desk Center", "vi": "Điều hướng Desk Center", "zh-TW": "Desk Center 工作台導覽"},
   "關閉選單": {
     "en": "Close menu",
     "th": "ปิดเมนู",
@@ -2782,16 +2774,8 @@ export const messages:Record<string,{en:string;th:string;vi:string}>= {
     "th": "ยืนยันยกเลิกรายการ",
     "vi": "Xác nhận vô hiệu"
   },
-  "OS 付款紀錄": {
-    "en": "OS payment records",
-    "th": "บันทึกชำระเงิน OS",
-    "vi": "Lịch sử thanh toán OS"
-  },
-  "存於 OS，不會被訂房表同步覆蓋。此處記錄客人付款，不代表 OTA 已撥款到旅宿。": {
-    "en": "Stored in OS and not overwritten by sheet sync. These are guest payments, not confirmation of OTA payouts.",
-    "th": "เก็บใน OS ไม่ถูกชีตซิงค์ทับ เป็นการจ่ายของลูกค้า ไม่ยืนยันเงินโอนจาก OTA",
-    "vi": "Lưu trong OS, không bị đồng bộ bảng ghi đè. Đây là khách thanh toán, không xác nhận OTA đã chuyển tiền."
-  },
+  "OS 付款紀錄": {"en": "Desk Center payment records", "th": "บันทึกชำระเงิน Desk Center", "vi": "Lịch sử thanh toán Desk Center", "zh-TW": "Desk Center 付款紀錄"},
+  "存於 OS，不會被訂房表同步覆蓋。此處記錄客人付款，不代表 OTA 已撥款到旅宿。": {"en": "Stored in Desk Center and not overwritten by sheet sync. These are guest payments, not confirmation of OTA payouts.", "th": "เก็บใน Desk Center ไม่ถูกชีตซิงค์ทับ เป็นการจ่ายของลูกค้า ไม่ยืนยันเงินโอนจาก OTA", "vi": "Lưu trong Desk Center, không bị đồng bộ bảng ghi đè. Đây là khách thanh toán, không xác nhận OTA đã chuyển tiền.", "zh-TW": "存於 Desk Center，不會被訂房表同步覆蓋。此處記錄客人付款，不代表 OTA 已撥款到旅宿。"},
   "讀取付款紀錄…": {
     "en": "Loading payment records…",
     "th": "กำลังโหลดประวัติชำระ…",
@@ -2817,11 +2801,7 @@ export const messages:Record<string,{en:string;th:string;vi:string}>= {
     "th": "ชีตระบุว่าจ่ายครบ แต่ไม่มียอดและเวลารับเงินย้อนหลัง",
     "vi": "Bảng ghi đã trả đủ; chưa có số tiền và thời gian nhận trước đây."
   },
-  "OS 已登記房費：": {
-    "en": "Room payments recorded in OS:",
-    "th": "ค่าห้องที่บันทึกใน OS:",
-    "vi": "Tiền phòng đã ghi trong OS:"
-  },
+  "OS 已登記房費：": {"en": "Room payments recorded in Desk Center:", "th": "ค่าห้องที่บันทึกใน Desk Center:", "vi": "Tiền phòng đã ghi trong Desk Center:", "zh-TW": "Desk Center 已登記房費："},
   "／ 其他費用：": {
     "en": "/ Other charges:",
     "th": "/ ค่าใช้จ่ายอื่น:",
@@ -2887,11 +2867,7 @@ export const messages:Record<string,{en:string;th:string;vi:string}>= {
     "th": "ยังไม่ยืนยันผล ลองใหม่จะตรวจสอบการชำระเดิมโดยไม่สร้างซ้ำ",
     "vi": "Chưa xác nhận kết quả. Thử lại sẽ kiểm tra khoản gốc mà không tạo trùng."
   },
-  "OS 尚無付款明細。": {
-    "en": "No payment details in OS yet.",
-    "th": "OS ยังไม่มีรายละเอียดชำระ",
-    "vi": "OS chưa có chi tiết thanh toán."
-  },
+  "OS 尚無付款明細。": {"en": "No payment details in Desk Center yet.", "th": "Desk Center ยังไม่มีรายละเอียดชำระ", "vi": "Desk Center chưa có chi tiết thanh toán.", "zh-TW": "Desk Center 尚無付款明細。"},
   "登記於": {
     "en": "Recorded on",
     "th": "บันทึกเมื่อ",
@@ -2937,11 +2913,7 @@ export const messages:Record<string,{en:string;th:string;vi:string}>= {
     "th": "การเข้าสู่ระบบหมดอายุ:",
     "vi": "Phiên hết hạn:"
   },
-  "登入 Sweetfun OS": {
-    "en": "Sign in to Sweetfun OS",
-    "th": "เข้าสู่ระบบ Sweetfun OS",
-    "vi": "Đăng nhập Sweetfun OS"
-  },
+  "登入 Sweetfun OS": {"en": "Sign in to Desk Center", "th": "เข้าสู่ระบบ Desk Center", "vi": "Đăng nhập Desk Center", "zh-TW": "登入 Desk Center"},
   "請用自己的 Email 或手機號碼與密碼登入，查看獲授權的旅宿。": {
     "en": "Use your email or phone number and password to access authorised properties.",
     "th": "ใช้อีเมลหรือเบอร์โทรและรหัสผ่านของคุณเพื่อเข้าถึงที่พักที่มีสิทธิ์",
@@ -3512,11 +3484,7 @@ export const messages:Record<string,{en:string;th:string;vi:string}>= {
     "th": "รหัสผ่านแอป Google",
     "vi": "Mật khẩu ứng dụng Google"
   },
-  "建立「Sweetfun OS 寄信」專用密碼。": {
-    "en": "Create a dedicated “Sweetfun OS Mail” password.",
-    "th": "สร้างรหัสเฉพาะ “Sweetfun OS Mail”",
-    "vi": "Tạo mật khẩu riêng “Sweetfun OS Mail”."
-  },
+  "建立「Sweetfun OS 寄信」專用密碼。": {"en": "Create a dedicated “Desk Center Mail” password.", "th": "สร้างรหัสเฉพาะ “Desk Center Mail”", "vi": "Tạo mật khẩu riêng “Desk Center Mail”.", "zh-TW": "建立「Desk Center 寄信」專用密碼。"},
   "把 Google 提供的 16 碼填在下方。不要填 Gmail 一般登入密碼，也不用傳給我。": {
     "en": "Enter Google's 16-character password below. Do not use your normal Gmail password or send it to me.",
     "th": "ใส่รหัส 16 ตัวที่ Google ให้ด้านล่าง อย่าใช้รหัส Gmail ปกติหรือส่งให้ฉัน",

@@ -2,7 +2,7 @@ import { OwnerConnection } from "@/components/website-booking/owner-connection";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
-  title: "連接官網訂房日曆｜Sweetfun OS",
+  title: "連接官網訂房日曆｜Desk Center",
   robots: { index: false, follow: false },
   referrer: "no-referrer" as const,
 };

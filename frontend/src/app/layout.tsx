@@ -20,8 +20,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Sweetfun OS｜訂單與房況日曆",
-  description: "水芳 Sweetfun 的月、週、日訂單與房況營運工作台",
+  title: "Desk Center｜訂單與房況日曆",
+  description: "管理民宿訂單、房況與收款的營運工作台",
 };
 
 const fontScaleBootstrap = `try {

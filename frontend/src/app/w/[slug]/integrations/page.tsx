@@ -2,7 +2,7 @@ import { customerPage } from "@/lib/customer-workspaces/page-context";
 import { SourceIntegrations } from "@/components/customer-workspaces/source-integrations";
 
 export const dynamic = "force-dynamic";
-export const metadata = { title: "來源與通路連接｜Sweetfun OS", robots: { index: false, follow: false } };
+export const metadata = { title: "來源與通路連接｜Desk Center", robots: { index: false, follow: false } };
 export default async function Page({ params, searchParams }: {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ property?: string; client_id?: string; provider?: string; state?: string; code_challenge?: string }>;

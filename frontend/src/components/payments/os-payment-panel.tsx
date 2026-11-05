@@ -61,10 +61,10 @@ export function OsPaymentPanel({property,order,sourceBookingId,canRecord,onChang
   {error&&<p role="alert" className="text-sm text-red-700">{t(error)}</p>}{success&&<p role="status" className="text-sm text-green-700">{t(success)}</p>}
   {!check&&!recovery&&!error&&<p>{t('讀取付款紀錄…')}</p>}{!check&&(error||recovery)&&<Button variant="outline" onClick={()=>{setError('');setReload(v=>v+1);}}>{t('重新載入')}</Button>}
   {recovery&&<p role="status" className="text-sm text-amber-800">{t(recovery.detail)}</p>}
-  {pendingReceipt&&!open&&<div className="space-y-2 rounded-lg bg-amber-50 p-3 text-sm"><p>{t('這筆付款已保存在 OS，main sheet 尚待同步。')}</p>{pendingReceipt.sheet_sync?.failure?.requires_review&&<p>{t('主表資料有變動，請先由管理員核對；本次不會覆蓋更正內容。')}</p>}{canRecord&&(check?.can_record??recovery?.can_record)&&<Button variant="outline" disabled={busy} onClick={()=>void submit(pendingReceipt)}>{busy?t('確認同步中…'):t('繼續同步主表')}</Button>}</div>}
+  {pendingReceipt&&!open&&<div className="space-y-2 rounded-lg bg-amber-50 p-3 text-sm"><p>{t('這筆付款已保存在 Desk Center，main sheet 尚待同步。')}</p>{pendingReceipt.sheet_sync?.failure?.requires_review&&<p>{t('主表資料有變動，請先由管理員核對；本次不會覆蓋更正內容。')}</p>}{canRecord&&(check?.can_record??recovery?.can_record)&&<Button variant="outline" disabled={busy} onClick={()=>void submit(pendingReceipt)}>{busy?t('確認同步中…'):t('繼續同步主表')}</Button>}</div>}
   {check&&<>
    <p className="text-sm">{t(PAYMENT_LABELS[check.payment_status])} · {t('整張訂單')} {check.rooms.join('、')} · {check.nights} {t('房晚')} · {t('房費')} {money(check.total)}</p>
-   <p className="text-xs text-muted-foreground">{check.sheet_write_enabled?t('登記後同步 main sheet 的付款狀態及收款註記。'):t('付款紀錄保存在 OS。')}{t(' OTA 代收不代表已撥款到旅宿。')}</p>
+   <p className="text-xs text-muted-foreground">{check.sheet_write_enabled?t('登記後同步 main sheet 的付款狀態及收款註記。'):t('付款紀錄保存在 Desk Center。')}{t(' OTA 代收不代表已撥款到旅宿。')}</p>
    {check.source_paid&&<p className="text-xs text-muted-foreground">{t('來源已標記付清；若要補登明細，請確認沒有重複入帳。')}</p>}
    <p className="text-xs">{t('已登記房費：')}{money(roomReceived)}{t('／其他費用：')}{money(receipts.filter(r=>r.payment_type==='other').reduce((s,r)=>s+r.amount,0))}</p>
    {!!check.finance_received&&<p className="text-xs text-muted-foreground">{t('已包含財務登記的房費 ')}{money(check.finance_received)}{t('，請勿重複登記。')}</p>}

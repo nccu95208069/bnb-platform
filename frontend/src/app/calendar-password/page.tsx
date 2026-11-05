@@ -23,7 +23,7 @@ export default function CalendarPasswordPage() {
     }catch(e){setError(e instanceof Error?e.message:"設定失敗，請稍後再試。");}finally{setBusy(false);}
   }
   return <main className="flex min-h-dvh items-center justify-center bg-slate-50 px-5 py-8"><section className="w-full max-w-sm space-y-5 rounded-2xl border bg-white p-6 shadow-sm">
-    <div><p className="text-sm text-slate-500">Sweetfun OS</p><h1 className="mt-2 text-xl font-semibold">{uiText("變更私人密碼")}</h1></div>
+    <div><p className="text-sm text-slate-500">Desk Center</p><h1 className="mt-2 text-xl font-semibold">{uiText("變更私人密碼")}</h1></div>
     {error&&<p role="alert" className="text-sm text-red-700">{uiText(error)}</p>}
     {saved?<><p role="status">{uiText("私人密碼已儲存。舊登入碼與其他裝置的登入已失效；這台裝置保持登入。")}</p><a href="/calendar" className="block rounded-lg bg-slate-900 px-4 py-3 text-center text-white">{uiText("返回日曆")}</a></>:!state?<p className="text-sm text-slate-500">{uiText("確認登入中…")}</p>:!state.authenticated?<><p>{uiText("請先登入私人日曆，再設定密碼。")}</p><a href="/calendar-access" className="block text-sm underline">{uiText("前往登入")}</a></>:<form onSubmit={save} className="space-y-4">
       {state.has_custom_password&&<label className="block text-sm font-medium">{uiText("目前密碼")}<input type="password" autoComplete="current-password" required value={currentPassword} onChange={e=>setCurrentPassword(e.target.value)} className="mt-2 block w-full rounded-lg border px-3 py-2.5"/></label>}

@@ -2,7 +2,7 @@ import {parseFile,normalizeImport,suggestMapping,readPublicSheet} from './import
 import {fail,rooms} from './core.mjs';
 import {roles} from './catalog.mjs';
 export const connections=[
- {id:'calendar',name:'訂房月曆',owner:'訂房經理',state:'同步來源唯讀',url:'/calendar',detail:'沿用 Sweetfun OS 水芳訂單同步，不重複匯入。'},
+ {id:'calendar',name:'訂房月曆',owner:'訂房經理',state:'同步來源唯讀',url:'/calendar',detail:'沿用 Desk Center 水芳訂單同步，不重複匯入。'},
  {id:'analysis',name:'訂單分析',owner:'分析專家',state:'已接固定分析工具',role:'analyst',detail:'使用同一批房晚資料，依你設定的框架計算。'},
  {id:'health',name:'營收健檢',owner:'財務經理',state:'可用表載房費核對',role:'finance',detail:'目前提供訂單房費與缺漏核對；原營收健檢完整模型尚未接入，實收、成本及淨利保留未知。'},
  {id:'cleaning',name:'清掃管理 RoomReady',owner:'總管家',state:'可開啟原產品・資料尚未連通',url:'https://haosuguan-cleaning.nccu95208069.chatgpt.site',detail:'清掃派工與回報仍在原產品操作。需要對應據點與登入授權後才能在 Bot 讀取，隔離待辦不等於正式清掃任务。'},

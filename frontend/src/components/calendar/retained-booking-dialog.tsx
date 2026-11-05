@@ -258,7 +258,7 @@ export function RetainedBookingDialog({ bookingId, action, storageScope, canWrit
           {action === "reschedule" && <RetainedStayList stays={preview.proposedStays} label="本次安排" />}
           {action === "reschedule" && pricesVisible && <p>{moneyUnknown ? "保留款項待核對，本次安排不會將訂單標為付清。" : preview.creditCents !== null && preview.creditCents > 0
             ? `已收超過新房費 ${retainedMoney(preview.creditCents)}，差額待處理；本次不會退款。` : `尚待收款：${retainedMoney(preview.remainingCents)}`}</p>}
-          {preview.externalRoomActionRequired && <p>外部平台房況需要另行處理。{action === "retain" ? "原日期的 OS 占房會釋放，外部平台尚未確認開放。" : "新日期的 OS 占房會建立，外部平台尚未確認關房。"}</p>}
+          {preview.externalRoomActionRequired && <p>外部平台房況需要另行處理。{action === "retain" ? "原日期的 Desk Center 占房會釋放，外部平台尚未確認開放。" : "新日期的 Desk Center 占房會建立，外部平台尚未確認關房。"}</p>}
         </section>}
         {pending && <div role="status" className="space-y-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
           <p>{recoveryAttempt < 3 ? "正在確認這次操作是否完成，請勿重複提交…" : "暫時無法確認結果。你可以先關閉，稍後再確認；系統已保存這次操作，避免重複執行。"}</p>
@@ -269,7 +269,7 @@ export function RetainedBookingDialog({ bookingId, action, storageScope, canWrit
           </div>}
         </div>}
         {result && <div role="status" className="space-y-2 rounded-lg border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-950">
-          <p>{result.currentStatus === "retained" ? "已轉為保留訂單，原 OS 房晚已釋放。可從「待改期」清單重新安排入住。" : result.currentStatus === "confirmed" ? "訂單目前已確認安排入住，可回日曆查看新住宿。" : "這次操作已確認完成；訂單之後已有其他變更，請重新載入最新狀態。"}</p>
+          <p>{result.currentStatus === "retained" ? "已轉為保留訂單，原 Desk Center 房晚已釋放。可從「待改期」清單重新安排入住。" : result.currentStatus === "confirmed" ? "訂單目前已確認安排入住，可回日曆查看新住宿。" : "這次操作已確認完成；訂單之後已有其他變更，請重新載入最新狀態。"}</p>
           <p>原訂單與款項紀錄已保留。</p><p>{retainedChannelText(result.externalRoomStatus ?? result.channelSyncState)}</p>
         </div>}
         {error && <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>}

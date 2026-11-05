@@ -2,7 +2,7 @@ import {cookies} from 'next/headers';
 import {principalFor} from '@/lib/workspace-auth/session';
 import {FinanceSheetBulkWorkspace} from '@/components/finance/finance-sheet-bulk-workspace';
 
-export const metadata={title:'批次補登｜Sweetfun OS'};
+export const metadata={title:'批次補登｜Desk Center'};
 
 export default async function FinanceSheetBulkPage(){
   const actor=await principalFor({cookies:await cookies()});

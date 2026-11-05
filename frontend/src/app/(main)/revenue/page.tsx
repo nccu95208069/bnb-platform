@@ -6,7 +6,7 @@ import { PROPERTY_IDS } from "@/lib/workspace-auth/types";
 import { HealthPage } from "@/components/order-health/health-page";
 export const dynamic = "force-dynamic";
 export const metadata = {
-  title: "訂單健檢｜Sweetfun OS",
+  title: "訂單健檢｜Desk Center",
   robots: { index: false, follow: false },
 };
 export default async function Page({
