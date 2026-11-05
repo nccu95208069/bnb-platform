@@ -2,6 +2,7 @@
 
 import { useT } from "@/components/i18n/language-provider";
 import type { CalendarBooking } from "./calendar-types";
+import { IronGateBookingNotes } from "./iron-gate-booking-notes";
 
 export function BookingSourceNotes({ booking, orderSegments, viewPrices }: {
   booking: CalendarBooking;
@@ -10,6 +11,12 @@ export function BookingSourceNotes({ booking, orderSegments, viewPrices }: {
 }) {
   const t = useT();
   if (!booking.source_read_only || !viewPrices || booking.price_hidden) return null;
+  if (booking.iron_gate_booking_id && !booking.source_conflict && !booking.snapshot_only &&
+    ['sweetfun', 'offland'].includes(booking.property_id)) {
+    return <IronGateBookingNotes
+      key={`${booking.property_id}:${booking.iron_gate_booking_id}:${booking.iron_gate_booking_version}`}
+      bookingId={booking.iron_gate_booking_id} property={booking.property_id} />;
+  }
   const segments = [booking, ...orderSegments].filter(segment =>
     segment.property_id === booking.property_id && segment.order_id === booking.order_id,
   );

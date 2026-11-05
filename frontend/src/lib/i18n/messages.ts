@@ -1564,6 +1564,21 @@ export const messages:Record<string,{en:string;th:string;vi:string;"zh-TW"?:stri
     "th": "หมายเหตุจากชีตหลัก",
     "vi": "Ghi chú từ bảng chính"
   },
+  "訂單備註": {
+    "en": "Booking notes",
+    "th": "หมายเหตุการจอง",
+    "vi": "Ghi chú đặt phòng"
+  },
+  "尚無訂單備註": {
+    "en": "No booking notes",
+    "th": "ยังไม่มีหมายเหตุการจอง",
+    "vi": "Chưa có ghi chú đặt phòng"
+  },
+  "暫時無法讀取備註，請重試。": {
+    "en": "Unable to load notes. Please retry.",
+    "th": "ไม่สามารถโหลดหมายเหตุได้ กรุณาลองใหม่",
+    "vi": "Không thể tải ghi chú. Vui lòng thử lại."
+  },
   "主表未填寫備註": {
     "en": "No notes in the main sheet",
     "th": "ไม่มีหมายเหตุในชีตหลัก",
