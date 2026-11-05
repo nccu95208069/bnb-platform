@@ -33,7 +33,7 @@ export default function CalendarAccessPage() {
   }
   return <main className="flex min-h-dvh items-center justify-center bg-slate-50 px-5">
     <form onSubmit={enter} className="w-full max-w-sm space-y-5 rounded-2xl border bg-white p-6 shadow-sm">
-      <LanguageSettings compact/><div><p className="text-sm text-slate-500">Sweetfun OS</p><h1 className="mt-2 text-xl font-semibold">{uiText("登入 Sweetfun OS")}</h1><p className="mt-2 text-sm text-slate-600">{fixedPreview ? "此預覽站使用專用驗證碼，正式站密碼在這裡無法登入。" : uiText("請用自己的 Email 或手機號碼與密碼登入，查看獲授權的旅宿。")}</p></div>
+      <LanguageSettings compact/><div><p className="text-sm text-slate-500">Desk Center</p><h1 className="mt-2 text-xl font-semibold">{uiText("登入 Sweetfun OS")}</h1><p className="mt-2 text-sm text-slate-600">{fixedPreview ? "此預覽站使用專用驗證碼，正式站密碼在這裡無法登入。" : uiText("請用自己的 Email 或手機號碼與密碼登入，查看獲授權的旅宿。")}</p></div>
       <label className="block text-sm font-medium">{uiText("Email 或手機號碼")}<input aria-label={uiText("Email 或手機號碼")} type="text" autoComplete="username" required value={email} onChange={e => setEmail(e.target.value)} className="mt-2 block w-full rounded-lg border px-3 py-2.5" /></label>
       <label className="block text-sm font-medium">{fixedPreview ? "預覽驗證碼" : uiText("密碼")}<input aria-label={fixedPreview ? "預覽驗證碼" : uiText("密碼")} type="password" autoComplete={fixedPreview ? "off" : "current-password"} required value={code} onChange={e => setCode(e.target.value)} className="mt-2 block w-full rounded-lg border px-3 py-2.5" /></label>
       {error && <p role="alert" className="text-sm text-red-700">{uiText(error)}</p>}

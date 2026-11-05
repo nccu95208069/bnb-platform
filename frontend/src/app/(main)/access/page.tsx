@@ -228,7 +228,7 @@ export default function AccessManagementPage() {
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-muted-foreground">
             <ShieldCheck className="size-4" />
-            {membership?.tenantName ?? "Sweetfun OS"}
+            {membership?.tenantName ?? "Desk Center"}
           </div>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">{uiText("權限管理")}</h1>
           <p className="mt-1 text-sm text-muted-foreground">

@@ -151,7 +151,7 @@ test('New Offland ledger explicitly separates preserved history from empty new c
  financeFetch(t,{...report,history_status:'not_imported',general_only:true,orders:[order]});
  const ui=await mount(t,FinanceWorkspace,{view:'bookkeeping'},'finance/bookkeeping?month=2026-10&property=offland');
  assert.match(document.body.textContent,/目前只顯示新帳本的收支/);
- const link=[...document.querySelectorAll('a')].find(a=>a.textContent==='查看 OS 舊帳（唯讀）');
+ const link=[...document.querySelectorAll('a')].find(a=>a.textContent==='查看 Desk Center 舊帳（唯讀）');
  assert.equal(link?.getAttribute('href'),'/finance/history?property=offland');
  assert.equal(ui.button('登記入帳'),undefined);
  assert.ok(ui.button('新增支出'));await ui.click(ui.button('收入'));await ui.click(ui.button('新增收入'));
@@ -166,12 +166,12 @@ test('Offland general-history import keeps the old booking cash warning visible'
      receivable_review_required:true}]});
  const ui=await mount(t,FinanceWorkspace,{view:'bookkeeping'},
    'finance/bookkeeping?month=2026-10&property=offland');
- assert.match(document.body.textContent,/OS 與 LINE 的舊一般收支已核對搬入本帳本/);
+ assert.match(document.body.textContent,/Desk Center 與 LINE 的舊一般收支已核對搬入本帳本/);
  assert.match(document.body.textContent,/舊訂單收款仍待逐筆核對/);
  assert.doesNotMatch(document.body.textContent,/以前的帳已保留，尚未搬入本頁/);
  assert.equal(ui.button('登記入帳'),undefined);
  const link=[...document.querySelectorAll('a')].find(a=>
-   a.textContent==='查看 OS 原始舊帳（唯讀）');
+   a.textContent==='查看 Desk Center 原始舊帳（唯讀）');
  assert.equal(link?.getAttribute('href'),'/finance/history?property=offland');
 });
 
@@ -180,9 +180,9 @@ test('partial OS history import does not claim LINE is complete',async t=>{
    general_only:true});
  await mount(t,FinanceWorkspace,{view:'overview'},
    'finance?month=2026-10&property=offland');
- assert.match(document.body.textContent,/OS 舊一般支出已核對搬入本帳本/);
+ assert.match(document.body.textContent,/Desk Center 舊一般支出已核對搬入本帳本/);
  assert.match(document.body.textContent,/LINE 舊帳仍在搬移與核對/);
- assert.doesNotMatch(document.body.textContent,/OS 與 LINE 的舊一般收支已核對搬入本帳本/);
+ assert.doesNotMatch(document.body.textContent,/Desk Center 與 LINE 的舊一般收支已核對搬入本帳本/);
 });
 
 test('Offland order summary preserves unknown old cash after general-history import',async t=>{
@@ -193,7 +193,7 @@ test('Offland order summary preserves unknown old cash after general-history imp
      history_status:'general_imported_booking_review'});
  });
  await mount(t,FinanceSummary,{},'finance/summary?property=offland');
- assert.match(document.body.textContent,/OS 與 LINE 的舊一般收支已搬入帳本/);
+ assert.match(document.body.textContent,/Desk Center 與 LINE 的舊一般收支已搬入帳本/);
  assert.match(document.body.textContent,/不能據此判定客人還欠多少/);
  assert.doesNotMatch(document.body.textContent,/以前的收款尚未搬入核對/);
 });

@@ -4,8 +4,8 @@ import { sharedSheetEmail } from "@/lib/customer-workspaces/shared-sheet";
 
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = {
-  title: "分享 Google Sheet 給民宿 OS｜圖文教學",
-  description: "依照四個步驟，把訂房試算表以檢視者權限分享給民宿 OS。",
+  title: "分享 Google Sheet 給 Desk Center｜圖文教學",
+  description: "依照四個步驟，把訂房試算表以檢視者權限分享給 Desk Center。",
 };
 
 const frame = "rounded-2xl border border-stone-200 bg-white p-5 shadow-sm";
@@ -15,7 +15,7 @@ export default function ShareGoogleSheetGuide() {
   return (
     <main className="min-h-dvh bg-[#f7f6ef] px-4 py-10 text-[#253b31] sm:px-8">
       <div className="mx-auto max-w-4xl">
-        <p className="text-sm font-semibold tracking-widest text-emerald-800">民宿 OS · Google Sheet 教學</p>
+        <p className="text-sm font-semibold tracking-widest text-emerald-800">Desk Center · Google Sheet 教學</p>
         <h1 className="mt-3 text-3xl font-semibold tracking-tight sm:text-4xl">讓系統讀取你的訂房試算表</h1>
         <p className="mt-4 max-w-2xl leading-7 text-stone-700">
           這裡分享的是 <strong>Google Sheet 試算表</strong>，不是 Google 日曆。只需將系統帳號設為「檢視者」，不用開放給所有知道連結的人，也不用改動原表。
@@ -53,7 +53,7 @@ export default function ShareGoogleSheetGuide() {
           </li>
           <li className={frame}>
             <div className="grid gap-5 md:grid-cols-[1fr_1.1fr] md:items-center">
-              <div><p className="text-sm font-semibold text-emerald-800">步驟 4／4</p><h2 className="mt-1 text-xl font-semibold">複製試算表網址，回原頁檢查</h2><p className="mt-2 leading-7 text-stone-700">從瀏覽器網址列複製以 <code>docs.google.com/spreadsheets/d/</code> 開頭的連結。回到民宿 OS 原分頁貼上，按「檢查分享權限」或「讀取分頁」。看到可讀取後，再核對欄位與預覽訂單。</p></div>
+              <div><p className="text-sm font-semibold text-emerald-800">步驟 4／4</p><h2 className="mt-1 text-xl font-semibold">複製試算表網址，回原頁檢查</h2><p className="mt-2 leading-7 text-stone-700">從瀏覽器網址列複製以 <code>docs.google.com/spreadsheets/d/</code> 開頭的連結。回到 Desk Center 原分頁貼上，按「檢查分享權限」或「讀取分頁」。看到可讀取後，再核對欄位與預覽訂單。</p></div>
               <figure className="rounded-xl border bg-stone-50 p-4"><div aria-hidden="true" className="space-y-3 rounded-xl border bg-white p-4 shadow-sm"><div className="rounded-lg border p-2 text-xs text-stone-600">https://docs.google.com/spreadsheets/d/…</div><div className="flex items-center gap-2"><span className="rounded-lg border p-2 text-xs">貼上連結</span><span aria-hidden="true">→</span><span className="rounded-lg bg-emerald-800 p-2 text-xs text-white">檢查分享權限</span></div></div><figcaption className="mt-2 text-xs text-stone-500">示意畫面：檢查成功後還會有欄位對應和匯入預覽。</figcaption></figure>
             </div>
           </li>

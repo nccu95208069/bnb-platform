@@ -115,7 +115,7 @@ function LegacyLoginPage() {
           <div className="mb-2 flex size-10 items-center justify-center rounded-xl bg-primary font-bold text-primary-foreground">
             SF
           </div>
-          <CardTitle>登入 Sweetfun OS</CardTitle>
+          <CardTitle>登入 Desk Center</CardTitle>
           <CardDescription>
             請使用擁有者已加入的 Email 或手機登入。
           </CardDescription>

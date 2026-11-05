@@ -70,7 +70,7 @@ export function SourceIntegrations({ data, initialPropertyId, request }: { data:
       {current && !current.grants.some(g => g.propertyId === propertyId) ? <p className="mt-3 text-slate-600">尚無已連接來源。</p> : null}
     </section>
     {current?.fences.some(f => f.propertyId === propertyId) ? <section className="mt-10 rounded-2xl border border-amber-300 bg-amber-50 p-5">
-      <h2 className="text-xl font-semibold">通路房態待核對</h2><p className="mt-2 text-sm">以下房晚由 OS 持續保留，未完成提供者讀回前不會自行開放。</p>
+      <h2 className="text-xl font-semibold">通路房態待核對</h2><p className="mt-2 text-sm">以下房晚由 Desk Center 持續保留，未完成提供者讀回前不會自行開放。</p>
       <ul className="mt-3 list-disc pl-5 text-sm">{current.fences.filter(f => f.propertyId === propertyId).map(f => <li key={f.id}>{f.checkIn} 至 {f.checkOut}（退房日不含）· {f.roomIds.length} 房 · {f.state === "pending" ? "操作結果待核對" : "OwlNest 已關房"}</li>)}</ul>
     </section> : null}
     <section className="mt-10"><h2 className="text-xl font-semibold">新增連接</h2><div className="mt-4 grid gap-3 sm:grid-cols-3">{current?.clients.flatMap(c => c.providers.map(provider => ({ client: c, provider }))).map(({ client, provider }) => client.startUrl && propertyId ? <a key={`${client.id}:${provider}`} className="rounded-xl border p-4 underline" href={startHref(client.startUrl, provider)} rel="noreferrer">連接 {labels[provider]} ↗</a> : null)}</div>

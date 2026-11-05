@@ -35,7 +35,7 @@ const LABELS: Record<string, string> = {
   CHANNEL_CANCELLATION_NOT_READY: "OwlNest 房況同步尚未完成，暫時不能取消訂單。",
   CHANNEL_SYNC_NOT_READY: "目前無法開始同步房況，請重新載入並確認 OwlNest 設定。",
   MANUAL_ROOM_CONFIRMATION_NOT_READY: "訂單或待處理房晚已變更，請重新載入後確認。",
-  MANUAL_ROOM_HANDLING_REQUIRES_OS: "此訂單的房況由人工處理，請在 OS 確認處理結果。",
+  MANUAL_ROOM_HANDLING_REQUIRES_OS: "此訂單的房況由人工處理，請在 Desk Center 確認處理結果。",
   MANUAL_GUEST_NAME_REQUIRED: "請填寫旅客姓名。",
   MANUAL_PRICE_REQUIRED: "請填寫房費。",
   MANUAL_REASON_REQUIRED: "請填寫修改或取消原因。",
@@ -345,7 +345,7 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
       setResult(mode === "manual-confirm" ? "已記錄人工房況確認，待處理提示已清除；未變更 OwlNest 房況。" :
         value.channelSyncState === "action_required" && detail?.manualRoomHandling ?
           "訂單已儲存；請手動處理變動房晚，再確認處理完成。系統未變更 OwlNest 房況。" :
-        sourceNameOnly ? "旅客姓名已在 Sweetfun OS 更正並讀回確認；來源差異待核對。" :
+        sourceNameOnly ? "旅客姓名已在 Desk Center 更正並讀回確認；來源差異待核對。" :
         mode === "sync" ? value.channelSyncState === "verified" ?
           "OwlNest 房況已回讀驗證。" : value.channelSyncState === "review_required" ?
           "房況同步需要人工核對；請勿重複按同步，先確認 OwlNest 房況。" :
@@ -381,7 +381,7 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
           mode === "create" ?
           "選擇住宿日期與房間，填寫各晚房費。儲存並確認後可在此同步 OwlNest 房況。" :
           sourceNameOnly ?
-          "只更正 Sweetfun OS 的旅客姓名；不變動 OwlNest 訂單或房況，來源差異會標示待核。" :
+          "只更正 Desk Center 的旅客姓名；不變動 OwlNest 訂單或房況，來源差異會標示待核。" :
           "修改後會保留原訂單編號與收款紀錄。房間或日期有變動時，儲存後請再同步房況。"}</DialogDescription>
       </DialogHeader>
       {loading ? <p role="status">讀取訂單中…</p> : <div className="space-y-4">
@@ -403,7 +403,7 @@ export function ManualBookingDialog({ open, mode, bookingId, inventoryVersion,
           <label className="flex items-start gap-2 text-sm">
             <input type="checkbox" className="mt-1" checked={manualConfirmed}
               disabled={busy || unknown || !!result} onChange={e => setManualConfirmed(e.target.checked)} />
-            我確認已在 OwlNest 手動完成上述房況處理，只需在 OS 登記結果。
+            我確認已在 OwlNest 手動完成上述房況處理，只需在 Desk Center 登記結果。
           </label>
         </div>}
         {mode !== "cancel" && mode !== "sync" && mode !== "manual-confirm" && <fieldset disabled={busy || unknown || !!result} className="min-w-0 space-y-4">

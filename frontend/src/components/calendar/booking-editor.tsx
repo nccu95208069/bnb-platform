@@ -1,4 +1,5 @@
 "use client";
+import { bookingPlanLabel } from "./booking-plan";
 import {GuestNotificationButton} from "./guest-notification";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
@@ -1034,6 +1035,10 @@ const uiLocale = useIntlLocale();
                   />
                   <DetailRow label={booking.source_read_only ? uiText("資料說明") : uiText("原始備註")} value={booking.source_read_only ? uiText(booking.notes ?? "—") : booking.notes ?? "—"} />
                   {booking.source_payment_label && <DetailRow label={uiText(booking.legacy_settlement_status ? "原始來源付款標記（非目前清算狀態）" : "付款標記")} value={uiText(booking.source_payment_label)} />}
+                  {bookingPlanLabel(booking) && <>
+                    <DetailRow label={uiText("包棟方案")} value={uiText(bookingPlanLabel(booking)!)} />
+                    <DetailRow label={uiText("專案名稱")} value={booking.booking_project_name || uiText("來源未提供")} />
+                  </>}
                   {booking.source_read_only && <DetailRow label={uiText("入住人數")} value={booking.source_guest_count ? uiText("{0} 人", [booking.source_guest_count]) : uiText("來源未提供")} />}
                   {booking.source_read_only && <DetailRow label={uiText("入住需求")} value={uiText("來源未提供結構化資料，尚未確認")} /> }
                 </dl>

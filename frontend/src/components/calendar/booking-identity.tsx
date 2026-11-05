@@ -1,4 +1,5 @@
 "use client";
+import { bookingPlanLabel } from "./booking-plan";
 import {useT} from "@/components/i18n/language-provider";
 import { parseGuestRemarks, prioritizeGuestRemarks } from "@/lib/guest-remarks";
 import type { CalendarBooking } from "./calendar-types";
@@ -9,7 +10,7 @@ export function realGuestName(booking: CalendarBooking): string {
 }
 
 export function bookingIdentityText(booking: CalendarBooking): string {
-  return [booking.source_conflict ? "待核對" : PLATFORM_LABELS[booking.platform] ?? "其他", realGuestName(booking), booking.room_number].filter(Boolean).join(" · ");
+  return [booking.source_conflict ? "待核對" : PLATFORM_LABELS[booking.platform] ?? "其他", realGuestName(booking), bookingPlanLabel(booking), booking.room_number].filter(Boolean).join(" · ");
 }
 
 // Use the same ordering in week/day cards; aliases must never stand in for names.
@@ -24,6 +25,7 @@ export function BookingIdentity({ booking }: { booking: CalendarBooking }) {
       {guestName && <span className="ml-1.5 font-medium">{guestName}</span>}
       <span className="ml-1.5 opacity-80">{booking.room_number}</span>
       </span>
+      {bookingPlanLabel(booking) && <span className="block font-semibold">{uiText(bookingPlanLabel(booking)!)}</span>}
       <GuestRemarks booking={booking} />
     </span>
   );

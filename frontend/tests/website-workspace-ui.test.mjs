@@ -11,10 +11,10 @@ test('simplified owner entry uses selected property links and its pause button r
  const old=globalThis.fetch,calls=[];t.after(()=>{globalThis.fetch=old});
  globalThis.fetch=async(url,options)=>{assert.equal(url,`/api/customer-workspaces/${w.slug}/website`);calls.push(options);const result=options.method==='POST'?await setWebsiteSales(f.store,f.account.id,w.slug,JSON.parse(options.body)):await websiteManagement(f.store,f.account.id,w.slug);return Response.json(result)};
  const ui=await mount(t,WebsiteWorkspace,{data,initialPropertyId:w.properties[0].id});
- assert.match(document.body.textContent,/OS 允許接單/);
+ assert.match(document.body.textContent,/Desk Center 允許接單/);
  const calendar=[...document.querySelectorAll('a')].find(a=>a.textContent.includes('房況日曆'));assert.equal(new URL(calendar.href).searchParams.get('property'),w.properties[0].id);
  await ui.click(ui.button('暫停官網收單'));
- assert.equal(calls.filter(c=>c.method==='POST').length,1);assert.match(document.body.textContent,/OS 尚未開放接單/);
+ assert.equal(calls.filter(c=>c.method==='POST').length,1);assert.match(document.body.textContent,/Desk Center 尚未開放接單/);
  assert.equal((await f.call('bootstrap')).state,'unavailable');
  const sent=JSON.parse(calls.find(c=>c.method==='POST').body);assert.equal(sent.enabled,false);assert.equal(sent.bindingId,f.binding.id);assert.equal('ownerAccountId' in sent,false);
 });
@@ -54,7 +54,7 @@ test('a previously enabled site shows effective sales paused when its connected 
  management.sites[0].source={mode:'connected'};
  globalThis.fetch=async()=>Response.json(management);
  await mount(t,WebsiteWorkspace,{data});
- assert.match(document.body.textContent,/OS 已暫停新預訂，房況需核對/);
+ assert.match(document.body.textContent,/Desk Center 已暫停新預訂，房況需核對/);
  assert.match(document.body.textContent,/尚無安全回寫/);
- assert.doesNotMatch(document.body.textContent,/OS 允許接單/);
+ assert.doesNotMatch(document.body.textContent,/Desk Center 允許接單/);
 });

@@ -47,7 +47,7 @@ export default function SettingsPage() {
   return (
     <main className="mx-auto max-w-5xl space-y-7 pb-16 pt-2 sm:space-y-8 sm:pt-4">
       <header>
-        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Sweetfun OS</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Desk Center</p>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight text-foreground">{t("設定")}</h1>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
           {t("調整個人畫面與常用操作。帳號、營運和進階串接各有自己的位置。")}

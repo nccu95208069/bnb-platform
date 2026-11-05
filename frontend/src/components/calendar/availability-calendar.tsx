@@ -1,6 +1,7 @@
 "use client";
 import { PricingDecisionDetails } from "./pricing-decision-details";
 import { useCalendarRevision } from "./use-calendar-revision";
+import { useCalendarRealtime } from "./use-calendar-realtime";
 import {useIntlLocale} from "@/components/i18n/language-provider";
 import {useT} from "@/components/i18n/language-provider";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -231,11 +232,14 @@ const uiLocale = useIntlLocale();
     { membership, sessionVerifiedAt, sessionLoading, initialized, requiresPasswordReset },
     { properties: [property], viewPrices: canPrice, effectiveRole: role }),
   [membership, sessionVerifiedAt, sessionLoading, initialized, requiresPasswordReset, property, canPrice, role]);
-  const { data, loading, error, month: availabilityMonth, retry: retryAvailability, fromDeviceCache, deviceSavedAt } = useAvailabilityData({
+  const { data, loading, refreshing, error, month: availabilityMonth, retry: retryAvailability, fromDeviceCache, deviceSavedAt } = useAvailabilityData({
     query, property, scope: availabilityScope, reload: refresh, preload: view === "month",
     read: availabilityRead, onProperties: availabilityProperties, onAccessLost: availabilityAccessLost,
     deviceScope,
   });
+  useCalendarRealtime({ properties: property, scope: availabilityScope,
+    enabled: !PAYMENT_SANDBOX && !!membership,
+    busy: loading || refreshing, changed });
   useEffect(() => { const timer = window.setInterval(() => setRefresh(v => v + 1), 60000); const focus=()=>setRefresh(v=>v+1); window.addEventListener("focus",focus); return ()=>{clearInterval(timer);window.removeEventListener("focus",focus);}; }, []);
   const cells = useMemo(() => data?.cells ?? [], [data]);
   const byKey = useMemo(

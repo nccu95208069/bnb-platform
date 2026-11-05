@@ -6,7 +6,7 @@ export const LOCALE_NAMES:Record<Locale,string>={'zh-TW':'繁體中文',en:'Engl
 export const intlLocale=(locale:Locale)=>locale==='th'?'th-TH-u-ca-gregory':locale==='vi'?'vi-VN':locale==='en'?'en-GB':'zh-TW';
 export function translate(locale:Locale,value:string,values:unknown[]=[]):string{
  const interpolate=(s:string)=>s.replace(/\{(\d+)\}/g,(match,i)=>Number(i)<values.length?String(values[Number(i)]??''):match);
- if(locale==='zh-TW')return interpolate(value);
+ if(locale==='zh-TW')return interpolate(messages[value]?.['zh-TW']??value);
  const key=value.replace(/\s+/g,' ').trim();
  const entry=messages[key];if(entry)return interpolate(entry[locale]);
  if(!/[\u3400-\u9fff]/.test(key))return interpolate(value);

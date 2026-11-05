@@ -991,7 +991,7 @@ export function SheetImport({
                 onChange={(e) => { setCoverageConfirmed(e.target.checked); setConfirmed(false); }}
                 className="mt-1"
               />
-              <span>我已核對這段期間、所有實體房間的既有訂單與封房，包括其他通路；這是一次匯入快照，日後 OTA 或原檔變動不會自動進入 OS。</span>
+              <span>我已核對這段期間、所有實體房間的既有訂單與封房，包括其他通路；這是一次匯入快照，日後 OTA 或原檔變動不會自動進入 Desk Center。</span>
             </label>}
             {!mappingComplete && (
               <p className="mt-4 text-sm text-amber-800">
@@ -1007,7 +1007,7 @@ export function SheetImport({
               />
               <span>
                 已確認紀錄方式、房間對應與金額是新臺幣。系統會按訂單編號合併，並列出衝突或無法判讀的資料；匯入後以
-                OS 為準。
+                Desk Center 為準。
               </span>
             </label>
             <button

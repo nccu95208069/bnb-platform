@@ -201,16 +201,16 @@ export function OwnerConnection({ connectionId }: { connectionId: string }) {
       <div className="mx-auto max-w-3xl space-y-6">
         <header>
           <p className="text-sm font-semibold tracking-widest text-teal-800">
-            SWEETFUN OS
+            Desk Center
           </p>
           <h1 className="mt-3 text-3xl font-semibold">連接官網訂房日曆</h1>
           <p className="mt-3 leading-7 text-slate-600">
-            由業主確認網站、房間與販售設定，官網訂單會寫入同一份 OS 日曆。
+            由業主確認網站、房間與販售設定，官網訂單會寫入同一份 Desk Center 日曆。
           </p>
         </header>
         {!valid ? (
           <p role="alert" className="rounded-xl bg-amber-50 p-5 text-amber-900">
-            連接網址不完整。請返回建站台，重新開啟「連接 Sweetfun OS 日曆」。
+            連接網址不完整。請返回建站台，重新開啟「連接 Desk Center 日曆」。
           </p>
         ) : view?.authenticated ? (
           <ApprovalForm
@@ -411,7 +411,7 @@ function LinePairing({
         將配對指令傳給訂房小助手；完成後回來查詢配對狀態。請使用一對一 LINE 私訊，不支援群組，也不需要填寫 LINE ID。
       </p>
       {connected && !pending && !command.busy && (
-        <p className="text-sm leading-6 text-slate-600">配對狀態由 OS 核對；每筆訂房的通知是否已送出，仍以該筆訂單的通知狀態為準。</p>
+        <p className="text-sm leading-6 text-slate-600">配對狀態由 Desk Center 核對；每筆訂房的通知是否已送出，仍以該筆訂單的通知狀態為準。</p>
       )}
       {pairing && !matched && (
         <div className="space-y-3 rounded-xl bg-stone-50 p-4">
@@ -594,7 +594,7 @@ function ApprovalForm({
     return (
       <>
       <section className="space-y-5 rounded-2xl border border-teal-200 bg-white p-5 sm:p-7">
-        <p role="status" className="text-xl font-semibold text-teal-900">{connection.siteName} 已連接 OS 日曆</p>
+        <p role="status" className="text-xl font-semibold text-teal-900">{connection.siteName} 已連接 Desk Center 日曆</p>
         <p className="leading-7 text-slate-600">業主：{view.email}。請先在民宿管理入口核對房況並明確開放官網接單，再回建站台確認發布設定。</p>
         {calendarUrl && <a className={`${button} inline-block`} href={calendarUrl.replace(/\/calendar(?=\?|$)/, "/website")}>開啟民宿管理入口</a>}
         <p className="text-sm leading-6 text-slate-500">此頁顯示日曆連接結果；實際收單與通知狀態仍以官網及個別訂單的結果為準。</p>
@@ -669,7 +669,7 @@ function ApprovalForm({
                 </select>
               </label>
               {property && <div className="space-y-5">
-                <p className="text-sm leading-6 text-slate-600">請逐間選擇對應的 OS 實體房間。每間房只能對應一個房型。</p>
+                <p className="text-sm leading-6 text-slate-600">請逐間選擇對應的 Desk Center 實體房間。每間房只能對應一個房型。</p>
                 {rooms.map((r) => <fieldset key={r.roomTypeId} className="space-y-3 rounded-xl border p-4">
                   <legend className="px-1 font-medium">{roomName(r.roomTypeId)}</legend>
                   {Array.from({ length: Number(r.units) }, (_, i) => {
@@ -693,7 +693,7 @@ function ApprovalForm({
         </fieldset>
         <label className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 leading-7">
           <input type="checkbox" className="mt-2 h-4 w-4 shrink-0 accent-teal-800" checked={confirmed} disabled={locked} onChange={(event) => setConfirmed(event.target.checked)} />
-          <span>{connection.requiresSiteApproval ? "我確認上列網站識別碼與建站台一致，並確認" : "我確認"}業主信箱、房型、人數、日期及旅客規則正確；可售住宿從 {connection.config.opensOn} 至 {connection.config.closesOn}，新日曆使用上列初始房價，既有日曆保留 OS 已設定房價；已核對此期間的既有訂單與封房，所有需要保留的日期都已登記在所選 OS 日曆。若建立全新空日曆，我確認此範圍目前沒有尚未登記的訂單或封房。我了解目前僅以 OS 日曆管理房況，尚未串接的 Sheet、OwlNest 或其他管道不會自動占房。</span>
+          <span>{connection.requiresSiteApproval ? "我確認上列網站識別碼與建站台一致，並確認" : "我確認"}業主信箱、房型、人數、日期及旅客規則正確；可售住宿從 {connection.config.opensOn} 至 {connection.config.closesOn}，新日曆使用上列初始房價，既有日曆保留 Desk Center 已設定房價；已核對此期間的既有訂單與封房，所有需要保留的日期都已登記在所選 Desk Center 日曆。若建立全新空日曆，我確認此範圍目前沒有尚未登記的訂單或封房。我了解目前僅以 Desk Center 日曆管理房況，尚未串接的 Sheet、OwlNest 或其他管道不會自動占房。</span>
         </label>
         {uncertain && <p role="status" className="rounded-xl bg-amber-50 p-4 leading-7 text-amber-900">送出結果尚未確認。已保留原本的設定與請求，請先查詢結果，或重試同一筆確認；不要重新建立另一個日曆。</p>}
         {status && <p role="status" className="leading-7 text-slate-600">{status}</p>}

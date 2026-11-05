@@ -318,10 +318,10 @@ export function ServiceLanding({
         跳到主要內容
       </a>
       <header className="service-header">
-        <a className="service-brand" href="/join" aria-label="民宿 OS 首頁">
+        <a className="service-brand" href="/join" aria-label="Desk Center 首頁">
           <DoorMark />
           <span>
-            民宿 <span className="service-brand-os">OS</span>
+            Desk <span className="service-brand-os">Center</span>
           </span>
         </a>
         <nav aria-label="服務導覽">
@@ -395,7 +395,7 @@ export function ServiceLanding({
             <div className="service-photo-shade" />
             <div className="service-photo-caption">
               <span>
-                民宿 OS
+                Desk Center
                 <br />
                 房況與訂房管理系統
               </span>
@@ -411,7 +411,7 @@ export function ServiceLanding({
             <span className="service-note-line" />
           </div>
           <figcaption>
-            <span>民宿 OS</span>
+            <span>Desk Center</span>
             <span>旅宿情境示意 · AI 原創影像</span>
           </figcaption>
         </figure>
@@ -552,7 +552,7 @@ export function ServiceLanding({
         </div>
         <div data-reveal>
           <span className="service-eyebrow">申請與諮詢</span>
-          <h2 id="invitation-title">申請使用民宿 OS</h2>
+          <h2 id="invitation-title">申請使用 Desk Center</h2>
           <div className="service-invitation-actions">
             <button
               className="service-button service-button-light"
@@ -576,7 +576,7 @@ export function ServiceLanding({
           <a className="service-brand" href="/join">
             <DoorMark />
             <span>
-              民宿 <span className="service-brand-os">OS</span>
+              Desk <span className="service-brand-os">Center</span>
             </span>
           </a>
           <p>房況與訂房管理系統</p>
@@ -586,7 +586,7 @@ export function ServiceLanding({
           </a>
         </div>
         <div className="service-footer-bottom">
-          <span>© 2026 民宿 OS</span>
+          <span>© 2026 Desk Center</span>
           <span>房況 · 訂房 · 收款</span>
           <a href="#service-content">回到頂端 ↑</a>
         </div>

@@ -202,10 +202,10 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
     <div className="flex h-full min-h-0 flex-col bg-card">
       <div className="flex h-16 shrink-0 items-center gap-3 border-b px-4">
         <span className="flex size-9 items-center justify-center rounded-xl bg-primary text-sm font-bold text-primary-foreground shadow-sm">
-          SF
+          Desk
         </span>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-sm font-semibold">Sweetfun OS</h1>
+          <h1 className="truncate text-sm font-semibold">Desk Center</h1>
           <p className="truncate text-[11px] text-muted-foreground">
             {uiText("旅宿營運工作台")}</p>
         </div>
@@ -238,7 +238,7 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
 
       </div>
       <div className="shrink-0 border-t p-4">
-        {SHEET_SNAPSHOT ? <SidebarAccount /> : <p className="text-xs text-muted-foreground">{PAYMENT_SANDBOX ? uiText("隔離測試 · 固定管理者身分") : DEMO_MODE ? uiText("匿名化示範模式") : "Sweetfun OS"}</p>}
+        {SHEET_SNAPSHOT ? <SidebarAccount /> : <p className="text-xs text-muted-foreground">{PAYMENT_SANDBOX ? uiText("隔離測試 · 固定管理者身分") : DEMO_MODE ? uiText("匿名化示範模式") : "Desk Center"}</p>}
       </div>
     </div>
   );
@@ -303,7 +303,7 @@ export function Sidebar() {
             {isCalendar ? mobilePeriodLabel : pathname.startsWith("/settings/access") || pathname === "/access" ? uiText("權限管理") : pathname.startsWith("/settings") ? uiText("設定") : pathname.startsWith("/finance/bookkeeping") ? uiText("記帳") : pathname.startsWith("/finance") ? uiText("財務") : pathname === "/home" ? uiText("首頁") : uiText("工作台")}
           </p>
           <p className="truncate text-[10px] text-muted-foreground">
-            {isCalendar ? (selectedNames.length ? selectedNames.join("、") : "選擇旅宿") : "Sweetfun OS"}
+            {isCalendar ? (selectedNames.length ? selectedNames.join("、") : "選擇旅宿") : "Desk Center"}
           </p>
         </button>
 

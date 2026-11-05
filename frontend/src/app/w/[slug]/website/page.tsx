@@ -1,7 +1,7 @@
 import { customerPage } from "@/lib/customer-workspaces/page-context";
 import { WebsiteWorkspace } from "@/components/website-booking/website-workspace";
 export const dynamic = "force-dynamic";
-export const metadata = { title: "民宿管理入口｜Sweetfun OS", robots: { index: false, follow: false } };
+export const metadata = { title: "民宿管理入口｜Desk Center", robots: { index: false, follow: false } };
 export default async function Page({ params, searchParams }: {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ property?: string }>;

@@ -56,7 +56,7 @@ test('retain previews every original stay and preserves money by submitting only
     reason: '旅客改期，新日期未定', expectedBookingVersion: 3, expectedInventoryVersion: 80 } }]);
   assert.equal(verified, 1);
   assert.equal(readPendingRetainedOrder(window.localStorage, props.storageScope), null);
-  assert.match(document.body.textContent, /原 OS 房晚已釋放/);
+  assert.match(document.body.textContent, /原 Desk Center 房晚已釋放/);
   assert.match(document.body.textContent, /外部房況：待人工處理/);
 });
 
@@ -260,7 +260,7 @@ test('an authoritative non-application receipt unlocks a new preview without pre
   await pause(40);
   assert.equal(readPendingRetainedOrder(window.localStorage, props.storageScope), null);
   assert.match(document.body.textContent, /已確認原操作未套用/);
-  assert.doesNotMatch(document.body.textContent, /原 OS 房晚已釋放/);
+  assert.doesNotMatch(document.body.textContent, /原 Desk Center 房晚已釋放/);
   assert.ok(ui.button('預覽保留訂單'));
 });
 

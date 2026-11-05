@@ -9,7 +9,7 @@ export const categories={sop:'共同作業規範',operations:'營運與任務',f
 export const metrics={occupied:{label:'已訂房晚',unit:'房晚',definition:'期間內有效訂单占用的實體房晚，退房日不計。'},capacity:{label:'可售房晚基數',unit:'房晚',definition:'房間數 × 區間天數；未接停賣紀錄時是假設持續可售。'},occupancy:{label:'假設住房率',unit:'%',definition:'已訂房晚 ÷ 可售房晚基數 × 100；不代表實際入住率。'},revenue:{label:'表載可分析房費',unit:'元',definition:'已知且無衝突房晚的表載金額，非實收或淨利。'},adr:{label:'平均有收費房晚金額',unit:'元',definition:'正金額且無衝突房費 ÷ 對應房晚；零元與未知不算。'},unknown:{label:'金額未知／衝突房晚',unit:'房晚',definition:'缺少房費或房晚資料存在衝突，不視為零。'},directShare:{label:'直訂房晚占比',unit:'%',definition:'已知直訂房晚 ÷ 已訂房晚 × 100。'}};
 export const defaultTemplates=[{id:'booking',title:'訂房營運分析',version:1,sections:[{title:'營運概況',group:'all',metrics:['occupied','capacity','occupancy','revenue','adr','unknown']},{title:'房間表現',group:'room',metrics:['occupied','occupancy','revenue','adr']},{title:'通路組成',group:'channel',metrics:['occupied','revenue','adr']}],note:'只呈現已核對數字；未具備成本、停賣及完整取消歷史，不推算淨利、實際入住率或需求原因。'},{id:'market',title:'市場觀察報告',version:1,sections:[{title:'可比樣本',group:'evidence',metrics:[]},{title:'可比價格摘要',group:'comparisons',metrics:[]},{title:'資料缺口',group:'gaps',metrics:[]}],note:'同入住日、晚數、人數、稅費及取消條件才可比較。未知不等於售罄。'}];
 export const products=[
- {name:'Sweetfun OS',domain:'日曆・訂單・財務',owner:'訂房／財務經理',state:'水芳目前訂單唯讀'},
+ {name:'Desk Center',domain:'日曆・訂單・財務',owner:'訂房／財務經理',state:'水芳目前訂單唯讀'},
  {name:'LINE 訂房 / Gmail',domain:'多通路收單與訂單異常',owner:'訂房經理',state:'未接入'},
  {name:'AI 訂單健檢',domain:'匿名歷史分析快照',owner:'分析專家',state:'固定框架已整合'},
  {name:'bnb-pricing',domain:'動態房價與發布',owner:'分析 → 總管家交辦',state:'未接入・不可發布'},

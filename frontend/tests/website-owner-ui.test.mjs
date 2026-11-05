@@ -109,7 +109,7 @@ test("owner reviews visible policy text and explicitly confirms before an author
   assert.equal(posts[0].slug, "isolated-house");
   assert.equal("price" in posts[0], false);
   assert.equal("tenant" in posts[0], false);
-  assert.match(document.body.textContent, /已連接 OS 日曆/);
+  assert.match(document.body.textContent, /已連接 Desk Center 日曆/);
   assert.equal(document.querySelector("a").getAttribute("href"), "/w/isolated-house/website");
 });
 
@@ -136,7 +136,7 @@ test("a lost response locks edits and retries the exact request even after a pen
   assert.equal(control("日曆網址代稱").matches(":disabled"), true);
   await click(button("重試原確認"));
   assert.deepEqual(posts[1], posts[0]);
-  assert.match(document.body.textContent, /已連接 OS 日曆/);
+  assert.match(document.body.textContent, /已連接 Desk Center 日曆/);
 });
 
 test("a successful write with failed verification does not claim completion; status lookup recovers without another write", async (t) => {
@@ -152,11 +152,11 @@ test("a successful write with failed verification does not claim completion; sta
   await fill(control("日曆網址代稱"), "isolated-house");
   await click(confirmation());
   await click(button("確認並連接日曆"));
-  assert.doesNotMatch(document.body.textContent, /已連接 OS 日曆/);
+  assert.doesNotMatch(document.body.textContent, /已連接 Desk Center 日曆/);
   assert.match(document.body.textContent, /送出結果尚未確認/);
   await click(button("查詢連接結果"));
   assert.equal(count, 1);
-  assert.match(document.body.textContent, /已連接 OS 日曆/);
+  assert.match(document.body.textContent, /已連接 Desk Center 日曆/);
 });
 
 test("existing properties require explicit unique physical-room mapping and send the workspace version", async (t) => {
@@ -210,7 +210,7 @@ test("an already completed connection is recovered on reload and rejects an unsa
   t.mock.method(globalThis, "fetch", async (url, options) => { methods.push(options.method); return Response.json(state); });
   await mountOwner(t);
   assert.deepEqual(methods, ["GET"]);
-  assert.match(document.body.textContent, /已連接 OS 日曆/);
+  assert.match(document.body.textContent, /已連接 Desk Center 日曆/);
   assert.equal(document.querySelector("form"), null);
   assert.equal(document.querySelector("a"), null);
 });
@@ -235,7 +235,7 @@ test("rapid double submit uses one in-flight request", async (t) => {
   assert.equal(count, 1);
   state = connected();
   await act(() => resolvePost(Response.json({ state: "connected" })));
-  assert.match(document.body.textContent, /已連接 OS 日曆/);
+  assert.match(document.body.textContent, /已連接 Desk Center 日曆/);
 });
 
 test("rapid login submits do not rotate browser proof twice", async (t) => {

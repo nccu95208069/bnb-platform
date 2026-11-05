@@ -79,3 +79,6 @@ A task is done only when:
 - docs reflect the actual state
 - no sensitive data is exposed
 - final behavior is verified rather than inferred
+
+## ING-06 完成與發布授權
+2026-11-04 使用者明確要求完成本票測試、Claude 獨立審查後上線，並補登指定 11/4 原單及核對日曆。此 ChatGPT 專用副本允許本票修改、測試、必要私人候選與受控發布、暫停／恢復／回退；不包含其他訂單、付款、房況或通知寫入。

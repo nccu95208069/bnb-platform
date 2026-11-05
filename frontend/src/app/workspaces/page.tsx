@@ -7,7 +7,7 @@ import { RedisCustomerStore } from '@/lib/customer-workspaces/store';
 import { workspaceDirectory } from '@/lib/customer-workspaces/directory';
 
 export const dynamic = 'force-dynamic';
-export const metadata = { title: '我的旅宿｜Sweetfun OS', robots: { index: false, follow: false } };
+export const metadata = { title: '我的旅宿｜Desk Center', robots: { index: false, follow: false } };
 export default async function WorkspacesPage() {
   const jar = await cookies();
   let legacy: { name: string; href: string }[] = [];
@@ -28,7 +28,7 @@ export default async function WorkspacesPage() {
   }
   const card = 'block rounded-2xl border bg-white p-6 text-teal-900 hover:border-teal-600 focus-visible:outline-2';
   return <main className="min-h-dvh bg-stone-50 px-5 py-10 text-slate-800"><div className="mx-auto max-w-3xl space-y-6">
-    <header><p className="text-sm font-semibold text-teal-800">Sweetfun OS</p><h1 className="mt-3 text-3xl font-semibold">我的旅宿</h1><p className="mt-3 text-slate-600">選擇旅宿，回到房況與訂單。此處只列出目前帳號有權限的旅宿。</p></header>
+    <header><p className="text-sm font-semibold text-teal-800">Desk Center</p><h1 className="mt-3 text-3xl font-semibold">我的旅宿</h1><p className="mt-3 text-slate-600">選擇旅宿，回到房況與訂單。此處只列出目前帳號有權限的旅宿。</p></header>
     {errors.map(error => <p role="alert" key={error} className="rounded-xl bg-amber-50 p-4">{error}</p>)}
     <div className="grid gap-4 sm:grid-cols-2">
       {legacy.map(p => <a key={p.href} href={p.href} className={card}><h2 className="font-semibold">{p.name}</h2><p className="mt-2 text-sm text-slate-600">查看目前訂房表同步的日曆</p></a>)}

@@ -10,7 +10,7 @@ import { loadWorkspace, view } from "@/lib/customer-workspaces/service";
 import { CustomerCalendar } from "@/components/customer-workspaces/calendar";
 export const dynamic = "force-dynamic";
 export const metadata = {
-  title: "旅宿工作區｜房況日曆",
+  title: "Desk Center 日曆",
   description: "管理自己的旅宿、房間與訂房。",
   robots: { index: false, follow: false },
 };
